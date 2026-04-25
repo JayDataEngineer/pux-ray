@@ -219,3 +219,67 @@ class SubprocessMixin:
                 pass
             time.sleep(2)
         return False
+
+
+class CLIToolMixin:
+    """Mixin for tools called via subprocess using their own isolated venv.
+
+    These tools have compiled CUDA extensions (flash-attn, o_voxel, pytorch3d,
+    etc.) that can't be pip-installed dynamically by Ray's runtime_env. Instead,
+    we call their CLI wrappers via subprocess using the tool's own venv Python.
+
+    Model lifecycle:
+    - load_model(): Verifies venv and script exist. The model loads fresh
+      per-call inside the subprocess.
+    - unload_model(): No-op (nothing in-process to unload).
+    """
+
+    # Subclasses override: config key prefix for reading paths
+    config_prefix: str = ""
+
+    def _init_cli(self, config_prefix: str) -> None:
+        """Read tool paths from config and verify they exist."""
+        from pathlib import Path
+        from registry.config import Config
+
+        config = Config()
+        self._venv_python: str = config.get(f"{config_prefix}.venv_python", "")
+        self._script: str = config.get(f"{config_prefix}.script", "")
+        self._working_dir: str = config.get(f"{config_prefix}.working_dir", "")
+
+        if not self._venv_python:
+            raise ValueError(f"No venv_python configured for {config_prefix}")
+        if not Path(self._venv_python).exists():
+            raise FileNotFoundError(
+                f"Tool venv Python not found: {self._venv_python}. "
+                f"Install the tool and create its venv first."
+            )
+        if self._script and not Path(self._script).exists():
+            raise FileNotFoundError(f"Tool script not found: {self._script}")
+
+        logger.info(
+            "%s CLI ready (python=%s, script=%s)",
+            self.__class__.__name__, self._venv_python, self._script,
+        )
+
+    def _run_cli(
+        self,
+        args: list[str],
+        timeout: int = 600,
+        cwd: str | None = None,
+    ) -> subprocess.CompletedProcess:
+        """Run the tool's CLI with its own venv Python."""
+        cmd = [self._venv_python, self._script, *args]
+        logger.info("Running CLI: %s", " ".join(cmd[:6]))
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            cwd=cwd or self._working_dir,
+            timeout=timeout,
+        )
+        if result.returncode != 0:
+            stderr_tail = result.stderr[-500:] if result.stderr else "no stderr"
+            logger.error("CLI failed (exit %d): %s", result.returncode, stderr_tail)
+            raise RuntimeError(f"CLI failed (exit {result.returncode}): {stderr_tail}")
+        return result

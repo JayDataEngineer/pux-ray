@@ -732,6 +732,20 @@ image_gen:
       description: "VGG-16 pretrained model. Classic CNN backbone used for perceptual feature extraction."
 
 # ---------------------------------------------------------------------------
+# Audio - Music generation models
+# ---------------------------------------------------------------------------
+audio:
+  ace_step:
+    checkpoint:
+      path: audio/ace-step/checkpoints/
+      source: null
+      sha256: null
+      size_gb: 57.9
+      vram_estimate_gb: 8.0
+      device: gpu
+      description: "ACE-STEP 1.5 music generation checkpoints. Full model weights for text-to-music synthesis."
+
+# ---------------------------------------------------------------------------
 # Voices - Voice preset files
 # ---------------------------------------------------------------------------
 voices:

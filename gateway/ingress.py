@@ -61,6 +61,32 @@ class APIIngress:
         )
         return JSONResponse(result)
 
+    # --- 3D Routes ---
+
+    async def trellis_generate(self, request: Request) -> Response:
+        """POST /3d/trellis - Image to 3D mesh via TRELLIS.2."""
+        handle = serve.get_deployment_handle("trellis", "creative")
+        return await handle.remote(request)
+
+    async def anigen_generate(self, request: Request) -> Response:
+        """POST /3d/anigen - Image to rigged 3D via AniGen."""
+        handle = serve.get_deployment_handle("anigen", "creative")
+        return await handle.remote(request)
+
+    # --- Music Routes ---
+
+    async def music_generate(self, request: Request) -> Response:
+        """POST /music/generate - Text to music via ACE-STEP."""
+        handle = serve.get_deployment_handle("ace_step", "creative")
+        return await handle.remote(request)
+
+    # --- Creative Routes ---
+
+    async def decompose(self, request: Request) -> Response:
+        """POST /creative/decompose - Image to layers via See-Through."""
+        handle = serve.get_deployment_handle("see_through", "creative")
+        return await handle.remote(request)
+
     # --- Status Routes ---
 
     async def status(self, request: Request) -> Response:
@@ -120,9 +146,19 @@ def create_app() -> Starlette:
     ingress = APIIngress()
 
     routes = [
+        # Health & Status
         Route("/health", ingress.health),
         Route("/status", ingress.status),
+        # LLM
         Route("/v1/chat/completions", ingress.chat_completions, methods=["POST"]),
+        # 3D
+        Route("/3d/trellis", ingress.trellis_generate, methods=["POST"]),
+        Route("/3d/anigen", ingress.anigen_generate, methods=["POST"]),
+        # Music
+        Route("/music/generate", ingress.music_generate, methods=["POST"]),
+        # Creative
+        Route("/creative/decompose", ingress.decompose, methods=["POST"]),
+        # Admin
         Route("/admin/load", ingress.load_model, methods=["POST"]),
         Route("/admin/unload", ingress.unload_all, methods=["POST"]),
     ]

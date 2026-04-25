@@ -14,3 +14,31 @@ services:
   comfyui:
     working_dir: /home/ubuntu/Documents/programs/img/comfyui
     port: 8188
+
+  # Creative tools — each has its own venv with compiled CUDA extensions.
+  # These are called via subprocess, not imported in-process.
+  creative:
+    trellis:
+      venv_python: ${TECH_NOIR_TRELLIS_PYTHON:/home/ubuntu/Documents/programs/TRELLIS.2/.venv/bin/python}
+      script: ${TECH_NOIR_TRELLIS_SCRIPT:/home/ubuntu/Documents/programs/creative/asset_generation/tools/wrappers/trellis_cli.py}
+      working_dir: /home/ubuntu/Documents/programs/TRELLIS.2
+
+    anigen:
+      venv_python: ${TECH_NOIR_ANIGEN_PYTHON:/home/ubuntu/Documents/programs/AniGen/.venv/bin/python}
+      script: ${TECH_NOIR_ANIGEN_SCRIPT:/home/ubuntu/Documents/programs/AniGen/example.py}
+      working_dir: /home/ubuntu/Documents/programs/AniGen
+
+    ace_step:
+      venv_python: ${TECH_NOIR_ACE_STEP_PYTHON:/home/ubuntu/Documents/programs/vid/ACE-Step-1.5/.venv/bin/python}
+      script: ${TECH_NOIR_ACE_STEP_SCRIPT:/home/ubuntu/Documents/programs/vid/ACE-Step-1.5/cli.py}
+      working_dir: /home/ubuntu/Documents/programs/vid/ACE-Step-1.5
+
+    qwen3_tts:
+      venv_python: ${TECH_NOIR_QWEN_TTS_PYTHON:/home/ubuntu/Documents/programs/creative/qwen_img_expert/.venv/bin/python}
+      script: ${TECH_NOIR_QWEN_TTS_SCRIPT:/home/ubuntu/Documents/programs/creative/asset_generation/tools/wrappers/qwen3_tts_cli.py}
+      working_dir: /home/ubuntu/Documents/programs/creative/qwen_img_expert
+
+    see_through:
+      venv_python: ${TECH_NOIR_SEETHROUGH_PYTHON:/home/ubuntu/Documents/programs/creative/see-through/.venv/bin/python}
+      script: ${TECH_NOIR_SEETHROUGH_SCRIPT:/home/ubuntu/Documents/programs/creative/see-through/inference/scripts/inference_psd.py}
+      working_dir: /home/ubuntu/Documents/programs/creative/see-through
