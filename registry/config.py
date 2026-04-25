@@ -126,8 +126,18 @@ class Config:
 
     @property
     def models_root(self) -> str:
-        """Root directory for all model files."""
-        return self.get("models_root", "/home/ubuntu/Documents/models")
+        """Root directory for all model files.
+
+        Must be set via ``TECH_NOIR_MODELS_ROOT`` env var or
+        ``models_root`` in ``config/local.yaml``.
+        Falls back to ``<project_root>/models`` if unconfigured.
+        """
+        raw = self.get("models_root", "")
+        if not raw or raw.startswith("${"):
+            default = _PROJECT_ROOT / "models"
+            default.mkdir(exist_ok=True)
+            return str(default)
+        return raw
 
     @property
     def project_root(self) -> Path:

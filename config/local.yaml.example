@@ -10,8 +10,9 @@
 #   3. bash infra/setup_venvs.sh
 #   4. ray start --head && ray serve deploy config/serve.yaml
 
-# Root directory for all model files (absolute or relative to project_root)
-models_root: ${TECH_NOIR_MODELS_ROOT:/home/ubuntu/Documents/models}
+# Root directory for all model files.
+# Must be set via env var or in local.yaml. No hardcoded default.
+models_root: ${TECH_NOIR_MODELS_ROOT}
 
 # API keys — referenced via Config().get("secrets.xxx").
 # Set env vars or paste values directly in local.yaml (git-ignored).
@@ -29,10 +30,10 @@ binaries:
 # ─── Services ──────────────────────────────────────────────────────────────────
 services:
 
-  # ComfyUI — external, not IaC-managed
+  # ComfyUI — external, not IaC-managed. Must be configured per machine.
   comfyui:
-    working_dir: ${TECH_NOIR_COMFYUI_DIR:/home/ubuntu/Documents/programs/img/comfyui}
-    venv_python: ${TECH_NOIR_COMFYUI_PYTHON:/home/ubuntu/Documents/programs/img/comfyui/.venv/bin/python}
+    working_dir: ${TECH_NOIR_COMFYUI_DIR}
+    venv_python: ${TECH_NOIR_COMFYUI_PYTHON}
     port: 8465
 
   # Creative tools — managed by infra/docker-compose.yml git-sync sidecars.
