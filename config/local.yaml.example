@@ -1,0 +1,16 @@
+# Tech Noir Ray - Local Configuration
+# Copy to local.yaml and customize for your machine.
+# Environment variables override these values.
+
+# Root directory for all model files
+models_root: ${TECH_NOIR_MODELS_ROOT:/home/ubuntu/Documents/models}
+
+# External binaries and service directories
+binaries:
+  llama_server: ${TECH_NOIR_LLAMA_SERVER:/home/ubuntu/Documents/programs/text/llama/llama.cpp/build/bin/llama-server}
+  espeak_ng: espeak-ng  # must be on PATH
+
+services:
+  comfyui:
+    working_dir: /home/ubuntu/Documents/programs/img/comfyui
+    port: 8188
