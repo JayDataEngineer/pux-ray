@@ -1,0 +1,149 @@
+# Tech Noir Ray - Infrastructure Services
+#
+# Manages external MCP servers via git-sync sidecars.
+# Code is pulled from GitHub automatically — no manual cloning.
+#
+# Usage:
+#   docker compose up -d              # Start all
+#   docker compose up -d media        # Start media-analysis-mcp only
+#   docker compose up -d web          # Start local-web-mcp only
+#   docker compose down               # Stop all
+#   docker compose build --pull       # Rebuild after code updates
+#
+# First run clones repos via git-sync, then builds and starts services.
+
+x-git-sync-common: &git-sync-common
+  image: docker.io/alpine/git:2.45.2
+  restart: "no"
+  entrypoint: ["sh", "-c"]
+  environment:
+    # Pass GitHub token from host (gh auth token) for private repo access
+    - GH_TOKEN=${GITHUB_TOKEN:-}
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Media Analysis MCP Server
+# Source: https://github.com/JayDataEngineer/media-analysis-mcp
+# ─────────────────────────────────────────────────────────────────────────────
+services:
+  media-sync:
+    <<: *git-sync-common
+    container_name: media-sync
+    volumes:
+      - ./repos:/repos
+    command: >
+      "if [ -n \"$$GH_TOKEN\" ]; then
+        git config --global credential.helper store;
+        echo \"https://x-access-token:$$GH_TOKEN@github.com\" > ~/.git-credentials;
+      fi;
+      if [ ! -d /repos/media-analysis-mcp/.git ]; then
+        echo 'Cloning media-analysis-mcp...';
+        git clone --depth 1 https://github.com/JayDataEngineer/media-analysis-mcp.git /repos/media-analysis-mcp;
+      else
+        echo 'Updating media-analysis-mcp...';
+        cd /repos/media-analysis-mcp && git pull --ff-only;
+      fi"
+
+  media-analysis-mcp:
+    build:
+      context: ./repos/media-analysis-mcp
+      dockerfile: Dockerfile
+      args:
+        TORCH_VARIANT: ${TORCH_VARIANT:-cpu}
+    container_name: media-analysis-mcp
+    depends_on:
+      media-sync:
+        condition: service_completed_successfully
+    ports:
+      - "${MEDIA_PORT:-8101}:8001"
+    environment:
+      - MEDIA_HOST=0.0.0.0
+      - MEDIA_PORT=8001
+      - MEDIA_DEVICE=${MEDIA_DEVICE:-cpu}
+      - MEDIA_PROFILE=${MEDIA_PROFILE:-standard}
+      - MEDIA_IDLE_TIMEOUT=${MEDIA_IDLE_TIMEOUT:-1800}
+      - MEDIA_ROUTER_ENABLED=false
+    volumes:
+      - media-models:/app/models
+      - ${MEDIA_DATA_DIR:-/tmp}:/data:ro
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+        reservations:
+          memory: 2G
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Local Web MCP (Research Server)
+# Source: https://github.com/JayDataEngineer/local-web-mcp
+# ─────────────────────────────────────────────────────────────────────────────
+  web-sync:
+    <<: *git-sync-common
+    container_name: web-sync
+    volumes:
+      - ./repos:/repos
+    command: >
+      "if [ -n \"$$GH_TOKEN\" ]; then
+        git config --global credential.helper store;
+        echo \"https://x-access-token:$$GH_TOKEN@github.com\" > ~/.git-credentials;
+      fi;
+      if [ ! -d /repos/local-web-mcp/.git ]; then
+        echo 'Cloning local-web-mcp...';
+        git clone --depth 1 https://github.com/JayDataEngineer/local-web-mcp.git /repos/local-web-mcp;
+      else
+        echo 'Updating local-web-mcp...';
+        cd /repos/local-web-mcp && git pull --ff-only;
+      fi"
+
+  web-mcp:
+    build:
+      context: ./repos/local-web-mcp
+      dockerfile: Dockerfile
+    container_name: mcp-server
+    depends_on:
+      web-sync:
+        condition: service_completed_successfully
+    ports:
+      - "${WEB_PORT:-8327}:8000"
+    env_file:
+      - path: ./web.env
+        required: false
+    environment:
+      - MCP_PORT=8000
+      - POSTGRES_HOST=postgres
+      - POSTGRES_DB=mcp_server
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+    networks:
+      - web-net
+    restart: unless-stopped
+
+  web-postgres:
+    image: postgres:16-alpine
+    container_name: mcp-postgres
+    environment:
+      POSTGRES_DB: mcp_server
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    volumes:
+      - web-pgdata:/var/lib/postgresql/data
+    networks:
+      - web-net
+    restart: unless-stopped
+
+  web-redis:
+    image: redis:7-alpine
+    container_name: mcp-redis
+    networks:
+      - web-net
+    restart: unless-stopped
+
+volumes:
+  media-models:
+  web-pgdata:
+
+networks:
+  web-net:
+    driver: bridge

@@ -17,8 +17,15 @@ htmlcov/
 .ray_tmp/
 /tmp/ray/
 
-# Local config (contains machine-specific paths)
+# Local config (contains machine-specific paths and secrets)
 config/local.yaml
+
+# Infrastructure env files (contain secrets)
+infra/*.env
+!infra/*.env.example
+
+# Cloned repos (managed by git-sync in docker compose)
+infra/repos/
 
 # IDE
 .idea/

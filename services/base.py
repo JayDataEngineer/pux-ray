@@ -267,16 +267,21 @@ class CLIToolMixin:
         args: list[str],
         timeout: int = 600,
         cwd: str | None = None,
+        extra_env: dict[str, str] | None = None,
     ) -> subprocess.CompletedProcess:
         """Run the tool's CLI with its own venv Python."""
         cmd = [self._venv_python, self._script, *args]
         logger.info("Running CLI: %s", " ".join(cmd[:6]))
+        env = None
+        if extra_env:
+            env = {**os.environ, **extra_env}
         result = subprocess.run(
             cmd,
             capture_output=True,
             text=True,
             cwd=cwd or self._working_dir,
             timeout=timeout,
+            env=env,
         )
         if result.returncode != 0:
             stderr_tail = result.stderr[-500:] if result.stderr else "no stderr"

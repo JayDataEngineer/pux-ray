@@ -121,10 +121,10 @@ tts:
     path: tts/qwen3/
     source: null
     sha256: null
-    size_gb: 0.01
-    vram_estimate_gb: 0.5
+    size_gb: 9.2
+    vram_estimate_gb: 2.0
     device: gpu
-    description: "Qwen3 TTS voice preset data. Placeholder for Qwen-based TTS models."
+    description: "Qwen3 TTS models (12Hz 1.7B Base + VoiceDesign + Tokenizer) and LoRA adapter (sakura)."
 
   vibevoice-tts:
     path: tts/vibevoice/
@@ -250,6 +250,15 @@ vision:
     vram_estimate_gb: 5.5
     device: gpu
     description: "Z-Image Turbo vision model (Q4_K_M GGUF). Image understanding / captioning model."
+
+  z-image-turbo-full:
+    path: vision/z-image-turbo/
+    source: null
+    sha256: null
+    size_gb: 7.2
+    vram_estimate_gb: 8.0
+    device: gpu
+    description: "Z-Image Turbo full model directory. Diffusion-based image generation with transformer, text_encoder, vae."
 
 # ---------------------------------------------------------------------------
 # Image Generation - ComfyUI models
@@ -737,10 +746,10 @@ image_gen:
 audio:
   ace_step:
     checkpoint:
-      path: audio/ace-step/checkpoints/
+      path: audio/acestep/
       source: null
       sha256: null
-      size_gb: 57.9
+      size_gb: 54.0
       vram_estimate_gb: 8.0
       device: gpu
       description: "ACE-STEP 1.5 music generation checkpoints. Full model weights for text-to-music synthesis."

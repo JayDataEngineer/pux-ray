@@ -32,6 +32,12 @@ class ACEStepDeployment(BaseGPUDeployment, CLIToolMixin):
 
     def _load(self, model_name: str = "ace-step") -> None:
         self._init_cli("services.creative.ace_step")
+        # Prevent auto-download: point ACE-STEP at central model registry
+        from registry.config import Config
+        models_root = Config().models_root
+        self._checkpoints_env = {
+            "ACESTEP_CHECKPOINTS_DIR": f"{models_root}/audio/acestep",
+        }
         self.model = True
         self.model_name = model_name
         logger.info("ACE-STEP CLI tool ready (model loads per-call in subprocess)")
@@ -71,7 +77,7 @@ class ACEStepDeployment(BaseGPUDeployment, CLIToolMixin):
             config_path.write_text("\n".join(toml_lines) + "\n")
 
             args = ["-c", str(config_path)]
-            self._run_cli(args, timeout=600)
+            self._run_cli(args, timeout=600, extra_env=self._checkpoints_env)
 
             # Find generated audio files
             audio_exts = {".wav", ".mp3", ".flac", ".ogg"}
