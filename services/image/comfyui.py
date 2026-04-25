@@ -3,17 +3,15 @@
 Preserves the WebUI for visual workflow development while
 making it controllable through Ray Serve.
 
-ComfyUI runs as a subprocess on its own port (8188).
-The Ray deployment proxies HTTP requests to it.
-Models stay in ComfyUI's existing directory structure.
+ComfyUI runs as a subprocess using its own venv Python (torch 2.10+cu130).
+Launch flags match the IaC setup at comfyui-setup/run.sh:
+  --use-flash-attention --dont-upcast-attention --port 8465
 """
 
 from __future__ import annotations
 
-import asyncio
 import logging
 import os
-import time
 
 import httpx
 from ray import serve
@@ -25,47 +23,52 @@ from services.base import SubprocessMixin
 
 logger = logging.getLogger(__name__)
 
-COMFYUI_DIR = Config().get("services.comfyui.working_dir", "/home/ubuntu/Documents/programs/img/comfyui")
-COMFYUI_PORT = Config().get("services.comfyui.port", 8188)
-
 
 @serve.deployment(
     name="comfyui",
     num_replicas=1,
     max_ongoing_requests=8,
-    ray_actor_options={
-        "num_gpus": 0.01,
-        "runtime_env": {
-            "working_dir": COMFYUI_DIR,
-        },
-    },
+    ray_actor_options={"num_gpus": 0.01},
 )
 class ComfyUIDeployment(SubprocessMixin):
     """Runs ComfyUI server as a subprocess. Proxies API and WebUI requests."""
 
     def __init__(self):
-        self.process = None
-        self.port = COMFYUI_PORT
+        self._config = Config()
+        self.comfyui_dir = self._config.get(
+            "services.comfyui.working_dir",
+            "/home/ubuntu/Documents/programs/img/comfyui",
+        )
+        self.port = self._config.get("services.comfyui.port", 8465)
+        self.venv_python = self._config.get(
+            "services.comfyui.venv_python",
+            f"{self.comfyui_dir}/.venv/bin/python",
+        )
         self.base_url = f"http://127.0.0.1:{self.port}"
+        self.process = None
         self._running = False
 
     def start_comfyui(self) -> bool:
-        """Start ComfyUI subprocess."""
+        """Start ComfyUI subprocess with flash attention flags."""
         if self.process and self.process.poll() is None:
             logger.info("ComfyUI already running on port %d", self.port)
             return True
 
         cmd = [
-            "python", "main.py",
+            self.venv_python, "main.py",
             "--port", str(self.port),
             "--listen", "127.0.0.1",
             "--preview-method", "auto",
-            "--cpu" if os.environ.get("COMFYUI_CPU") else "",
+            "--use-flash-attention",
+            "--dont-upcast-attention",
         ]
-        cmd = [c for c in cmd if c]  # remove empty strings
+
+        env = {
+            "PYTHONWARNINGS": "ignore::FutureWarning,ignore::SyntaxWarning",
+        }
 
         logger.info("Starting ComfyUI: %s", " ".join(cmd))
-        self.start_process(cmd, cwd=COMFYUI_DIR)
+        self.start_process(cmd, cwd=self.comfyui_dir, env=env)
 
         if not self.wait_for_health(f"{self.base_url}/", timeout=120):
             if self.process and self.process.poll() is not None:
@@ -74,7 +77,7 @@ class ComfyUIDeployment(SubprocessMixin):
             raise TimeoutError("ComfyUI didn't start in 120s")
 
         self._running = True
-        logger.info("ComfyUI running on port %d", self.port)
+        logger.info("ComfyUI running on port %d (flash attention enabled)", self.port)
         return True
 
     def stop_comfyui(self) -> None:
@@ -108,7 +111,7 @@ class ComfyUIDeployment(SubprocessMixin):
 
     async def get_output_path(self, filename: str) -> str:
         """Get the full path to an output file."""
-        return os.path.join(COMFYUI_DIR, "output", filename)
+        return os.path.join(self.comfyui_dir, "output", filename)
 
     async def __call__(self, request: Request) -> Response:
         """Proxy all HTTP requests to ComfyUI's own server.
@@ -119,9 +122,7 @@ class ComfyUIDeployment(SubprocessMixin):
             self.start_comfyui()
 
         async with httpx.AsyncClient(timeout=300) as client:
-            # Build the target URL
             path = request.url.path
-            # Strip /comfyui prefix if present
             if path.startswith("/comfyui"):
                 path = path[len("/comfyui"):] or "/"
 
@@ -129,7 +130,6 @@ class ComfyUIDeployment(SubprocessMixin):
             if request.url.query:
                 target_url += f"?{request.url.query}"
 
-            # Forward the request
             body = await request.body()
             resp = await client.request(
                 method=request.method,
@@ -139,7 +139,6 @@ class ComfyUIDeployment(SubprocessMixin):
                 content=body,
             )
 
-            # Return the response
             content_type = resp.headers.get("content-type", "application/json")
             return Response(
                 content=resp.content,

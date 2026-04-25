@@ -13,7 +13,8 @@ binaries:
 services:
   comfyui:
     working_dir: /home/ubuntu/Documents/programs/img/comfyui
-    port: 8188
+    venv_python: /home/ubuntu/Documents/programs/img/comfyui/.venv/bin/python
+    port: 8465
 
   # Creative tools — each has its own venv with compiled CUDA extensions.
   # These are called via subprocess, not imported in-process.
