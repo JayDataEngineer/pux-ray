@@ -4,13 +4,13 @@ Routes requests to the appropriate Ray Serve deployment,
 handling GPU model swaps via the GPUScheduler.
 
 Auth: API key via X-API-Key header or api_key query param.
-Set TECH_NOIR_API_KEY env var to enable. Empty/unset = no auth.
+Set secrets.api_key in config/local.yaml or TECH_NOIR_API_KEY env var.
+Empty/unset = no auth (dev mode).
 """
 
 from __future__ import annotations
 
 import logging
-import os
 import subprocess
 from typing import Any, Optional
 
@@ -23,17 +23,22 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 from starlette.routing import Route
 
+from registry.config import Config
+
 logger = logging.getLogger(__name__)
 
-# API key auth — set TECH_NOIR_API_KEY to enable, leave empty to disable
-_API_KEY = os.environ.get("TECH_NOIR_API_KEY", "")
+
+def _get_api_key() -> str:
+    """Read API key from config (supports env var interpolation)."""
+    return Config().get("secrets.api_key", "")
 
 
 class APIKeyMiddleware(BaseHTTPMiddleware):
     """Simple API key check. Skips /health and /status."""
 
     async def dispatch(self, request: Request, call_next):
-        if not _API_KEY:
+        api_key = _get_api_key()
+        if not api_key:
             return await call_next(request)
 
         # Skip public endpoints
@@ -41,7 +46,7 @@ class APIKeyMiddleware(BaseHTTPMiddleware):
             return await call_next(request)
 
         key = request.headers.get("x-api-key", "") or request.query_params.get("api_key", "")
-        if key != _API_KEY:
+        if key != api_key:
             return JSONResponse({"error": "unauthorized"}, status_code=401)
 
         return await call_next(request)
@@ -238,7 +243,7 @@ def create_app() -> Starlette:
     ]
 
     middleware = []
-    if _API_KEY:
+    if _get_api_key():
         middleware.append(Middleware(APIKeyMiddleware))
 
     return Starlette(routes=routes, middleware=middleware)
