@@ -15,6 +15,7 @@ import signal
 import subprocess
 import time
 from abc import ABC, abstractmethod
+from pathlib import Path
 from typing import Optional
 
 logger = logging.getLogger(__name__)
@@ -244,7 +245,6 @@ class CLIToolMixin:
         ``local.yaml.example`` can use portable defaults like
         ``infra/repos/TRELLIS.2/.venv/bin/python``.
         """
-        from pathlib import Path
         from registry.config import Config
 
         config = Config()
