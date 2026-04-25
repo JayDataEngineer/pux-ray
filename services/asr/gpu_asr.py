@@ -23,10 +23,6 @@ logger = logging.getLogger(__name__)
     max_ongoing_requests=2,
     ray_actor_options={
         "num_gpus": 0.01,
-        "runtime_env": {
-            "pip": ["torch>=2.1", "torchaudio", "transformers>=4.40",
-                    "accelerate", "soundfile", "numpy"],
-        },
     },
 )
 class VibeVoiceASRDeployment(BaseGPUDeployment):
@@ -106,10 +102,6 @@ class VibeVoiceASRDeployment(BaseGPUDeployment):
     max_ongoing_requests=2,
     ray_actor_options={
         "num_gpus": 0.01,
-        "runtime_env": {
-            "pip": ["torch>=2.1", "torchaudio", "transformers>=4.40",
-                    "accelerate", "soundfile", "numpy"],
-        },
     },
 )
 class QwenASRDeployment(BaseGPUDeployment):

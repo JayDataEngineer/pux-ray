@@ -12,6 +12,17 @@ dependencies = [
     "uvicorn>=0.30",
     "huggingface-hub>=0.24",
     "rich>=13.0",
+    # CPU TTS/ASR services (in-process imports)
+    "kokoro>=0.4",
+    "soundfile>=0.12",
+    "numpy>=1.26",
+    "faster-whisper>=1.0",
+    "phonemizer>=3.0",
+    "misaki[en]>=0.7",
+    # GPU services (torch already installed with CUDA)
+    "torchaudio>=2.1",
+    "transformers>=4.40",
+    "accelerate>=0.30",
 ]
 
 [project.optional-dependencies]
