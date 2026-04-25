@@ -138,6 +138,8 @@ setup_llama() {
 }
 
 # ─── Migrate existing venvs from old locations ───────────────────────────────
+# NOTE: This function exists only for migrating THIS machine's old venvs.
+# On a fresh clone, skip this — setup_* functions create fresh venvs.
 migrate_venv() {
     local old_dir="$1"
     local new_dir="$2"
@@ -156,28 +158,18 @@ main() {
 
     case "$target" in
         trellis)
-            [ -d "$REPOS_DIR/TRELLIS.2" ] || migrate_venv \
-                "/home/ubuntu/Documents/programs/TRELLIS.2" "$REPOS_DIR/TRELLIS.2" "TRELLIS.2"
             setup_trellis
             ;;
         anigen)
-            [ -d "$REPOS_DIR/AniGen" ] || migrate_venv \
-                "/home/ubuntu/Documents/programs/AniGen" "$REPOS_DIR/AniGen" "AniGen"
             setup_anigen
             ;;
         ace-step)
-            [ -d "$REPOS_DIR/ACE-Step-1.5" ] || migrate_venv \
-                "/home/ubuntu/Documents/programs/vid/ACE-Step-1.5" "$REPOS_DIR/ACE-Step-1.5" "ACE-Step"
             setup_ace_step
             ;;
         see-through)
-            [ -d "$REPOS_DIR/see-through" ] || migrate_venv \
-                "/home/ubuntu/Documents/programs/creative/see-through" "$REPOS_DIR/see-through" "see-through"
             setup_see_through
             ;;
         qwen)
-            [ -d "$REPOS_DIR/qwen_img_expert" ] || migrate_venv \
-                "/home/ubuntu/Documents/programs/creative/qwen_img_expert" "$REPOS_DIR/qwen_img_expert" "qwen_img_expert"
             setup_qwen_img
             ;;
         llama)
@@ -191,10 +183,25 @@ main() {
             done
             echo ""
             log "All creative tool venvs + llama.cpp build complete."
-            log "Update config/local.yaml paths to point at $REPOS_DIR/<tool>/.venv/bin/python"
+            log "Run 'cp config/local.yaml.example config/local.yaml' if not done yet."
+            log "Then set required env vars: TECH_NOIR_MODELS_ROOT, TECH_NOIR_COMFYUI_DIR, TECH_NOIR_COMFYUI_PYTHON"
+            ;;
+        migrate)
+            # Local-only: migrate venvs from old scattered locations
+            migrate_venv \
+                "/home/ubuntu/Documents/programs/TRELLIS.2" "$REPOS_DIR/TRELLIS.2" "TRELLIS.2"
+            migrate_venv \
+                "/home/ubuntu/Documents/programs/AniGen" "$REPOS_DIR/AniGen" "AniGen"
+            migrate_venv \
+                "/home/ubuntu/Documents/programs/vid/ACE-Step-1.5" "$REPOS_DIR/ACE-Step-1.5" "ACE-Step"
+            migrate_venv \
+                "/home/ubuntu/Documents/programs/creative/see-through" "$REPOS_DIR/see-through" "see-through"
+            migrate_venv \
+                "/home/ubuntu/Documents/programs/creative/qwen_img_expert" "$REPOS_DIR/qwen_img_expert" "qwen_img_expert"
+            log "Migration complete."
             ;;
         *)
-            echo "Usage: $0 {trellis|anigen|ace-step|see-through|qwen|llama|all}"
+            echo "Usage: $0 {trellis|anigen|ace-step|see-through|qwen|llama|all|migrate}"
             exit 1
             ;;
     esac

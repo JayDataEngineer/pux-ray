@@ -41,15 +41,20 @@ class ComfyUIDeployment(SubprocessMixin):
 
     def __init__(self):
         self._config = Config()
-        self.comfyui_dir = self._config.get(
-            "services.comfyui.working_dir",
-            "/home/ubuntu/Documents/programs/img/comfyui",
-        )
+        self.comfyui_dir = self._config.get("services.comfyui.working_dir")
         self.port = self._config.get("services.comfyui.port", 8465)
-        self.venv_python = self._config.get(
-            "services.comfyui.venv_python",
-            f"{self.comfyui_dir}/.venv/bin/python",
-        )
+        self.venv_python = self._config.get("services.comfyui.venv_python")
+
+        if not self.comfyui_dir or self.comfyui_dir.startswith("${"):
+            raise ValueError(
+                "ComfyUI not configured. Set TECH_NOIR_COMFYUI_DIR env var "
+                "or services.comfyui.working_dir in config/local.yaml"
+            )
+        if not self.venv_python or self.venv_python.startswith("${"):
+            raise ValueError(
+                "ComfyUI venv Python not configured. Set TECH_NOIR_COMFYUI_PYTHON "
+                "env var or services.comfyui.venv_python in config/local.yaml"
+            )
         self.base_url = f"http://127.0.0.1:{self.port}"
         self.process = None
         self._running = False
