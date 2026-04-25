@@ -238,17 +238,29 @@ class CLIToolMixin:
     config_prefix: str = ""
 
     def _init_cli(self, config_prefix: str) -> None:
-        """Read tool paths from config and verify they exist."""
+        """Read tool paths from config and verify they exist.
+
+        Relative paths are resolved against the project root so that
+        ``local.yaml.example`` can use portable defaults like
+        ``infra/repos/TRELLIS.2/.venv/bin/python``.
+        """
         from pathlib import Path
         from registry.config import Config
 
         config = Config()
-        self._venv_python: str = config.get(f"{config_prefix}.venv_python", "")
-        self._script: str = config.get(f"{config_prefix}.script", "")
-        self._working_dir: str = config.get(f"{config_prefix}.working_dir", "")
+        project_root = config.project_root
 
-        if not self._venv_python:
+        raw_venv = config.get(f"{config_prefix}.venv_python", "")
+        raw_script = config.get(f"{config_prefix}.script", "")
+        raw_cwd = config.get(f"{config_prefix}.working_dir", "")
+
+        if not raw_venv:
             raise ValueError(f"No venv_python configured for {config_prefix}")
+
+        self._venv_python = str(self._resolve_path(raw_venv, project_root))
+        self._script = str(self._resolve_path(raw_script, project_root)) if raw_script else ""
+        self._working_dir = str(self._resolve_path(raw_cwd, project_root)) if raw_cwd else ""
+
         if not Path(self._venv_python).exists():
             raise FileNotFoundError(
                 f"Tool venv Python not found: {self._venv_python}. "
@@ -261,6 +273,14 @@ class CLIToolMixin:
             "%s CLI ready (python=%s, script=%s)",
             self.__class__.__name__, self._venv_python, self._script,
         )
+
+    @staticmethod
+    def _resolve_path(raw: str, project_root: Path) -> Path:
+        """Resolve a path that may be relative to project_root."""
+        p = Path(raw)
+        if not p.is_absolute():
+            p = project_root / p
+        return p.resolve()
 
     def _run_cli(
         self,
