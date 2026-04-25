@@ -1,0 +1,37 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+*.egg
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Ray
+.ray_tmp/
+/tmp/ray/
+
+# Local config (contains machine-specific paths)
+config/local.yaml
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Models (managed by ray-noir CLI, not git)
+# Models live in MODELS_ROOT, not in this repo
+
+# Lock file (optional - uncomment if you want to pin deps)
+# uv.lock
