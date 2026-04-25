@@ -82,6 +82,9 @@ serve.run(AniGenDeployment.bind(), name="anigen", route_prefix="/3d/anigen")
 from services.creative.see_through import SeeThroughDeployment
 serve.run(SeeThroughDeployment.bind(), name="see_through", route_prefix="/creative/see-through")
 
+from services.creative.ace_step import ACEStepDeployment
+serve.run(ACEStepDeployment.bind(), name="ace_step", route_prefix="/music/ace-step")
+
 print("")
 print("All services deployed!")
 print("  Dashboard: http://localhost:8265")
@@ -102,3 +105,4 @@ print("  /comfyui/*        - ComfyUI (GPU, WebUI)")
 print("  /3d/trellis/*     - TRELLIS.2 (GPU)")
 print("  /3d/anigen/*      - AniGen (GPU)")
 print("  /creative/see-through/* - See-Through (GPU)")
+print("  /music/ace-step/* - ACE-STEP music (GPU)")

@@ -2,62 +2,111 @@
 
 Decomposes a single character illustration into body part layers
 (body, arms, head, hair, etc.) for sprite animation.
+Called via subprocess using See-Through's own venv Python.
+
+Requires ~4GB VRAM. Model loads fresh per subprocess call.
 """
 
 from __future__ import annotations
 
-import io
 import logging
+import tempfile
+from pathlib import Path
 
 from ray import serve
 
-from services.base import BaseGPUDeployment
+from services.base import BaseGPUDeployment, CLIToolMixin
 
 logger = logging.getLogger(__name__)
-
-SEETHROUGH_DIR = "/home/ubuntu/Documents/programs/creative/see-through"
 
 
 @serve.deployment(
     name="see_through",
     num_replicas=1,
     max_ongoing_requests=1,
-    ray_actor_options={
-        "num_gpus": 0.01,
-        "runtime_env": {
-            "working_dir": SEETHROUGH_DIR,
-            "pip": ["torch>=2.1", "torchvision", "transformers>=4.40",
-                    "accelerate", "safetensors", "Pillow"],
-        },
-    },
+    ray_actor_options={"num_gpus": 0.01},
 )
-class SeeThroughDeployment(BaseGPUDeployment):
-    """See-Through layer decomposition."""
+class SeeThroughDeployment(BaseGPUDeployment, CLIToolMixin):
+    """See-Through layer decomposition via subprocess CLI."""
 
     def _load(self, model_name: str = "see-through") -> None:
-        import sys
-        sys.path.insert(0, SEETHROUGH_DIR)
-
-        # See-Through loads from its own pretrained models
-        logger.info("See-Through loading (stub - needs model code)")
-        self.model = True  # placeholder
+        self._init_cli("services.creative.see_through")
+        self.model = True
         self.model_name = model_name
+        logger.info("See-Through CLI tool ready (model loads per-call in subprocess)")
 
     def _unload(self) -> None:
         self.model = None
 
-    async def decompose(self, image: bytes) -> dict:
-        """Decompose image into layers. Returns dict of layer_name -> PNG bytes."""
+    async def decompose(
+        self,
+        image: bytes,
+        resolution: int = 1280,
+        inference_steps: int = 30,
+        save_to_psd: bool = True,
+    ) -> dict:
+        """Decompose image into layers.
+
+        Returns dict with:
+          - 'layers': list of layer PNG bytes
+          - 'psd': PSD file bytes (if save_to_psd=True)
+        """
         if not self.is_loaded():
             raise RuntimeError("No model loaded")
 
-        # See-Through inference
-        raise NotImplementedError("See-Through inference TBD - needs model code")
+        with tempfile.TemporaryDirectory(prefix="seethrough_") as tmpdir:
+            input_path = Path(tmpdir) / "input.png"
+            output_dir = Path(tmpdir) / "output"
+            output_dir.mkdir()
+
+            input_path.write_bytes(image)
+
+            args = [
+                "--srcp", str(input_path),
+                "--save_dir", str(output_dir),
+                "--resolution", str(resolution),
+                "--inference_steps", str(inference_steps),
+            ]
+            if save_to_psd:
+                args.append("--save_to_psd")
+
+            self._run_cli(args, timeout=600)
+
+            # Collect output layers
+            result = {"layers": []}
+
+            # Find all PNG files in output
+            for png in sorted(output_dir.rglob("*.png")):
+                if "layer" in png.name.lower() or "part" in png.name.lower():
+                    result["layers"].append({
+                        "name": png.stem,
+                        "data": png.read_bytes(),
+                    })
+
+            # Find PSD output
+            for psd in output_dir.rglob("*.psd"):
+                result["psd"] = psd.read_bytes()
+                result["psd_name"] = psd.name
+                break
+
+            return result
 
     async def __call__(self, request):
         form = await request.form()
         image_file = form["image"]
         image_bytes = await image_file.read()
-        result = await self.decompose(image=image_bytes)
+        resolution = int(form.get("resolution", "1280"))
+        save_to_psd = form.get("save_to_psd", "true").lower() == "true"
+
+        result = await self.decompose(
+            image=image_bytes,
+            resolution=resolution,
+            save_to_psd=save_to_psd,
+        )
+
         from starlette.responses import JSONResponse
-        return JSONResponse({"layers": list(result.keys())})
+        return JSONResponse({
+            "layers": [l["name"] for l in result.get("layers", [])],
+            "has_psd": "psd" in result,
+            "psd_name": result.get("psd_name"),
+        })
