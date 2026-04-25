@@ -1,16 +1,22 @@
 # Tech Noir Ray - Infrastructure Services
 #
-# Manages external MCP servers via git-sync sidecars.
-# Code is pulled from GitHub automatically — no manual cloning.
+# Manages ALL external dependencies via git-sync sidecars:
+#   - MCP servers (Docker services: media-analysis, local-web)
+#   - Creative tools (host-side repos + venvs: TRELLIS, AniGen, etc.)
+#   - llama.cpp (host-side build from source)
+#
+# Git-sync sidecars clone/update code from GitHub automatically.
+# No manual cloning, no git submodules.
 #
 # Usage:
-#   docker compose up -d              # Start all
-#   docker compose up -d media        # Start media-analysis-mcp only
-#   docker compose up -d web          # Start local-web-mcp only
-#   docker compose down               # Stop all
-#   docker compose build --pull       # Rebuild after code updates
+#   docker compose run --rm tools-sync     # Clone all creative tools (first run)
+#   docker compose run --rm llama-sync     # Clone llama.cpp (first run)
+#   docker compose up -d media             # Start media-analysis-mcp
+#   docker compose up -d web               # Start local-web-mcp
+#   docker compose down                    # Stop MCP services
 #
-# First run clones repos via git-sync, then builds and starts services.
+# After first clone, run: bash infra/setup_venvs.sh
+# to create Python venvs for each creative tool.
 
 x-git-sync-common: &git-sync-common
   image: docker.io/alpine/git:2.45.2
@@ -139,6 +145,63 @@ services:
     networks:
       - web-net
     restart: unless-stopped
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Creative Tool Repos (host-side — cloned for Ray subprocess access)
+# These are NOT Docker services. The git-sync clones code to ./repos/.
+# Ray services call them via venv Python subprocess.
+# ─────────────────────────────────────────────────────────────────────────────
+  tools-sync:
+    <<: *git-sync-common
+    container_name: tools-sync
+    volumes:
+      - ./repos:/repos
+    command: >
+      "set -e;
+      if [ -n \"$$GH_TOKEN\" ]; then
+        git config --global credential.helper store;
+        echo \"https://x-access-token:$$GH_TOKEN@github.com\" > ~/.git-credentials;
+      fi;
+      for repo in
+        'https://github.com/microsoft/TRELLIS.2.git TRELLIS.2'
+        'https://github.com/VAST-AI-Research/AniGen.git AniGen'
+        'https://github.com/ace-step/ACE-Step-1.5.git ACE-Step-1.5'
+        'https://github.com/shitagaki-lab/see-through.git see-through'
+        'https://github.com/JayDataEngineer/QwenTTS-Lora-Trainer.git qwen_img_expert'
+      ; do
+        url=\"$${repo% *}\";
+        dir=\"$${repo##* }\";
+        if [ ! -d \"/repos/$$dir/.git\" ]; then
+          echo \"Cloning $$dir...\";
+          git clone --depth 1 \"$$url\" \"/repos/$$dir\";
+        else
+          echo \"Updating $$dir...\";
+          git -C \"/repos/$$dir\" pull --ff-only;
+        fi;
+      done;
+      echo 'All creative tools synced.'"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# llama.cpp — built from source for llm-server
+# Source: https://github.com/ggml-org/llama.cpp
+# ─────────────────────────────────────────────────────────────────────────────
+  llama-sync:
+    <<: *git-sync-common
+    container_name: llama-sync
+    volumes:
+      - ./repos:/repos
+    command: >
+      "if [ -n \"$$GH_TOKEN\" ]; then
+        git config --global credential.helper store;
+        echo \"https://x-access-token:$$GH_TOKEN@github.com\" > ~/.git-credentials;
+      fi;
+      if [ ! -d /repos/llama.cpp/.git ]; then
+        echo 'Cloning llama.cpp...';
+        git clone --depth 1 https://github.com/ggml-org/llama.cpp.git /repos/llama.cpp;
+      else
+        echo 'Updating llama.cpp...';
+        cd /repos/llama.cpp && git pull --ff-only;
+      fi"
 
 volumes:
   media-models:

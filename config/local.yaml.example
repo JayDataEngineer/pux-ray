@@ -1,8 +1,16 @@
-# Tech Noir Ray - Local Configuration
+# Tech Noir Ray — Local Configuration Template
+# ==============================================
 # Copy to local.yaml and customize for your machine.
-# Environment variables override these values.
+# All path defaults are RELATIVE to the project root.
+# Override any value with environment variables.
+#
+# Setup:
+#   1. cp config/local.yaml.example config/local.yaml
+#   2. docker compose -f infra/docker-compose.yml run --rm tools-sync
+#   3. bash infra/setup_venvs.sh
+#   4. ray start --head && ray serve deploy config/serve.yaml
 
-# Root directory for all model files
+# Root directory for all model files (absolute or relative to project_root)
 models_root: ${TECH_NOIR_MODELS_ROOT:/home/ubuntu/Documents/models}
 
 # API keys — referenced via Config().get("secrets.xxx").
@@ -11,44 +19,58 @@ secrets:
   hf_token: ${HF_TOKEN:}
   openrouter_api_key: ${OPENROUTER_API_KEY:}
   zai_api_key: ${ZAI_API_KEY:}
-  # API key for Ray ingress auth. Empty = no auth.
   api_key: ${TECH_NOIR_API_KEY:}
 
-# External binaries and service directories
+# External binaries (not managed by IaC — system-installed)
 binaries:
-  llama_server: ${TECH_NOIR_LLAMA_SERVER:/home/ubuntu/Documents/programs/text/llama/llama.cpp/build/bin/llama-server}
-  espeak_ng: espeak-ng  # must be on PATH
+  llama_server: ${TECH_NOIR_LLAMA_SERVER:infra/repos/llama.cpp/build/bin/llama-server}
+  espeak_ng: espeak-ng
 
+# ─── Services ──────────────────────────────────────────────────────────────────
 services:
+
+  # ComfyUI — external, not IaC-managed
   comfyui:
-    working_dir: /home/ubuntu/Documents/programs/img/comfyui
-    venv_python: /home/ubuntu/Documents/programs/img/comfyui/.venv/bin/python
+    working_dir: ${TECH_NOIR_COMFYUI_DIR:/home/ubuntu/Documents/programs/img/comfyui}
+    venv_python: ${TECH_NOIR_COMFYUI_PYTHON:/home/ubuntu/Documents/programs/img/comfyui/.venv/bin/python}
     port: 8465
 
-  # Creative tools — each has its own venv with compiled CUDA extensions.
-  # These are called via subprocess, not imported in-process.
+  # Creative tools — managed by infra/docker-compose.yml git-sync sidecars.
+  # Each has its own venv (created by infra/setup_venvs.sh).
+  # Called via subprocess, not imported in-process.
   creative:
+
+    # TRELLIS.2 — image-to-3D mesh generation
+    # Source: https://github.com/microsoft/TRELLIS.2
     trellis:
-      venv_python: ${TECH_NOIR_TRELLIS_PYTHON:/home/ubuntu/Documents/programs/TRELLIS.2/.venv/bin/python}
-      script: ${TECH_NOIR_TRELLIS_SCRIPT:/home/ubuntu/Documents/programs/creative/asset_generation/tools/wrappers/trellis_cli.py}
-      working_dir: /home/ubuntu/Documents/programs/TRELLIS.2
+      venv_python: ${TECH_NOIR_TRELLIS_PYTHON:infra/repos/TRELLIS.2/.venv/bin/python}
+      script: services/creative/wrappers/trellis_cli.py
+      working_dir: infra/repos/TRELLIS.2
 
+    # AniGen — animated 3D character generation
+    # Source: https://github.com/VAST-AI-Research/AniGen
     anigen:
-      venv_python: ${TECH_NOIR_ANIGEN_PYTHON:/home/ubuntu/Documents/programs/AniGen/.venv/bin/python}
-      script: ${TECH_NOIR_ANIGEN_SCRIPT:/home/ubuntu/Documents/programs/AniGen/example.py}
-      working_dir: /home/ubuntu/Documents/programs/AniGen
+      venv_python: ${TECH_NOIR_ANIGEN_PYTHON:infra/repos/AniGen/.venv/bin/python}
+      script: infra/repos/AniGen/example.py
+      working_dir: infra/repos/AniGen
 
+    # ACE-Step 1.5 — text-to-music generation
+    # Source: https://github.com/ace-step/ACE-Step-1.5
     ace_step:
-      venv_python: ${TECH_NOIR_ACE_STEP_PYTHON:/home/ubuntu/Documents/programs/vid/ACE-Step-1.5/.venv/bin/python}
-      script: ${TECH_NOIR_ACE_STEP_SCRIPT:/home/ubuntu/Documents/programs/vid/ACE-Step-1.5/cli.py}
-      working_dir: /home/ubuntu/Documents/programs/vid/ACE-Step-1.5
+      venv_python: ${TECH_NOIR_ACE_STEP_PYTHON:infra/repos/ACE-Step-1.5/.venv/bin/python}
+      script: infra/repos/ACE-Step-1.5/cli.py
+      working_dir: infra/repos/ACE-Step-1.5
 
+    # Qwen3-TTS LoRA Trainer — voice cloning / TTS
+    # Source: https://github.com/JayDataEngineer/QwenTTS-Lora-Trainer (private)
     qwen3_tts:
-      venv_python: ${TECH_NOIR_QWEN_TTS_PYTHON:/home/ubuntu/Documents/programs/creative/qwen_img_expert/.venv/bin/python}
-      script: ${TECH_NOIR_QWEN_TTS_SCRIPT:/home/ubuntu/Documents/programs/creative/asset_generation/tools/wrappers/qwen3_tts_cli.py}
-      working_dir: /home/ubuntu/Documents/programs/creative/qwen_img_expert
+      venv_python: ${TECH_NOIR_QWEN_TTS_PYTHON:infra/repos/qwen_img_expert/.venv/bin/python}
+      script: services/creative/wrappers/qwen3_tts_cli.py
+      working_dir: infra/repos/qwen_img_expert
 
+    # See-Through — anime character layer decomposition
+    # Source: https://github.com/shitagaki-lab/see-through
     see_through:
-      venv_python: ${TECH_NOIR_SEETHROUGH_PYTHON:/home/ubuntu/Documents/programs/creative/see-through/.venv/bin/python}
-      script: ${TECH_NOIR_SEETHROUGH_SCRIPT:/home/ubuntu/Documents/programs/creative/see-through/inference/scripts/inference_psd.py}
-      working_dir: /home/ubuntu/Documents/programs/creative/see-through
+      venv_python: ${TECH_NOIR_SEETHROUGH_PYTHON:infra/repos/see-through/.venv/bin/python}
+      script: infra/repos/see-through/inference/scripts/inference_psd.py
+      working_dir: infra/repos/see-through
