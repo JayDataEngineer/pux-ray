@@ -5,6 +5,15 @@
 # Root directory for all model files
 models_root: ${TECH_NOIR_MODELS_ROOT:/home/ubuntu/Documents/models}
 
+# API keys — referenced via Config().get("secrets.xxx").
+# Set env vars or paste values directly in local.yaml (git-ignored).
+secrets:
+  hf_token: ${HF_TOKEN:}
+  openrouter_api_key: ${OPENROUTER_API_KEY:}
+  zai_api_key: ${ZAI_API_KEY:}
+  # API key for Ray ingress auth. Empty = no auth.
+  api_key: ${TECH_NOIR_API_KEY:}
+
 # External binaries and service directories
 binaries:
   llama_server: ${TECH_NOIR_LLAMA_SERVER:/home/ubuntu/Documents/programs/text/llama/llama.cpp/build/bin/llama-server}

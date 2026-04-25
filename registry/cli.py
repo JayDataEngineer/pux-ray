@@ -130,6 +130,12 @@ def cmd_models_list(args):
 
 def cmd_models_pull(args):
     """Download missing models from HuggingFace."""
+    # Set HF_TOKEN from config if not already in environment
+    from registry.config import Config
+    hf_token = Config().get("secrets.hf_token", "")
+    if hf_token and not os.environ.get("HF_TOKEN"):
+        os.environ["HF_TOKEN"] = hf_token
+
     registry = _get_registry()
     models_root = _get_models_root()
     models_root.mkdir(parents=True, exist_ok=True)
