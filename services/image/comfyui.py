@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import logging
 import os
+from pathlib import Path
 
 import httpx
 from ray import serve
@@ -34,7 +35,7 @@ logger = logging.getLogger(__name__)
     name="comfyui",
     num_replicas=1,
     max_ongoing_requests=8,
-    ray_actor_options={"num_gpus": 0.01},
+    ray_actor_options={"num_gpus": 0.01, "num_cpus": 0.5},
 )
 class ComfyUIDeployment(SubprocessMixin):
     """Runs ComfyUI server as a subprocess. Proxies API and WebUI requests."""
@@ -83,8 +84,14 @@ class ComfyUIDeployment(SubprocessMixin):
 
         if not self.wait_for_health(f"{self.base_url}/", timeout=120):
             if self.process and self.process.poll() is not None:
-                stderr = self.process.stderr.read().decode() if self.process.stderr else ""
-                raise RuntimeError(f"ComfyUI died during startup: {stderr[:500]}")
+                stderr = ""
+                if hasattr(self, "_stderr_file") and self._stderr_file:
+                    try:
+                        self._stderr_file.flush()
+                        stderr = Path(self._stderr_file.name).read_text()[-500:]
+                    except Exception:
+                        pass
+                raise RuntimeError(f"ComfyUI died during startup: {stderr}")
             raise TimeoutError("ComfyUI didn't start in 120s")
 
         self._running = True

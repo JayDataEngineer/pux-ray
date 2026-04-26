@@ -20,6 +20,7 @@ logger = logging.getLogger(__name__)
     max_ongoing_requests=2,
     ray_actor_options={
         "num_gpus": 0.01,
+        "num_cpus": 0.5,
     },
 )
 class QwenTTSDeployment(BaseGPUDeployment):

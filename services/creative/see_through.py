@@ -24,7 +24,7 @@ logger = logging.getLogger(__name__)
     name="see_through",
     num_replicas=1,
     max_ongoing_requests=1,
-    ray_actor_options={"num_gpus": 0.01},
+    ray_actor_options={"num_gpus": 0.01, "num_cpus": 0.5},
 )
 class SeeThroughDeployment(BaseGPUDeployment, CLIToolMixin):
     """See-Through layer decomposition via subprocess CLI."""
