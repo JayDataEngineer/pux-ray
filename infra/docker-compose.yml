@@ -203,9 +203,77 @@ services:
         cd /repos/llama.cpp && git pull --ff-only;
       fi"
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Observability — Langfuse (LLM tracing) + Prometheus + Grafana
+# ─────────────────────────────────────────────────────────────────────────────
+  langfuse-server:
+    image: ghcr.io/langfuse/langfuse:latest
+    container_name: langfuse
+    depends_on:
+      lf-postgres:
+        condition: service_healthy
+    ports:
+      - "${LF_PORT:-3000}:3000"
+    environment:
+      DATABASE_URL: postgresql://langfuse:langfuse@lf-postgres:5432/langfuse
+      NEXTAUTH_SECRET: ${LF_NEXTAUTH_SECRET:-changeme-secret-key}
+      NEXTAUTH_URL: http://localhost:${LF_PORT:-3000}
+      SALT: ${LF_SALT:-changeme-salt}
+      ENCRYPTION_KEY: ${LF_ENCRYPTION_KEY:-0000000000000000000000000000000000000000000000000000000000000000}
+      HOSTNAME: 0.0.0.0
+    restart: unless-stopped
+
+  lf-postgres:
+    image: postgres:16-alpine
+    container_name: langfuse-postgres
+    environment:
+      POSTGRES_USER: langfuse
+      POSTGRES_PASSWORD: langfuse
+      POSTGRES_DB: langfuse
+    volumes:
+      - lf-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "langfuse"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: prometheus
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --web.enable-lifecycle
+    ports:
+      - "${PROM_PORT:-9090}:9090"
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prom-data:/prometheus
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: grafana
+    depends_on:
+      - prometheus
+    ports:
+      - "${GF_PORT:-3001}:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GF_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GF_PASSWORD:-admin}
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+    volumes:
+      - grafana-data:/var/lib/grafana
+    restart: unless-stopped
+
 volumes:
   media-models:
   web-pgdata:
+  lf-pgdata:
+  prom-data:
+  grafana-data:
 
 networks:
   web-net:
