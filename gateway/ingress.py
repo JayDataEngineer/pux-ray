@@ -20,10 +20,11 @@ from starlette.applications import Starlette
 from starlette.middleware import Middleware
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
-from starlette.responses import JSONResponse, Response
+from starlette.responses import HTMLResponse, JSONResponse, Response
 from starlette.routing import Route
 
 from registry.config import Config
+from gateway import dashboard
 
 logger = logging.getLogger(__name__)
 
@@ -42,7 +43,7 @@ class APIKeyMiddleware(BaseHTTPMiddleware):
             return await call_next(request)
 
         # Skip public endpoints
-        if request.url.path in ("/health", "/status"):
+        if request.url.path in ("/health", "/status") or request.url.path.startswith("/dashboard"):
             return await call_next(request)
 
         key = request.headers.get("x-api-key", "") or request.query_params.get("api_key", "")
@@ -312,12 +313,18 @@ class APIIngress:
 
 def create_app() -> Starlette:
     """Create the Starlette app with all routes and auth middleware."""
+    dashboard.start_collector()
     ingress = APIIngress()
 
     routes = [
         # Health & Status (public, no auth)
         Route("/health", ingress.health),
         Route("/status", ingress.status),
+        # Dashboard (public, no auth)
+        Route("/dashboard", dashboard.dashboard_page),
+        Route("/dashboard/api/gpu", dashboard.dashboard_gpu_current),
+        Route("/dashboard/api/gpu/history", dashboard.dashboard_gpu_history),
+        Route("/dashboard/api/services", dashboard.dashboard_services),
         # LLM (OpenAI-compatible)
         Route("/v1/chat/completions", ingress.chat_completions, methods=["POST"]),
         # TTS (OpenAI-compatible)

@@ -98,8 +98,9 @@ serve.run(ACEStepDeployment.bind(), name="ace_step", route_prefix="/music/ace-st
 
 print("")
 print("All services deployed!")
-print("  Dashboard: http://localhost:8265")
-print("  API:       http://localhost:8000")
+print("  GPU Dashboard: http://localhost:8000/dashboard")
+print("  Ray Dashboard: http://localhost:8265")
+print("  API:           http://localhost:8000")
 print("")
 print("Routes:")
 print("  /llm/*            - LLM (llama.cpp)")
