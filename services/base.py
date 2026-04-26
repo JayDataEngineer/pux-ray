@@ -159,14 +159,29 @@ class SubprocessMixin:
 
     def start_process(self, cmd: list[str], cwd: Optional[str] = None,
                       env: Optional[dict] = None) -> subprocess.Popen:
-        """Start a subprocess in a new process group."""
+        """Start a subprocess in a new process group.
+
+        stdout/stderr go to temp files (not pipes) to prevent blocking
+        when the subprocess produces a lot of output (e.g. llama-server).
+        """
         proc_env = {**os.environ, **(env or {})}
+
+        # Use temp files instead of pipes to avoid deadlock when
+        # subprocess writes large amounts of output
+        import tempfile
+        self._stdout_file = tempfile.NamedTemporaryFile(
+            prefix="ray-subprocess-stdout-", suffix=".log", delete=False,
+        )
+        self._stderr_file = tempfile.NamedTemporaryFile(
+            prefix="ray-subprocess-stderr-", suffix=".log", delete=False,
+        )
+
         self.process = subprocess.Popen(
             cmd,
             cwd=cwd,
             env=proc_env,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
+            stdout=self._stdout_file,
+            stderr=self._stderr_file,
             preexec_fn=os.setsid,
         )
         return self.process
@@ -189,6 +204,17 @@ class SubprocessMixin:
             self._kill_port_users(self.port)
 
         self.process = None
+
+        # Clean up temp log files
+        for f in ("_stdout_file", "_stderr_file"):
+            fh = getattr(self, f, None)
+            if fh:
+                try:
+                    fh.close()
+                    Path(fh.name).unlink(missing_ok=True)
+                except Exception:
+                    pass
+                delattr(self, f)
 
     def _kill_port_users(self, port: int) -> None:
         """Kill any process still listening on our port."""

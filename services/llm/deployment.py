@@ -87,8 +87,14 @@ class LLMDeployment(BaseGPUDeployment, SubprocessMixin):
         if not self.wait_for_health(f"{self.base_url}/health", timeout=180):
             # Check if process is still alive
             if self.process and self.process.poll() is not None:
-                stderr = self.process.stderr.read().decode() if self.process.stderr else ""
-                raise RuntimeError(f"llama-server died during startup: {stderr[:500]}")
+                stderr = ""
+                if hasattr(self, "_stderr_file") and self._stderr_file:
+                    try:
+                        self._stderr_file.flush()
+                        stderr = Path(self._stderr_file.name).read_text()[-500:]
+                    except Exception:
+                        pass
+                raise RuntimeError(f"llama-server died during startup: {stderr}")
             raise TimeoutError(f"llama-server didn't become healthy in 180s")
 
         # Wait for model to be loaded (health check passes before model is ready)
