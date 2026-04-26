@@ -20,7 +20,7 @@ from starlette.applications import Starlette
 from starlette.middleware import Middleware
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
-from starlette.responses import HTMLResponse, JSONResponse, Response
+from starlette.responses import HTMLResponse, JSONResponse, Response, StreamingResponse
 from starlette.routing import Route
 
 from registry.config import Config
@@ -77,19 +77,44 @@ class APIIngress:
         self._ensure_initialized()
         body = await request.json()
         model = body.get("model", "qwen3.5-27b")
+        stream = body.get("stream", False)
 
         if self.gpu_scheduler and not model.endswith("-cpu"):
             await self.gpu_scheduler.acquire_gpu.remote("llm", model)
+
+        if stream:
+            # Proxy SSE stream directly to llama-server
+            return await self._proxy_llm_stream(body)
 
         handle = serve.get_deployment_handle("llm", "llm")
         result = await handle.remote(
             messages=body.get("messages", []),
             model=model,
-            stream=body.get("stream", False),
             **{k: v for k, v in body.items()
                if k not in ("model", "messages", "stream")},
         )
         return JSONResponse(result)
+
+    async def _proxy_llm_stream(self, body: dict) -> StreamingResponse:
+        """Proxy streaming request to llama-server, yielding SSE chunks."""
+        import httpx as _httpx
+
+        payload = {**body, "stream": True}
+
+        async def _sse_generator():
+            async with _httpx.AsyncClient(timeout=120) as client:
+                async with client.stream(
+                    "POST", "http://127.0.0.1:8399/v1/chat/completions",
+                    json=payload,
+                ) as resp:
+                    async for chunk in resp.aiter_bytes():
+                        yield chunk
+
+        return StreamingResponse(
+            _sse_generator(),
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+        )
 
     # --- TTS Routes ---
 
