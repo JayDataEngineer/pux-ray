@@ -231,7 +231,19 @@ class APIIngress:
                 return JSONResponse({"error": "image required"}, status_code=400)
             job_id = await jm.submit.remote("anigen", **kwargs)
         elif job_type == "ace_step":
-            if "prompt" not in kwargs:
+            task_type = kwargs.get("task_type", "text2music")
+            audio_modes = ("cover", "repaint", "lego", "extract", "complete")
+            # Audio-to-audio modes: accept multipart form with audio file
+            if task_type in audio_modes:
+                form = await request.form() if "audio" not in kwargs else None
+                if form and "audio" in form:
+                    kwargs["audio"] = await form["audio"].read()
+                if "audio" not in kwargs:
+                    return JSONResponse(
+                        {"error": f"audio file required for task_type={task_type}"},
+                        status_code=400,
+                    )
+            elif not kwargs.get("prompt"):
                 return JSONResponse({"error": "prompt required"}, status_code=400)
             job_id = await jm.submit.remote("ace_step", **kwargs)
         elif job_type == "comfyui":
