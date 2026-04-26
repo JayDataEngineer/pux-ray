@@ -128,3 +128,50 @@ class TestAPIKeyMiddleware:
             json={"image": "dummy"},
         )
         assert resp.status_code != 401
+
+    def test_dashboard_bypasses_auth(self, auth_client):
+        """Dashboard routes should be accessible without API key."""
+        for path in ["/dashboard", "/dashboard/api/gpu",
+                      "/dashboard/api/gpu/history", "/dashboard/api/services"]:
+            resp = auth_client.get(path)
+            assert resp.status_code == 200, f"{path} returned {resp.status_code}"
+
+
+class TestDashboardRoutes:
+    """Dashboard endpoints: always public, return HTML/JSON."""
+
+    @pytest.fixture
+    def client(self):
+        with mock.patch.dict(os.environ, {"TECH_NOIR_API_KEY": ""}, clear=False):
+            Config().reload()
+            app = create_app()
+            with TestClient(app) as c:
+                yield c
+
+    def test_dashboard_page_returns_html(self, client):
+        resp = client.get("/dashboard")
+        assert resp.status_code == 200
+        assert "Tech Noir" in resp.text
+        assert "text/html" in resp.headers["content-type"]
+
+    def test_dashboard_gpu_returns_json(self, client):
+        resp = client.get("/dashboard/api/gpu")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "name" in data
+        assert "gpu_util" in data
+        assert "mem_total_mb" in data
+
+    def test_dashboard_gpu_history_returns_json(self, client):
+        resp = client.get("/dashboard/api/gpu/history")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert isinstance(data, list)
+        assert len(data) >= 1
+        assert "gpu_util" in data[0]
+
+    def test_dashboard_services_returns_json(self, client):
+        resp = client.get("/dashboard/api/services")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert isinstance(data, list)
