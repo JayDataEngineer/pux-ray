@@ -122,33 +122,91 @@ def run_anigen_job(image: bytes, ss_model: str = "ckpts/anigen/ss_flow_duet",
 
 
 @ray.remote(num_gpus=0.01)
-def run_ace_step_job(prompt: str, duration: int = 30, bpm: int = 120,
-                     instrumental: bool = True, seed: int = -1,
-                     audio_format: str = "wav") -> bytes:
-    """Generate music from text prompt via ACE-Step. Returns audio bytes."""
+def run_ace_step_job(
+    task_type: str = "text2music",
+    prompt: str = "",
+    lyrics: str = "",
+    audio: bytes | None = None,
+    duration: int = 30,
+    bpm: int = 120,
+    instrumental: bool = True,
+    seed: int = -1,
+    audio_format: str = "wav",
+    # cover params
+    cover_strength: float = 1.0,
+    # repaint params
+    repaint_start: float = 0.0,
+    repaint_end: float | None = None,
+    repaint_mode: str = "balanced",
+    # lego/extract track name
+    track_name: str = "",
+    # complete tracks
+    complete_tracks: str = "",
+) -> bytes:
+    """Generate or transform music via ACE-Step CLI.
+
+    task_type: text2music | cover | repaint | lego | extract | complete
+    - text2music: prompt -> audio
+    - cover:      audio + prompt -> remix/style transfer
+    - repaint:    audio + prompt + time range -> edited region
+    - lego:       audio + track_name -> add instrument layer
+    - extract:    audio + track_name -> isolate stem
+    - complete:   audio -> auto-extend
+    """
     venv, script, cwd = _resolve_config_paths("services.creative.ace_step")
 
     with tempfile.TemporaryDirectory(prefix="acestep_job_") as tmpdir:
-        config_path = Path(tmpdir) / "config.toml"
-        toml = (
-            f'caption = """{prompt}"""\n'
-            f'task_type = "text2music"\n'
-            f'instrumental = {str(instrumental).lower()}\n'
-            f'duration = {duration}\n'
-            f'bpm = {bpm}\n'
-            f'seed = {seed}\n'
-            f'batch_size = 1\n'
-            f'audio_format = "{audio_format}"\n'
-            f'save_dir = "{tmpdir}"\n'
-        )
-        config_path.write_text(toml)
+        # Build CLI args
+        args = [
+            "--task_type", task_type,
+            "--save_dir", tmpdir,
+            "--seed", str(seed),
+            "--batch_size", "1",
+            "--audio_format", audio_format,
+            "--use_random_seed", str(seed == -1).lower(),
+        ]
 
-        _run_tool(venv, script, cwd, ["-c", str(config_path)])
+        if prompt:
+            args += ["--caption", prompt]
+        if lyrics:
+            args += ["--lyrics", lyrics]
+        if duration:
+            args += ["--duration", str(duration)]
+        if bpm:
+            args += ["--bpm", str(bpm)]
+        args += ["--instrumental", str(instrumental).lower()]
 
-        audio_exts = {".wav", ".mp3", ".flac", ".ogg"}
+        # Audio input for cover/repaint/lego/extract/complete
+        if audio and task_type in ("cover", "repaint", "lego", "extract", "complete"):
+            src_path = Path(tmpdir) / "src_audio.wav"
+            src_path.write_bytes(audio)
+            args += ["--src_audio", str(src_path)]
+
+        # Task-specific params
+        if task_type == "cover":
+            args += ["--audio_cover_strength", str(cover_strength)]
+        elif task_type == "repaint":
+            args += ["--repainting_start", str(repaint_start)]
+            if repaint_end is not None:
+                args += ["--repainting_end", str(repaint_end)]
+            args += ["--repaint_mode", repaint_mode]
+        elif task_type in ("lego", "extract"):
+            if track_name:
+                if task_type == "lego":
+                    args += ["--lego_track", track_name]
+                else:
+                    args += ["--extract_track", track_name]
+        elif task_type == "complete":
+            if complete_tracks:
+                args += ["--complete_tracks", complete_tracks]
+
+        _run_tool(venv, script, cwd, args)
+
+        # Find generated audio (newest file with audio extension)
+        audio_exts = {".wav", ".mp3", ".flac", ".ogg", ".aac", ".opus"}
         for f in sorted(Path(tmpdir).iterdir(),
                         key=lambda x: x.stat().st_mtime, reverse=True):
-            if f.suffix.lower() in audio_exts and f.name != "config.toml":
+            if f.suffix.lower() in audio_exts and f.name != "src_audio.wav":
                 return f.read_bytes()
 
         raise RuntimeError("ACE-Step did not produce audio output")
@@ -189,12 +247,21 @@ class JobManager:
             )
         elif job_type == "ace_step":
             ref = run_ace_step_job.remote(
-                prompt=kwargs["prompt"],
+                task_type=kwargs.get("task_type", "text2music"),
+                prompt=kwargs.get("prompt", ""),
+                lyrics=kwargs.get("lyrics", ""),
+                audio=kwargs.get("audio"),
                 duration=kwargs.get("duration", 30),
                 bpm=kwargs.get("bpm", 120),
                 instrumental=kwargs.get("instrumental", True),
                 seed=kwargs.get("seed", -1),
                 audio_format=kwargs.get("audio_format", "wav"),
+                cover_strength=kwargs.get("cover_strength", 1.0),
+                repaint_start=kwargs.get("repaint_start", 0.0),
+                repaint_end=kwargs.get("repaint_end"),
+                repaint_mode=kwargs.get("repaint_mode", "balanced"),
+                track_name=kwargs.get("track_name", ""),
+                complete_tracks=kwargs.get("complete_tracks", ""),
             )
         elif job_type == "comfyui":
             ref = run_comfyui_job.remote(
