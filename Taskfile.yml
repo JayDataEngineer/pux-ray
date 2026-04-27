@@ -1,0 +1,138 @@
+# Tech Noir Ray — Task Runner
+# ============================================
+# Professional task runner for AI infrastructure setup and operations.
+#
+# Install Task:  sh -c "$(curl --location https://taskfile.dev/install.sh)" -- -d -b ~/.local/bin
+# Quick start:   task setup
+# Daily use:     task up
+#
+# All tasks wrap existing scripts — nothing is replaced.
+# See: scripts/, infra/setup_venvs.sh, registry/cli.py
+
+version: '3'
+
+vars:
+  VENV_PYTHON: .venv/bin/python
+  RAY_BIN: .venv/bin/ray
+
+tasks:
+  # ── Setup ──────────────────────────────────────────────────────────────────
+  setup:
+    desc: "Full bootstrap (first run on new machine)"
+    cmds:
+      - task: setup:prereqs
+      - task: setup:config
+      - task: setup:venv
+      - task: setup:repos
+      - task: setup:tools
+      - task: models:status
+
+  setup:prereqs:
+    desc: "Check prerequisites (Python, uv, CUDA, Docker)"
+    internal: true
+    cmds:
+      - python3 --version
+      - uv --version
+      - "nvidia-smi --query-gpu=name --format=csv,noheader || echo 'WARNING: No GPU detected'"
+      - "docker --version || echo 'WARNING: Docker not found (needed for repo sync)'"
+
+  setup:config:
+    desc: "Copy config template if local.yaml doesn't exist"
+    status:
+      - test -f config/local.yaml
+    cmds:
+      - cp config/local.yaml.example config/local.yaml
+      - |
+        echo ""
+        echo ">>> config/local.yaml created from template."
+        echo ">>> Set these env vars or edit config/local.yaml:"
+        echo "    TECH_NOIR_MODELS_ROOT   - Where models are stored"
+        echo "    TECH_NOIR_COMFYUI_DIR   - ComfyUI installation path"
+        echo "    TECH_NOIR_COMFYUI_PYTHON - ComfyUI venv Python"
+        echo ""
+
+  setup:venv:
+    desc: "Create main Python venv and install dependencies"
+    sources:
+      - pyproject.toml
+      - uv.lock
+    generates:
+      - .venv/bin/python
+    cmds:
+      - uv sync
+
+  setup:repos:
+    desc: "Clone creative tool repos + llama.cpp via git-sync"
+    cmds:
+      - docker compose -f infra/docker-compose.yml run --rm tools-sync
+      - docker compose -f infra/docker-compose.yml run --rm llama-sync
+
+  setup:tools:
+    desc: "Build llama.cpp + create creative tool venvs"
+    deps: [setup:repos]
+    cmds:
+      - bash infra/setup_venvs.sh all
+
+  # ── Cluster Lifecycle ──────────────────────────────────────────────────────
+  start:
+    desc: "Start Ray cluster"
+    cmds:
+      - bash scripts/start_cluster.sh
+
+  stop:
+    desc: "Stop Ray cluster"
+    cmds:
+      - bash scripts/stop_all.sh
+
+  deploy:
+    desc: "Deploy all Ray Serve services"
+    deps: [start]
+    cmds:
+      - "{{.VENV_PYTHON}} -m scripts.deploy_services"
+
+  up:
+    desc: "Start cluster + deploy services (full startup)"
+    cmds:
+      - task: start
+      - task: deploy
+
+  # ── Models ─────────────────────────────────────────────────────────────────
+  models:list:
+    desc: "List all models and download status"
+    cmds:
+      - "{{.VENV_PYTHON}} -m registry.cli models list"
+
+  models:pull:
+    desc: "Download missing models from HuggingFace (pass model name as arg)"
+    cmds:
+      - "{{.VENV_PYTHON}} -m registry.cli models pull {{.CLI_ARGS}}"
+
+  models:status:
+    desc: "Show model disk usage summary"
+    cmds:
+      - "{{.VENV_PYTHON}} -m registry.cli models status"
+
+  # ── Testing ────────────────────────────────────────────────────────────────
+  test:
+    desc: "Run pytest test suite"
+    cmds:
+      - "{{.VENV_PYTHON}} -m pytest tests/ -v {{.CLI_ARGS}}"
+
+  # ── Infrastructure ─────────────────────────────────────────────────────────
+  infra:up:
+    desc: "Start Docker infra (MCP servers, Langfuse, Prometheus, Grafana)"
+    cmds:
+      - docker compose -f infra/docker-compose.yml up -d media-analysis-mcp web-mcp langfuse-server prometheus grafana
+
+  infra:down:
+    desc: "Stop Docker infra"
+    cmds:
+      - docker compose -f infra/docker-compose.yml down
+
+  # ── Status ─────────────────────────────────────────────────────────────────
+  status:
+    desc: "Quick cluster health check"
+    cmds:
+      - "{{.RAY_BIN}} status 2>/dev/null || echo 'Ray not running'"
+      - echo "---"
+      - curl -sf http://localhost:8000/health || echo "API not responding"
