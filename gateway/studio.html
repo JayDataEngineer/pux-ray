@@ -1,0 +1,675 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Tech Noir — Studio</title>
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+    --bg-primary: #09090b;
+    --bg-card: #18181b;
+    --bg-card-alt: #1c1c20;
+    --bg-hover: #27272a;
+    --bg-active: rgba(99,102,241,0.12);
+    --border: #27272a;
+    --border-focus: #3f3f46;
+    --text-primary: #fafafa;
+    --text-secondary: #a1a1aa;
+    --text-muted: #71717a;
+    --accent: #818cf8;
+    --accent-dim: #6366f1;
+    --accent-bg: rgba(99,102,241,0.15);
+    --green: #4ade80;
+    --green-bg: rgba(74,222,128,0.15);
+    --yellow: #facc15;
+    --yellow-bg: rgba(250,204,21,0.15);
+    --red: #f87171;
+    --red-bg: rgba(248,113,113,0.15);
+    --blue: #60a5fa;
+    --blue-bg: rgba(96,165,250,0.15);
+    --orange: #fb923c;
+    --purple: #a78bfa;
+    --font-mono: 'SF Mono', 'Cascadia Code', 'Fira Code', ui-monospace, monospace;
+    --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+    --radius: 12px;
+    --radius-sm: 8px;
+}
+
+html { font-size: 14px; }
+body {
+    font-family: var(--font-sans);
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    height: 100vh;
+    display: flex;
+    overflow: hidden;
+}
+
+/* ---- Layout ---- */
+#sidebar {
+    width: 260px;
+    min-width: 260px;
+    height: 100vh;
+    background: var(--bg-card);
+    border-right: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    overflow-y: auto;
+}
+#workspace {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    position: relative;
+    background: var(--bg-primary);
+}
+
+/* ---- Sidebar header ---- */
+.sidebar-header {
+    padding: 20px 16px 16px;
+    border-bottom: 1px solid var(--border);
+}
+.sidebar-header h1 {
+    font-size: 1.05rem;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+.sidebar-header h1 svg { width: 18px; height: 18px; color: var(--accent); }
+.sidebar-header .subtitle {
+    font-size: 0.65rem;
+    color: var(--text-muted);
+    font-family: var(--font-mono);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    margin-top: 4px;
+}
+
+/* ---- Category group ---- */
+.category-group {
+    padding: 12px 0;
+    border-bottom: 1px solid var(--border);
+}
+.category-group:last-of-type { border-bottom: none; }
+.category-label {
+    font-size: 0.6rem;
+    font-family: var(--font-mono);
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    padding: 0 16px;
+    margin-bottom: 6px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+.category-label svg { width: 12px; height: 12px; opacity: 0.5; }
+
+/* ---- App tile ---- */
+.app-tile {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 16px;
+    cursor: pointer;
+    transition: all 0.15s;
+    border-left: 3px solid transparent;
+    user-select: none;
+}
+.app-tile:hover { background: var(--bg-hover); }
+.app-tile.active {
+    background: var(--bg-active);
+    border-left-color: var(--accent);
+}
+.app-tile.active .app-name { color: var(--accent); }
+.app-tile.loading {
+    opacity: 0.6;
+    pointer-events: none;
+}
+.app-tile .app-status {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    flex-shrink: 0;
+}
+.app-tile .app-status.healthy { background: var(--green); box-shadow: 0 0 6px var(--green); }
+.app-tile .app-status.running { background: var(--green); box-shadow: 0 0 6px var(--green); }
+.app-tile .app-status.active-gpu { background: var(--accent); box-shadow: 0 0 6px var(--accent); }
+.app-tile .app-status.offline { background: var(--text-muted); opacity: 0.3; }
+.app-tile .app-status.unhealthy { background: var(--red); }
+.app-tile .app-info {
+    flex: 1;
+    min-width: 0;
+}
+.app-tile .app-name {
+    font-size: 0.8rem;
+    font-weight: 500;
+    color: var(--text-secondary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.app-tile .app-badges {
+    display: flex;
+    gap: 4px;
+    margin-top: 2px;
+}
+.badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 1px 6px;
+    border-radius: 3px;
+    font-size: 0.55rem;
+    font-family: var(--font-mono);
+    font-weight: 500;
+}
+.badge-gpu { background: var(--accent-bg); color: var(--accent); }
+.badge-cpu { background: rgba(161,161,170,0.1); color: var(--text-muted); }
+.badge-ui { background: var(--green-bg); color: var(--green); }
+.badge-api { background: rgba(161,161,170,0.1); color: var(--text-muted); }
+
+/* ---- Sidebar footer (VRAM gauge) ---- */
+.sidebar-footer {
+    margin-top: auto;
+    padding: 14px 16px;
+    border-top: 1px solid var(--border);
+}
+.vram-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 6px;
+}
+.vram-label {
+    font-size: 0.65rem;
+    font-family: var(--font-mono);
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+}
+.vram-value {
+    font-size: 0.75rem;
+    font-family: var(--font-mono);
+    color: var(--text-primary);
+    font-weight: 600;
+}
+.vram-bar-track {
+    height: 8px;
+    background: var(--bg-primary);
+    border-radius: 4px;
+    overflow: hidden;
+}
+.vram-bar-fill {
+    height: 100%;
+    border-radius: 4px;
+    transition: width 0.6s ease, background 0.3s;
+    background: var(--accent);
+}
+.gpu-util-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-top: 8px;
+    font-size: 0.65rem;
+    font-family: var(--font-mono);
+    color: var(--text-muted);
+}
+.gpu-util-row .util-value { color: var(--text-secondary); font-weight: 500; }
+
+.release-btn {
+    width: 100%;
+    margin-top: 10px;
+    padding: 7px;
+    background: var(--bg-hover);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    color: var(--text-secondary);
+    font-size: 0.7rem;
+    font-family: var(--font-mono);
+    cursor: pointer;
+    transition: all 0.15s;
+    text-align: center;
+}
+.release-btn:hover { background: var(--red-bg); color: var(--red); border-color: var(--red); }
+
+/* ---- Workspace ---- */
+.workspace-idle {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    color: var(--text-muted);
+    gap: 16px;
+}
+.workspace-idle svg { width: 64px; height: 64px; opacity: 0.2; }
+.workspace-idle h2 { font-size: 1.2rem; font-weight: 600; color: var(--text-secondary); }
+.workspace-idle p { font-size: 0.8rem; max-width: 400px; text-align: center; line-height: 1.5; }
+
+/* ---- Iframe workspace ---- */
+.workspace-frame {
+    flex: 1;
+    border: none;
+    width: 100%;
+    height: 100%;
+    background: #111;
+}
+.workspace-frame.hidden { display: none; }
+
+/* ---- API-only panel ---- */
+.api-panel {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 40px;
+}
+.api-panel.hidden { display: none; }
+.api-panel-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 32px;
+    max-width: 500px;
+    width: 100%;
+}
+.api-panel-card h2 {
+    font-size: 1.1rem;
+    font-weight: 600;
+    margin-bottom: 4px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+.api-panel-card .api-subtitle {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    margin-bottom: 20px;
+}
+.api-endpoint {
+    background: var(--bg-primary);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    padding: 12px 16px;
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+    margin-bottom: 8px;
+}
+.api-endpoint .method {
+    color: var(--green);
+    font-weight: 600;
+    margin-right: 8px;
+}
+.api-endpoint .path { color: var(--text-primary); }
+
+/* ---- Loading overlay ---- */
+.loading-overlay {
+    position: absolute;
+    inset: 0;
+    background: rgba(9,9,11,0.9);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    z-index: 100;
+    gap: 16px;
+}
+.loading-overlay.hidden { display: none; }
+.loading-spinner {
+    width: 36px;
+    height: 36px;
+    border: 3px solid var(--border);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+.loading-overlay .loading-text {
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+}
+.loading-overlay .loading-sub {
+    font-size: 0.7rem;
+    color: var(--text-muted);
+}
+
+/* ---- Responsive ---- */
+@media (max-width: 800px) {
+    #sidebar { width: 60px; min-width: 60px; }
+    .sidebar-header h1, .sidebar-header .subtitle, .category-label,
+    .app-tile .app-name, .app-tile .app-badges,
+    .vram-header, .gpu-util-row, .release-btn { display: none; }
+    .app-tile { justify-content: center; padding: 10px 8px; }
+    .app-tile .app-status { width: 12px; height: 12px; }
+    .sidebar-footer { padding: 8px; }
+    .vram-bar-track { height: 12px; }
+}
+</style>
+</head>
+<body>
+
+<!-- Sidebar -->
+<aside id="sidebar">
+    <div class="sidebar-header">
+        <h1>
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M9.53 16.122a3 3 0 0 0-5.78 1.128 2.25 2.25 0 0 1-2.4 2.245 4.5 4.5 0 0 0 8.4-2.245c0-.399-.078-.78-.22-1.128Zm0 0a15.998 15.998 0 0 0 3.388-1.62m-5.043-.025a15.994 15.994 0 0 1 1.622-3.395m3.42 3.42a15.995 15.995 0 0 0 4.764-4.648l3.876-5.814a1.151 1.151 0 0 0-1.597-1.597L14.146 6.32a15.996 15.996 0 0 0-4.649 4.763m3.42 3.42a6.776 6.776 0 0 0-3.42-3.42"/></svg>
+            Studio
+        </h1>
+        <div class="subtitle">Tech Noir — GPU Switcher</div>
+    </div>
+
+    <div id="sidebar-apps"></div>
+
+    <div class="sidebar-footer">
+        <div class="vram-header">
+            <span class="vram-label">VRAM</span>
+            <span class="vram-value" id="vram-text">—</span>
+        </div>
+        <div class="vram-bar-track">
+            <div class="vram-bar-fill" id="vram-bar" style="width:0%"></div>
+        </div>
+        <div class="gpu-util-row">
+            <span>GPU Util</span>
+            <span class="util-value" id="gpu-util-text">—</span>
+        </div>
+        <button class="release-btn" id="release-btn" title="Unload everything from GPU">
+            Release GPU
+        </button>
+    </div>
+</aside>
+
+<!-- Workspace -->
+<div id="workspace">
+    <!-- Idle state -->
+    <div class="workspace-idle" id="workspace-idle">
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M9.53 16.122a3 3 0 0 0-5.78 1.128 2.25 2.25 0 0 1-2.4 2.245 4.5 4.5 0 0 0 8.4-2.245c0-.399-.078-.78-.22-1.128Zm0 0a15.998 15.998 0 0 0 3.388-1.62m-5.043-.025a15.994 15.994 0 0 1 1.622-3.395m3.42 3.42a15.995 15.995 0 0 0 4.764-4.648l3.876-5.814a1.151 1.151 0 0 0-1.597-1.597L14.146 6.32a15.996 15.996 0 0 0-4.649 4.763m3.42 3.42a6.776 6.776 0 0 0-3.42-3.42"/></svg>
+        <h2>No tool loaded</h2>
+        <p>Click a tool in the sidebar to load it on the GPU. Tools with a UI badge will open their interface here.</p>
+    </div>
+
+    <!-- Iframe for tools with native UIs -->
+    <iframe class="workspace-frame hidden" id="workspace-frame" sandbox="allow-same-origin allow-scripts allow-forms allow-popups allow-modals" allow="clipboard-read; clipboard-write"></iframe>
+
+    <!-- API-only panel -->
+    <div class="api-panel hidden" id="workspace-api">
+        <div class="api-panel-card">
+            <h2>
+                <span class="app-status healthy" id="api-dot"></span>
+                <span id="api-name">Service</span>
+            </h2>
+            <div class="api-subtitle" id="api-subtitle">API-only service — no visual interface</div>
+            <div id="api-endpoints"></div>
+        </div>
+    </div>
+
+    <!-- Loading overlay -->
+    <div class="loading-overlay hidden" id="loading-overlay">
+        <div class="loading-spinner"></div>
+        <div class="loading-text" id="loading-text">Loading...</div>
+        <div class="loading-sub" id="loading-sub">Switching GPU</div>
+    </div>
+</div>
+
+<script>
+const POLL_MS = 5000;
+const API_BASE = '/studio/api';
+
+let currentService = null;
+let currentUrl = null;
+let switching = false;
+let appsData = [];
+
+// ---- Category icons (SVG strings) ----
+const CAT_ICONS = {
+    'Image': '<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m2.25 15.75 5.159-5.159a2.25 2.25 0 0 1 3.182 0l5.159 5.159m-1.5-1.5 1.409-1.409a2.25 2.25 0 0 1 3.182 0l2.909 2.909M3.75 21h16.5A2.25 2.25 0 0 0 22.5 18.75V5.25A2.25 2.25 0 0 0 20.25 3H3.75A2.25 2.25 0 0 0 1.5 5.25v13.5A2.25 2.25 0 0 0 3.75 21Z"/></svg>',
+    'LLM': '<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M7.5 8.25h9m-9 3H12m-9.75 1.51c0 1.6 1.123 2.994 2.707 3.227 1.087.16 2.185.283 3.293.369V21l4.076-4.076a1.526 1.526 0 0 1 1.037-.443 48.282 48.282 0 0 0 5.68-.494c1.584-.233 2.707-1.626 2.707-3.228V6.741c0-1.602-1.123-2.995-2.707-3.228A48.394 48.394 0 0 0 12 3c-2.392 0-4.744.175-7.043.513C3.373 3.746 2.25 5.14 2.25 6.741v6.018Z"/></svg>',
+    '3D': '<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M21 7.5l-9-5.25L3 7.5m18 0l-9 5.25m9-5.25v9l-9 5.25M3 7.5l9 5.25M3 7.5v9l9 5.25m0-9v9"/></svg>',
+    'Music': '<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m9 9 10.5-3m0 6.553v3.75a2.25 2.25 0 0 1-1.632 2.163l-1.32.377a1.803 1.803 0 1 1-.99-3.467l2.31-.66a2.25 2.25 0 0 0 1.632-2.163Zm0 0V2.25L9 5.25v10.303m0 0v3.75a2.25 2.25 0 0 1-1.632 2.163l-1.32.377a1.803 1.803 0 1 1-.99-3.467l2.31-.66A2.25 2.25 0 0 0 9 15.553Z"/></svg>',
+    'Creative': '<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M9.53 16.122a3 3 0 0 0-5.78 1.128 2.25 2.25 0 0 1-2.4 2.245 4.5 4.5 0 0 0 8.4-2.245c0-.399-.078-.78-.22-1.128Zm0 0a15.998 15.998 0 0 0 3.388-1.62m-5.043-.025a15.994 15.994 0 0 1 1.622-3.395m3.42 3.42a15.995 15.995 0 0 0 4.764-4.648l3.876-5.814a1.151 1.151 0 0 0-1.597-1.597L14.146 6.32a15.996 15.996 0 0 0-4.649 4.763m3.42 3.42a6.776 6.776 0 0 0-3.42-3.42"/></svg>',
+    'TTS': '<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M19.114 5.636a9 9 0 0 1 0 12.728M16.463 8.288a5.25 5.25 0 0 1 0 7.424M6.75 8.25l4.72-4.72a.75.75 0 0 1 1.28.53v15.88a.75.75 0 0 1-1.28.53l-4.72-4.72H4.51c-.88 0-1.704-.507-1.938-1.354A9.009 9.009 0 0 1 2.25 12c0-.83.112-1.633.322-2.396C2.806 8.756 3.63 8.25 4.51 8.25H6.75Z"/></svg>',
+    'ASR': '<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 18.75a6 6 0 0 0 6-6v-1.5m-6 7.5a6 6 0 0 1-6-6v-1.5m6 7.5v3.75m-3.75 0h7.5M12 15.75a3 3 0 0 1-3-3V4.5a3 3 0 1 1 6 0v8.25a3 3 0 0 1-3 3Z"/></svg>',
+};
+
+// ---- Render sidebar ----
+function renderSidebar(apps, activeService) {
+    const container = document.getElementById('sidebar-apps');
+    const groups = {};
+    apps.forEach(app => {
+        (groups[app.category] = groups[app.category] || []).push(app);
+    });
+
+    let html = '';
+    for (const cat of Object.keys(groups)) {
+        const icon = CAT_ICONS[cat] || '';
+        html += `<div class="category-group">`;
+        html += `<div class="category-label">${icon} ${cat}</div>`;
+        groups[cat].forEach(app => {
+            const isActive = app.name === activeService;
+            const activeClass = isActive ? ' active' : '';
+            const statusClass = getTileStatusClass(app, isActive);
+            const typeBadge = app.gpu ? '<span class="badge badge-gpu">GPU</span>' : '<span class="badge badge-cpu">CPU</span>';
+            const uiBadge = app.has_ui ? '<span class="badge badge-ui">UI</span>' : '<span class="badge badge-api">API</span>';
+
+            html += `<div class="app-tile${activeClass}" data-service="${app.name}" onclick="switchTo('${app.name}')">
+                <div class="app-status ${statusClass}"></div>
+                <div class="app-info">
+                    <div class="app-name">${app.label}</div>
+                    <div class="app-badges">${typeBadge} ${uiBadge}</div>
+                </div>
+            </div>`;
+        });
+        html += `</div>`;
+    }
+    container.innerHTML = html;
+}
+
+function getTileStatusClass(app, isActive) {
+    if (isActive) return 'active-gpu';
+    const s = (app.status || '').toLowerCase();
+    if (s === 'running' || s === 'healthy') return 'healthy';
+    if (s === 'updating' || s === 'deploying') return 'healthy';
+    if (s.includes('unhealthy') || s.includes('failed')) return 'unhealthy';
+    return 'offline';
+}
+
+// ---- Switch to a service ----
+async function switchTo(serviceName) {
+    if (switching) return;
+    if (serviceName === currentService) return;
+
+    const app = appsData.find(a => a.name === serviceName);
+    if (!app) return;
+
+    switching = true;
+    showLoading(app.label);
+
+    try {
+        const resp = await fetch(`${API_BASE}/switch`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+                service: serviceName,
+                model: app.default_model || serviceName,
+            }),
+        });
+
+        if (!resp.ok) {
+            const err = await resp.json().catch(() => ({}));
+            hideLoading();
+            alert('Switch failed: ' + (err.error || resp.statusText));
+            switching = false;
+            return;
+        }
+
+        const data = await resp.json();
+        currentService = serviceName;
+        currentUrl = data.url || null;
+
+        // Update sidebar
+        renderSidebar(appsData, currentService);
+
+        // Show workspace
+        if (currentUrl && app.has_ui) {
+            showIframe(currentUrl);
+        } else {
+            showApiPanel(app);
+        }
+    } catch (e) {
+        alert('Switch failed: ' + e.message);
+    } finally {
+        hideLoading();
+        switching = false;
+    }
+}
+
+// ---- Release GPU ----
+document.getElementById('release-btn').addEventListener('click', async () => {
+    if (switching) return;
+    switching = true;
+    showLoading('Releasing GPU');
+
+    try {
+        await fetch(`${API_BASE}/release`, { method: 'POST' });
+        currentService = null;
+        currentUrl = null;
+        renderSidebar(appsData, null);
+        showIdle();
+    } catch (e) {
+        alert('Release failed: ' + e.message);
+    } finally {
+        hideLoading();
+        switching = false;
+    }
+});
+
+// ---- Workspace views ----
+function showIdle() {
+    document.getElementById('workspace-idle').classList.remove('hidden');
+    document.getElementById('workspace-frame').classList.add('hidden');
+    document.getElementById('workspace-api').classList.add('hidden');
+}
+
+function showIframe(url) {
+    document.getElementById('workspace-idle').classList.add('hidden');
+    document.getElementById('workspace-api').classList.add('hidden');
+    const frame = document.getElementById('workspace-frame');
+    frame.classList.remove('hidden');
+    frame.src = url;
+}
+
+function showApiPanel(app) {
+    document.getElementById('workspace-idle').classList.add('hidden');
+    document.getElementById('workspace-frame').classList.add('hidden');
+    document.getElementById('workspace-api').classList.remove('hidden');
+
+    document.getElementById('api-name').textContent = app.label;
+    document.getElementById('api-subtitle').textContent =
+        app.gpu ? 'GPU service loaded — accessible via API' : 'CPU service — always available';
+
+    const endpoints = getApiEndpoints(app.name);
+    document.getElementById('api-endpoints').innerHTML = endpoints.map(e =>
+        `<div class="api-endpoint"><span class="method">${e.method}</span><span class="path">${e.path}</span></div>`
+    ).join('');
+}
+
+function getApiEndpoints(name) {
+    const map = {
+        'llm': [{method: 'POST', path: '/v1/chat/completions'}],
+        'trellis': [{method: 'POST', path: '/3d/trellis'}],
+        'anigen': [{method: 'POST', path: '/3d/anigen'}],
+        'ace_step': [{method: 'POST', path: '/music/generate'}],
+        'see_through': [{method: 'POST', path: '/creative/decompose'}],
+        'kokoro_tts': [{method: 'POST', path: '/v1/audio/speech'}],
+        'espeak_tts': [{method: 'POST', path: '/v1/audio/speech'}],
+        'index_tts': [{method: 'POST', path: '/v1/audio/speech'}],
+        'qwen_tts': [{method: 'POST', path: '/v1/audio/speech'}],
+        'vibevoice': [{method: 'POST', path: '/v1/audio/speech'}],
+        'gpt_sovits': [{method: 'POST', path: '/v1/audio/speech'}],
+        'faster_whisper': [{method: 'POST', path: '/v1/audio/transcriptions'}],
+        'vibevoice_asr': [{method: 'POST', path: '/v1/audio/transcriptions'}],
+        'qwen_asr': [{method: 'POST', path: '/v1/audio/transcriptions'}],
+    };
+    return map[name] || [{method: 'POST', path: `/jobs/${name}`}];
+}
+
+// ---- Loading overlay ----
+function showLoading(label) {
+    document.getElementById('loading-text').textContent = `Loading ${label}...`;
+    document.getElementById('loading-sub').textContent = 'Switching GPU';
+    document.getElementById('loading-overlay').classList.remove('hidden');
+}
+function hideLoading() {
+    document.getElementById('loading-overlay').classList.add('hidden');
+}
+
+// ---- VRAM gauge ----
+function updateVram(data) {
+    if (!data) return;
+    const used = data.mem_used_mb || 0;
+    const total = data.mem_total_mb || 1;
+    const pct = (used / total * 100);
+    const bar = document.getElementById('vram-bar');
+    bar.style.width = pct.toFixed(1) + '%';
+    bar.style.background = pct > 90 ? 'var(--red)' : pct > 70 ? 'var(--yellow)' : 'var(--accent)';
+    document.getElementById('vram-text').textContent =
+        `${(used / 1024).toFixed(1)} / ${(total / 1024).toFixed(1)} GB`;
+    document.getElementById('gpu-util-text').textContent =
+        `${data.gpu_util ?? 0}% · ${(data.power_w ?? 0)}W · ${data.temp_c ?? 0}°C`;
+}
+
+// ---- Polling ----
+let visible = true;
+document.addEventListener('visibilitychange', () => { visible = !document.hidden; });
+
+async function poll() {
+    if (!visible) return;
+    try {
+        const [appsRes, gpuRes] = await Promise.all([
+            fetch(`${API_BASE}/apps`),
+            fetch('/dashboard/api/gpu'),
+        ]);
+        if (appsRes.ok) {
+            const data = await appsRes.json();
+            appsData = data.apps || [];
+            // If server says something different than our local state, update
+            if (data.active_service && data.active_service !== currentService && !switching) {
+                currentService = data.active_service;
+                const app = appsData.find(a => a.name === currentService);
+                if (app) {
+                    renderSidebar(appsData, currentService);
+                    if (app.has_ui && app.url) {
+                        showIframe(app.url);
+                    } else {
+                        showApiPanel(app);
+                    }
+                }
+            } else if (!data.active_service && currentService && !switching) {
+                currentService = null;
+                currentUrl = null;
+                renderSidebar(appsData, null);
+                showIdle();
+            }
+        }
+        if (gpuRes.ok) updateVram(await gpuRes.json());
+    } catch (e) {
+        console.warn('Studio poll failed:', e);
+    }
+}
+
+// ---- Init ----
+async function init() {
+    await poll();
+    // Initial sidebar render from first poll
+    renderSidebar(appsData, currentService);
+}
+
+init();
+setInterval(poll, POLL_MS);
+</script>
+</body>
+</html>

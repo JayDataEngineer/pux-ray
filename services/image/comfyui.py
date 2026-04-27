@@ -98,6 +98,10 @@ class ComfyUIDeployment(SubprocessMixin):
         logger.info("ComfyUI running on port %d (flash attention enabled)", self.port)
         return True
 
+    def is_running(self) -> bool:
+        """Check if ComfyUI subprocess is alive."""
+        return self._running and self.process is not None and self.process.poll() is None
+
     def stop_comfyui(self) -> None:
         """Stop ComfyUI subprocess."""
         self.stop_process()

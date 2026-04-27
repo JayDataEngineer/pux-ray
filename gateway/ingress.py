@@ -25,6 +25,7 @@ from starlette.routing import Route
 
 from registry.config import Config
 from gateway import dashboard
+from gateway import studio
 
 logger = logging.getLogger(__name__)
 
@@ -43,7 +44,7 @@ class APIKeyMiddleware(BaseHTTPMiddleware):
             return await call_next(request)
 
         # Skip public endpoints
-        if request.url.path in ("/health", "/status") or request.url.path.startswith("/dashboard"):
+        if request.url.path in ("/health", "/status") or request.url.path.startswith("/dashboard") or request.url.path.startswith("/studio"):
             return await call_next(request)
 
         key = request.headers.get("x-api-key", "") or request.query_params.get("api_key", "")
@@ -362,6 +363,11 @@ def create_app() -> Starlette:
         Route("/dashboard/api/gpu", dashboard.dashboard_gpu_current),
         Route("/dashboard/api/gpu/history", dashboard.dashboard_gpu_history),
         Route("/dashboard/api/services", dashboard.dashboard_services),
+        # Studio (public, no auth)
+        Route("/studio", studio.studio_page),
+        Route("/studio/api/apps", studio.studio_apps),
+        Route("/studio/api/switch", studio.studio_switch, methods=["POST"]),
+        Route("/studio/api/release", studio.studio_release, methods=["POST"]),
         # LLM (OpenAI-compatible)
         Route("/v1/chat/completions", ingress.chat_completions, methods=["POST"]),
         # TTS (OpenAI-compatible)
