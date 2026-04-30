@@ -81,10 +81,7 @@ class MediaAnalysisMCPDeployment(SubprocessMixin):
         """Proxy all requests to the MCP server."""
         if not self._running:
             self.start_server()
-            self.wait_for_health(
-                f"http://127.0.0.1:{self.port}/health",
-                timeout=120,
-            )
+            self.wait_for_port(self.port, timeout=120)
         return await self._proxy_request(request)
 
     async def _proxy_request(self, request: Request) -> Response:

@@ -247,6 +247,21 @@ class SubprocessMixin:
             time.sleep(2)
         return False
 
+    def wait_for_port(self, port: int, timeout: int = 120) -> bool:
+        """Poll until a TCP port is accepting connections."""
+        import socket
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                try:
+                    s.settimeout(2)
+                    s.connect(("127.0.0.1", port))
+                    return True
+                except (ConnectionRefusedError, OSError):
+                    pass
+            time.sleep(2)
+        return False
+
 
 class CLIToolMixin:
     """Mixin for tools called via subprocess using their own isolated venv.
