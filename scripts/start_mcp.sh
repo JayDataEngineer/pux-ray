@@ -14,14 +14,25 @@ mkdir -p "$LOG_DIR"
 # Read config from local.yaml via python
 read_config() {
     "$PROJECT_ROOT/.venv/bin/python" -c "
+import sys; sys.path.insert(0, '$PROJECT_ROOT')
+from registry.config import Config
+c = Config()
+key = '$1'
+default = $2 if len(sys.argv) > 2 else None
+val = c.get(key, default)
+print(val)
+" "$2"
+}
+
+read_path() {
+    "$PROJECT_ROOT/.venv/bin/python" -c "
 from pathlib import Path
 import sys; sys.path.insert(0, '$PROJECT_ROOT')
 from registry.config import Config
 c = Config()
 key = '$1'
-default = '$2' if len(sys.argv) > 2 else ''
+default = '$2'
 val = c.get(key, default)
-# Resolve relative paths
 p = Path(val)
 if not p.is_absolute():
     p = Path(c.project_root) / p
@@ -30,11 +41,11 @@ print(p)
 }
 
 WEB_PORT=$(read_config services.mcp.local_web.port 8327)
-WEB_VENV=$(read_config services.mcp.local_web.venv_python)
-WEB_DIR=$(read_config services.mcp.local_web.working_dir)
+WEB_VENV=$(read_path services.mcp.local_web.venv_python)
+WEB_DIR=$(read_path services.mcp.local_web.working_dir)
 MEDIA_PORT=$(read_config services.mcp.media.port 8101)
-MEDIA_VENV=$(read_config services.mcp.media.venv_python)
-MEDIA_DIR=$(read_config services.mcp.media.working_dir)
+MEDIA_VENV=$(read_path services.mcp.media.venv_python)
+MEDIA_DIR=$(read_path services.mcp.media.working_dir)
 
 is_listening() {
     ss -tlnp 2>/dev/null | grep -q ":${1} " || lsof -i ":$1" >/dev/null 2>&1
@@ -46,9 +57,9 @@ start_web() {
         return
     fi
     echo "Starting local-web-mcp on port $WEB_PORT..."
-    nohup "$WEB_VENV" -m uvicorn src.mcp_sse:app \
+    (cd "$WEB_DIR" && nohup "$WEB_VENV" -m uvicorn src.mcp_sse:app \
         --host 0.0.0.0 --port "$WEB_PORT" \
-        > "$LOG_DIR/local-web-mcp.log" 2>&1 &
+        > "$LOG_DIR/local-web-mcp.log" 2>&1 &)
     echo "  PID: $!"
 }
 
@@ -58,9 +69,9 @@ start_media() {
         return
     fi
     echo "Starting media-analysis-mcp on port $MEDIA_PORT..."
-    nohup "$MEDIA_VENV" -m uvicorn src.server:app \
+    (cd "$MEDIA_DIR" && nohup "$MEDIA_VENV" -m uvicorn src.server:app \
         --host 0.0.0.0 --port "$MEDIA_PORT" \
-        > "$LOG_DIR/media-analysis-mcp.log" 2>&1 &
+        > "$LOG_DIR/media-analysis-mcp.log" 2>&1 &)
     echo "  PID: $!"
 }
 
