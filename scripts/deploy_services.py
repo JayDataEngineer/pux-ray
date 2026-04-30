@@ -96,6 +96,13 @@ serve.run(SeeThroughDeployment.bind(), name="see_through", route_prefix="/creati
 from services.creative.ace_step import ACEStepDeployment
 serve.run(ACEStepDeployment.bind(), name="ace_step", route_prefix="/music/ace-step")
 
+print("Deploying MCP servers...")
+from services.mcp.local_web_mcp import LocalWebMCPDeployment
+serve.run(LocalWebMCPDeployment.bind(), name="local_web_mcp", route_prefix="/mcp/web")
+
+from services.mcp.media_analysis_mcp import MediaAnalysisMCPDeployment
+serve.run(MediaAnalysisMCPDeployment.bind(), name="media_analysis_mcp", route_prefix="/mcp/media")
+
 print("")
 print("All services deployed!")
 print("  GPU Dashboard: http://localhost:8000/dashboard")
@@ -117,6 +124,8 @@ print("  /comfyui/*        - ComfyUI (GPU, WebUI)")
 print("  /3d/trellis/*     - TRELLIS.2 (GPU)")
 print("  /3d/anigen/*      - AniGen (GPU)")
 print("  /creative/see-through/* - See-Through (GPU)")
+print("  /mcp/web/*             - Local Web MCP (CPU)")
+print("  /mcp/media/*           - Media Analysis MCP (CPU)")
 print("")
 print("Job Routes (queued, async):")
 print("  POST /jobs/{type}     - Submit job (trellis, anigen, ace_step, comfyui)")
