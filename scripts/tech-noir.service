@@ -6,7 +6,7 @@ Wants=network-online.target
 [Service]
 Type=simple
 User=user
-ExecStart=/bin/bash /home/user/Documents/programs/ray/scripts/boot_services.sh
+ExecStart=/bin/bash -c 'cd /home/user/Documents/programs/ray && /home/user/Documents/programs/ray/.venv/bin/python -m boot.cli boot'
 Restart=on-failure
 RestartSec=30
 StandardOutput=journal

@@ -4,10 +4,11 @@
 #
 # Install Task:  sh -c "$(curl --location https://taskfile.dev/install.sh)" -- -d -b ~/.local/bin
 # Quick start:   task setup
-# Daily use:     task up
+# Daily use:     task boot          (starts everything)
+#                task status        (show all services)
 #
-# All tasks wrap existing scripts — nothing is replaced.
-# See: scripts/, infra/setup_venvs.sh, registry/cli.py
+# Service lifecycle is managed by the boot/ Python package.
+# See: boot/cli.py, boot/services.py, AGENTS.md
 
 version: '3'
 
@@ -16,7 +17,44 @@ vars:
   RAY_BIN: .venv/bin/ray
 
 tasks:
-  # ── Setup ──────────────────────────────────────────────────────────────────
+  # ── Boot (main entry point) ──────────────────────────────────────────────
+  boot:
+    desc: "Start all services (Ray + Docker)"
+    cmds:
+      - "{{.VENV_PYTHON}} -m boot.cli boot"
+
+  boot:ray:
+    desc: "Start Ray cluster + deploy services + ingress"
+    cmds:
+      - "{{.VENV_PYTHON}} -m boot.cli boot ray"
+
+  boot:docker:
+    desc: "Start all Docker Compose services"
+    cmds:
+      - "{{.VENV_PYTHON}} -m boot.cli boot docker"
+
+  # ── Service lifecycle ────────────────────────────────────────────────────
+  up:
+    desc: "Start specific service (e.g. task up ray-cluster)"
+    cmds:
+      - "{{.VENV_PYTHON}} -m boot.cli up {{.CLI_ARGS}}"
+
+  down:
+    desc: "Stop all services"
+    cmds:
+      - "{{.VENV_PYTHON}} -m boot.cli stop"
+
+  stop:
+    desc: "Stop specific service (e.g. task stop redshiftdb)"
+    cmds:
+      - "{{.VENV_PYTHON}} -m boot.cli stop {{.CLI_ARGS}}"
+
+  status:
+    desc: "Show all service status"
+    cmds:
+      - "{{.VENV_PYTHON}} -m boot.cli status"
+
+  # ── Setup ────────────────────────────────────────────────────────────────
   setup:
     desc: "Full bootstrap (first run on new machine)"
     cmds:
@@ -73,30 +111,19 @@ tasks:
     cmds:
       - bash infra/setup_venvs.sh all
 
-  # ── Cluster Lifecycle ──────────────────────────────────────────────────────
+  # ── Legacy cluster tasks (kept for compatibility) ────────────────────────
   start:
-    desc: "Start Ray cluster"
+    desc: "Start Ray cluster (legacy, use boot:ray)"
     cmds:
       - bash scripts/start_cluster.sh
 
-  stop:
-    desc: "Stop Ray cluster"
-    cmds:
-      - bash scripts/stop_all.sh
-
   deploy:
-    desc: "Deploy all Ray Serve services"
+    desc: "Deploy all Ray Serve services (legacy, use boot:ray)"
     deps: [start]
     cmds:
       - "{{.VENV_PYTHON}} -m scripts.deploy_services"
 
-  up:
-    desc: "Start cluster + deploy services (full startup)"
-    cmds:
-      - task: start
-      - task: deploy
-
-  # ── Models ─────────────────────────────────────────────────────────────────
+  # ── Models ───────────────────────────────────────────────────────────────
   models:list:
     desc: "List all models and download status"
     cmds:
@@ -112,27 +139,8 @@ tasks:
     cmds:
       - "{{.VENV_PYTHON}} -m registry.cli models status"
 
-  # ── Testing ────────────────────────────────────────────────────────────────
+  # ── Testing ──────────────────────────────────────────────────────────────
   test:
     desc: "Run pytest test suite"
     cmds:
       - "{{.VENV_PYTHON}} -m pytest tests/ -v {{.CLI_ARGS}}"
-
-  # ── Infrastructure ─────────────────────────────────────────────────────────
-  infra:up:
-    desc: "Start Docker infra (MCP servers, Langfuse, Prometheus, Grafana)"
-    cmds:
-      - docker compose -f infra/docker-compose.yml up -d media-analysis-mcp web-mcp langfuse-server prometheus grafana
-
-  infra:down:
-    desc: "Stop Docker infra"
-    cmds:
-      - docker compose -f infra/docker-compose.yml down
-
-  # ── Status ─────────────────────────────────────────────────────────────────
-  status:
-    desc: "Quick cluster health check"
-    cmds:
-      - "{{.RAY_BIN}} status 2>/dev/null || echo 'Ray not running'"
-      - echo "---"
-      - curl -sf http://localhost:8000/health || echo "API not responding"
