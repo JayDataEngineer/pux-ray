@@ -191,17 +191,43 @@ class APIIngress:
         handle = serve.get_deployment_handle("see_through", "creative")
         return await handle.remote(request)
 
-    # --- MCP Routes (routed through Ray Serve deployments) ---
+    # --- MCP Routes (proxied through Ray Serve HTTP on port 8000) ---
+
+    async def _proxy_mcp_via_serve(self, route_prefix: str, request: Request) -> Response:
+        """Proxy MCP request through Ray Serve's HTTP proxy.
+
+        Ray Serve handles subprocess auto-start and lifecycle on port 8000.
+        The ingress proxies to it rather than calling handle.remote() because
+        Starlette Request objects can't be serialized across Ray actors.
+        """
+        import httpx as _httpx
+
+        path = request.url.path
+        url = f"http://127.0.0.1:8000{path}"
+        if request.query_params:
+            url += f"?{request.query_params}"
+
+        async with _httpx.AsyncClient(timeout=120) as client:
+            resp = await client.request(
+                method=request.method,
+                url=url,
+                headers={k: v for k, v in request.headers.items()
+                         if k.lower() not in ("host",)},
+                content=await request.body(),
+            )
+            return Response(
+                content=resp.content,
+                status_code=resp.status_code,
+                media_type=resp.headers.get("content-type"),
+            )
 
     async def mcp_web_proxy(self, request: Request) -> Response:
-        """Proxy to local-web-mcp via Ray Serve deployment."""
-        handle = serve.get_deployment_handle("local_web_mcp", "local_web_mcp")
-        return await handle.remote(request)
+        """Proxy to local-web-mcp."""
+        return await self._proxy_mcp_via_serve("/mcp/web", request)
 
     async def mcp_media_proxy(self, request: Request) -> Response:
-        """Proxy to media-analysis-mcp via Ray Serve deployment."""
-        handle = serve.get_deployment_handle("media_analysis_mcp", "media_analysis_mcp")
-        return await handle.remote(request)
+        """Proxy to media-analysis-mcp."""
+        return await self._proxy_mcp_via_serve("/mcp/media", request)
 
     # --- Status Routes ---
 
