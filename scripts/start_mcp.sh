@@ -55,10 +55,11 @@ start_web() {
         return
     fi
     echo "Starting local-web-mcp on port $WEB_PORT..."
-    (cd "$WEB_DIR" && nohup "$WEB_VENV" -m uvicorn src.mcp_sse:app \
+    cd "$WEB_DIR" && nohup "$WEB_VENV" -m uvicorn src.mcp_sse:app \
         --host 0.0.0.0 --port "$WEB_PORT" \
-        > "$LOG_DIR/local-web-mcp.log" 2>&1 &)
+        > "$LOG_DIR/local-web-mcp.log" 2>&1 &
     echo "  PID: $!"
+    cd "$PROJECT_ROOT"
 }
 
 start_media() {
@@ -67,10 +68,11 @@ start_media() {
         return
     fi
     echo "Starting media-analysis-mcp on port $MEDIA_PORT..."
-    (cd "$MEDIA_DIR" && nohup "$MEDIA_VENV" -m uvicorn src.server:app \
+    cd "$MEDIA_DIR" && nohup "$MEDIA_VENV" -m uvicorn src.server:app \
         --host 0.0.0.0 --port "$MEDIA_PORT" \
-        > "$LOG_DIR/media-analysis-mcp.log" 2>&1 &)
+        > "$LOG_DIR/media-analysis-mcp.log" 2>&1 &
     echo "  PID: $!"
+    cd "$PROJECT_ROOT"
 }
 
 stop_all() {
