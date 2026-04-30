@@ -28,7 +28,6 @@ MEDIA_MCP_PORT = 8101
 @serve.deployment(
     name="media_analysis_mcp",
     num_replicas=1,
-    max_concurrent_queries=8,
     num_gpus=0,
 )
 class MediaAnalysisMCPDeployment(SubprocessMixin):

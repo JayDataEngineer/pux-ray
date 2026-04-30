@@ -28,7 +28,6 @@ LLM_MCP_PORT = 8327
 @serve.deployment(
     name="local_web_mcp",
     num_replicas=1,
-    max_concurrent_queries=16,
     num_gpus=0,
 )
 class LocalWebMCPDeployment(SubprocessMixin):
