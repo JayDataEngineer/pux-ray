@@ -13,31 +13,29 @@ mkdir -p "$LOG_DIR"
 
 # Read config from local.yaml via python
 read_config() {
+    local key="$1"
+    local default="$2"
     "$PROJECT_ROOT/.venv/bin/python" -c "
 import sys; sys.path.insert(0, '$PROJECT_ROOT')
 from registry.config import Config
-c = Config()
-key = '$1'
-default = $2 if len(sys.argv) > 2 else None
-val = c.get(key, default)
+val = Config().get('$key', $default)
 print(val)
-" "$2"
+"
 }
 
 read_path() {
+    local key="$1"
+    local default="$2"
     "$PROJECT_ROOT/.venv/bin/python" -c "
 from pathlib import Path
 import sys; sys.path.insert(0, '$PROJECT_ROOT')
 from registry.config import Config
-c = Config()
-key = '$1'
-default = '$2'
-val = c.get(key, default)
+val = Config().get('$key', '$default')
 p = Path(val)
 if not p.is_absolute():
-    p = Path(c.project_root) / p
+    p = Path(Config().project_root) / p
 print(p)
-" "$2"
+"
 }
 
 WEB_PORT=$(read_config services.mcp.local_web.port 8327)
