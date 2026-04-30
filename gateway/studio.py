@@ -164,10 +164,27 @@ STUDIO_APPS: dict[str, dict] = {
         "manage_type": "scheduler",
         "default_model": "qwen_asr",
     },
+    # --- MCP Servers (always-on, CPU) ---
+    "local_web_mcp": {
+        "label": "Local Web MCP",
+        "url": "http://localhost:8327",
+        "has_ui": False,
+        "category": "MCP",
+        "gpu": False,
+        "manage_type": "subprocess",
+    },
+    "media_analysis_mcp": {
+        "label": "Media Analysis MCP",
+        "url": "http://localhost:8101",
+        "has_ui": False,
+        "category": "MCP",
+        "gpu": False,
+        "manage_type": "subprocess",
+    },
 }
 
 # Ordered categories for sidebar grouping
-CATEGORY_ORDER = ["Image", "LLM", "3D", "Music", "Creative", "TTS", "ASR"]
+CATEGORY_ORDER = ["Image", "LLM", "3D", "Music", "Creative", "TTS", "ASR", "MCP"]
 
 
 # ---------------------------------------------------------------------------

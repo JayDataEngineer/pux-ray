@@ -169,6 +169,8 @@ KNOWN_DEPLOYMENTS = {
     "anigen":          {"label": "AniGen",          "category": "3D",       "gpu": True},
     "see_through":     {"label": "See-Through",     "category": "Creative", "gpu": True},
     "ace_step":        {"label": "ACE-Step",        "category": "Music",    "gpu": True},
+    "local_web_mcp":   {"label": "Local Web MCP",   "category": "MCP",      "gpu": False},
+    "media_analysis_mcp": {"label": "Media Analysis MCP", "category": "MCP", "gpu": False},
 }
 
 
