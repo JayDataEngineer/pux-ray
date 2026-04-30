@@ -28,7 +28,8 @@ LLM_MCP_PORT = 8327
 @serve.deployment(
     name="local_web_mcp",
     num_replicas=1,
-    num_gpus=0,
+    ray_actor_options={"num_cpus": 1, "num_gpus": 0},
+    max_ongoing_requests=16,
 )
 class LocalWebMCPDeployment(SubprocessMixin):
     """Manages the local-web-mcp subprocess."""
