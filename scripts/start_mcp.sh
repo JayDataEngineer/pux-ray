@@ -14,7 +14,7 @@ mkdir -p "$LOG_DIR"
 # Read config from local.yaml via python
 read_config() {
     local key="$1"
-    local default="$2"
+    local default="${2:-}"
     "$PROJECT_ROOT/.venv/bin/python" -c "
 import sys; sys.path.insert(0, '$PROJECT_ROOT')
 from registry.config import Config
@@ -25,7 +25,7 @@ print(val)
 
 read_path() {
     local key="$1"
-    local default="$2"
+    local default="${2:-}"
     "$PROJECT_ROOT/.venv/bin/python" -c "
 from pathlib import Path
 import sys; sys.path.insert(0, '$PROJECT_ROOT')
