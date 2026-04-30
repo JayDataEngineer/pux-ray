@@ -1,0 +1,16 @@
+[Unit]
+Description=Tech Noir Ray Cluster - Boot Services
+After=network-online.target tailscaled.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=user
+ExecStart=/bin/bash /home/user/Documents/programs/ray/scripts/boot_services.sh
+Restart=on-failure
+RestartSec=30
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
