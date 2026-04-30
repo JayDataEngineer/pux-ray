@@ -128,12 +128,12 @@ tts:
 
   vibevoice-tts:
     path: tts/vibevoice/
-    source: null
+    source: hf://vibevoice/VibeVoice-7B
     sha256: null
-    size_gb: 0.01
-    vram_estimate_gb: 0.5
+    size_gb: 18.7
+    vram_estimate_gb: 20.0
     device: gpu
-    description: "VibeVoice TTS voice preset data. Placeholder for VibeVoice TTS models."
+    description: "VibeVoice 7B TTS model (18.7GB, 10 safetensors shards). Long-form multi-speaker speech synthesis. Requires custom vibevoice package."
 
 # ---------------------------------------------------------------------------
 # ASR - Automatic Speech Recognition models
