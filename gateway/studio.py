@@ -164,14 +164,14 @@ STUDIO_APPS: dict[str, dict] = {
         "manage_type": "scheduler",
         "default_model": "qwen_asr",
     },
-    # --- MCP Servers (always-on, CPU) ---
+    # --- MCP Servers (always-on, CPU, managed outside Ray) ---
     "local_web_mcp": {
         "label": "Local Web MCP",
         "url": "http://localhost:8327",
         "has_ui": False,
         "category": "MCP",
         "gpu": False,
-        "manage_type": "subprocess",
+        "manage_type": "persistent",
     },
     "media_analysis_mcp": {
         "label": "Media Analysis MCP",
@@ -179,7 +179,7 @@ STUDIO_APPS: dict[str, dict] = {
         "has_ui": False,
         "category": "MCP",
         "gpu": False,
-        "manage_type": "subprocess",
+        "manage_type": "persistent",
     },
 }
 

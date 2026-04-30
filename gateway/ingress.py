@@ -191,19 +191,14 @@ class APIIngress:
         handle = serve.get_deployment_handle("see_through", "creative")
         return await handle.remote(request)
 
-    # --- MCP Routes (proxied through Ray Serve HTTP on port 8000) ---
+    # --- MCP Routes (direct proxy to persistent processes) ---
 
-    async def _proxy_mcp_via_serve(self, route_prefix: str, request: Request) -> Response:
-        """Proxy MCP request through Ray Serve's HTTP proxy.
-
-        Ray Serve handles subprocess auto-start and lifecycle on port 8000.
-        The ingress proxies to it rather than calling handle.remote() because
-        Starlette Request objects can't be serialized across Ray actors.
-        """
+    async def _proxy_mcp(self, port: int, prefix: str, request: Request) -> Response:
+        """Proxy to an MCP server running as a persistent process."""
         import httpx as _httpx
 
-        path = request.url.path
-        url = f"http://127.0.0.1:8000{path}"
+        path = request.url.path.replace(prefix, "") or "/"
+        url = f"http://127.0.0.1:{port}{path}"
         if request.query_params:
             url += f"?{request.query_params}"
 
@@ -222,12 +217,12 @@ class APIIngress:
             )
 
     async def mcp_web_proxy(self, request: Request) -> Response:
-        """Proxy to local-web-mcp."""
-        return await self._proxy_mcp_via_serve("/mcp/web", request)
+        """Proxy to local-web-mcp (port 8327)."""
+        return await self._proxy_mcp(8327, "/mcp/web", request)
 
     async def mcp_media_proxy(self, request: Request) -> Response:
-        """Proxy to media-analysis-mcp."""
-        return await self._proxy_mcp_via_serve("/mcp/media", request)
+        """Proxy to media-analysis-mcp (port 8101)."""
+        return await self._proxy_mcp(8101, "/mcp/media", request)
 
     # --- Status Routes ---
 
