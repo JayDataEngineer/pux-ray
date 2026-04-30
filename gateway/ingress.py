@@ -191,38 +191,17 @@ class APIIngress:
         handle = serve.get_deployment_handle("see_through", "creative")
         return await handle.remote(request)
 
-    # --- MCP Routes ---
-
-    async def _proxy_mcp(self, port: int, prefix: str, request: Request) -> Response:
-        """Generic proxy to an MCP subprocess server."""
-        import httpx as _httpx
-
-        path = request.url.path.replace(prefix, "") or "/"
-        url = f"http://127.0.0.1:{port}{path}"
-        if request.query_params:
-            url += f"?{request.query_params}"
-
-        async with _httpx.AsyncClient(timeout=120) as client:
-            resp = await client.request(
-                method=request.method,
-                url=url,
-                headers={k: v for k, v in request.headers.items()
-                         if k.lower() not in ("host",)},
-                content=await request.body(),
-            )
-            return Response(
-                content=resp.content,
-                status_code=resp.status_code,
-                media_type=resp.headers.get("content-type"),
-            )
+    # --- MCP Routes (routed through Ray Serve deployments) ---
 
     async def mcp_web_proxy(self, request: Request) -> Response:
-        """Proxy to local-web-mcp server."""
-        return await self._proxy_mcp(8327, "/mcp/web", request)
+        """Proxy to local-web-mcp via Ray Serve deployment."""
+        handle = serve.get_deployment_handle("local_web_mcp", "local_web_mcp")
+        return await handle.remote(request)
 
     async def mcp_media_proxy(self, request: Request) -> Response:
-        """Proxy to media-analysis-mcp server."""
-        return await self._proxy_mcp(8101, "/mcp/media", request)
+        """Proxy to media-analysis-mcp via Ray Serve deployment."""
+        handle = serve.get_deployment_handle("media_analysis_mcp", "media_analysis_mcp")
+        return await handle.remote(request)
 
     # --- Status Routes ---
 
