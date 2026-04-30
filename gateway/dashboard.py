@@ -169,9 +169,21 @@ KNOWN_DEPLOYMENTS = {
     "anigen":          {"label": "AniGen",          "category": "3D",       "gpu": True},
     "see_through":     {"label": "See-Through",     "category": "Creative", "gpu": True},
     "ace_step":        {"label": "ACE-Step",        "category": "Music",    "gpu": True},
-    "local_web_mcp":   {"label": "Local Web MCP",   "category": "MCP",      "gpu": False},
-    "media_analysis_mcp": {"label": "Media Analysis MCP", "category": "MCP", "gpu": False},
+    "local_web_mcp":   {"label": "Local Web MCP",   "category": "MCP",      "gpu": False, "external_port": 8327},
+    "media_analysis_mcp": {"label": "Media Analysis MCP", "category": "MCP", "gpu": False, "external_port": 8101},
 }
+
+
+def _check_port(port: int) -> bool:
+    """Check if a TCP port is accepting connections."""
+    import socket
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.settimeout(1)
+        try:
+            s.connect(("127.0.0.1", port))
+            return True
+        except (ConnectionRefusedError, OSError):
+            return False
 
 
 def query_service_status() -> list[dict]:
@@ -193,6 +205,21 @@ def query_service_status() -> list[dict]:
 
     services = []
     for dep_name, meta in KNOWN_DEPLOYMENTS.items():
+        # External services (persistent processes, not Ray deployments)
+        ext_port = meta.get("external_port")
+        if ext_port:
+            alive = _check_port(ext_port)
+            services.append({
+                "name": dep_name,
+                "label": meta["label"],
+                "category": meta["category"],
+                "gpu": meta["gpu"],
+                "status": "RUNNING" if alive else "STOPPED",
+                "running_replicas": 1 if alive else 0,
+                "target_replicas": 1,
+            })
+            continue
+
         dep = deployed.get(dep_name)
         if dep:
             running = getattr(dep, "running_replicas", 0)
