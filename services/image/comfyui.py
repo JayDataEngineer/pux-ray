@@ -71,7 +71,6 @@ class ComfyUIDeployment(SubprocessMixin):
             "--port", str(self.port),
             "--listen", "127.0.0.1",
             "--preview-method", "auto",
-            "--use-flash-attention",
             "--dont-upcast-attention",
         ]
 
