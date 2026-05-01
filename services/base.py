@@ -333,9 +333,15 @@ class CLIToolMixin:
         """Run the tool's CLI with its own venv Python."""
         cmd = [self._venv_python, self._script, *args]
         logger.info("Running CLI: %s", " ".join(cmd[:6]))
-        env = None
+        # Build clean env: start from OS env but strip Python paths that
+        # would override the venv's site-packages (Ray sets PYTHONPATH etc.)
+        env = dict(os.environ)
+        for key in list(env.keys()):
+            if key.startswith(("PYTHON", "VIRTUAL_ENV", "CONDA")):
+                del env[key]
+        env["PATH"] = f"{Path(self._venv_python).parent}:{env.get('PATH', '')}"
         if extra_env:
-            env = {**os.environ, **extra_env}
+            env.update(extra_env)
         result = subprocess.run(
             cmd,
             capture_output=True,
