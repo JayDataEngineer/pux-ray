@@ -45,6 +45,10 @@ class ACEStepDeployment(BaseGPUDeployment, CLIToolMixin):
     def _unload(self) -> None:
         self.model = None
 
+    def _ensure_loaded(self) -> None:
+        if not hasattr(self, "_venv_python"):
+            self._load()
+
     async def generate_music(
         self,
         prompt: str,
@@ -56,8 +60,7 @@ class ACEStepDeployment(BaseGPUDeployment, CLIToolMixin):
         task_type: str = "text2music",
     ) -> bytes:
         """Generate music from text prompt. Returns audio bytes."""
-        if not self.is_loaded():
-            raise RuntimeError("No model loaded")
+        self._ensure_loaded()
 
         tmpdir = tempfile.mkdtemp(prefix="acestep_")
         try:

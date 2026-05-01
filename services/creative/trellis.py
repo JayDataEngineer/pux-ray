@@ -40,10 +40,15 @@ class TRELLISDeployment(BaseGPUDeployment, CLIToolMixin):
         logger.info("TRELLIS CLI ready (model_path=%s)", self._model_path)
 
     def _unload(self) -> None:
-        # Model loads/unloads per subprocess call — nothing in-process
         self.model = None
 
+    def _ensure_loaded(self) -> None:
+        """Lazy init — Ray Serve doesn't call load_model() before __call__."""
+        if not hasattr(self, "_venv_python"):
+            self._load()
+
     async def __call__(self, request):
+        self._ensure_loaded()
         form = await request.form()
         image_file = form["image"]
         image_bytes = await image_file.read()

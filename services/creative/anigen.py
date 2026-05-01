@@ -39,7 +39,12 @@ class AniGenDeployment(BaseGPUDeployment, CLIToolMixin):
     def _unload(self) -> None:
         self.model = None
 
+    def _ensure_loaded(self) -> None:
+        if not hasattr(self, "_venv_python"):
+            self._load()
+
     async def __call__(self, request):
+        self._ensure_loaded()
         form = await request.form()
         image_file = form["image"]
         image_bytes = await image_file.read()
