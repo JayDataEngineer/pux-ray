@@ -304,6 +304,8 @@ def _start_ray(svc: Service) -> bool:
                     "--num-gpus=1",
                     "--dashboard-host=0.0.0.0",
                     "--dashboard-port=18265",
+                    "--min-worker-port=10002",
+                    "--max-worker-port=17999",
                     "--object-store-memory=4000000000",
                     "--temp-dir=/tmp/ray",
                 ],
