@@ -100,26 +100,24 @@ tasks:
       - uv sync
 
   setup:repos:
-    desc: "Clone creative tool repos + llama.cpp via git-sync"
+    desc: "Clone creative tool repos + llama.cpp"
     cmds:
-      - docker compose -f infra/docker-compose.yml run --rm tools-sync
-      - docker compose -f infra/docker-compose.yml run --rm llama-sync
+      - "{{.VENV_PYTHON}} -m infra.setup.clone"
 
   setup:tools:
     desc: "Build llama.cpp + create creative tool venvs"
     deps: [setup:repos]
     cmds:
-      - bash infra/setup_venvs.sh all
+      - "{{.VENV_PYTHON}} -m infra.setup all"
 
   # ── Legacy cluster tasks (kept for compatibility) ────────────────────────
   start:
     desc: "Start Ray cluster (legacy, use boot:ray)"
     cmds:
-      - bash scripts/start_cluster.sh
+      - "{{.VENV_PYTHON}} -m boot.cli up ray-cluster"
 
   deploy:
     desc: "Deploy all Ray Serve services (legacy, use boot:ray)"
-    deps: [start]
     cmds:
       - "{{.VENV_PYTHON}} -m scripts.deploy_services"
 
@@ -144,3 +142,8 @@ tasks:
     desc: "Run pytest test suite"
     cmds:
       - "{{.VENV_PYTHON}} -m pytest tests/ -v {{.CLI_ARGS}}"
+
+  test:infra:
+    desc: "Run infrastructure validation tests (registry, setup modules)"
+    cmds:
+      - "{{.VENV_PYTHON}} -m pytest tests/test_registry.py tests/test_infra_setup.py -v"

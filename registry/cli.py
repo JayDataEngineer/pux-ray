@@ -117,10 +117,15 @@ def cmd_models_list(args):
                 size_str = "?"
 
             source = meta.get("source")
-            if source:
-                source_display = source.split("/")[-1][:30]
+            download_mode = meta.get("download", "")
+            if source and source.startswith("hf://"):
+                source_display = "hf://" + source.split("/")[2] + "/…" if "/" in source[5:] else source
+            elif source and source.startswith("civitai://"):
+                source_display = "civitai"
+            elif download_mode == "manual":
+                source_display = "manual"
             else:
-                source_display = "local-only"
+                source_display = "local"
 
             status = "[green]OK[/green]" if exists else "[red]MISSING[/red]"
             table.add_row(name, category, size_str, status, source_display)
@@ -155,8 +160,49 @@ def cmd_models_pull(args):
             if target and f"{category}/{name}" != target and name != target:
                 continue
 
-            source = meta.get("source")
-            if not source:
+            # Check download mode
+            download_mode = meta.get("download", "")
+            if download_mode in ("skip", None) and not meta.get("source"):
+                skipped += 1
+                print(f"  SKIP {category}/{name} - not downloadable")
+                continue
+
+            source = meta.get("source", "")
+
+            # Handle Civitai downloads
+            if download_mode == "civitai" and source.startswith("civitai://"):
+                model_id = source.split("://")[1]
+                print(f"  PULL {category}/{name} from Civitai model {model_id}")
+                try:
+                    model_path = registry.get_path(category, name)
+                    if model_path.exists() and model_path.is_file():
+                        print(f"  OK   {category}/{name} - already downloaded")
+                        continue
+                    model_path.parent.mkdir(parents=True, exist_ok=True)
+                    import subprocess
+                    dl_url = f"https://civitai.com/api/download/models/{model_id}"
+                    result = subprocess.run(
+                        ["wget", "-q", "--show-progress", "-O", str(model_path), dl_url],
+                        capture_output=True, text=True, timeout=600,
+                    )
+                    if result.returncode == 0 and model_path.exists():
+                        print(f"       -> {model_path}")
+                        pulled += 1
+                    else:
+                        print(f"  FAIL {category}/{name}: wget returned {result.returncode}")
+                        print(f"       {result.stderr[:200]}")
+                        skipped += 1
+                except Exception as e:
+                    print(f"  FAIL {category}/{name}: {e}")
+                    skipped += 1
+                continue
+
+            if download_mode == "manual":
+                skipped += 1
+                print(f"  MANUAL {category}/{name} - requires manual download")
+                continue
+
+            if not source or not source.startswith("hf://"):
                 skipped += 1
                 print(f"  SKIP {category}/{name} - no download source")
                 continue
@@ -189,11 +235,11 @@ def cmd_models_pull(args):
             try:
                 from huggingface_hub import hf_hub_download, snapshot_download
 
-                dest_dir = model_path.parent
-                dest_dir.mkdir(parents=True, exist_ok=True)
-
-                if filename:
+                # Determine download method
+                if download_mode == "file" or filename:
                     # Single file download
+                    dest_dir = model_path.parent
+                    dest_dir.mkdir(parents=True, exist_ok=True)
                     downloaded = hf_hub_download(
                         repo_id=repo_id,
                         filename=filename,
@@ -202,6 +248,7 @@ def cmd_models_pull(args):
                     print(f"       -> {downloaded}")
                 else:
                     # Entire repo snapshot
+                    model_path.mkdir(parents=True, exist_ok=True)
                     snapshot_download(
                         repo_id=repo_id,
                         local_dir=str(model_path),
