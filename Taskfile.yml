@@ -152,3 +152,8 @@ tasks:
     desc: "Run infrastructure validation tests (registry, setup modules)"
     cmds:
       - "{{.VENV_PYTHON}} -m pytest tests/test_registry.py tests/test_infra_setup.py -v"
+
+  test:e2e:
+    desc: "Run full E2E tests (models on disk, repos cloned, venvs working)"
+    cmds:
+      - "{{.VENV_PYTHON}} -m pytest tests/test_e2e_setup.py -v"
