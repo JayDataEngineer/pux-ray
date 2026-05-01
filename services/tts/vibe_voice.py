@@ -46,7 +46,12 @@ class VibeVoiceDeployment(BaseGPUDeployment, CLIToolMixin):
     def _unload(self) -> None:
         self.model = None
 
+    def _ensure_loaded(self) -> None:
+        if not hasattr(self, "_venv_python"):
+            self._load()
+
     async def __call__(self, request):
+        self._ensure_loaded()
         body = await request.json()
         text = body.get("input", "")
         if not text:
