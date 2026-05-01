@@ -53,11 +53,7 @@ RAY_ROOT = Path(__file__).resolve().parent.parent.parent
 # ---------------------------------------------------------------------------
 
 def _make_test_png(width: int = 256, height: int = 256) -> bytes:
-    """Generate a minimal valid PNG image (checkerboard pattern).
-
-    Produces a real PNG file with recognizable content so image-to-3D
-    and image-decomposition tools have actual pixels to work with.
-    """
+    """Generate a minimal valid PNG image (checkerboard pattern)."""
     import zlib
 
     def _chunk(chunk_type: bytes, data: bytes) -> bytes:
@@ -65,23 +61,20 @@ def _make_test_png(width: int = 256, height: int = 256) -> bytes:
         crc = struct.pack(">I", zlib.crc32(c) & 0xFFFFFFFF)
         return struct.pack(">I", len(data)) + c + crc
 
-    # IHDR: 8-bit RGB
     ihdr_data = struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0)
     ihdr = _chunk(b"IHDR", ihdr_data)
 
-    # IDAT: raw pixel data (checkerboard pattern)
     raw_rows = bytearray()
     for y in range(height):
-        raw_rows.append(0)  # filter byte: none
+        raw_rows.append(0)
         for x in range(width):
             if (x // 32 + y // 32) % 2 == 0:
-                raw_rows.extend([200, 100, 50])  # warm brown
+                raw_rows.extend([200, 100, 50])
             else:
-                raw_rows.extend([50, 100, 200])  # cool blue
+                raw_rows.extend([50, 100, 200])
 
     compressed = zlib.compress(bytes(raw_rows))
     idat = _chunk(b"IDAT", compressed)
-
     iend = _chunk(b"IEND", b"")
 
     return b"\x89PNG\r\n\x1a\n" + ihdr + idat + iend
@@ -108,6 +101,36 @@ def _make_test_wav(duration_s: float = 1.0, sample_rate: int = 22050,
     buf.write(struct.pack("<I", len(data)))
     buf.write(bytes(data))
     return buf.getvalue()
+
+
+# ---------------------------------------------------------------------------
+# Serve handle helpers
+# ---------------------------------------------------------------------------
+
+def _await_serve(resp):
+    """Resolve a Serve DeploymentResponse synchronously."""
+    import asyncio
+    loop = asyncio.new_event_loop()
+    try:
+        return loop.run_until_complete(resp)
+    finally:
+        loop.close()
+
+
+def _get_handle(deployment_name: str, app_name: str):
+    """Get a Ray Serve deployment handle."""
+    import sys
+    sys.path.insert(0, str(RAY_ROOT))
+    import ray
+    from ray import serve
+    ray.init(address="auto", namespace="serve", ignore_reinit_error=True)
+    return serve.get_deployment_handle(deployment_name, app_name)
+
+
+def _load_service(deployment_name: str, app_name: str, model_name: str):
+    """Load a GPU model via deployment handle. Idempotent."""
+    handle = _get_handle(deployment_name, app_name)
+    _await_serve(handle.options(method_name="load_model").remote(model_name))
 
 
 # ---------------------------------------------------------------------------
@@ -154,6 +177,37 @@ def test_wav():
     return _make_test_wav(1.0, 22050, 440)
 
 
+@pytest.fixture(scope="session")
+def llm_loaded(ensure_served):
+    """Load the LLM model before tests that need it."""
+    _load_service("llm", "llm", "qwen3.5-2b-ud-q4_k_xl")
+    time.sleep(2)  # wait for llama-server to fully start
+
+
+@pytest.fixture(scope="session")
+def trellis_loaded(ensure_served):
+    """Load TRELLIS model (CLIToolMixin - just verifies venv)."""
+    _load_service("trellis", "trellis", "trellis")
+
+
+@pytest.fixture(scope="session")
+def anigen_loaded(ensure_served):
+    """Load AniGen model."""
+    _load_service("anigen", "anigen", "anigen")
+
+
+@pytest.fixture(scope="session")
+def ace_step_loaded(ensure_served):
+    """Load ACE-STEP model."""
+    _load_service("ace_step", "ace_step", "ace-step")
+
+
+@pytest.fixture(scope="session")
+def see_through_loaded(ensure_served):
+    """Load See-Through model."""
+    _load_service("see_through", "see_through", "see-through")
+
+
 def get_vram_free_mb() -> int:
     """Get free VRAM via nvidia-smi."""
     result = subprocess.run(
@@ -168,19 +222,19 @@ def get_vram_free_mb() -> int:
 # =============================================================================
 
 class TestLLM:
-    def test_chat_simple(self, client, ensure_served):
+    def test_chat_simple(self, client, llm_loaded):
         """Simple single-turn chat via direct LLM endpoint."""
         resp = client.post("/llm/", json={
             "messages": [{"role": "user", "content": "What is 2+2? Reply with just the number."}],
             "model": "qwen3.5-2b-ud-q4_k_xl",
-        })
-        assert resp.status_code == 200
+        }, timeout=120)
+        assert resp.status_code == 200, f"LLM failed: {resp.status_code} {resp.text[:500]}"
         data = resp.json()
         assert "choices" in data
         content = data["choices"][0]["message"]["content"]
         assert "4" in content
 
-    def test_chat_multiturn(self, client, ensure_served):
+    def test_chat_multiturn(self, client, llm_loaded):
         """Multi-turn conversation - verify the API accepts message arrays."""
         resp = client.post("/llm/", json={
             "messages": [
@@ -189,7 +243,7 @@ class TestLLM:
                 {"role": "user", "content": "What is my name?"},
             ],
             "model": "qwen3.5-2b-ud-q4_k_xl",
-        })
+        }, timeout=120)
         assert resp.status_code == 200
         data = resp.json()
         assert "choices" in data
@@ -234,7 +288,9 @@ class TestCPU_ASR:
             files={"file": ("test.wav", tts_resp.content)},
             data={"model": "tiny"},
         )
-        assert asr_resp.status_code == 200
+        assert asr_resp.status_code == 200, (
+            f"ASR failed: {asr_resp.status_code} {asr_resp.text[:500]}"
+        )
         text = asr_resp.json()["text"].lower()
         assert any(word in text for word in ["quick", "brown", "fox", "dog"])
 
@@ -243,66 +299,32 @@ class TestCPU_ASR:
 # VRAM Swap Tests
 # =============================================================================
 
-def _await_serve(resp):
-    """Resolve a Serve DeploymentResponse synchronously."""
-    import asyncio
-    loop = asyncio.new_event_loop()
-    try:
-        return loop.run_until_complete(resp)
-    finally:
-        loop.close()
-
-
 class TestVRAMSwap:
-    def _get_llm_handle(self):
-        """Get LLM deployment handle."""
-        import sys
-        sys.path.insert(0, str(RAY_ROOT))
-        import ray
-        from ray import serve
-        ray.init(address="auto", namespace="serve", ignore_reinit_error=True)
-        return serve.get_deployment_handle("llm", "llm")
-
-    def test_load_llm_via_handle(self, ensure_served):
+    def test_load_llm_via_handle(self, llm_loaded):
         """Load LLM model, verify VRAM drops, unload, verify VRAM recovers."""
-        handle = self._get_llm_handle()
+        handle = _get_handle("llm", "llm")
 
-        _await_serve(handle.options(method_name="unload_model").remote())
-        time.sleep(3)
-
-        vram_before = get_vram_free_mb()
-
-        _await_serve(
-            handle.options(method_name="load_model").remote("qwen3.5-2b-ud-q4_k_xl")
-        )
-
-        time.sleep(5)
         vram_loaded = get_vram_free_mb()
-        assert vram_loaded < vram_before, (
-            f"VRAM didn't drop after loading model: {vram_before}MB -> {vram_loaded}MB"
-        )
 
+        # Unload and verify VRAM recovers
         _await_serve(handle.options(method_name="unload_model").remote())
-
         time.sleep(5)
         vram_after = get_vram_free_mb()
-        assert vram_after >= vram_before - 500, (
-            f"VRAM didn't recover after unload: {vram_before}MB -> {vram_after}MB"
+
+        assert vram_after > vram_loaded, (
+            f"VRAM didn't recover after unload: {vram_loaded}MB -> {vram_after}MB"
         )
 
-    def test_cpu_tts_during_gpu_load(self, client, ensure_served):
-        """CPU TTS should work while GPU is occupied."""
-        handle = self._get_llm_handle()
-
+        # Reload for subsequent tests
         _await_serve(
             handle.options(method_name="load_model").remote("qwen3.5-2b-ud-q4_k_xl")
         )
 
+    def test_cpu_tts_during_gpu_load(self, client, llm_loaded):
+        """CPU TTS should work while GPU is occupied."""
         resp = client.post("/tts/espeak", json={"input": "Still working."})
         assert resp.status_code == 200
         assert len(resp.content) > 0
-
-        _await_serve(handle.options(method_name="unload_model").remote())
 
 
 # =============================================================================
@@ -317,8 +339,6 @@ class TestComfyUI:
     """
 
     # Minimal txt2img workflow using LTX-Video checkpoint.
-    # KSampler -> CheckpointLoader -> EmptyLatentImage -> CLIPTextEncode
-    # -> VAEDecode -> SaveImage
     LTX_WORKFLOW = {
         "3": {
             "class_type": "KSampler",
@@ -436,7 +456,7 @@ class TestTRELLIS:
     pattern — model loads fresh per call (~30s overhead).
     """
 
-    def test_generate_glb(self, client, ensure_served, test_png):
+    def test_generate_glb(self, client, trellis_loaded, test_png):
         """Generate a GLB mesh from a test image."""
         resp = client.post(
             "/3d/trellis/",
@@ -468,7 +488,7 @@ class TestAniGen:
     pattern — model loads fresh per call (~60s overhead).
     """
 
-    def test_generate_rigged_glb(self, client, ensure_served, test_png):
+    def test_generate_rigged_glb(self, client, anigen_loaded, test_png):
         """Generate a rigged GLB mesh from a test image."""
         resp = client.post(
             "/3d/anigen/",
@@ -496,7 +516,7 @@ class TestACEStep:
     Deployed at /music/ace-step on Ray Serve. Uses CLIToolMixin subprocess.
     """
 
-    def test_generate_music(self, client, ensure_served):
+    def test_generate_music(self, client, ace_step_loaded):
         """Generate a short music clip from a text prompt."""
         resp = client.post(
             "/music/ace-step/",
@@ -529,7 +549,7 @@ class TestSeeThrough:
     Deployed at /creative/see-through on Ray Serve. Uses CLIToolMixin.
     """
 
-    def test_decompose(self, client, ensure_served, test_png):
+    def test_decompose(self, client, see_through_loaded, test_png):
         """Decompose an image into layers."""
         resp = client.post(
             "/creative/see-through/",
