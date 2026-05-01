@@ -350,7 +350,7 @@ class TestComfyUI:
         "4": {
             "class_type": "CheckpointLoaderSimple",
             "inputs": {
-                "ckpt_name": "ltx-video-2.0.0.safetensors"
+                "ckpt_name": "ltx-2.3-22b-distilled-1.1.safetensors"
             }
         },
         "5": {
