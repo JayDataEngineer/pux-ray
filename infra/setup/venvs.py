@@ -109,11 +109,19 @@ def _venv_version(venv_py: Path) -> str:
 
 
 def _build_ext_env() -> dict[str, str]:
-    """Environment for building CUDA extensions."""
+    """Environment for building CUDA extensions.
+
+    Uses CUDA 12.x toolkit and GCC 14 (CUDA 12.x doesn't support GCC 15+).
+    On Ubuntu 26.04+, the default GCC is 15, so we explicitly set CC/CXX
+    to gcc-14/g++-14. Install with: sudo apt install gcc-14 g++-14
+    """
     env = dict(os.environ)
     env["CUDA_HOME"] = CUDA_12_HOME
     env["TORCH_CUDA_ARCH_LIST"] = TORCH_CUDA_ARCH
     env["PATH"] = str(Path.home() / ".local" / "bin") + ":" + env.get("PATH", "")
+    # CUDA 12.x requires GCC <= 14. Ubuntu 26.04 defaults to GCC 15.
+    env["CC"] = "gcc-14"
+    env["CXX"] = "g++-14"
     return env
 
 
