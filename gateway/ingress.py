@@ -143,7 +143,11 @@ class APIIngress:
 
         dep_name, app_name = tts_services.get(model, ("kokoro_tts", "kokoro_tts"))
         handle = serve.get_deployment_handle(dep_name, app_name)
-        return await handle.remote(request)
+        audio = await handle.synthesize.remote(
+            text=body.get("input", ""),
+            voice=body.get("voice", ""),
+        )
+        return Response(content=audio, media_type="audio/wav")
 
     # --- ASR Routes ---
 
