@@ -1,0 +1,84 @@
+# Docker Compose for CUDA-heavy creative tool workers.
+#
+# Uses Docker Compose profiles for GPU exclusivity — only one worker
+# runs at a time on a single-GPU machine.
+#
+# Start a worker:  docker compose --profile trellis up -d
+# Stop a worker:   docker compose --profile trellis stop trellis-worker
+# List running:    docker compose ps
+# Build all:       docker compose build
+#
+# GPUScheduler manages which worker is active via docker compose commands.
+
+services:
+  trellis-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile.trellis
+    container_name: trellis-worker
+    ports:
+      - "18401:18401"
+    volumes:
+      - ${MODELS_DIR:-/home/user/Documents/models}/3d/trellis:/models:ro
+    environment:
+      - TOOL_NAME=trellis
+      - PORT=18401
+      - MODEL_PATH=/models/TRELLIS.2-4B
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    profiles:
+      - trellis
+    restart: "no"
+
+  anigen-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile.anigen
+    container_name: anigen-worker
+    ports:
+      - "18402:18402"
+    volumes:
+      - ${MODELS_DIR:-/home/user/Documents/models}/3d/anigen:/models:ro
+    environment:
+      - TOOL_NAME=anigen
+      - PORT=18402
+      - MODEL_PATH=/models
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    profiles:
+      - anigen
+    restart: "no"
+
+  vibevoice-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile.vibevoice
+    container_name: vibevoice-worker
+    ports:
+      - "18403:18403"
+    volumes:
+      - ${MODELS_DIR:-/home/user/Documents/models}/tts/vibevoice:/models:ro
+    environment:
+      - TOOL_NAME=vibevoice
+      - PORT=18403
+      - MODEL_PATH=/models/VibeVoice-7B
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    profiles:
+      - vibevoice
+    restart: "no"

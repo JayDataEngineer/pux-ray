@@ -1,0 +1,118 @@
+# TRELLIS.2 Docker Worker
+# Multi-stage build: compile CUDA extensions in devel image, run in runtime image
+#
+# Required extensions (compiled from source):
+#   o_voxel, CuMesh, flash-attn, nvdiffrast, FlexGEMM, nvdiffrec
+#
+# Build:  docker build -f Dockerfile.trellis -t trellis-worker .
+# Run:    docker run --gpus all -p 18401:18401 -v /models:/models:ro trellis-worker
+
+# ---- Build Stage ----
+FROM nvidia/cuda:12.4.0-devel-ubuntu22.04 AS builder
+
+ENV DEBIAN_FRONTEND=noninteractive
+ENV PYTHONUNBUFFERED=1
+
+# System deps for building extensions
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    python3.12 python3.12-venv python3.12-dev \
+    git build-essential ninja-build \
+    libgl1-mesa-glx libglib2.0-0 \
+    && rm -rf /var/lib/apt/lists/* \
+    && ln -sf /usr/bin/python3.12 /usr/bin/python
+
+# Install uv for fast pip
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
+
+WORKDIR /build
+
+# Install torch + torchvision first (heavy, cacheable layer)
+RUN uv pip install --system --no-cache \
+    torch==2.6.0 torchvision==0.21.0 \
+    --index-url https://download.pytorch.org/whl/cu124
+
+# Install core Python deps
+RUN uv pip install --system --no-cache \
+    pillow einops transformers accelerate \
+    trimesh pygltflib numpy opencv-python-headless
+
+# Build CUDA extensions one by one (cacheable layers)
+# Each is a separate RUN so build failures are isolated
+
+# 1. flash-attn (used by TRELLIS transformer backbone)
+RUN uv pip install --system --no-cache flash-attn --no-build-isolation
+
+# 2. o_voxel (TRELLIS voxel processing — primary output format)
+RUN git clone --depth 1 https://github.com/microsoft/o_voxel.git /tmp/o_voxel \
+    && cd /tmp/o_voxel \
+    && uv pip install --system --no-cache . \
+    && rm -rf /tmp/o_voxel
+
+# 3. nvdiffrast (differentiable rendering for texture baking)
+RUN git clone --depth 1 https://github.com/NVlabs/nvdiffrast.git /tmp/nvdiffrast \
+    && cd /tmp/nvdiffrast \
+    && uv pip install --system --no-cache . \
+    && rm -rf /tmp/nvdiffrast
+
+# 4. CuMesh (CUDA mesh processing)
+RUN git clone --depth 1 https://github.com/nv-tlabs/CuMesh.git /tmp/cumesh \
+    && cd /tmp/cumesh \
+    && uv pip install --system --no-cache . \
+    && rm -rf /tmp/cumesh
+
+# 5. FlexGEMM (flexible GEMM kernel)
+RUN git clone --depth 1 https://github.com/NVlabs/FlexGEMM.git /tmp/flexgemm \
+    && cd /tmp/flexgemm \
+    && uv pip install --system --no-cache . \
+    && rm -rf /tmp/flexgemm
+
+# 6. nvdiffrec (neural field reconstruction)
+RUN git clone --depth 1 https://github.com/NVlabs/nvdiffrec.git /tmp/nvdiffrec \
+    && cd /tmp/nvdiffrec \
+    && uv pip install --system --no-cache . \
+    && rm -rf /tmp/nvdiffrec
+
+# ---- Runtime Stage ----
+FROM nvidia/cuda:12.4.0-runtime-ubuntu22.04 AS runtime
+
+ENV DEBIAN_FRONTEND=noninteractive
+ENV PYTHONUNBUFFERED=1
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    python3.12 libpython3.12-stdlib \
+    libgl1-mesa-glx libglib2.0-0 libgomp1 \
+    && rm -rf /var/lib/apt/lists/* \
+    && ln -sf /usr/bin/python3.12 /usr/bin/python
+
+# Copy Python packages from builder
+COPY --from=builder /usr/lib/python3.12 /usr/lib/python3.12
+COPY --from=builder /usr/local/lib/python3.12/dist-packages /usr/local/lib/python3.12/dist-packages
+
+# Install uv + fastapi + uvicorn for the HTTP server
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
+RUN uv pip install --system --no-cache fastapi uvicorn[standard] python-multipart soundfile httpx
+
+WORKDIR /app
+
+# Copy worker server code
+COPY workers/ /app/workers/
+
+# TRELLIS repo code (must be provided via build context or volume)
+# At build time, we expect the repo to be in context as ./repo/
+# If not present, will be empty and need a volume mount at runtime
+ARG COPY_REPO=false
+COPY --chmod=755 <<'EOF' /app/copy_repo.sh
+#!/bin/bash
+if [ -d /app/repo_src ]; then
+    cp -r /app/repo_src/* /app/repo/ 2>/dev/null || true
+fi
+EOF
+
+ENV TOOL_NAME=trellis
+ENV PORT=18401
+ENV MODEL_PATH=/models/TRELLIS.2-4B
+ENV PYTHONPATH=/app:/app/repo
+
+EXPOSE 18401
+
+CMD ["python", "-m", "workers.server"]
