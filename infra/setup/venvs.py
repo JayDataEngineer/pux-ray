@@ -62,9 +62,14 @@ def _warn(msg: str) -> None:
 
 
 def _run(cmd: list[str], **kwargs) -> subprocess.CompletedProcess:
-    """Run a command, streaming output. Raises on failure."""
+    """Run a command. Raises on failure with stderr shown."""
     _log(f"  $ {' '.join(str(c) for c in cmd[:8])}{'...' if len(cmd) > 8 else ''}")
-    return subprocess.run(cmd, check=True, capture_output=True, text=True, **kwargs)
+    try:
+        return subprocess.run(cmd, check=True, capture_output=True, text=True, **kwargs)
+    except subprocess.CalledProcessError as e:
+        if e.stderr:
+            _warn(f"  STDERR: {e.stderr[-500:]}")
+        raise
 
 
 def _uv_install(venv_py: str | Path, *specs: str, **kwargs) -> None:
