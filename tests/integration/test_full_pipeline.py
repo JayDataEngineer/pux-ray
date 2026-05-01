@@ -416,7 +416,8 @@ class TestComfyUI:
 
         prompt_id = data["prompt_id"]
 
-        # Poll until execution completes (5min max)
+        # Poll until execution completes with outputs (5min max)
+        last_status = {}
         for _ in range(60):
             time.sleep(5)
             hist_resp = client.get(f"/comfyui/history/{prompt_id}", timeout=30)
@@ -424,17 +425,19 @@ class TestComfyUI:
                 continue
             history = hist_resp.json()
             if prompt_id in history:
-                status = history[prompt_id].get("status", {})
-                if status.get("completed", False) or status.get("status_str") == "success":
-                    outputs = history[prompt_id].get("outputs", {})
-                    assert len(outputs) > 0, f"No outputs: {outputs}"
+                last_status = history[prompt_id].get("status", {})
+                if last_status.get("status_str") == "error":
+                    pytest.fail(f"Workflow error: {last_status}")
+                outputs = history[prompt_id].get("outputs", {})
+                if outputs:
                     has_images = any("images" in v for v in outputs.values())
                     assert has_images, f"No image outputs: {outputs}"
                     return
-                if status.get("status_str") == "error":
-                    pytest.fail(f"Workflow error: {status}")
 
-        pytest.fail(f"Workflow did not complete in time (prompt_id={prompt_id})")
+        pytest.fail(
+            f"Workflow did not complete in time (prompt_id={prompt_id}, "
+            f"status={last_status})"
+        )
 
 
 # =============================================================================
