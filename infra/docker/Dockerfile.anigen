@@ -15,6 +15,9 @@ ENV PYTHONUNBUFFERED=1
 
 # System deps
 RUN apt-get update && apt-get install -y --no-install-recommends \
+    software-properties-common \
+    && add-apt-repository -y ppa:deadsnakes/ppa \
+    && apt-get update && apt-get install -y --no-install-recommends \
     python3.12 python3.12-venv python3.12-dev \
     git build-essential ninja-build \
     libgl1-mesa-glx libglib2.0-0 \
@@ -62,13 +65,14 @@ ENV DEBIAN_FRONTEND=noninteractive
 ENV PYTHONUNBUFFERED=1
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    python3.12 libpython3.12-stdlib \
     libgl1-mesa-glx libglib2.0-0 libgomp1 \
-    && rm -rf /var/lib/apt/lists/* \
-    && ln -sf /usr/bin/python3.12 /usr/bin/python
+    && rm -rf /var/lib/apt/lists/*
 
+# Copy Python from builder
+COPY --from=builder /usr/bin/python3.12 /usr/bin/python3.12
 COPY --from=builder /usr/lib/python3.12 /usr/lib/python3.12
 COPY --from=builder /usr/local/lib/python3.12/dist-packages /usr/local/lib/python3.12/dist-packages
+RUN ln -sf /usr/bin/python3.12 /usr/bin/python && ln -sf /usr/bin/python3 /usr/bin/python
 
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 RUN uv pip install --system --no-cache fastapi uvicorn[standard] python-multipart httpx
