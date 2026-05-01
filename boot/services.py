@@ -287,17 +287,32 @@ def _start_ray(svc: Service) -> bool:
     root = str(svc.get_working_dir())
 
     if svc.name == "ray-cluster":
-        script = f"{root}/scripts/start_cluster.sh"
+        ray_bin = f"{root}/.venv/bin/ray"
         try:
+            # Check if Ray is already running
+            check = subprocess.run(
+                [ray_bin, "status"], capture_output=True, text=True, timeout=10,
+            )
+            if "node" in (check.stdout or ""):
+                logger.info("Ray cluster already running")
+                return True
+
             subprocess.run(
-                ["bash", script], cwd=root,
-                capture_output=True, text=True, timeout=120,
+                [
+                    ray_bin, "start", "--head",
+                    "--num-cpus=16",
+                    "--num-gpus=1",
+                    "--dashboard-host=0.0.0.0",
+                    "--dashboard-port=8265",
+                    "--object-store-memory=4000000000",
+                    "--temp-dir=/tmp/ray",
+                ],
+                cwd=root, capture_output=True, text=True, timeout=120,
             )
         except subprocess.TimeoutExpired:
             logger.error("Ray cluster start timed out")
             return False
 
-        # Check health regardless of exit code (script may return non-zero)
         return wait_healthy(check_ray, timeout=60)
 
     if svc.name == "ray-serve":
