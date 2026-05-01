@@ -339,6 +339,10 @@ class CLIToolMixin:
         for key in list(env.keys()):
             if key.startswith(("PYTHON", "VIRTUAL_ENV", "CONDA")):
                 del env[key]
+        # uv-created venvs use symlinks to a shared Python; they need
+        # VIRTUAL_ENV set so Python can find its site-packages.
+        venv_dir = str(Path(self._venv_python).parent.parent)
+        env["VIRTUAL_ENV"] = venv_dir
         env["PATH"] = f"{Path(self._venv_python).parent}:{env.get('PATH', '')}"
         if extra_env:
             env.update(extra_env)
