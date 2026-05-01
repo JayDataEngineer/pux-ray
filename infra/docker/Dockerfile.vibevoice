@@ -9,6 +9,9 @@
 # Build:  docker build -f Dockerfile.vibevoice -t vibevoice-worker .
 # Run:    docker run --gpus all -p 18403:18403 -v /models:/models:ro vibevoice-worker
 
+# ---- Python Stage ----
+FROM python:3.12-slim-bookworm AS python-base
+
 # ---- Build Stage ----
 FROM nvidia/cuda:12.4.0-devel-ubuntu22.04 AS builder
 
@@ -16,14 +19,14 @@ ENV DEBIAN_FRONTEND=noninteractive
 ENV PYTHONUNBUFFERED=1
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    software-properties-common \
-    && add-apt-repository -y ppa:deadsnakes/ppa \
-    && apt-get update && apt-get install -y --no-install-recommends \
-    python3.12 python3.12-venv python3.12-dev \
     git build-essential ninja-build \
     libgl1-mesa-glx libglib2.0-0 \
-    && rm -rf /var/lib/apt/lists/* \
-    && ln -sf /usr/bin/python3.12 /usr/bin/python
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy Python 3.12 from the python-base stage
+COPY --from=python-base /usr/local /usr/local
+RUN ln -sf /usr/local/bin/python3.12 /usr/bin/python3.12 \
+    && ln -sf /usr/local/bin/python3.12 /usr/bin/python
 
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 
@@ -54,10 +57,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy Python from builder
-COPY --from=builder /usr/bin/python3.12 /usr/bin/python3.12
-COPY --from=builder /usr/lib/python3.12 /usr/lib/python3.12
-COPY --from=builder /usr/local/lib/python3.12/dist-packages /usr/local/lib/python3.12/dist-packages
-RUN ln -sf /usr/bin/python3.12 /usr/bin/python && ln -sf /usr/bin/python3 /usr/bin/python
+COPY --from=builder /usr/local /usr/local
+RUN ln -sf /usr/local/bin/python3.12 /usr/bin/python3.12 \
+    && ln -sf /usr/local/bin/python3.12 /usr/bin/python \
+    && ldconfig
 
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 RUN uv pip install --system --no-cache fastapi uvicorn[standard] python-multipart soundfile httpx
