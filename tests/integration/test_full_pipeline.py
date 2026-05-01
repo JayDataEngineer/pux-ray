@@ -330,14 +330,14 @@ class TestComfyUI:
     It auto-starts on first request and runs as a managed subprocess.
     """
 
-    # Minimal txt2img workflow using LTX-Video checkpoint.
+    # Minimal txt2img workflow using SDXL checkpoint.
     LTX_WORKFLOW = {
         "3": {
             "class_type": "KSampler",
             "inputs": {
                 "seed": 42,
                 "steps": 5,
-                "cfg": 1.0,
+                "cfg": 7.0,
                 "sampler_name": "euler",
                 "scheduler": "normal",
                 "denoise": 1.0,
@@ -350,7 +350,7 @@ class TestComfyUI:
         "4": {
             "class_type": "CheckpointLoaderSimple",
             "inputs": {
-                "ckpt_name": "ltx-2.3-22b-distilled-1.1.safetensors"
+                "ckpt_name": "prefectIllustriousXL_v70.safetensors"
             }
         },
         "5": {
