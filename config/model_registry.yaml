@@ -21,7 +21,8 @@ llm:
     size_gb: 15.0
     vram_estimate_gb: 17.0
     device: gpu
-    description: "Qwen 3.6 27B parameter model, IQ4_NL quantization. General-purpose chat/reasoning LLM."
+    mmproj_path: vision/mmproj-Qwen_Qwen3.6-27B-bf16.gguf
+    description: "Qwen 3.6 27B parameter model, IQ4_NL quantization. General-purpose chat/reasoning LLM with vision support."
 
   gemma-4-26b-a4b-it-ud-iq4_nl:
     path: llm/gemma-4-26B-A4B-it-UD-IQ4_NL.gguf
