@@ -28,7 +28,7 @@ CLI equivalent: `tech-noir boot` / `tech-noir status` / `tech-noir stop`
 The server runs three types of services, all managed from `boot/services.py`:
 
 ### 1. Ray Serve (AI Compute)
-GPU-accelerated AI services managed by Ray Serve with a Starlette ingress on port 8080.
+GPU-accelerated AI services managed by Ray Serve with a Starlette ingress on port 18080.
 - LLM (llama.cpp), TTS (Kokoro, IndexTTS, Qwen-TTS), ASR (Faster-Whisper)
 - Image gen (ComfyUI), 3D (TRELLIS, AniGen), Music (ACE-Step), Creative (See-Through)
 - GPU scheduler coordinates model swaps (only one GPU model at a time, 24GB VRAM)
@@ -43,7 +43,7 @@ Multiple Docker Compose projects in `/home/user/Documents/programs/`:
 - **jellyfin** — Jellyfin media server + Nextcloud AIO
 
 ### 3. Persistent Processes
-- **ingress** — Starlette API gateway on port 8080 (proxies to Ray Serve and MCP servers)
+- **ingress** — Starlette API gateway on port 18080 (proxies to Ray Serve and MCP servers)
 
 ## Directory Layout
 
@@ -90,14 +90,14 @@ All services are registered in `boot/services.py` as `Service` dataclasses. Each
 
 | Name | Type | Port | Description |
 |---|---|---|---|
-| local-web-mcp | Docker | 8327 | Web content MCP (Celery, Postgres, Redis, SearxNG, Caddy) |
-| media-analysis-mcp | Docker | 8001 | Media analysis service |
+| local-web-mcp | Docker | 18327 | Web content MCP (Celery, Postgres, Redis, SearxNG, Caddy) |
+| media-analysis-mcp | Docker | 18101 | Media analysis service |
 | redshiftdb | Docker | — | Full infra (Postgres, MongoDB, MinIO, Vault, Zitadel, monitoring, CRM, UI) |
 | act-scheduler-bot | Docker | 8621 | Telegram bot (aiogram + FastAPI) |
 | jellyfin | Docker | — | Jellyfin + Nextcloud AIO |
-| ray-cluster | Ray | 8265 | Ray head node (1 GPU, 16 CPUs) |
-| ray-serve | Ray | 8000 | Ray Serve deployments (14 AI services) |
-| ingress | Process | 8080 | API gateway (proxies all routes) |
+| ray-cluster | Ray | 18265 | Ray head node (1 GPU, 16 CPUs) |
+| ray-serve | Ray | 18800 | Ray Serve deployments (14 AI services) |
+| ingress | Process | 18080 | API gateway (proxies all routes) |
 
 ### How to Add a New Service
 
@@ -119,16 +119,16 @@ All services are registered in `boot/services.py` as `Service` dataclasses. Each
 Config lives in `config/local.yaml` (git-ignored, machine-specific). Access via:
 ```python
 from registry.config import Config
-port = Config().get("services.comfyui.port", 8465)
+port = Config().get("services.comfyui.port", 18465)
 root = Config().models_root
 ```
 
 ## Key Access Points (Tailscale network)
 
-- **API Ingress**: http://100.86.69.57:8080 (LLM, TTS, ASR, 3D, music, creative, MCP, jobs, dashboard, studio)
-- **Dashboard**: http://100.86.69.57:8080/dashboard
-- **Studio**: http://100.86.69.57:8080/studio
-- **Ray Dashboard**: http://100.86.69.57:8265
+- **API Ingress**: http://100.86.69.57:18080 (LLM, TTS, ASR, 3D, music, creative, MCP, jobs, dashboard, studio)
+- **Dashboard**: http://100.86.69.57:18080/dashboard
+- **Studio**: http://100.86.69.57:18080/studio
+- **Ray Dashboard**: http://100.86.69.57:18265
 - **Ray Client**: `ray.init(address="ray://100.86.69.57:10001")`
 - **Grafana**: http://100.86.69.57:3001
 - **Prometheus**: http://100.86.69.57:9090

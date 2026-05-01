@@ -60,7 +60,7 @@ services:
       media-sync:
         condition: service_completed_successfully
     ports:
-      - "${MEDIA_PORT:-8101}:8001"
+      - "${MEDIA_PORT:-18101}:8001"
     environment:
       - MEDIA_HOST=0.0.0.0
       - MEDIA_PORT=8001
@@ -110,7 +110,7 @@ services:
       web-sync:
         condition: service_completed_successfully
     ports:
-      - "${WEB_PORT:-8327}:8000"
+      - "${WEB_PORT:-18327}:8000"
     env_file:
       - path: ./web.env
         required: false

@@ -34,7 +34,7 @@ STUDIO_APPS: dict[str, dict] = {
     # --- Interactive tools (have native Web UIs) ---
     "comfyui": {
         "label": "ComfyUI",
-        "url": "http://localhost:8465",
+        "url": "http://localhost:18465",
         "has_ui": True,
         "category": "Image",
         "gpu": True,
@@ -167,7 +167,7 @@ STUDIO_APPS: dict[str, dict] = {
     # --- MCP Servers (always-on, CPU, managed outside Ray) ---
     "local_web_mcp": {
         "label": "Local Web MCP",
-        "url": "http://localhost:8327",
+        "url": "http://localhost:18327",
         "has_ui": False,
         "category": "MCP",
         "gpu": False,
@@ -175,7 +175,7 @@ STUDIO_APPS: dict[str, dict] = {
     },
     "media_analysis_mcp": {
         "label": "Media Analysis MCP",
-        "url": "http://localhost:8101",
+        "url": "http://localhost:18101",
         "has_ui": False,
         "category": "MCP",
         "gpu": False,

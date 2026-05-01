@@ -100,7 +100,7 @@ def check_docker(compose_dir: str, compose_file: str | None = None) -> HealthRes
 
 def check_ray() -> HealthResult:
     """Check Ray cluster connectivity via TCP to dashboard port."""
-    return check_tcp(8265)
+    return check_tcp(18265)
 
 
 def wait_healthy(

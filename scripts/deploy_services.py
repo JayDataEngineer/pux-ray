@@ -20,7 +20,7 @@ if not ray.is_initialized():
     ray.init(address="auto")
 
 # Configure Serve HTTP proxy
-serve.start(http_options={"host": "0.0.0.0", "port": 8000})
+serve.start(http_options={"host": "0.0.0.0", "port": 18800})
 
 # Deploy GPU scheduler as a named actor
 from gateway.gpu_scheduler import GPUScheduler
@@ -100,9 +100,9 @@ print("MCP servers are persistent processes — start with scripts/start_mcp.sh"
 
 print("")
 print("All services deployed!")
-print("  GPU Dashboard: http://localhost:8000/dashboard")
-print("  Ray Dashboard: http://localhost:8265")
-print("  API:           http://localhost:8000")
+print("  GPU Dashboard: http://localhost:18800/dashboard")
+print("  Ray Dashboard: http://localhost:18265")
+print("  API:           http://localhost:18800")
 print("")
 print("Routes:")
 print("  /llm/*            - LLM (llama.cpp)")

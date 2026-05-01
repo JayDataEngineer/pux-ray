@@ -1,14 +1,29 @@
 # Tech Noir Ray Migration
 
 ## Project Location
-- Ray project: `/home/ubuntu/Documents/programs/ray/`
-- Central model registry: `/home/ubuntu/Documents/models/`
-- GPU: NVIDIA RTX 4090 (24GB VRAM)
+- **Local dev PC**: `/home/ubuntu/Documents/programs/ray/` (no GPU currently)
+- **Remote GPU server** (Tailscale: `100.86.69.57`, local IP: `192.168.1.184`): `/home/user/Documents/programs/ray/`
+- Central model registry: `/home/user/Documents/models/` (on remote)
+- GPU: NVIDIA RTX 4090 (24GB VRAM) — on the remote server
 - Ray version: 2.55.1
 - Python: 3.13 (via uv)
 
+## Remote Server Boot Procedure (LUKS + Dropbear)
+- Server has **Full Disk Encryption (LUKS)** — must be unlocked before OS boots
+- **Dropbear initramfs SSH**: on reboot, tiny SSH server runs in initramfs
+  - SSH to **local IP only** (Tailscale isn't running yet): `ssh root@192.168.1.184`
+  - Use `expect` locally to automate: `cryptroot-unlock` → passphrase → boot
+- After unlock: OS boots, Tailscale auto-starts, server appears at `100.86.69.57`
+- **systemd `tech-noir.service`** auto-starts all services: `ExecStart=... -m boot.cli boot`
+- **Samsung 980 PRO firmware**: Updated from 3B2QGXA7 → **5B2QGXA7** (2026-04-30)
+  - Root cause of fumagician failing: missing `unzip` package
+  - Device order may swap between nvme0/nvme1 after reboot
+- Storage: 980 PRO 2TB (OS) + 970 EVO Plus 2TB (backup, mounted at /mnt/data)
+
 ## Architecture (validated)
-- Ray Serve manages all AI services as deployments
+- Ray Serve manages GPU AI services as deployments (compute fabric, NOT HTTP router)
+- **Ingress (port 18080)** is the single HTTP router — Starlette, proxies to services
+- **Ray Serve (port 18800)** handles deployment lifecycle, not exposed to users
 - `num_gpus: 0.01` (fractional) for GPU deployments - gives CUDA access without blocking
 - CPU services (espeak, kokoro, whisper) run alongside GPU models with `num_gpus: 0`
 - GPUScheduler named actor coordinates model swaps via `handle.options(method_name=...).remote()`
@@ -19,6 +34,18 @@
   - Each tool has incompatible torch/CUDA versions (cu124, cu128, cu130)
   - Model loads fresh per subprocess call (~30-60s overhead, acceptable for batch generation)
   - Paths read from config: `services.creative.{tool}.venv_python/script/working_dir`
+- **MCP servers are persistent processes** — NOT Ray deployments
+  - Always-on CPU services, no GPU, no lifecycle management needed
+  - `scripts/start_mcp.sh` manages start/stop/status/restart
+  - Ingress proxies directly to ports (18327 web, 18101 media)
+  - Reason: Ray added complexity (serialization, health checks) without value for persistent HTTP servers
+
+## Remote Access (from any Tailscale machine)
+- **API Ingress**: `http://100.86.69.57:18080` (all routes: LLM, TTS, ASR, 3D, music, creative, MCP, jobs, dashboard, studio)
+- **Ray Dashboard**: `http://100.86.69.57:18265`
+- **Ray Client** (Python API): `ray.init(address="ray://100.86.69.57:10001")`
+- **SSH**: `ssh user@100.86.69.57` (key-based auth)
+- Ray namespace: `tech_noir` (required for scheduler + ingress to find each other)
 
 ## Key API Patterns (Ray Serve 2.55)
 - `serve.run(app.bind(), name="x", route_prefix="/x")` deploys an application
@@ -28,27 +55,90 @@
 - `ray.get()` does NOT accept `DeploymentResponse` - only `ObjectRef`
 - Unix socket path limit (107 chars) - use `/tmp/ray` not deep project paths
 
+## Boot System (added 2026-04-30)
+- **`boot/` package** — Python CLI for entire server lifecycle (not just Ray)
+- `boot/services.py` — Service registry with typed dataclasses (DOCKER, RAY, PROCESS)
+- `boot/health.py` — Health checks: TCP, HTTP, Docker Compose, Ray
+- `boot/cli.py` — `tech-noir boot/status/stop` CLI with rich output
+- `Taskfile.yml` — `task boot/up/down/status` shortcuts
+- `AGENTS.md` — AI context for fresh sessions
+- `scripts/tech-noir.service` — systemd unit, calls `tech-noir boot` on startup
+- Replaced: `scripts/start_mcp.sh`, `scripts/boot_services.sh`
+- Manages: Ray cluster, Ray Serve, ingress, Docker Compose (redshiftdb, MCP, bot, jellyfin)
+- **Docker migration**: All compose projects moved from `/home/user/projects/` to `/home/user/Documents/programs/`
+
+## VibeVoice Architecture (important context)
+- **Microsoft released 2 VibeVoice repos**:
+  1. `microsoft/VibeVoice` — the CODE repo (has inference scripts, custom model classes). Removed the 7B model weights.
+  2. Separate Microsoft repo for ASR/lite version WITH model weights
+- **vibevoice/VibeVoice-7B** on HuggingFace — community re-upload of the removed 7B model weights (18.7GB)
+- So: Microsoft code + community model weights = working TTS
+- VibeVoice-7B is **TTS only** (not ASR). ASR is a separate model/deployment.
+- Uses CUSTOM model classes: `VibeVoiceForConditionalGenerationInference`, `VibeVoiceProcessor` (NOT AutoModelForCausalLM)
+- Requires `transformers==4.51.3` (pinned, conflicts with everything else)
+- Requires compiled `flash-attn` for CUDA
+- CLIToolMixin subprocess is the correct pattern (dependency isolation)
+- Inference script: `demo/inference_from_file.py` with `--model_path`, `--txt_path`, `--speaker_names`, `--output_dir`
+- Text format: `Speaker 1: ...\nSpeaker 2: ...` (up to 4 speakers)
+- Default voices: Andrew, Ava (built into repo's voices/ directory)
+- Config: `services.tts.vibe_voice.{venv_python,script,working_dir}`
+
+## Remote Server Services (restored from 970 backup)
+| Project | Type | Containers | Description |
+|---|---|---|---|
+| local-web-mcp | Docker | 10 | Web MCP (Celery, Postgres, Redis, SearxNG, Caddy, Timescale) |
+| media-analysis-mcp | Docker | 1 | Media analysis |
+| redshiftdb | Docker | 20 | Infra (Postgres, MongoDB, MinIO, Vault, Zitadel, monitoring, CRM) |
+| act-scheduler-bot | Docker | 6 | Telegram bot (aiogram + FastAPI) |
+| jellyfin_act | Docker | — | Jellyfin + Nextcloud (needs volume setup) |
+| ray-cluster | Ray | 1 | Ray head node (1 GPU, 16 CPUs) |
+| ray-serve | Ray | 14 | AI service deployments |
+| ingress | Process | 1 | Starlette API gateway (port 18080) |
+
+## Shell → Python Conversion (2026-05-01)
+- `infra/setup/` package replaces `infra/setup_venvs.sh`
+  - `infra/setup/clone.py` — clone/update all tool repos (replaces `clone_repos.sh`)
+  - `infra/setup/venvs.py` — create venvs + build llama.cpp (replaces `setup_venvs.sh`)
+  - `infra/setup/__main__.py` — entry point for `python -m infra.setup`
+- `boot/services.py` `_start_ray()` now calls `ray start --head` directly (no more `start_cluster.sh`)
+- Taskfile updated: `setup:repos` → `python -m infra.setup.clone`, `setup:tools` → `python -m infra.setup all`
+- `start_cluster.sh` still exists but no longer called by boot system
+
+## Model Registry — Full IaC (2026-05-01)
+- 34 models with automated download sources (32 HF, 2 Civitai)
+- 5 skip entries (system packages/placeholders): espeak-ng, maya1, qwen-asr, vibevoice-asr-engine, cache, voices/emma
+- ZERO manual download entries
+- `task models:pull` downloads everything in one command
+- Key sources: unsloth (LLM GGUF), Kijai/LTX2.3_comfy (ComfyUI VAE/TAE), vibevoice/VibeVoice-7B (community TTS weights), microsoft/VibeVoice-ASR (public ASR weights)
+- Civitai API download support in registry CLI (`download: civitai`, `source: civitai://model_id`)
+
 ## Key Files
-- `services/base.py` - BaseGPUDeployment, SubprocessMixin, CLIToolMixin
+- `services/base.py` - BaseGPUDeployment, SubprocessMixin, CLIToolMixin, wait_for_port()
 - `services/creative/trellis.py` - TRELLIS.2 image-to-3D (subprocess CLI)
 - `services/creative/anigen.py` - AniGen rigged 3D (subprocess CLI)
 - `services/creative/ace_step.py` - ACE-STEP music generation (subprocess CLI)
 - `services/creative/see_through.py` - See-Through layer decomposition (subprocess CLI)
 - `services/llm/deployment.py` - llama.cpp subprocess wrapper (auto-loads on first request)
 - `gateway/gpu_scheduler.py` - GPU swap coordinator
-- `gateway/ingress.py` - Starlette API router (LLM, 3D, music, creative, admin, dashboard routes)
-- `gateway/dashboard.py` - GPU metrics collector (nvidia-smi background thread) + API endpoints
-- `gateway/dashboard.html` - Single-page GPU dashboard (dark zinc/indigo theme, SVG sparklines)
-- `registry/models.py` - ModelRegistry singleton
+- `gateway/ingress.py` - Starlette API router (port 18080, proxies to all services)
+- `gateway/studio.py` - Studio switcher backend (STUDIO_APPS registry, switch/release endpoints)
+- `gateway/studio.html` - Studio switcher UI (sidebar + iframe, dark zinc/indigo theme)
+- `gateway/dashboard.py` - GPU metrics collector + port-based external service checks
+- `gateway/dashboard.html` - Single-page GPU dashboard (SVG sparklines)
 - `registry/config.py` - Config singleton with dotted key access
-- `config/local.yaml` - Machine-specific paths (git-ignored)
-- `config/local.yaml.example` - Template with env var overrides
-- `config/model_registry.yaml` - All model paths with HF sources
-- `scripts/start_cluster.sh` - `ray start --head` (uses .venv/bin/ray)
-- `scripts/deploy_services.py` - Deploys all services
+- `config/local.yaml` - Machine-specific paths (git-ignored, differs per machine)
+- `scripts/start_cluster.sh` - `ray start --head`
+- `scripts/deploy_services.py` - Deploys all Ray Serve services
+- `scripts/start_mcp.sh` - DELETED (replaced by boot/ package)
+- `scripts/boot_services.sh` - DELETED (replaced by boot/ package)
+- `boot/services.py` - Service registry (all services on server)
+- `boot/health.py` - Health checks (TCP, HTTP, Docker, Ray)
+- `boot/cli.py` - CLI: tech-noir boot/status/stop
+- `AGENTS.md` - AI agent context for fresh sessions
+- `Taskfile.yml` - Task runner (boot, up, down, status, setup)
 
 ## GPU Dashboard (added 2026-04-26)
-- Real-time GPU monitoring at `http://localhost:8000/dashboard`
+- Real-time GPU monitoring at `http://localhost:18800/dashboard`
 - Inspired by DreamServer (Light-Heart-Labs/DreamServer on GitHub)
 - Backend: `gateway/dashboard.py` — GPUMetricsCollector (daemon thread, 5s nvidia-smi polling)
   - Rolling 60-sample deque (5-min window) for sparkline history
@@ -106,17 +196,39 @@
 - **Claude** for architecture, codebase work, and implementation
 - Gemini SDK: `google-genai` (not `google-generativeai`), supports `GoogleSearch` and `UrlContext` tools
 
+## Port Allocation (Tech Noir Ray — 18xxx range)
+| Port | Service | Notes |
+|---|---|---|
+| 18800 | Ray Serve HTTP | All deployment routes |
+| 18080 | API Ingress | Starlette gateway, proxies to all services |
+| 18265 | Ray Dashboard | Cluster UI |
+| 18399 | llama.cpp Server | SubprocessMixin managed |
+| 18465 | ComfyUI | SubprocessMixin managed |
+| 18327 | Local Web MCP | Docker, persistent |
+| 18101 | Media Analysis MCP | Docker, persistent |
+| 10001 | Ray Client | gRPC, remote ray.init() |
+- All ports use 18xxx range to avoid conflicts with Docker services on the same server.
+- Matches `shared-docker-infra` convention (18880, 18443, 25432, etc.).
+
 ## Remaining Work
-- [x] Stop old Docker llama-server (done - freed 18.3GB VRAM)
+- [ ] Verify all 34 models downloaded on remote (pull running, ~88GB so far)
+- [ ] Run `task test:integration` on remote — all creative tool E2E tests
+- [ ] Wire GPU scheduler into actual deployment flow
+- [ ] Refactor GPU TTS/ASR to CLIToolMixin subprocess pattern
+- [ ] Compute SHA256 hashes for models in registry
+- [ ] Hybrid cloud dispatch layer (job router, cloud adapters, cost guardrails)
+- [ ] Jellyfin/Nextcloud: missing `nextcloud_aio_mastercontainer` Docker volume
+- [ ] Loki in redshiftdb keeps restarting (pre-existing)
+- [x] Samsung 980 PRO firmware updated to 5B2QGXA7
+- [x] Docker services migrated to /home/user/Documents/programs/
+- [x] Boot system: boot/ package + Taskfile + AGENTS.md + systemd service
+- [x] ACT Scheduler Bot (Telegram) restored and running
+- [x] Stop old Docker llama-server (freed 18.3GB VRAM)
 - [x] Deploy all services (14/14 deploy successfully)
 - [x] TRELLIS.2 venv + models (9/9 safetensors, 16GB)
 - [x] AniGen venv + models (pytorch3d built, 9GB models)
-- [ ] Refactor GPU TTS/ASR to CLIToolMixin subprocess pattern
-  - Each tool needs its own venv with incompatible torch/CUDA versions
-  - IndexTTS, Qwen TTS, VibeVoice, GPT-SoVITS, VibeVoice ASR, Qwen ASR
-- [ ] Wire GPU scheduler into actual deployment flow
-- [ ] Compute SHA256 hashes for models in registry
-- [ ] Hybrid cloud dispatch layer (job router, cloud adapters, cost guardrails)
+- [x] Shell scripts converted to Python (infra/setup/ package)
+- [x] Model registry: 100% automated downloads, zero manual entries
 
 ## Model Consolidation (completed 2026-04-25)
 - All models consolidated to `/home/ubuntu/Documents/models/` (one model, one location)
@@ -139,11 +251,13 @@
 - Langfuse observability
 
 ## Infrastructure as Code (infra/docker-compose.yml)
-- Media Analysis MCP: git-sync sidecar pulls from GitHub, builds container
-  - Running at http://localhost:8101/mcp
-  - Source: JayDataEngineer/media-analysis-mcp (private)
-- Local Web MCP: same pattern
-  - Source: JayDataEngineer/local-web-mcp (public)
+- MCP repos cloned into `infra/repos/` on each machine
 - `infra/.env` holds GITHUB_TOKEN (git-ignored)
-- `infra/repos/` holds cloned code (git-ignored, managed by git-sync)
 - Old clone locations symlinked to `infra/repos/`
+
+## Studio Switcher (added 2026-04-30)
+- Unified UI for one-click GPU tool swapping at `/studio`
+- Backend: `gateway/studio.py` — STUDIO_APPS registry with 17 services
+- Frontend: `gateway/studio.html` — sidebar + iframe, auto-polls status
+- Switch endpoint handles: stop ComfyUI subprocess → release scheduler GPU → load target
+- MCP services show as "persistent" type (always-on, not switchable)

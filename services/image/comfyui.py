@@ -5,13 +5,13 @@ making it controllable through Ray Serve.
 
 ComfyUI runs as a subprocess using its own venv Python (torch 2.10+cu130).
 Launch flags match the IaC setup at comfyui-setup/run.sh:
-  --use-flash-attention --dont-upcast-attention --port 8465
+  --use-flash-attention --dont-upcast-attention --port 18465
 
 Access patterns:
-  - Ray API proxy:     localhost:8000/comfyui/*  (HTTP API, no websocket)
-  - ComfyUI direct:    localhost:8465             (full WebUI + websocket)
-  - Comfy-Cozy MCP:    localhost:8465             (MCP server connects direct)
-  - Pose Director:     localhost:8465             (connects direct)
+  - Ray API proxy:     localhost:18800/comfyui/*  (HTTP API, no websocket)
+  - ComfyUI direct:    localhost:18465             (full WebUI + websocket)
+  - Comfy-Cozy MCP:    localhost:18465             (MCP server connects direct)
+  - Pose Director:     localhost:18465             (connects direct)
 """
 
 from __future__ import annotations
@@ -43,7 +43,7 @@ class ComfyUIDeployment(SubprocessMixin):
     def __init__(self):
         self._config = Config()
         self.comfyui_dir = self._config.get("services.comfyui.working_dir")
-        self.port = self._config.get("services.comfyui.port", 8465)
+        self.port = self._config.get("services.comfyui.port", 18465)
         self.venv_python = self._config.get("services.comfyui.venv_python")
 
         if not self.comfyui_dir or self.comfyui_dir.startswith("${"):
