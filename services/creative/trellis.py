@@ -32,9 +32,12 @@ class TRELLISDeployment(BaseGPUDeployment, CLIToolMixin):
 
     def _load(self, model_name: str = "trellis") -> None:
         self._init_cli("services.creative.trellis")
+        from registry.config import Config
+        self._model_path = Config().get("services.creative.trellis.model_path",
+                                        "/models/3d/trellis/TRELLIS.2-4B")
         self.model = True
         self.model_name = model_name
-        logger.info("TRELLIS CLI ready")
+        logger.info("TRELLIS CLI ready (model_path=%s)", self._model_path)
 
     def _unload(self) -> None:
         # Model loads/unloads per subprocess call — nothing in-process
@@ -56,6 +59,7 @@ class TRELLISDeployment(BaseGPUDeployment, CLIToolMixin):
                 "--image", str(input_path),
                 "--output", str(output_path),
                 "--resolution", resolution,
+                "--model", self._model_path,
             ])
 
             if result.returncode != 0:
