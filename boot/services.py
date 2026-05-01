@@ -90,8 +90,8 @@ register(Service(
     name="local-web-mcp",
     type=ServiceType.DOCKER,
     working_dir=f"{PROGRAMS}/local-web-mcp",
-    port=8327,
-    health_url="http://127.0.0.1:8327/health",
+    port=18327,
+    health_url="http://127.0.0.1:18327/health",
 ))
 
 register(Service(
@@ -130,8 +130,8 @@ register(Service(
     name="ray-cluster",
     type=ServiceType.RAY,
     working_dir=str(get_project_root()),
-    port=8265,
-    health_url="http://127.0.0.1:8265",
+    port=18265,
+    health_url="http://127.0.0.1:18265",
     relative_to_root=True,
     label="Ray Cluster",
 ))
@@ -140,7 +140,7 @@ register(Service(
     name="ray-serve",
     type=ServiceType.RAY,
     working_dir=str(get_project_root()),
-    port=8000,
+    port=18800,
     depends_on=["ray-cluster"],
     relative_to_root=True,
     label="Ray Serve Deployments",
@@ -150,8 +150,8 @@ register(Service(
     name="ingress",
     type=ServiceType.PROCESS,
     working_dir=str(get_project_root()),
-    port=8080,
-    health_url="http://127.0.0.1:8080/dashboard",
+    port=18080,
+    health_url="http://127.0.0.1:18080/dashboard",
     depends_on=["ray-serve"],
     relative_to_root=True,
     label="API Ingress",
@@ -303,7 +303,7 @@ def _start_ray(svc: Service) -> bool:
                     "--num-cpus=16",
                     "--num-gpus=1",
                     "--dashboard-host=0.0.0.0",
-                    "--dashboard-port=8265",
+                    "--dashboard-port=18265",
                     "--object-store-memory=4000000000",
                     "--temp-dir=/tmp/ray",
                 ],
@@ -364,7 +364,7 @@ def _start_process(svc: Service) -> bool:
             venv, "-c",
             "import ray; ray.init(address='auto', namespace='tech_noir'); "
             "import uvicorn; from gateway.ingress import create_app; "
-            "uvicorn.run(create_app(), host='0.0.0.0', port=8080)",
+            "uvicorn.run(create_app(), host='0.0.0.0', port=18080)",
         ]
 
         log_file = open(f"{log_dir}/ingress.log", "a")

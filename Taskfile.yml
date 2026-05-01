@@ -157,3 +157,8 @@ tasks:
     desc: "Run full E2E tests (models on disk, repos cloned, venvs working)"
     cmds:
       - "{{.VENV_PYTHON}} -m pytest tests/test_e2e_setup.py -v"
+
+  test:integration:
+    desc: "Run service integration tests (LLM, TTS, ASR, 3D, music, ComfyUI) — requires running cluster"
+    cmds:
+      - "{{.VENV_PYTHON}} -m pytest tests/integration/test_full_pipeline.py -v {{.CLI_ARGS}}"

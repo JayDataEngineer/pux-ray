@@ -37,7 +37,7 @@ class LLMDeployment(BaseGPUDeployment, SubprocessMixin):
 
     def __init__(self):
         super().__init__()
-        self.port = 8399
+        self.port = 18399
         self.base_url = f"http://127.0.0.1:{self.port}"
         self._llama_server_path: Optional[str] = None
 

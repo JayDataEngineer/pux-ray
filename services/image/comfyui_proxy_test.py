@@ -15,7 +15,7 @@ from ray import serve
 from starlette.requests import Request
 from starlette.responses import Response
 
-COMFYUI_URL = "http://127.0.0.1:8465"
+COMFYUI_URL = "http://127.0.0.1:18465"
 
 
 @serve.deployment(
@@ -63,11 +63,11 @@ if __name__ == "__main__":
     ray.init(address="auto", ignore_reinit_error=True)
 
     from ray import serve
-    serve.start(http_options={"host": "0.0.0.0", "port": 8000})
+    serve.start(http_options={"host": "0.0.0.0", "port": 18800})
 
     serve.run(ComfyUIProxy.bind(), name="comfyui", route_prefix="/comfyui")
 
-    print("ComfyUI proxy deployed on http://localhost:8000/comfyui/*")
+    print("ComfyUI proxy deployed on http://localhost:18800/comfyui/*")
     print("Press Ctrl+C to stop")
     import signal
     signal.pause()

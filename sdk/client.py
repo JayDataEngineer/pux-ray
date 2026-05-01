@@ -19,7 +19,7 @@ class RayClient:
         result = await client.transcribe("meeting.wav")
     """
 
-    def __init__(self, base_url: str = "http://localhost:8000", timeout: float = 300):
+    def __init__(self, base_url: str = "http://localhost:18080", timeout: float = 300):
         self.base_url = base_url.rstrip("/")
         self.client = httpx.AsyncClient(base_url=self.base_url, timeout=timeout)
 

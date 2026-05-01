@@ -1,40 +1,134 @@
 """E2E test suite for Tech Noir Ray infrastructure.
 
-Tests all services: LLM, TTS, ASR, VRAM swapping.
+Tests all services end-to-end: LLM, TTS, ASR, VRAM swapping,
+ComfyUI image generation, TRELLIS 3D, AniGen rigged 3D,
+ACE-STEP music, and See-Through decomposition.
+
 Run with: pytest tests/integration/test_full_pipeline.py -v
 
 Prerequisites:
-- Ray cluster running: bash scripts/start_cluster.sh
-- Services deployed: .venv/bin/python -m scripts.deploy_services
+- Ray cluster running: task boot:ray
+- Services deployed (happens automatically via boot:ray)
 - GPU available (RTX 4090 or similar)
+- Models downloaded: task models:pull
+
+Route reference (from deploy_services.py):
+  /llm/*               - LLM (llama.cpp)
+  /tts/espeak/*         - eSpeak TTS (CPU)
+  /tts/kokoro/*         - Kokoro TTS (CPU)
+  /tts/index-tts/*      - IndexTTS (GPU)
+  /tts/qwen-tts/*       - Qwen3-TTS (GPU)
+  /tts/vibevoice/*      - VibeVoice TTS (GPU)
+  /tts/gpt-sovits/*     - GPT-SoVITS (GPU)
+  /asr/whisper/*        - Faster-Whisper (CPU)
+  /asr/vibevoice/*      - VibeVoice ASR (GPU)
+  /asr/qwen/*           - Qwen ASR (GPU)
+  /comfyui/*            - ComfyUI (GPU, WebUI)
+  /3d/trellis/*         - TRELLIS.2 (GPU)
+  /3d/anigen/*          - AniGen (GPU)
+  /creative/see-through/* - See-Through (GPU)
+  /music/ace-step/*     - ACE-STEP music (GPU)
 """
 
 from __future__ import annotations
 
+import io
 import os
+import struct
 import subprocess
 import time
+from pathlib import Path
+
 import pytest
 import httpx
 
-BASE_URL = os.environ.get("RAY_BASE_URL", "http://localhost:8000")
+BASE_URL = os.environ.get("RAY_BASE_URL", "http://localhost:18800")
 TIMEOUT = 300
 
+RAY_ROOT = Path(__file__).resolve().parent.parent.parent
+
+
+# ---------------------------------------------------------------------------
+# Test image generation utility
+# ---------------------------------------------------------------------------
+
+def _make_test_png(width: int = 256, height: int = 256) -> bytes:
+    """Generate a minimal valid PNG image (checkerboard pattern).
+
+    Produces a real PNG file with recognizable content so image-to-3D
+    and image-decomposition tools have actual pixels to work with.
+    """
+    import zlib
+
+    def _chunk(chunk_type: bytes, data: bytes) -> bytes:
+        c = chunk_type + data
+        crc = struct.pack(">I", zlib.crc32(c) & 0xFFFFFFFF)
+        return struct.pack(">I", len(data)) + c + crc
+
+    # IHDR: 8-bit RGB
+    ihdr_data = struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0)
+    ihdr = _chunk(b"IHDR", ihdr_data)
+
+    # IDAT: raw pixel data (checkerboard pattern)
+    raw_rows = bytearray()
+    for y in range(height):
+        raw_rows.append(0)  # filter byte: none
+        for x in range(width):
+            if (x // 32 + y // 32) % 2 == 0:
+                raw_rows.extend([200, 100, 50])  # warm brown
+            else:
+                raw_rows.extend([50, 100, 200])  # cool blue
+
+    compressed = zlib.compress(bytes(raw_rows))
+    idat = _chunk(b"IDAT", compressed)
+
+    iend = _chunk(b"IEND", b"")
+
+    return b"\x89PNG\r\n\x1a\n" + ihdr + idat + iend
+
+
+def _make_test_wav(duration_s: float = 1.0, sample_rate: int = 22050,
+                   freq: int = 440) -> bytes:
+    """Generate a minimal WAV file with a sine tone."""
+    import math
+    num_samples = int(sample_rate * duration_s)
+    data = bytearray()
+    for i in range(num_samples):
+        sample = int(16000 * math.sin(2 * math.pi * freq * i / sample_rate))
+        data.extend(struct.pack("<h", max(-32768, min(32767, sample))))
+
+    buf = io.BytesIO()
+    buf.write(b"RIFF")
+    buf.write(struct.pack("<I", 36 + len(data)))
+    buf.write(b"WAVE")
+    buf.write(b"fmt ")
+    buf.write(struct.pack("<IHHIIHH", 16, 1, 1, sample_rate,
+                           sample_rate * 2, 2, 16))
+    buf.write(b"data")
+    buf.write(struct.pack("<I", len(data)))
+    buf.write(bytes(data))
+    return buf.getvalue()
+
+
+# ---------------------------------------------------------------------------
+# Fixtures
+# ---------------------------------------------------------------------------
 
 @pytest.fixture(scope="session")
 def client():
-    """HTTP client for the Ray Serve API."""
+    """HTTP client for the Ray Serve API (port 18800)."""
     return httpx.Client(base_url=BASE_URL, timeout=TIMEOUT)
 
 
 @pytest.fixture(scope="session")
 def ensure_cluster():
     """Ensure Ray cluster is running."""
+    ray_bin = str(RAY_ROOT / ".venv" / "bin" / "ray")
     result = subprocess.run(
-        [".venv/bin/ray", "status"], capture_output=True, text=True, timeout=5,
+        [ray_bin, "status"], capture_output=True, text=True, timeout=5,
     )
     if "node" not in result.stdout:
-        pytest.skip("Ray cluster not running. Start with: bash scripts/start_cluster.sh")
+        pytest.skip("Ray cluster not running. Start with: task boot:ray")
 
 
 @pytest.fixture(scope="session")
@@ -43,9 +137,21 @@ def ensure_served(ensure_cluster):
     try:
         resp = httpx.get(f"{BASE_URL}/-/routes", timeout=5)
         if resp.status_code != 200 or not resp.json():
-            pytest.skip("Services not deployed. Run: .venv/bin/python -m scripts.deploy_services")
+            pytest.skip("Services not deployed. Run: task boot:ray")
     except httpx.ConnectError:
         pytest.skip("Ray Serve not reachable. Is the cluster running?")
+
+
+@pytest.fixture(scope="session")
+def test_png():
+    """Reusable test PNG image (256x256 checkerboard)."""
+    return _make_test_png(256, 256)
+
+
+@pytest.fixture(scope="session")
+def test_wav():
+    """Reusable test WAV audio (1s, 440Hz sine)."""
+    return _make_test_wav(1.0, 22050, 440)
 
 
 def get_vram_free_mb() -> int:
@@ -89,7 +195,6 @@ class TestLLM:
         assert "choices" in data
         assert len(data["choices"]) > 0
         assert "message" in data["choices"][0]
-        # Model may put content in reasoning_content due to thinking mode
         msg = data["choices"][0]["message"]
         content = msg.get("content", "") or msg.get("reasoning_content", "")
         assert len(content) > 0, "Model should produce some output"
@@ -108,16 +213,8 @@ class TestCPU_TTS:
         })
         assert resp.status_code == 200
         assert len(resp.content) > 1000
-
-    @pytest.mark.skip(reason="Kokoro model needs to be downloaded first")
-    def test_kokoro(self, client, ensure_served):
-        """Kokoro TTS on CPU."""
-        resp = client.post("/tts/kokoro", json={
-            "input": "Testing one two three.",
-            "voice": "af_bella",
-        })
-        assert resp.status_code == 200
-        assert len(resp.content) > 1000
+        assert resp.content[:4] == b"RIFF"
+        assert b"WAVE" in resp.content[:12]
 
 
 # =============================================================================
@@ -127,13 +224,11 @@ class TestCPU_TTS:
 class TestCPU_ASR:
     def test_whisper_with_tts(self, client, ensure_served):
         """Generate speech with espeak, then transcribe with whisper."""
-        # Generate speech
         tts_resp = client.post("/tts/espeak", json={
             "input": "The quick brown fox jumps over the lazy dog.",
         })
         assert tts_resp.status_code == 200
 
-        # Transcribe it
         asr_resp = client.post(
             "/asr/whisper",
             files={"file": ("test.wav", tts_resp.content)},
@@ -141,7 +236,6 @@ class TestCPU_ASR:
         )
         assert asr_resp.status_code == 200
         text = asr_resp.json()["text"].lower()
-        # Whisper should get at least some of the words right
         assert any(word in text for word in ["quick", "brown", "fox", "dog"])
 
 
@@ -163,7 +257,7 @@ class TestVRAMSwap:
     def _get_llm_handle(self):
         """Get LLM deployment handle."""
         import sys
-        sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+        sys.path.insert(0, str(RAY_ROOT))
         import ray
         from ray import serve
         ray.init(address="auto", namespace="serve", ignore_reinit_error=True)
@@ -173,13 +267,11 @@ class TestVRAMSwap:
         """Load LLM model, verify VRAM drops, unload, verify VRAM recovers."""
         handle = self._get_llm_handle()
 
-        # Unload any existing model first
         _await_serve(handle.options(method_name="unload_model").remote())
         time.sleep(3)
 
         vram_before = get_vram_free_mb()
 
-        # Load model via handle
         _await_serve(
             handle.options(method_name="load_model").remote("qwen3.5-2b-ud-q4_k_xl")
         )
@@ -190,30 +282,26 @@ class TestVRAMSwap:
             f"VRAM didn't drop after loading model: {vram_before}MB -> {vram_loaded}MB"
         )
 
-        # Unload
         _await_serve(handle.options(method_name="unload_model").remote())
 
         time.sleep(5)
         vram_after = get_vram_free_mb()
         assert vram_after >= vram_before - 500, (
-            f"VRAM didn't recover after unload: {vram_before}MB -> {vram_after}MB (ghost VRAM?)"
+            f"VRAM didn't recover after unload: {vram_before}MB -> {vram_after}MB"
         )
 
     def test_cpu_tts_during_gpu_load(self, client, ensure_served):
         """CPU TTS should work while GPU is occupied."""
         handle = self._get_llm_handle()
 
-        # Load LLM on GPU
         _await_serve(
             handle.options(method_name="load_model").remote("qwen3.5-2b-ud-q4_k_xl")
         )
 
-        # CPU TTS should still work
         resp = client.post("/tts/espeak", json={"input": "Still working."})
         assert resp.status_code == 200
         assert len(resp.content) > 0
 
-        # Cleanup
         _await_serve(handle.options(method_name="unload_model").remote())
 
 
@@ -222,34 +310,237 @@ class TestVRAMSwap:
 # =============================================================================
 
 class TestComfyUI:
-    @pytest.mark.skip(reason="Requires ComfyUI workflow JSON - enable when ready")
-    def test_generate_image(self, client, ensure_served):
-        """Submit a simple workflow to ComfyUI."""
-        workflow = {}
-        resp = client.post("/comfyui/prompt", json={"prompt": workflow})
-        assert resp.status_code == 200
+    """Test ComfyUI workflow execution through Ray Serve proxy.
 
-    @pytest.mark.skip(reason="ComfyUI needs to be loaded on GPU first")
-    def test_comfyui_health(self, client, ensure_served):
-        """ComfyUI WebUI should be accessible through the proxy."""
-        resp = client.get("/comfyui/")
-        assert resp.status_code in (200, 302)
+    ComfyUI is deployed at /comfyui/* on Ray Serve (port 18800).
+    It auto-starts on first request and runs as a managed subprocess.
+    """
 
+    # Minimal txt2img workflow using LTX-Video checkpoint.
+    # KSampler -> CheckpointLoader -> EmptyLatentImage -> CLIPTextEncode
+    # -> VAEDecode -> SaveImage
+    LTX_WORKFLOW = {
+        "3": {
+            "class_type": "KSampler",
+            "inputs": {
+                "seed": 42,
+                "steps": 5,
+                "cfg": 1.0,
+                "sampler_name": "euler",
+                "scheduler": "normal",
+                "denoise": 1.0,
+                "model": ["4", 0],
+                "positive": ["6", 0],
+                "negative": ["7", 0],
+                "latent_image": ["5", 0],
+            }
+        },
+        "4": {
+            "class_type": "CheckpointLoaderSimple",
+            "inputs": {
+                "ckpt_name": "ltx-video-2.0.0.safetensors"
+            }
+        },
+        "5": {
+            "class_type": "EmptyLatentImage",
+            "inputs": {
+                "width": 512,
+                "height": 512,
+                "batch_size": 1
+            }
+        },
+        "6": {
+            "class_type": "CLIPTextEncode",
+            "inputs": {
+                "text": "a beautiful sunset over mountains, high quality photo",
+                "clip": ["4", 1]
+            }
+        },
+        "7": {
+            "class_type": "CLIPTextEncode",
+            "inputs": {
+                "text": "blurry, low quality, distorted",
+                "clip": ["4", 1]
+            }
+        },
+        "8": {
+            "class_type": "VAEDecode",
+            "inputs": {
+                "samples": ["3", 0],
+                "vae": ["4", 2]
+            }
+        },
+        "9": {
+            "class_type": "SaveImage",
+            "inputs": {
+                "filename_prefix": "test_e2e",
+                "images": ["8", 0]
+            }
+        }
+    }
 
-# =============================================================================
-# 3D Generation Tests
-# =============================================================================
-
-class Test3DGeneration:
-    @pytest.mark.skip(reason="Requires test image - enable when ready")
-    def test_trellis(self, client, ensure_served):
-        """Generate 3D mesh from test image."""
-        test_image = b""
-        resp = client.post(
-            "/3d/trellis",
-            files={"image": ("test.png", test_image)},
-            data={"output_format": "glb", "resolution": "64"},
+    def test_comfyui_starts(self, client, ensure_served):
+        """ComfyUI should start on first request and return 200."""
+        resp = client.get("/comfyui/", timeout=180)
+        assert resp.status_code in (200, 302), (
+            f"ComfyUI not accessible: {resp.status_code} {resp.text[:200]}"
         )
-        assert resp.status_code == 200
-        assert resp.headers["content-type"] == "model/gltf-binary"
-        assert len(resp.content) > 1000
+
+    def test_generate_image(self, client, ensure_served):
+        """Submit a txt2img workflow to ComfyUI and verify output."""
+        # Ensure ComfyUI is running
+        client.get("/comfyui/", timeout=180)
+
+        resp = client.post(
+            "/comfyui/prompt",
+            json={"prompt": self.LTX_WORKFLOW},
+            timeout=TIMEOUT,
+        )
+        assert resp.status_code == 200, (
+            f"Workflow submit failed: {resp.status_code} {resp.text[:500]}"
+        )
+        data = resp.json()
+        assert "prompt_id" in data, f"No prompt_id in response: {data}"
+
+        prompt_id = data["prompt_id"]
+
+        # Poll until execution completes (5min max)
+        for _ in range(60):
+            time.sleep(5)
+            hist_resp = client.get(f"/comfyui/history/{prompt_id}", timeout=30)
+            if hist_resp.status_code != 200:
+                continue
+            history = hist_resp.json()
+            if prompt_id in history:
+                status = history[prompt_id].get("status", {})
+                if status.get("completed", False) or status.get("status_str") == "success":
+                    outputs = history[prompt_id].get("outputs", {})
+                    assert len(outputs) > 0, f"No outputs: {outputs}"
+                    has_images = any("images" in v for v in outputs.values())
+                    assert has_images, f"No image outputs: {outputs}"
+                    return
+                if status.get("status_str") == "error":
+                    pytest.fail(f"Workflow error: {status}")
+
+        pytest.fail(f"Workflow did not complete in time (prompt_id={prompt_id})")
+
+
+# =============================================================================
+# 3D Generation — TRELLIS
+# =============================================================================
+
+class TestTRELLIS:
+    """Test TRELLIS.2 image-to-3D mesh generation.
+
+    Deployed at /3d/trellis on Ray Serve. Uses CLIToolMixin subprocess
+    pattern — model loads fresh per call (~30s overhead).
+    """
+
+    def test_generate_glb(self, client, ensure_served, test_png):
+        """Generate a GLB mesh from a test image."""
+        resp = client.post(
+            "/3d/trellis/",
+            files={"image": ("test.png", test_png, "image/png")},
+            data={"output_format": "glb", "resolution": "256"},
+            timeout=TIMEOUT,
+        )
+        assert resp.status_code == 200, (
+            f"TRELLIS failed: {resp.status_code} {resp.text[:500]}"
+        )
+        assert resp.headers.get("content-type") in (
+            "model/gltf-binary", "application/octet-stream"
+        ), f"Wrong content type: {resp.headers.get('content-type')}"
+        assert len(resp.content) > 100, (
+            f"GLB output too small ({len(resp.content)} bytes)"
+        )
+        # GLB magic: bytes 0-3 = file size (uint32 LE), bytes 4-7 = 'glTF'
+        assert resp.content[4:8] == b"glTF", "Not a valid GLB file"
+
+
+# =============================================================================
+# 3D Generation — AniGen
+# =============================================================================
+
+class TestAniGen:
+    """Test AniGen rigged 3D mesh generation.
+
+    Deployed at /3d/anigen on Ray Serve. Uses CLIToolMixin subprocess
+    pattern — model loads fresh per call (~60s overhead).
+    """
+
+    def test_generate_rigged_glb(self, client, ensure_served, test_png):
+        """Generate a rigged GLB mesh from a test image."""
+        resp = client.post(
+            "/3d/anigen/",
+            files={"image": ("test.png", test_png, "image/png")},
+            timeout=TIMEOUT,
+        )
+        assert resp.status_code == 200, (
+            f"AniGen failed: {resp.status_code} {resp.text[:500]}"
+        )
+        assert resp.headers.get("content-type") in (
+            "model/gltf-binary", "application/octet-stream"
+        ), f"Wrong content type: {resp.headers.get('content-type')}"
+        assert len(resp.content) > 100, (
+            f"GLB output too small ({len(resp.content)} bytes)"
+        )
+
+
+# =============================================================================
+# Music Generation — ACE-STEP
+# =============================================================================
+
+class TestACEStep:
+    """Test ACE-STEP text-to-music generation.
+
+    Deployed at /music/ace-step on Ray Serve. Uses CLIToolMixin subprocess.
+    """
+
+    def test_generate_music(self, client, ensure_served):
+        """Generate a short music clip from a text prompt."""
+        resp = client.post(
+            "/music/ace-step/",
+            json={
+                "prompt": "A calm ambient piano piece with soft strings",
+                "duration": 10,
+                "bpm": 80,
+                "instrumental": True,
+                "audio_format": "wav",
+            },
+            timeout=TIMEOUT,
+        )
+        assert resp.status_code == 200, (
+            f"ACE-STEP failed: {resp.status_code} {resp.text[:500]}"
+        )
+        assert len(resp.content) > 1000, (
+            f"Audio output too small ({len(resp.content)} bytes)"
+        )
+        assert resp.content[:4] == b"RIFF", "Output is not a WAV file"
+        assert b"WAVE" in resp.content[:12], "Output is not a WAV file"
+
+
+# =============================================================================
+# Layer Decomposition — See-Through
+# =============================================================================
+
+class TestSeeThrough:
+    """Test See-Through layer decomposition.
+
+    Deployed at /creative/see-through on Ray Serve. Uses CLIToolMixin.
+    """
+
+    def test_decompose(self, client, ensure_served, test_png):
+        """Decompose an image into layers."""
+        resp = client.post(
+            "/creative/see-through/",
+            files={"image": ("test.png", test_png, "image/png")},
+            data={"resolution": "640", "save_to_psd": "true"},
+            timeout=TIMEOUT,
+        )
+        assert resp.status_code == 200, (
+            f"See-Through failed: {resp.status_code} {resp.text[:500]}"
+        )
+        data = resp.json()
+        assert "layers" in data, f"No layers in response: {data}"
+        assert isinstance(data["layers"], list), f"layers should be a list: {data}"
+        assert "has_psd" in data, f"No has_psd in response: {data}"

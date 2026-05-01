@@ -21,20 +21,20 @@ from typing import Optional
 logger = logging.getLogger(__name__)
 
 # Default port range for subprocess services
-_PORT_START = 8300
+_PORT_START = 18300
 
 
 def get_free_port() -> int:
-    """Find a free port in the 8300-8399 range."""
+    """Find a free port in the 18300-18399 range."""
     import socket
-    for port in range(_PORT_START, 8400):
+    for port in range(_PORT_START, 18400):
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
             try:
                 s.bind(("127.0.0.1", port))
                 return port
             except OSError:
                 continue
-    raise RuntimeError("No free port in range 8300-8399")
+    raise RuntimeError("No free port in range 18300-18399")
 
 
 def poll_vram_free_mb() -> int:

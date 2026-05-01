@@ -99,7 +99,7 @@ class APIIngress:
         import httpx as _httpx
 
         payload = {**body, "stream": stream}
-        url = "http://127.0.0.1:8399/v1/chat/completions"
+        url = "http://127.0.0.1:18399/v1/chat/completions"
 
         if stream:
             async def _sse_generator():
@@ -221,12 +221,12 @@ class APIIngress:
             )
 
     async def mcp_web_proxy(self, request: Request) -> Response:
-        """Proxy to local-web-mcp (port 8327)."""
-        return await self._proxy_mcp(8327, "/mcp/web", request)
+        """Proxy to local-web-mcp (port 18327)."""
+        return await self._proxy_mcp(18327, "/mcp/web", request)
 
     async def mcp_media_proxy(self, request: Request) -> Response:
-        """Proxy to media-analysis-mcp (port 8101)."""
-        return await self._proxy_mcp(8101, "/mcp/media", request)
+        """Proxy to media-analysis-mcp (port 18101)."""
+        return await self._proxy_mcp(18101, "/mcp/media", request)
 
     # --- Status Routes ---
 
@@ -442,4 +442,4 @@ def create_app() -> Starlette:
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(create_app(), host="0.0.0.0", port=8000)
+    uvicorn.run(create_app(), host="0.0.0.0", port=18080)

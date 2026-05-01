@@ -34,7 +34,7 @@ services:
   comfyui:
     working_dir: ${TECH_NOIR_COMFYUI_DIR}
     venv_python: ${TECH_NOIR_COMFYUI_PYTHON}
-    port: 8465
+    port: 18465
 
   # Creative tools — managed by infra/docker-compose.yml git-sync sidecars.
   # Each has its own venv (created by infra/setup_venvs.sh).

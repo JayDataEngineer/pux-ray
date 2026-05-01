@@ -335,7 +335,7 @@ def run_comfyui_job(workflow: dict) -> dict:
 
     config = Config()
     root = config.project_root
-    raw_port = config.get("services.comfyui.port", 8465)
+    raw_port = config.get("services.comfyui.port", 18465)
     comfy_url = f"http://127.0.0.1:{raw_port}"
 
     # --- Ensure ComfyUI is running ---
