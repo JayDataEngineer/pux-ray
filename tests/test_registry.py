@@ -5,13 +5,20 @@ These tests run LOCALLY (no GPU, no Ray) and verify:
 - No model requires manual download
 - All HF/Civitai URLs are parseable
 - The registry structure is consistent
+- Path resolution works for all models
 """
 
 from __future__ import annotations
 
+import subprocess
+from pathlib import Path
+
 import pytest
 
 from registry.models import ModelRegistry
+
+RAY_ROOT = Path(__file__).resolve().parent.parent
+VENV_PYTHON = RAY_ROOT / ".venv" / "bin" / "python"
 
 
 @pytest.fixture
@@ -95,6 +102,69 @@ class TestDownloadSources:
             for name, meta in models.items():
                 mode = meta.get("download", "")
                 assert mode in valid_modes, f"{cat}/{name}: unknown download mode '{mode}'"
+
+
+class TestPathResolution:
+    """Every model's path resolves without errors."""
+
+    def test_all_paths_resolve(self, registry):
+        errors = []
+        for cat, models in registry.data.items():
+            if not isinstance(models, dict):
+                continue
+            for name, meta in models.items():
+                if not isinstance(meta, dict):
+                    continue
+                try:
+                    path = registry.get_path(cat, name)
+                    assert isinstance(path, Path), f"{cat}/{name}: get_path didn't return Path"
+                except Exception as e:
+                    errors.append(f"{cat}/{name}: {e}")
+        assert errors == [], f"Path resolution errors: {errors}"
+
+    def test_all_paths_are_under_models_root(self, registry):
+        from registry.config import Config
+        models_root = Path(Config().models_root)
+        for cat, models in registry.data.items():
+            if not isinstance(models, dict):
+                continue
+            for name, meta in models.items():
+                if not isinstance(meta, dict):
+                    continue
+                path = registry.get_path(cat, name)
+                # Paths should be under models_root (or absolute external paths)
+                raw = meta.get("path", "")
+                if not Path(raw).is_absolute():
+                    assert str(path).startswith(str(models_root)), \
+                        f"{cat}/{name}: path {path} not under {models_root}"
+
+
+class TestCLICommands:
+    """CLI commands run without crashing."""
+
+    def test_models_list_runs(self):
+        result = subprocess.run(
+            [str(VENV_PYTHON), "-m", "registry.cli", "models", "list"],
+            capture_output=True, text=True, timeout=30,
+        )
+        assert result.returncode == 0, f"models list failed: {result.stderr}"
+
+    def test_models_status_runs(self):
+        result = subprocess.run(
+            [str(VENV_PYTHON), "-m", "registry.cli", "models", "status"],
+            capture_output=True, text=True, timeout=30,
+        )
+        assert result.returncode == 0, f"models status failed: {result.stderr}"
+
+    def test_models_verify_runs(self):
+        """verify command runs — exit code depends on whether models exist on disk."""
+        result = subprocess.run(
+            [str(VENV_PYTHON), "-m", "registry.cli", "models", "verify"],
+            capture_output=True, text=True, timeout=30,
+        )
+        # exit code 0 = all models present, 1 = some missing (both are valid in tests)
+        assert result.returncode in (0, 1), f"models verify crashed: {result.stderr}"
+        assert "OK" in result.stdout or "MISSING" in result.stdout
 
 
 class TestModelCounts:
