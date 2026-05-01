@@ -34,8 +34,8 @@ import tempfile
 from pathlib import Path
 
 INFRA_DIR = Path(__file__).resolve().parent
-REPOS_DIR = INFRA_DIR / "repos"
-RAY_ROOT = INFRA_DIR.parent
+RAY_ROOT = INFRA_DIR.parent.parent  # infra/setup/ -> infra/ -> ray/
+REPOS_DIR = RAY_ROOT / "infra" / "repos"
 
 # CUDA 12.x toolkit for building extensions (needed for cu124/cu121 PyTorch)
 CUDA_12_HOME = os.environ.get("CUDA_12_HOME", "/usr/local/cuda-12.8")
