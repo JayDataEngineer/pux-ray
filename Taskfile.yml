@@ -132,6 +132,11 @@ tasks:
     cmds:
       - "{{.VENV_PYTHON}} -m registry.cli models pull {{.CLI_ARGS}}"
 
+  models:verify:
+    desc: "Verify all models exist and have correct size"
+    cmds:
+      - "{{.VENV_PYTHON}} -m registry.cli models verify"
+
   models:status:
     desc: "Show model disk usage summary"
     cmds:

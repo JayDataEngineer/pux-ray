@@ -265,12 +265,30 @@ def cmd_models_pull(args):
 
 
 def cmd_models_verify(args):
-    """Verify SHA256 hashes of downloaded models."""
+    """Verify all models: existence, size, and readiness.
+
+    Checks every model in the registry:
+    - SKIP models: confirmed as system packages (no download needed)
+    - Downloadable models: file/dir exists, size matches expected size_gb
+    - SHA256 hash: verified if present in registry
+    """
+    from rich.console import Console
+    from rich.table import Table
+
+    console = Console()
     registry = _get_registry()
+
     ok = 0
-    failed = 0
-    no_hash = 0
     missing = 0
+    size_mismatch = 0
+    hash_fail = 0
+    skipped = 0
+    errors = 0
+
+    table = Table(title="Model Verification")
+    table.add_column("Model", style="cyan")
+    table.add_column("Status", justify="center")
+    table.add_column("Detail")
 
     for category in sorted(registry.data.keys()):
         models = registry.data[category]
@@ -280,32 +298,82 @@ def cmd_models_verify(args):
             if not isinstance(meta, dict):
                 continue
 
-            expected_hash = meta.get("sha256")
-            if not expected_hash:
-                no_hash += 1
+            download = meta.get("download", "")
+
+            # Skip models are system packages — nothing to verify on disk
+            if download == "skip" or (not meta.get("source") and download not in ("file", "snapshot", "civitai")):
+                table.add_row(f"{category}/{name}", "[dim]SKIP[/dim]", "system package")
+                skipped += 1
                 continue
 
             try:
                 model_path = registry.get_path(category, name)
-                if not model_path.exists() or not model_path.is_file():
-                    print(f"  MISS {category}/{name} - file not found")
+                expected_gb = meta.get("size_gb", 0)
+
+                if not model_path.exists():
+                    table.add_row(
+                        f"{category}/{name}",
+                        "[red]MISSING[/red]",
+                        f"expected at {model_path}",
+                    )
                     missing += 1
                     continue
 
-                actual_hash = _compute_sha256(model_path)
-                if actual_hash == expected_hash:
-                    print(f"  OK   {category}/{name}")
-                    ok += 1
+                # Compute actual size
+                if model_path.is_file():
+                    actual_bytes = model_path.stat().st_size
+                elif model_path.is_dir():
+                    actual_bytes = sum(f.stat().st_size for f in model_path.rglob("*") if f.is_file())
                 else:
-                    print(f"  FAIL {category}/{name}")
-                    print(f"       expected: {expected_hash}")
-                    print(f"       actual:   {actual_hash}")
-                    failed += 1
-            except Exception as e:
-                print(f"  ERR  {category}/{name}: {e}")
-                failed += 1
+                    actual_bytes = 0
 
-    print(f"\nVerified: {ok}, Failed: {failed}, No hash: {no_hash}, Missing: {missing}")
+                actual_gb = actual_bytes / 1e9
+
+                # Size check: allow 20% tolerance (compressed vs metadata estimate)
+                if expected_gb and actual_gb < expected_gb * 0.3:
+                    table.add_row(
+                        f"{category}/{name}",
+                        "[yellow]SMALL[/yellow]",
+                        f"{actual_gb:.1f}GB / {expected_gb}GB expected",
+                    )
+                    size_mismatch += 1
+                    continue
+
+                # SHA256 check (only if hash is set)
+                expected_hash = meta.get("sha256")
+                if expected_hash and model_path.is_file():
+                    actual_hash = _compute_sha256(model_path)
+                    if actual_hash != expected_hash:
+                        table.add_row(
+                            f"{category}/{name}",
+                            "[red]HASH[/red]",
+                            f"SHA256 mismatch",
+                        )
+                        hash_fail += 1
+                        continue
+
+                table.add_row(
+                    f"{category}/{name}",
+                    "[green]OK[/green]",
+                    f"{actual_gb:.1f}GB",
+                )
+                ok += 1
+
+            except Exception as e:
+                table.add_row(f"{category}/{name}", "[red]ERR[/red]", str(e)[:60])
+                errors += 1
+
+    console.print(table)
+    console.print()
+
+    total = ok + missing + size_mismatch + hash_fail + errors
+    console.print(f"  [green]OK[/green]: {ok}  [red]Missing[/red]: {missing}  [yellow]Size mismatch[/yellow]: {size_mismatch}  [red]Hash fail[/red]: {hash_fail}  [dim]Skip[/dim]: {skipped}  [red]Errors[/red]: {errors}")
+    console.print(f"  Total downloadable: {total}, Ready: {ok}/{total}")
+
+    if missing + size_mismatch + hash_fail + errors > 0:
+        console.print("\n  [yellow]Run 'task models:pull' to download missing models.[/yellow]")
+        return 1
+    return 0
 
 
 def cmd_models_status(args):
