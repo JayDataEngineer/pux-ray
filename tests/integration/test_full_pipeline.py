@@ -350,7 +350,7 @@ class TestComfyUI:
         "4": {
             "class_type": "CheckpointLoaderSimple",
             "inputs": {
-                "ckpt_name": "prefectIllustriousXL_v70.safetensors"
+                "ckpt_name": "sd_xl_base_1.0.safetensors"
             }
         },
         "5": {
