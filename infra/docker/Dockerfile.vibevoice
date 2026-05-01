@@ -1,0 +1,72 @@
+# VibeVoice TTS Docker Worker
+# Multi-stage build: compile flash-attn in devel image
+#
+# Key constraints:
+#   transformers==4.51.3 (pinned, conflicts with everything else)
+#   flash-attn (compiled CUDA extension)
+#   Custom VibeVoice model classes (trust_remote_code)
+#
+# Build:  docker build -f Dockerfile.vibevoice -t vibevoice-worker .
+# Run:    docker run --gpus all -p 18403:18403 -v /models:/models:ro vibevoice-worker
+
+# ---- Build Stage ----
+FROM nvidia/cuda:12.4.0-devel-ubuntu22.04 AS builder
+
+ENV DEBIAN_FRONTEND=noninteractive
+ENV PYTHONUNBUFFERED=1
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    python3.12 python3.12-venv python3.12-dev \
+    git build-essential ninja-build \
+    libgl1-mesa-glx libglib2.0-0 \
+    && rm -rf /var/lib/apt/lists/* \
+    && ln -sf /usr/bin/python3.12 /usr/bin/python
+
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
+
+WORKDIR /build
+
+# Install torch (CUDA 12.4)
+RUN uv pip install --system --no-cache \
+    torch==2.6.0 torchvision==0.21.0 torchaudio==2.6.0 \
+    --index-url https://download.pytorch.org/whl/cu124
+
+# Pinned transformers (VibeVoice requires exactly 4.51.3)
+RUN uv pip install --system --no-cache \
+    transformers==4.51.3 \
+    pillow einops accelerate \
+    numpy soundfile scipy
+
+# flash-attn (required by VibeVoice)
+RUN uv pip install --system --no-cache flash-attn --no-build-isolation
+
+# ---- Runtime Stage ----
+FROM nvidia/cuda:12.4.0-runtime-ubuntu22.04 AS runtime
+
+ENV DEBIAN_FRONTEND=noninteractive
+ENV PYTHONUNBUFFERED=1
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    python3.12 libpython3.12-stdlib \
+    libgl1-mesa-glx libglib2.0-0 libgomp1 \
+    && rm -rf /var/lib/apt/lists/* \
+    && ln -sf /usr/bin/python3.12 /usr/bin/python
+
+COPY --from=builder /usr/lib/python3.12 /usr/lib/python3.12
+COPY --from=builder /usr/local/lib/python3.12/dist-packages /usr/local/lib/python3.12/dist-packages
+
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
+RUN uv pip install --system --no-cache fastapi uvicorn[standard] python-multipart soundfile httpx
+
+WORKDIR /app
+
+COPY workers/ /app/workers/
+
+ENV TOOL_NAME=vibevoice
+ENV PORT=18403
+ENV MODEL_PATH=/models/VibeVoice-7B
+ENV PYTHONPATH=/app:/app/repo
+
+EXPOSE 18403
+
+CMD ["python", "-m", "workers.server"]

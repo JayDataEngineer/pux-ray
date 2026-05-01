@@ -355,3 +355,116 @@ class CLIToolMixin:
             logger.error("CLI failed (exit %d): %s", result.returncode, stderr_tail)
             raise RuntimeError(f"CLI failed (exit {result.returncode}): {stderr_tail}")
         return result
+
+
+class HTTPToolMixin:
+    """Mixin for tools running in Docker containers, accessed via HTTP.
+
+    Replaces CLIToolMixin for Docker-based tools. Instead of calling
+    a subprocess, sends HTTP requests to a worker container.
+
+    The worker container is managed by GPUScheduler (start/stop via
+    docker compose profiles). This mixin only handles HTTP communication.
+
+    Model lifecycle:
+    - load_model(): Records port/service info. Container is started
+      separately by GPUScheduler.
+    - unload_model(): No-op locally. Container is stopped by GPUScheduler.
+    """
+
+    port: int = 0
+    _base_url: str = ""
+    _service_name: str = ""
+    _timeout: int = 600
+
+    def _init_http(self, port: int, service_name: str, timeout: int = 600) -> None:
+        """Configure HTTP connection to a Docker worker container.
+
+        Args:
+            port: Host port the container is mapped to.
+            service_name: Docker Compose profile name (e.g. "trellis").
+            timeout: HTTP request timeout in seconds.
+        """
+        self.port = port
+        self._base_url = f"http://127.0.0.1:{port}"
+        self._service_name = service_name
+        self._timeout = timeout
+        logger.info(
+            "%s HTTP ready (port=%d, service=%s)",
+            self.__class__.__name__, port, service_name,
+        )
+
+    async def _call_worker(
+        self,
+        endpoint: str,
+        *,
+        files: dict | None = None,
+        data: dict | None = None,
+        json: dict | None = None,
+        timeout: int | None = None,
+    ) -> bytes:
+        """Send a POST request to the worker container.
+
+        Args:
+            endpoint: URL path (e.g. "generate").
+            files: Multipart file uploads.
+            data: Form data.
+            json: JSON body.
+            timeout: Override default timeout.
+
+        Returns:
+            Response body bytes.
+        """
+        import httpx
+
+        url = f"{self._base_url}/{endpoint}"
+        request_timeout = timeout or self._timeout
+
+        async with httpx.AsyncClient(timeout=request_timeout) as client:
+            resp = await client.post(
+                url,
+                files=files,
+                data=data,
+                json=json,
+            )
+
+        if resp.status_code != 200:
+            error_text = resp.text[:500]
+            logger.error(
+                "Worker %s returned %d: %s",
+                self._service_name, resp.status_code, error_text,
+            )
+            raise RuntimeError(
+                f"Worker {self._service_name} error ({resp.status_code}): {error_text}"
+            )
+
+        return resp.content
+
+    async def _check_worker_health(self) -> bool:
+        """Check if the worker container is healthy."""
+        import httpx
+
+        try:
+            async with httpx.AsyncClient(timeout=5) as client:
+                resp = await client.get(f"{self._base_url}/health")
+                return resp.status_code == 200
+        except (httpx.ConnectError, httpx.TimeoutException):
+            return False
+
+    async def _load_worker_model(self, model_name: str | None = None) -> None:
+        """Ask the worker to load its model into GPU memory."""
+        import httpx
+
+        body = {}
+        if model_name:
+            body["model"] = model_name
+
+        async with httpx.AsyncClient(timeout=300) as client:
+            resp = await client.post(
+                f"{self._base_url}/load",
+                json=body,
+            )
+            if resp.status_code != 200:
+                raise RuntimeError(
+                    f"Worker model load failed ({resp.status_code}): {resp.text[:300]}"
+                )

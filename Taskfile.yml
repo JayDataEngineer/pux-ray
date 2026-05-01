@@ -105,10 +105,11 @@ tasks:
       - "{{.VENV_PYTHON}} -m infra.setup.clone"
 
   setup:tools:
-    desc: "Build llama.cpp + create creative tool venvs"
+    desc: "Build llama.cpp + create bare-metal tool venvs + build Docker workers"
     deps: [setup:repos]
     cmds:
       - "{{.VENV_PYTHON}} -m infra.setup all"
+      - task: workers:build
 
   # ── Legacy cluster tasks (kept for compatibility) ────────────────────────
   start:
@@ -162,3 +163,34 @@ tasks:
     desc: "Run service integration tests (LLM, TTS, ASR, 3D, music, ComfyUI) — requires running cluster"
     cmds:
       - "{{.VENV_PYTHON}} -m pytest tests/integration/test_full_pipeline.py -v {{.CLI_ARGS}}"
+
+  # ── Docker Workers ──────────────────────────────────────────────────────
+  workers:build:
+    desc: "Build all Docker worker images (TRELLIS, AniGen, VibeVoice)"
+    cmds:
+      - docker compose -f infra/docker/compose.workers.yaml build
+
+  workers:build-trellis:
+    desc: "Build TRELLIS worker image only"
+    cmds:
+      - docker compose -f infra/docker/compose.workers.yaml build trellis-worker
+
+  workers:build-anigen:
+    desc: "Build AniGen worker image only"
+    cmds:
+      - docker compose -f infra/docker/compose.workers.yaml build anigen-worker
+
+  workers:build-vibevoice:
+    desc: "Build VibeVoice worker image only"
+    cmds:
+      - docker compose -f infra/docker/compose.workers.yaml build vibevoice-worker
+
+  workers:ps:
+    desc: "Show running Docker worker containers"
+    cmds:
+      - docker compose -f infra/docker/compose.workers.yaml ps
+
+  workers:stop:
+    desc: "Stop all Docker worker containers"
+    cmds:
+      - docker compose -f infra/docker/compose.workers.yaml down

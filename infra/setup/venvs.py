@@ -1,25 +1,24 @@
 """Tech Noir Ray — Creative Tool Venv Setup.
 
-Creates Python venvs for creative tools with compiled CUDA extensions.
-Idempotent — safe to re-run. Skips steps that are already complete.
+Creates Python venvs for creative tools. Idempotent — safe to re-run.
 
 Usage:
-    python -m infra.setup           # Set up all tools
-    python -m infra.setup trellis   # Set up TRELLIS only
+    python -m infra.setup           # Set up bare-metal tools only
+    python -m infra.setup docker    # Build Docker worker images (TRELLIS, AniGen, VibeVoice)
+    python -m infra.setup trellis   # Set up TRELLIS (Dockerized — will warn)
+    python -m infra.setup ace-step  # Set up ACE-Step (bare-metal CLIToolMixin)
     python -m infra.setup llama     # Build llama.cpp only
 
 Architecture:
-    Each tool has its own venv with incompatible torch/CUDA versions:
-    - TRELLIS.2:  torch 2.6.0+cu124, Python 3.12
-    - AniGen:     torch 2.5.0+cu121, Python 3.12
-    - ACE-Step:   torch 2.10.0+cu128, Python 3.12 (uv sync)
-    - See-Through: torch 2.8.0+cu128, Python 3.12
-    - VibeVoice:  torch + transformers 4.51.3 (pinned)
-    - GPT-SoVITS: torch + SoVITS inference
+    Tools with compiled CUDA extensions run in Docker containers:
+    - TRELLIS.2:  Docker (o_voxel, CuMesh, flash-attn, nvdiffrast, CUDA 12.4)
+    - AniGen:     Docker (pytorch3d, spconv, flash-attn, CUDA 12.1)
+    - VibeVoice:  Docker (flash-attn, transformers==4.51.3, CUDA 12.4)
 
-    Compiled extensions (flash-attn, pytorch3d, cumesh, o_voxel, nvdiffrast)
-    are built against the CUDA 12.x toolkit. Set CUDA_12_HOME to the path
-    (default: /usr/local/cuda-12.8).
+    Tools with pure Python deps run as bare-metal CLIToolMixin subprocess:
+    - ACE-Step:   torch 2.10+cu128, pure Python
+    - See-Through: torch cu128, pure Python
+    - GPT-SoVITS: torch cu124, pure Python
 
     RTX 4090 = sm_89 (set via TORCH_CUDA_ARCH_LIST).
 """
@@ -500,6 +499,9 @@ def setup_llama() -> bool:
 
 # ─── Main ─────────────────────────────────────────────────────────────────
 
+# Tools that run in Docker containers — skip venv setup, use docker build instead
+DOCKERIZED_TOOLS = {"trellis", "anigen", "vibevoice"}
+
 TOOLS = {
     "trellis": setup_trellis,
     "anigen": setup_anigen,
@@ -513,26 +515,56 @@ TOOLS = {
 }
 
 
+def setup_docker_workers():
+    """Build Docker images for tools that need compiled CUDA extensions."""
+    compose_file = RAY_ROOT / "infra" / "docker" / "compose.workers.yaml"
+    if not compose_file.exists():
+        _warn("Docker workers compose file not found: %s", compose_file)
+        return
+
+    _log("Building Docker worker images...")
+    result = subprocess.run(
+        ["docker", "compose", "-f", str(compose_file), "build"],
+        capture_output=True, text=True, timeout=1800,
+    )
+    if result.returncode != 0:
+        _warn("Docker build failed: %s", result.stderr[-500:])
+    else:
+        _log("Docker worker images built successfully.")
+
+
 def main():
     target = sys.argv[1] if len(sys.argv) > 1 else "all"
 
+    if target == "docker":
+        setup_docker_workers()
+        return
+
     if target == "all":
-        _log("Setting up all creative tools...")
+        _log("Setting up creative tools (bare-metal only)...")
         for name, fn in TOOLS.items():
+            if name in DOCKERIZED_TOOLS:
+                _log(f"  Skipping {name} — runs in Docker (use 'python -m infra.setup docker')")
+                continue
             print()
             try:
                 fn()
             except Exception as e:
                 _warn(f"  {name} setup failed: {e}")
         print()
-        _log("All creative tool venvs + llama.cpp build complete.")
+        _log("Bare-metal tool venvs + llama.cpp build complete.")
+        _log("Run 'python -m infra.setup docker' to build Docker worker images.")
+        return
+
+    if target in DOCKERIZED_TOOLS:
+        _warn(f"  {target} is Dockerized — run 'python -m infra.setup docker' instead")
         return
 
     fn = TOOLS.get(target)
     if fn:
         fn()
     else:
-        print(f"Usage: python -m infra.setup [{'|'.join(TOOLS)}|all]")
+        print(f"Usage: python -m infra.setup [{'|'.join(TOOLS)}|all|docker]")
         sys.exit(1)
 
 

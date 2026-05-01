@@ -158,6 +158,39 @@ register(Service(
 ))
 
 
+# --- Docker worker containers (CUDA-heavy creative tools) ---
+
+_DOCKER_WORKERS_DIR = str(get_project_root() / "infra" / "docker")
+_DOCKER_WORKERS_COMPOSE = "compose.workers.yaml"
+
+register(Service(
+    name="trellis-worker",
+    type=ServiceType.DOCKER,
+    working_dir=_DOCKER_WORKERS_DIR,
+    compose_file=_DOCKER_WORKERS_COMPOSE,
+    port=18401,
+    label="TRELLIS.2 Worker",
+))
+
+register(Service(
+    name="anigen-worker",
+    type=ServiceType.DOCKER,
+    working_dir=_DOCKER_WORKERS_DIR,
+    compose_file=_DOCKER_WORKERS_COMPOSE,
+    port=18402,
+    label="AniGen Worker",
+))
+
+register(Service(
+    name="vibevoice-worker",
+    type=ServiceType.DOCKER,
+    working_dir=_DOCKER_WORKERS_DIR,
+    compose_file=_DOCKER_WORKERS_COMPOSE,
+    port=18403,
+    label="VibeVoice TTS Worker",
+))
+
+
 # ---------------------------------------------------------------------------
 # Lifecycle operations
 # ---------------------------------------------------------------------------

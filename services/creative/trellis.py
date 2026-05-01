@@ -1,22 +1,19 @@
 """TRELLIS.2 - Image-to-3D mesh generation.
 
 Generates high-quality 3D meshes (GLB) from single images.
-Called via subprocess using TRELLIS.2's own venv Python because
-it has compiled CUDA extensions (o_voxel, cumesh, nvdiffrast)
-that can't be pip-installed dynamically.
+Runs in a Docker container with CUDA 12.4 for compiled extensions
+(o_voxel, CuMesh, flash-attn, nvdiffrast). Ray head calls it via HTTP.
 
-Requires ~12GB VRAM. Model loads fresh per subprocess call (~30s overhead).
+Requires ~12GB VRAM. Model stays loaded in container between requests.
 """
 
 from __future__ import annotations
 
 import logging
-import tempfile
-from pathlib import Path
 
 from ray import serve
 
-from services.base import BaseGPUDeployment, CLIToolMixin
+from services.base import BaseGPUDeployment, HTTPToolMixin
 
 logger = logging.getLogger(__name__)
 
@@ -27,17 +24,17 @@ logger = logging.getLogger(__name__)
     max_ongoing_requests=1,
     ray_actor_options={"num_gpus": 0.01, "num_cpus": 0.5},
 )
-class TRELLISDeployment(BaseGPUDeployment, CLIToolMixin):
-    """TRELLIS.2 image-to-3D generation via subprocess CLI."""
+class TRELLISDeployment(BaseGPUDeployment, HTTPToolMixin):
+    """TRELLIS.2 image-to-3D generation via Docker HTTP worker."""
 
     def _load(self, model_name: str = "trellis-base") -> None:
-        self._init_cli("services.creative.trellis")
+        self._init_http(port=18401, service_name="trellis")
         self.model = True
         self.model_name = model_name
-        logger.info("TRELLIS CLI tool ready (model loads per-call in subprocess)")
+        logger.info("TRELLIS HTTP worker ready (container managed by GPUScheduler)")
 
     def _unload(self) -> None:
-        # Nothing in-process to unload — subprocess handles its own cleanup
+        # Container lifecycle managed by GPUScheduler
         self.model = None
 
     async def generate_3d(
@@ -47,28 +44,19 @@ class TRELLISDeployment(BaseGPUDeployment, CLIToolMixin):
         resolution: int = 512,
         seed: int = 0,
     ) -> bytes:
-        """Generate 3D mesh from image bytes. Returns GLB or OBJ bytes."""
+        """Generate 3D mesh from image bytes via HTTP worker."""
         if not self.is_loaded():
             raise RuntimeError("No model loaded")
 
-        with tempfile.TemporaryDirectory(prefix="trellis_") as tmpdir:
-            input_path = Path(tmpdir) / "input.png"
-            output_path = Path(tmpdir) / f"output.{output_format}"
-
-            input_path.write_bytes(image)
-
-            args = [
-                "--image", str(input_path),
-                "--output", str(output_path),
-                "--resolution", str(resolution),
-            ]
-
-            self._run_cli(args, timeout=600)
-
-            if not output_path.exists():
-                raise RuntimeError(f"TRELLIS did not produce output at {output_path}")
-
-            return output_path.read_bytes()
+        result = await self._call_worker(
+            "generate",
+            files={"image": ("input.png", image, "image/png")},
+            data={
+                "output_format": output_format,
+                "resolution": str(resolution),
+            },
+        )
+        return result
 
     async def __call__(self, request):
         form = await request.form()

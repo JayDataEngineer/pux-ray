@@ -1,0 +1,87 @@
+# AniGen Docker Worker
+# Multi-stage build: compile pytorch3d + CUDA extensions in devel image
+#
+# Required extensions (compiled from source):
+#   pytorch3d, spconv, flash-attn
+#
+# Build:  docker build -f Dockerfile.anigen -t anigen-worker .
+# Run:    docker run --gpus all -p 18402:18402 -v /models:/models:ro anigen-worker
+
+# ---- Build Stage ----
+FROM nvidia/cuda:12.1.0-devel-ubuntu22.04 AS builder
+
+ENV DEBIAN_FRONTEND=noninteractive
+ENV PYTHONUNBUFFERED=1
+
+# System deps
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    python3.12 python3.12-venv python3.12-dev \
+    git build-essential ninja-build \
+    libgl1-mesa-glx libglib2.0-0 \
+    && rm -rf /var/lib/apt/lists/* \
+    && ln -sf /usr/bin/python3.12 /usr/bin/python
+
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
+
+WORKDIR /build
+
+# Install torch + torchvision (CUDA 12.1 compatible)
+RUN uv pip install --system --no-cache \
+    torch==2.6.0 torchvision==0.21.0 \
+    --index-url https://download.pytorch.org/whl/cu121
+
+# Core deps
+RUN uv pip install --system --no-cache \
+    pillow einops transformers accelerate trimesh \
+    pygltflib numpy opencv-python-headless \
+    scipy timm fvcore iopath
+
+# Build pytorch3d from source (the main compiled extension)
+# Requires matching CUDA + torch versions
+RUN git clone --depth 1 https://github.com/facebookresearch/pytorch3d.git /tmp/pytorch3d \
+    && cd /tmp/pytorch3d \
+    && uv pip install --system --no-cache . \
+    && rm -rf /tmp/pytorch3d
+
+# spconv (sparse convolution)
+RUN uv pip install --system --no-cache spconv-cu120
+
+# flash-attn
+RUN uv pip install --system --no-cache flash-attn --no-build-isolation
+
+# nvdiffrast (for mesh rendering)
+RUN git clone --depth 1 https://github.com/NVlabs/nvdiffrast.git /tmp/nvdiffrast \
+    && cd /tmp/nvdiffrast \
+    && uv pip install --system --no-cache . \
+    && rm -rf /tmp/nvdiffrast
+
+# ---- Runtime Stage ----
+FROM nvidia/cuda:12.1.0-runtime-ubuntu22.04 AS runtime
+
+ENV DEBIAN_FRONTEND=noninteractive
+ENV PYTHONUNBUFFERED=1
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    python3.12 libpython3.12-stdlib \
+    libgl1-mesa-glx libglib2.0-0 libgomp1 \
+    && rm -rf /var/lib/apt/lists/* \
+    && ln -sf /usr/bin/python3.12 /usr/bin/python
+
+COPY --from=builder /usr/lib/python3.12 /usr/lib/python3.12
+COPY --from=builder /usr/local/lib/python3.12/dist-packages /usr/local/lib/python3.12/dist-packages
+
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
+RUN uv pip install --system --no-cache fastapi uvicorn[standard] python-multipart httpx
+
+WORKDIR /app
+
+COPY workers/ /app/workers/
+
+ENV TOOL_NAME=anigen
+ENV PORT=18402
+ENV MODEL_PATH=/models
+ENV PYTHONPATH=/app:/app/repo
+
+EXPOSE 18402
+
+CMD ["python", "-m", "workers.server"]
