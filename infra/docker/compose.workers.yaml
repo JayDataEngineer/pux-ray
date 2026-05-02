@@ -47,7 +47,7 @@ services:
     environment:
       - TOOL_NAME=anigen
       - PORT=18402
-      - MODEL_PATH=/models
+      - MODEL_PATH=/models/ckpts
     deploy:
       resources:
         reservations:
