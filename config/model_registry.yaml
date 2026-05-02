@@ -378,6 +378,16 @@ comfyui:
     device: gpu
     description: "DINOv3 ViT-L/16 image encoder for TRELLIS.2. Gated on HuggingFace, free on ModelScope."
 
+  trellis_rmbg:
+    path: 3d/trellis/rmbg/briaai/RMBG-2___0/
+    source: modelscope://briaai/RMBG-2.0
+    download: modelscope
+    sha256: null
+    size_gb: 0.9
+    vram_estimate_gb: 0.3
+    device: gpu
+    description: "RMBG-2.0 background removal model for TRELLIS.2. Gated on HuggingFace, free on ModelScope."
+
   anigen:
     path: 3d/anigen/ckpts/
     source: hf://VAST-AI/AniGen
