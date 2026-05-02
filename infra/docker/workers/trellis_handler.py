@@ -142,7 +142,7 @@ class Handler:
         )
 
         buf = io.BytesIO()
-        glb.export(buf, extension_webp=True)
+        glb.export(buf, file_type="glb", extension_webp=True)
         buf.seek(0)
 
         logger.info("Generated %s (%d bytes)", output_format, len(buf.getvalue()))
