@@ -468,8 +468,8 @@ class TestTRELLIS:
         assert len(resp.content) > 100, (
             f"GLB output too small ({len(resp.content)} bytes)"
         )
-        # GLB magic: bytes 0-3 = file size (uint32 LE), bytes 4-7 = 'glTF'
-        assert resp.content[4:8] == b"glTF", "Not a valid GLB file"
+        # GLB magic: bytes 0-3 = 0x46546C67 ('glTF'), bytes 4-7 = version (uint32 LE)
+        assert resp.content[0:4] == b"glTF", "Not a valid GLB file"
 
 
 # =============================================================================
