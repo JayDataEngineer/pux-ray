@@ -44,7 +44,8 @@ RUN uv pip install --system --no-cache \
     opencv-python-headless trimesh transformers \
     gradio==6.0.1 tensorboard pandas lpips zstandard \
     kornia timm einops accelerate \
-    pygltflib numpy soundfile
+    pygltflib numpy soundfile \
+    wheel setuptools packaging
 
 # Build CUDA extensions one by one (cacheable layers)
 # URLs match official TRELLIS.2 setup.sh
