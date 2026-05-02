@@ -186,7 +186,7 @@ def llm_loaded(ensure_served):
 
 @pytest.fixture(scope="session")
 def trellis_loaded(ensure_served):
-    """Load TRELLIS model (CLIToolMixin - just verifies venv)."""
+    """Load TRELLIS model (HTTPToolMixin - initializes HTTP connection)."""
     _load_service("trellis", "trellis", "trellis")
 
 
@@ -447,8 +447,8 @@ class TestComfyUI:
 class TestTRELLIS:
     """Test TRELLIS.2 image-to-3D mesh generation.
 
-    Deployed at /3d/trellis on Ray Serve. Uses CLIToolMixin subprocess
-    pattern — model loads fresh per call (~30s overhead).
+    Deployed at /3d/trellis on Ray Serve. Uses HTTPToolMixin — sends
+    requests to a Docker worker container at port 18401.
     """
 
     def test_generate_glb(self, client, trellis_loaded, test_png):
@@ -479,8 +479,8 @@ class TestTRELLIS:
 class TestAniGen:
     """Test AniGen rigged 3D mesh generation.
 
-    Deployed at /3d/anigen on Ray Serve. Uses CLIToolMixin subprocess
-    pattern — model loads fresh per call (~60s overhead).
+    Deployed at /3d/anigen on Ray Serve. Uses HTTPToolMixin — sends
+    requests to a Docker worker container at port 18402.
     """
 
     def test_generate_rigged_glb(self, client, anigen_loaded, test_png):
