@@ -37,6 +37,8 @@ WORKDIR /build
 # the GPU arch during docker build (no GPU visible at build time).
 ENV TORCH_CUDA_ARCH_LIST="8.9"
 ENV TORCH_NVCC_FLAGS="-Xfatbin -compress-all"
+# Limit parallel CUDA compilation jobs to avoid OOM during docker build
+ENV MAX_JOBS=2
 
 # Install torch + torchvision first (heavy, cacheable layer)
 RUN uv pip install --system --no-cache \
