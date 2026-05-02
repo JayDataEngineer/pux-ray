@@ -189,6 +189,7 @@ def trellis_loaded(ensure_served):
     """Load TRELLIS model (frees GPU, starts Docker, loads model)."""
     _unload_gpu_service("llm", "llm")
     _stop_comfyui()
+    _wait_for_vram_free(14000, timeout_sec=30)
     _start_docker_worker("trellis")
     _load_service("trellis", "trellis", "trellis")
 
@@ -263,6 +264,21 @@ def _stop_comfyui() -> None:
     except Exception:
         pass
     time.sleep(2)
+
+
+def _wait_for_vram_free(target_mb: int, timeout_sec: int = 30) -> None:
+    """Poll nvidia-smi until at least target_mb VRAM is free."""
+    deadline = time.time() + timeout_sec
+    while time.time() < deadline:
+        free = get_vram_free_mb()
+        if free >= target_mb:
+            return
+        time.sleep(1)
+    current = get_vram_free_mb()
+    raise RuntimeError(
+        f"VRAM not freed after {timeout_sec}s "
+        f"(free: {current}MB, target: {target_mb}MB)"
+    )
 
 
 # =============================================================================
