@@ -30,23 +30,28 @@ DEFAULT_MODEL = "Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice"
 class QwenTTSDeployment(BaseGPUDeployment):
     """GPU-based Qwen3-TTS with CustomVoice."""
 
-    def _load(self, model_name: str = DEFAULT_MODEL) -> None:
+    def _load(self, model_name: str = "qwen3-tts") -> None:
         from qwen_tts import Qwen3TTSModel
         import torch
         from pathlib import Path
         from registry.models import ModelRegistry
 
-        # Try local model path first (pre-downloaded), fall back to HF ID
-        try:
-            registry = ModelRegistry()
-            model_path = str(registry.get_path("tts", "qwen3-tts"))
-            if not Path(model_path).exists():
-                model_path = model_name
-        except (KeyError, ValueError):
-            model_path = model_name
+        registry = ModelRegistry()
+        model_path = registry.get_path("tts", "qwen3-tts")
+        model_dir = Path(model_path)
+
+        if not model_dir.exists():
+            # Download via HF snapshot to our models dir (single source of truth)
+            from huggingface_hub import snapshot_download
+            model_dir.mkdir(parents=True, exist_ok=True)
+            snapshot_download(
+                "Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice",
+                local_dir=str(model_dir),
+                local_dir_use_symlinks=False,
+            )
 
         self.model = Qwen3TTSModel.from_pretrained(
-            model_path,
+            str(model_dir),
             device_map="cuda:0",
             dtype=torch.bfloat16,
         )
@@ -104,6 +109,12 @@ class QwenTTSDeployment(BaseGPUDeployment):
 
     async def __call__(self, request):
         body = await request.json()
+        if not self.is_loaded():
+            from starlette.responses import JSONResponse
+            return JSONResponse(
+                {"error": "QwenTTS model not loaded. Use /v1/audio/speech via ingress (port 18080)."},
+                status_code=503,
+            )
         audio = await self.synthesize(
             text=body.get("input", ""),
             voice=body.get("voice", "Chelsie"),
