@@ -61,7 +61,7 @@ RUN uv pip install --system --no-cache \
 RUN uv pip install --system --no-cache flash-attn==2.7.3 --no-build-isolation
 
 # 2. TRELLIS.2 source code + utils3d dependency (needed before o-voxel)
-RUN git clone --depth 1 https://github.com/microsoft/TRELLIS.2.git /build/trellis \
+RUN git clone --depth 1 --recursive https://github.com/microsoft/TRELLIS.2.git /build/trellis \
     && cd /build/trellis \
     && uv pip install --system --no-cache \
         git+https://github.com/EasternJournalist/utils3d.git@9a4eb15e4021b67b12c460c7057d642626897ec8
