@@ -33,6 +33,11 @@ COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 
 WORKDIR /build
 
+# Set CUDA arch for RTX 4090 (sm_89). Without this, torch can't auto-detect
+# the GPU arch during docker build (no GPU visible at build time).
+ENV TORCH_CUDA_ARCH_LIST="8.9"
+ENV TORCH_NVCC_FLAGS="-Xfatbin -compress-all"
+
 # Install torch + torchvision first (heavy, cacheable layer)
 RUN uv pip install --system --no-cache \
     torch==2.6.0 torchvision==0.21.0 \
