@@ -36,6 +36,8 @@ COMFYUI_EXTENSIONS = {
     "comfyui_controlnet_aux": "https://github.com/Fannovel16/comfyui_controlnet_aux.git",
     "ComfyUI-GGUF": "https://github.com/city96/ComfyUI-GGUF.git",
     "ComfyUI-LTXVideo": "https://github.com/Lightricks/ComfyUI-LTXVideo.git",
+    "vnccs": "https://github.com/AHEKOT/ComfyUI_VNCCS.git",
+    "vnccs_utils": "https://github.com/AHEKOT/ComfyUI_VNCCS_Utils.git",
 }
 
 
@@ -45,6 +47,36 @@ def _log(msg: str) -> None:
 
 def _warn(msg: str) -> None:
     print(f"\033[1;33m[clone]\033[0m {msg}")
+
+
+def _setup_comfyui_models() -> None:
+    """Create extra_model_paths.yaml pointing ComfyUI to shared models dir."""
+    import yaml
+
+    comfyui_dir = REPOS_DIR / "ComfyUI"
+    config_path = comfyui_dir / "extra_model_paths.yaml"
+
+    models_root = "/home/user/Documents/models/image-gen/comfyui"
+
+    config = {
+        "base_path": models_root,
+        "checkpoints": "checkpoints",
+        "vae": "vae",
+        "loras": "loras",
+        "upscale_models": "latent_upscale_models",
+        "controlnet": "controlnet",
+        "clip": "clip",
+        "clip_vision": "clip_vision",
+        "unet": "unet",
+        "diffusion_models": "diffusion_models",
+        "text_encoders": "text_encoders",
+    }
+
+    if not config_path.exists():
+        _log("Creating ComfyUI extra_model_paths.yaml → %s", models_root)
+        config_path.write_text(yaml.dump(config, default_flow_style=False))
+    else:
+        _log("ComfyUI extra_model_paths.yaml already exists")
 
 
 def clone_comfyui_extension(name: str, url: str) -> bool:
@@ -113,6 +145,9 @@ def main():
                 clone_comfyui_extension(name, url)
             except Exception as e:
                 _warn(f"  extension {name} failed: {e}")
+
+        _log("Setting up ComfyUI model paths...")
+        _setup_comfyui_models()
 
         _log("All repos synced.")
         return
