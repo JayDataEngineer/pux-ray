@@ -44,17 +44,17 @@ except ValueError:
     ).remote()
     print("JobManager deployed")
 
-# Deploy ComfyUI Sidecar (polls git repos and reloads on push)
-from gateway.comfyui_sidecar import ComfyUISidecar
+# Deploy Git Sidecar (polls all infra git repos and reloads on push)
+from gateway.git_sidecar import GitSidecar
 try:
-    sidecar = ray.get_actor("comfyui_sidecar")
-    print("ComfyUI sidecar already running")
+    sidecar = ray.get_actor("git_sidecar")
+    print("Git sidecar already running")
 except ValueError:
-    sidecar = ComfyUISidecar.options(
-        name="comfyui_sidecar", lifetime="detached"
+    sidecar = GitSidecar.options(
+        name="git_sidecar", lifetime="detached"
     ).remote()
     sidecar.start.remote()
-    print("ComfyUI sidecar deployed")
+    print("Git sidecar deployed")
 
 # --- Deploy services ---
 
