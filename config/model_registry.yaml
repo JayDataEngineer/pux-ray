@@ -368,6 +368,16 @@ comfyui:
     device: gpu
     description: "TRELLIS.2 4B checkpoints. Shape decoder, texture encoder, flow models."
 
+  trellis_dinov3:
+    path: 3d/trellis/dinov3/facebook/dinov3-vitl16-pretrain-lvd1689m/
+    source: modelscope://facebook/dinov3-vitl16-pretrain-lvd1689m
+    download: modelscope
+    sha256: null
+    size_gb: 1.2
+    vram_estimate_gb: 0.5
+    device: gpu
+    description: "DINOv3 ViT-L/16 image encoder for TRELLIS.2. Gated on HuggingFace, free on ModelScope."
+
   anigen:
     path: 3d/anigen/ckpts/
     source: hf://VAST-AI/AniGen

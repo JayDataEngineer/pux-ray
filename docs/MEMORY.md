@@ -8,6 +8,13 @@
 - Ray version: 2.55.1
 - Python: 3.13 (via uv)
 
+## Remote Server Safety Rules
+- **During development**: max 2 concurrent SSH ops, sequential pull→deploy→test, MAX_JOBS=2
+- **In production** (once IaC is proven): can crank MAX_JOBS up, parallel ops fine
+- **Goal: zero manual setup** — `task boot` goes from bare metal to full cluster. No hand-edited configs.
+- Ray restart + deploy + test must be done as a single sequential chain during dev
+- If SSH times out, try local IP `192.168.1.184` — Tailscale may need a moment
+
 ## Remote Server Boot Procedure (LUKS + Dropbear)
 - Server has **Full Disk Encryption (LUKS)** — must be unlocked before OS boots
 - **Dropbear initramfs SSH**: on reboot, tiny SSH server runs in initramfs
@@ -34,6 +41,15 @@
   - Each tool has incompatible torch/CUDA versions (cu124, cu128, cu130)
   - Model loads fresh per subprocess call (~30-60s overhead, acceptable for batch generation)
   - Paths read from config: `services.creative.{tool}.venv_python/script/working_dir`
+- **Docker Workers (added 2026-05-01)** — 3 tools run in Docker containers with matching CUDA base images
+  - TRELLIS.2: CUDA 12.4 (o_voxel, CuMesh, flash-attn, nvdiffrast, FlexGEMM, nvdiffrec) — port 18401
+  - AniGen: CUDA 12.1 (pytorch3d source build, spconv, flash-attn) — port 18402
+  - VibeVoice TTS: CUDA 12.4 (flash-attn, transformers==4.51.3) — port 18403
+  - Docker Compose profiles enforce GPU exclusivity (only 1 worker at a time)
+  - GPUScheduler starts/stops containers via `docker compose --profile <name> up/stop`
+  - Ray deployments use **HTTPToolMixin** instead of CLIToolMixin for these tools
+  - Remaining tools (ACE-Step, See-Through, GPT-SoVITS) stay bare-metal CLIToolMixin
+  - Files: `infra/docker/Dockerfile.{trellis,anigen,vibevoice}`, `compose.workers.yaml`, `workers/`
 - **MCP servers are persistent processes** — NOT Ray deployments
   - Always-on CPU services, no GPU, no lifecycle management needed
   - `scripts/start_mcp.sh` manages start/stop/status/restart
@@ -113,13 +129,13 @@
 - Civitai API download support in registry CLI (`download: civitai`, `source: civitai://model_id`)
 
 ## Key Files
-- `services/base.py` - BaseGPUDeployment, SubprocessMixin, CLIToolMixin, wait_for_port()
-- `services/creative/trellis.py` - TRELLIS.2 image-to-3D (subprocess CLI)
-- `services/creative/anigen.py` - AniGen rigged 3D (subprocess CLI)
-- `services/creative/ace_step.py` - ACE-STEP music generation (subprocess CLI)
-- `services/creative/see_through.py` - See-Through layer decomposition (subprocess CLI)
+- `services/base.py` - BaseGPUDeployment, SubprocessMixin, CLIToolMixin, HTTPToolMixin
+- `services/creative/trellis.py` - TRELLIS.2 image-to-3D (Docker HTTP worker, port 18401)
+- `services/creative/anigen.py` - AniGen rigged 3D (Docker HTTP worker, port 18402)
+- `services/creative/ace_step.py` - ACE-STEP music generation (bare-metal CLIToolMixin)
+- `services/creative/see_through.py` - See-Through layer decomposition (bare-metal CLIToolMixin)
 - `services/llm/deployment.py` - llama.cpp subprocess wrapper (auto-loads on first request)
-- `gateway/gpu_scheduler.py` - GPU swap coordinator
+- `gateway/gpu_scheduler.py` - GPU swap coordinator (Docker container + Ray handle lifecycle)
 - `gateway/ingress.py` - Starlette API router (port 18080, proxies to all services)
 - `gateway/studio.py` - Studio switcher backend (STUDIO_APPS registry, switch/release endpoints)
 - `gateway/studio.html` - Studio switcher UI (sidebar + iframe, dark zinc/indigo theme)
@@ -134,8 +150,16 @@
 - `boot/services.py` - Service registry (all services on server)
 - `boot/health.py` - Health checks (TCP, HTTP, Docker, Ray)
 - `boot/cli.py` - CLI: tech-noir boot/status/stop
+- `infra/docker/Dockerfile.trellis` - TRELLIS Docker worker (CUDA 12.4 multi-stage build)
+- `infra/docker/Dockerfile.anigen` - AniGen Docker worker (CUDA 12.1 multi-stage build)
+- `infra/docker/Dockerfile.vibevoice` - VibeVoice Docker worker (CUDA 12.4 multi-stage build)
+- `infra/docker/compose.workers.yaml` - Docker Compose profiles for GPU worker containers
+- `infra/docker/workers/server.py` - FastAPI HTTP server template for worker containers
+- `infra/docker/workers/trellis_handler.py` - TRELLIS generation handler
+- `infra/docker/workers/anigen_handler.py` - AniGen generation handler
+- `infra/docker/workers/vibevoice_handler.py` - VibeVoice TTS generation handler
 - `AGENTS.md` - AI agent context for fresh sessions
-- `Taskfile.yml` - Task runner (boot, up, down, status, setup)
+- `Taskfile.yml` - Task runner (boot, up, down, status, setup, workers:build)
 
 ## GPU Dashboard (added 2026-04-26)
 - Real-time GPU monitoring at `http://localhost:18800/dashboard`
@@ -156,23 +180,61 @@
   - `GET /dashboard/api/services` — all 15 Ray Serve deployments with status
 - Unit tests: 5 new tests in `tests/test_ingress.py::TestDashboardRoutes`
 
-## E2E Test Status (5/5 passing)
-- TestLLM::test_chat_simple - auto-loads model, verifies "4" in response
-- TestLLM::test_chat_multiturn - multi-turn API structure validation
-- TestCPU_TTS::test_espeak - 70KB WAV output
-- TestVRAMSwap::test_load_llm_via_handle - VRAM drop/recover verified via nvidia-smi
-- TestVRAMSwap::test_cpu_tts_during_gpu_load - CPU works while GPU loaded
+## RAM & Swap (added 2026-05-02)
+- Server has 30GB DDR5 (needs upgrade to 64GB)
+- 64GB swap on `/mnt/data/swapfile` (970 EVO) — persisted in fstab
+- `vm.overcommit_memory=1` — persisted in `/etc/sysctl.d/99-overcommit.conf`
+- `RAY_memory_usage_threshold=0.98` — prevents Ray OOM kills
+- Subprocess `oom_score_adj` reset to 0 in `_run_cli` (Ray sets 1000)
+- TRELLIS model load uses ~17GB RAM spike per subprocess call
 
-## Venv Setup Status (completed 2026-04-26)
-- **TRELLIS.2**: venv at `/home/ubuntu/Documents/programs/TRELLIS.2/.venv/` (Python 3.12, torch 2.6.0+cu124)
-  - All 9 model safetensors downloaded (16GB total) at `/home/ubuntu/Documents/models/3d/trellis/TRELLIS.2-4B/ckpts/`
-  - Extensions: o_voxel, flash_attn, nvdiffrast, CuMesh, FlexGEMM, nvdiffrec
+## TRELLIS DINOv3 Dependency
+- Pipeline config: `pipeline.json` references `DinoV3FeatureExtractor` with model path
+- DINOv3 (`facebook/dinov3-vitl16-pretrain-lvd1689m`) is **gated on HuggingFace**
+- Downloaded from **ModelScope** instead (no gating): `modelscope://facebook/dinov3-vitl16-pretrain-lvd1689m`
+- Stored at: `/home/user/Documents/models/3d/trellis/dinov3/facebook/dinov3-vitl16-pretrain-lvd1689m/`
+- Pipeline config patched to use local absolute path instead of HF repo ID
+- Model registry entry: `trellis_dinov3` with `download: modelscope`
+
+## CLIToolMixin uv Venv Fixes (2026-05-02)
+- `Path.resolve()` follows symlinks → breaks venv dir detection → use `absolute()` instead
+- uv venvs need `VIRTUAL_ENV` + `PYTHONPATH` set explicitly in subprocess env
+- `_ensure_loaded()` — lazy init since Ray Serve doesn't call `load_model()` before `__call__`
+
+## E2E Test Status (2026-05-01)
+- **6 PASSED**: TestLLM (both), TestCPU_TTS, TestCPU_ASR, TestVRAMSwap (both)
+- **6 FAILED**: TestComfyUI (timeout), TestTRELLIS (missing compiled extensions), TestAniGen (missing extensions), TestACEStep (untested), TestSeeThrough (model not loaded)
+- Root cause: tool venvs have torch but missing compiled CUDA extensions (cumesh, o_voxel, pytorch3d, etc.)
+
+## CUDA Extension Build Requirements (Ubuntu 26.04)
+- **Ubuntu 26.04** ships GCC 15 + glibc 2.42 — incompatible with CUDA 12.x headers
+- **NVIDIA bug**: glibc 2.41+ declares `rsqrt`/`rsqrtf` with `noexcept`, CUDA headers don't match
+- **Fix applied**: Patched `/usr/local/cuda-13.1/include/crt/math_functions.h` — added `noexcept` to rsqrt/rsqrtf
+- **Build recipe**: `MAX_JOBS=2 TORCH_CUDA_ARCH_LIST=8.9 CUDA_HOME=/usr/local/cuda-13.1 uv pip install --python $VENV . --no-build-isolation`
+- **CRITICAL**: Always set `MAX_JOBS=2` and `CMAKE_BUILD_PARALLEL_LEVEL=2` when building CUDA extensions. Without this, ninja uses all 16 cores and the server crashes (OOM/unresponsive). This happened multiple times during TRELLIS extension builds.
+- **Available CUDA toolkits**: 12.8 (`/usr/local/cuda-12.8`) and 13.1 (`/usr/local/cuda-13.1`, default)
+- **TRELLIS venv**: Upgraded torch to 2.7.1+cu128 (from 2.6.0+cu124), flash-attn 2.8.3 (pre-built wheel)
+- **torch patch**: `_check_cuda_version` in `torch/utils/cpp_extension.py` returns early (patched) to skip CUDA version mismatch check
+- **Build script**: `infra/build/build_all.sh` — builds CuMesh, o-voxel, FlexGEMM, nvdiffrast, nvdiffrec for TRELLIS
+- **Build status (2026-05-01)**: CuMesh compiled successfully, other extensions pending (server went offline during batch build)
+- **Remaining**: AniGen needs pytorch3d/spconv/nvdiffrast (similar build issues expected)
+
+## Venv Setup Status (in progress, 2026-05-01)
+- **TRELLIS.2**: venv at `infra/repos/TRELLIS.2/.venv/` (Python 3.12, torch 2.7.1+cu128)
+  - All 9 model safetensors downloaded (16GB) at `/home/user/Documents/models/3d/trellis/TRELLIS.2-4B/ckpts/`
+  - flash-attn 2.8.3 installed (pre-built wheel)
+  - **Missing compiled extensions**: cumesh, o_voxel, FlexGEMM, nvdiffrast, nvdiffrec (build in progress)
   - CLI wrapper: `services/creative/wrappers/trellis_cli.py`
-- **AniGen**: venv at `/home/ubuntu/Documents/programs/AniGen/.venv/` (Python 3.12, torch 2.9.1+cu130)
-  - pytorch3d v0.7.9 built from source with pulsar removed (CUDA 13.1 compatibility)
-  - CCCL includes from `/usr/local/cuda-13.1/targets/x86_64-linux/include/cccl`
-  - All models at `/home/ubuntu/Documents/models/3d/anigen/` (9GB)
-  - `import anigen` works: `[SPARSE] Backend: spconv, Attention: flash_attn`
+- **AniGen**: venv at `infra/repos/AniGen/.venv/` (Python 3.12, torch 2.10.0+cu128)
+  - **Missing compiled extensions**: pytorch3d, spconv, nvdiffrast, flash-attn
+  - All models at `/home/user/Documents/models/3d/anigen/` (9GB)
+- **ACE-Step**: venv at `infra/repos/ACE-Step-1.5/.venv/` (Python 3.12, torch 2.10.0+cu128)
+  - `acestep` package imports OK, `acestep.inference.generate_music` available
+  - Models at `/home/user/Documents/models/audio/acestep/`
+- **See-Through**: venv at `infra/repos/see-through/.venv/` (Python 3.12, torch OK)
+  - Pure Python + torch — no compiled extensions needed
+- **VibeVoice**: venv at `infra/repos/VibeVoice/.venv/` — needs verification
+- **GPT-SoVITS**: venv at `infra/repos/GPT-SoVITS/.venv/` — needs verification
 
 ## Hybrid Cloud Dispatch (planned, 2026-04-26)
 - **Local GPU = primary** for interactive/real-time work (always preferred)
@@ -211,14 +273,17 @@
 - Matches `shared-docker-infra` convention (18880, 18443, 25432, etc.).
 
 ## Remaining Work
-- [ ] Verify all 34 models downloaded on remote (pull running, ~88GB so far)
-- [ ] Run `task test:integration` on remote — all creative tool E2E tests
+- [ ] Finish TRELLIS compiled extensions build (cumesh done, o-voxel/FlexGEMM/nvdiffrast/nvdiffrec pending)
+- [ ] Build AniGen compiled extensions (pytorch3d, spconv, nvdiffrast, flash-attn)
+- [ ] Verify ACE-Step and See-Through work end-to-end
+- [ ] Run `task test:integration` on remote — all E2E tests
 - [ ] Wire GPU scheduler into actual deployment flow
-- [ ] Refactor GPU TTS/ASR to CLIToolMixin subprocess pattern
+- [ ] Refactor GPU TTS/ASR (IndexTTS, Qwen TTS) — evaluate Docker vs bare-metal
 - [ ] Compute SHA256 hashes for models in registry
 - [ ] Hybrid cloud dispatch layer (job router, cloud adapters, cost guardrails)
 - [ ] Jellyfin/Nextcloud: missing `nextcloud_aio_mastercontainer` Docker volume
 - [ ] Loki in redshiftdb keeps restarting (pre-existing)
+- [x] Docker workers: TRELLIS, AniGen, VibeVoice (Dockerfiles + compose + HTTPToolMixin)
 - [x] Samsung 980 PRO firmware updated to 5B2QGXA7
 - [x] Docker services migrated to /home/user/Documents/programs/
 - [x] Boot system: boot/ package + Taskfile + AGENTS.md + systemd service
