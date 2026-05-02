@@ -1,35 +1,23 @@
-"""Tech Noir Ray — Creative Tool Venv Setup.
+"""Tech Noir Ray — Bare-metal tool venv setup.
 
-Creates Python venvs for creative tools. Idempotent — safe to re-run.
+Creates Python venvs for tools that run as bare-metal CLIToolMixin subprocesses.
+Tools with compiled CUDA extensions run in Docker containers (see infra/docker/).
 
 Usage:
-    python -m infra.setup           # Set up bare-metal tools only
-    python -m infra.setup docker    # Build Docker worker images (TRELLIS, AniGen, VibeVoice)
-    python -m infra.setup trellis   # Set up TRELLIS (Dockerized — will warn)
-    python -m infra.setup ace-step  # Set up ACE-Step (bare-metal CLIToolMixin)
+    python -m infra.setup           # Set up all bare-metal tools
+    python -m infra.setup ace-step  # Set up specific tool
+    python -m infra.setup docker    # Build Docker worker images
     python -m infra.setup llama     # Build llama.cpp only
 
-Architecture:
-    Tools with compiled CUDA extensions run in Docker containers:
-    - TRELLIS.2:  Docker (o_voxel, CuMesh, flash-attn, nvdiffrast, CUDA 12.4)
-    - AniGen:     Docker (pytorch3d, spconv, flash-attn, CUDA 12.1)
-    - VibeVoice:  Docker (flash-attn, transformers==4.51.3, CUDA 12.4)
-
-    Tools with pure Python deps run as bare-metal CLIToolMixin subprocess:
-    - ACE-Step:   torch 2.10+cu128, pure Python
-    - See-Through: torch cu128, pure Python
-    - GPT-SoVITS: torch cu124, pure Python
-
-    RTX 4090 = sm_89 (set via TORCH_CUDA_ARCH_LIST).
+Docker-based tools (TRELLIS, AniGen, VibeVoice) are built via Dockerfiles,
+not managed here. Run 'python -m infra.setup docker' to build them.
 """
 
 from __future__ import annotations
 
 import os
-import shutil
 import subprocess
 import sys
-import tempfile
 from pathlib import Path
 
 INFRA_DIR = Path(__file__).resolve().parent
@@ -38,7 +26,6 @@ REPOS_DIR = RAY_ROOT / "infra" / "repos"
 
 # CUDA 12.x toolkit for building extensions (needed for cu124/cu121 PyTorch)
 CUDA_12_HOME = os.environ.get("CUDA_12_HOME", "/usr/local/cuda-12.8")
-TORCH_CUDA_ARCH = os.environ.get("TORCH_CUDA_ARCH_LIST", "8.9")
 
 
 def _uv() -> str:
@@ -97,239 +84,6 @@ def _can_import(venv_py: Path, module: str) -> bool:
         return False
 
 
-def _venv_version(venv_py: Path) -> str:
-    try:
-        result = subprocess.run(
-            [str(venv_py), "--version"], capture_output=True, text=True, timeout=10,
-        )
-        return result.stdout.strip()
-    except Exception:
-        return "unknown"
-
-
-def _build_ext_env() -> dict[str, str]:
-    """Environment for building CUDA extensions.
-
-    Uses CUDA 12.x toolkit and GCC 14 (CUDA 12.x doesn't support GCC 15+).
-    On Ubuntu 26.04+, the default GCC is 15, so we explicitly set CC/CXX
-    to gcc-14/g++-14. Install with: sudo apt install gcc-14 g++-14
-    """
-    env = dict(os.environ)
-    env["CUDA_HOME"] = CUDA_12_HOME
-    env["TORCH_CUDA_ARCH_LIST"] = TORCH_CUDA_ARCH
-    env["PATH"] = str(Path.home() / ".local" / "bin") + ":" + env.get("PATH", "")
-    # CUDA 12.x requires GCC <= 14. Ubuntu 26.04 defaults to GCC 15.
-    env["CC"] = "gcc-14"
-    env["CXX"] = "g++-14"
-    return env
-
-
-def _build_from_source(venv_py: Path, source_dir: str) -> None:
-    """Build and install a CUDA extension from source dir."""
-    uv = _uv()
-    cmd = [uv, "pip", "install", "--python", str(venv_py), source_dir, "--no-build-isolation"]
-    _run(cmd, env=_build_ext_env())
-
-
-def _apply_patch(patch_file: str, target_dir: Path, strip: int = 1) -> None:
-    """Apply a git patch file to a target directory."""
-    patch_path = RAY_ROOT / "infra" / "patches" / patch_file
-    if not patch_path.is_file():
-        _warn(f"Patch file not found: {patch_path}")
-        return
-    _log(f"Applying patch: {patch_file}")
-    result = subprocess.run(
-        ["patch", "-p{}".format(strip), "--forward", "-i", str(patch_path)],
-        cwd=str(target_dir),
-        capture_output=True, text=True,
-    )
-    if result.returncode == 0:
-        _log(f"  Patch applied: {patch_file}")
-    elif "Reversed (or previously applied) patch detected" in result.stdout:
-        _log(f"  Patch already applied: {patch_file}")
-    else:
-        _warn(f"  Patch failed: {result.stdout[-200:] if result.stdout else result.stderr[-200:]}")
-
-
-def _clone_to_tmp(url: str, name: str, branch: str | None = None) -> str:
-    """Clone a repo to /tmp and return the path."""
-    dest = f"/tmp/tech_noir_build/{name}"
-    if os.path.exists(dest):
-        shutil.rmtree(dest)
-    os.makedirs(os.path.dirname(dest), exist_ok=True)
-    cmd = ["git", "clone", "--recursive", url, dest]
-    if branch:
-        cmd = ["git", "clone", "--recursive", "--branch", branch, url, dest]
-    _run(cmd)
-    return dest
-
-
-# ─── TRELLIS.2 — image-to-3D mesh generation ─────────────────────────────
-
-def _trellis_ok(venv_py: Path) -> bool:
-    """Check if TRELLIS venv has all compiled extensions."""
-    for mod in ["torch", "PIL", "flash_attn", "cumesh", "o_voxel", "nvdiffrast.torch"]:
-        if not _can_import(venv_py, mod):
-            return False
-    return True
-
-
-def setup_trellis() -> bool:
-    dir_ = REPOS_DIR / "TRELLIS.2"
-    venv_py = dir_ / ".venv" / "bin" / "python"
-
-    if _trellis_ok(venv_py):
-        _log(f"TRELLIS.2 venv OK ({_venv_version(venv_py)})")
-        return True
-
-    if not dir_.is_dir():
-        _warn("TRELLIS.2 not cloned. Run: python -m infra.setup.clone")
-        return False
-
-    # Step 1: Create venv if needed
-    if not venv_py.is_file():
-        _log("Creating TRELLIS.2 venv (Python 3.12, torch cu124)...")
-        uv = _uv()
-        _run([uv, "venv", "--python", "3.12", "--quiet"], cwd=str(dir_))
-        _uv_install(
-            venv_py,
-            "torch==2.6.0+cu124", "torchvision==0.21.0+cu124", "torchaudio==2.6.0+cu124",
-            "--index-url", "https://download.pytorch.org/whl/cu124",
-        )
-
-    # Step 1.5: Patch torch _check_cuda_version (CUDA 13.1 vs cu124 mismatch)
-    from infra.setup.system import check_torch_cuda_patch
-    check_torch_cuda_patch(dir_, fix=True)
-
-    # Step 2: Basic dependencies
-    _log("Installing TRELLIS.2 basic dependencies...")
-    _uv_install(
-        venv_py,
-        "imageio", "imageio-ffmpeg", "tqdm", "easydict", "opencv-python-headless",
-        "ninja", "trimesh", "transformers", "tensorboard", "pandas", "lpips",
-        "zstandard", "kornia", "timm", "gradio==6.0.1",
-    )
-    _uv_install(venv_py, "wheel", "setuptools>=70.1")
-
-    # Step 2.5: Apply patches to TRELLIS source
-    _apply_patch("trellis_dinov3_model_access.patch", dir_)
-
-    # Step 3: flash-attn (pre-built wheel available)
-    if not _can_import(venv_py, "flash_attn"):
-        _log("Installing flash-attn (pre-built wheel)...")
-        _uv_install(venv_py, "flash-attn", "--no-build-isolation")
-
-    # Step 4: CuMesh (compiled, needs CUDA 12 toolkit)
-    if not _can_import(venv_py, "cumesh"):
-        _log("Building CuMesh from source...")
-        src = _clone_to_tmp("https://github.com/JeffreyXiang/CuMesh.git", "CuMesh")
-        _build_from_source(venv_py, src)
-
-    # Step 5: o-voxel (compiled, from TRELLIS repo)
-    if not _can_import(venv_py, "o_voxel"):
-        _log("Building o-voxel from source...")
-        _build_from_source(venv_py, str(dir_ / "o-voxel"))
-
-    # Step 6: nvdiffrast (compiled)
-    if not _can_import(venv_py, "nvdiffrast"):
-        _log("Building nvdiffrast from source...")
-        src = _clone_to_tmp("https://github.com/NVlabs/nvdiffrast.git", "nvdiffrast", branch="v0.4.0")
-        _build_from_source(venv_py, src)
-
-    # Step 7: FlexGEMM (compiled)
-    if not _can_import(venv_py, "flex_gemm"):
-        _log("Building FlexGEMM from source...")
-        src = _clone_to_tmp("https://github.com/JeffreyXiang/FlexGEMM.git", "FlexGEMM")
-        _build_from_source(venv_py, src)
-
-    # Step 8: nvdiffrec (compiled)
-    if not _can_import(venv_py, "renderutils"):
-        _log("Building nvdiffrec from source...")
-        src = _clone_to_tmp("https://github.com/JeffreyXiang/nvdiffrec.git", "nvdiffrec", branch="renderutils")
-        _build_from_source(venv_py, src)
-
-    # Step 9: utils3d (TRELLIS dependency)
-    _uv_install(venv_py, "git+https://github.com/EasternJournalist/utils3d.git@9a4eb15e4021b67b12c460c7057d642626897ec8")
-
-    # Verify
-    if _trellis_ok(venv_py):
-        _log(f"TRELLIS.2 venv ready ({_venv_version(venv_py)})")
-        return True
-    else:
-        _warn("TRELLIS.2 venv incomplete — some extensions may have failed")
-        return False
-
-
-# ─── AniGen — animated 3D character generation ───────────────────────────
-
-def _anigen_ok(venv_py: Path) -> bool:
-    """Check if AniGen venv has all compiled extensions."""
-    for mod in ["torch", "pytorch3d", "spconv", "flash_attn"]:
-        if not _can_import(venv_py, mod):
-            return False
-    return True
-
-
-def setup_anigen() -> bool:
-    dir_ = REPOS_DIR / "AniGen"
-    venv_py = dir_ / ".venv" / "bin" / "python"
-
-    if _anigen_ok(venv_py):
-        _log(f"AniGen venv OK ({_venv_version(venv_py)})")
-        return True
-
-    if not dir_.is_dir():
-        _warn("AniGen not cloned. Run: python -m infra.setup.clone")
-        return False
-
-    # Step 1: Create venv if needed
-    if not venv_py.is_file():
-        _log("Creating AniGen venv (Python 3.12, torch cu121)...")
-        uv = _uv()
-        _run([uv, "venv", "--python", "3.12", "--quiet"], cwd=str(dir_))
-        _uv_install(
-            venv_py,
-            "torch==2.5.0+cu121", "torchvision==0.20.0+cu121",
-            "--index-url", "https://download.pytorch.org/whl/cu121",
-        )
-
-    # Step 2: Basic dependencies from requirements.txt
-    _log("Installing AniGen dependencies...")
-    _uv_install(venv_py, "wheel", "setuptools>=70.1")
-    if (dir_ / "requirements.txt").is_file():
-        _uv_install(venv_py, "-r", str(dir_ / "requirements.txt"))
-
-    # Step 3: spconv (pre-built wheel)
-    if not _can_import(venv_py, "spconv"):
-        _log("Installing spconv...")
-        _uv_install(venv_py, "spconv-cu121")
-
-    # Step 4: pytorch3d (compiled)
-    if not _can_import(venv_py, "pytorch3d"):
-        _log("Building pytorch3d from source...")
-        src = _clone_to_tmp("https://github.com/facebookresearch/pytorch3d.git", "pytorch3d", branch="v0.7.8")
-        _build_from_source(venv_py, src)
-
-    # Step 5: flash-attn (pre-built)
-    if not _can_import(venv_py, "flash_attn"):
-        _log("Installing flash-attn...")
-        _uv_install(venv_py, "flash-attn", "--no-build-isolation")
-
-    # Step 6: nvdiffrast (compiled)
-    if not _can_import(venv_py, "nvdiffrast"):
-        _log("Building nvdiffrast for AniGen...")
-        src = _clone_to_tmp("https://github.com/NVlabs/nvdiffrast.git", "nvdiffrast_anigen", branch="v0.3.3")
-        _build_from_source(venv_py, src)
-
-    # Verify
-    if _anigen_ok(venv_py):
-        _log(f"AniGen venv ready ({_venv_version(venv_py)})")
-        return True
-    else:
-        _warn("AniGen venv incomplete — some extensions may have failed")
-        return False
-
-
 # ─── ACE-Step 1.5 — text-to-music generation ─────────────────────────────
 
 def setup_ace_step() -> bool:
@@ -381,37 +135,6 @@ def setup_see_through() -> bool:
     )
     _uv_install(venv_py, "-r", str(dir_ / "requirements.txt"))
     _log("see-through venv ready")
-    return True
-
-
-# ─── VibeVoice — multi-speaker TTS ────────────────────────────────────────
-
-def setup_vibevoice() -> bool:
-    dir_ = REPOS_DIR / "VibeVoice"
-    venv_py = dir_ / ".venv" / "bin" / "python"
-
-    if _can_import(venv_py, "torch") and _can_import(venv_py, "transformers"):
-        _log(f"VibeVoice venv OK ({_venv_version(venv_py)})")
-        return True
-
-    if not dir_.is_dir():
-        _warn("VibeVoice not cloned. Run: python -m infra.setup.clone")
-        return False
-
-    _log("Setting up VibeVoice venv (transformers 4.51.3 pinned)...")
-    uv = _uv()
-    if not venv_py.is_file():
-        _run([uv, "venv", "--python", "3.12", "--quiet"], cwd=str(dir_))
-    _uv_install(
-        venv_py,
-        "torch==2.6.0+cu124", "torchvision==0.21.0+cu124",
-        "--index-url", "https://download.pytorch.org/whl/cu124",
-    )
-    _uv_install(venv_py, "transformers==4.51.3", "accelerate", "soundfile")
-    # flash-attn for VibeVoice inference
-    _uv_install(venv_py, "flash-attn", "--no-build-isolation")
-
-    _log("VibeVoice venv ready")
     return True
 
 
@@ -526,15 +249,9 @@ def setup_llama() -> bool:
 
 # ─── Main ─────────────────────────────────────────────────────────────────
 
-# Tools that run in Docker containers — skip venv setup, use docker build instead
-DOCKERIZED_TOOLS = {"trellis", "anigen", "vibevoice"}
-
 TOOLS = {
-    "trellis": setup_trellis,
-    "anigen": setup_anigen,
     "ace-step": setup_ace_step,
     "see-through": setup_see_through,
-    "vibevoice": setup_vibevoice,
     "gpt-sovits": setup_gpt_sovits,
     "qwen": setup_qwen_img,
     "comfyui": setup_comfyui,
@@ -543,10 +260,10 @@ TOOLS = {
 
 
 def setup_docker_workers():
-    """Build Docker images for tools that need compiled CUDA extensions."""
+    """Build Docker images for CUDA-heavy tools (TRELLIS, AniGen, VibeVoice)."""
     compose_file = RAY_ROOT / "infra" / "docker" / "compose.workers.yaml"
     if not compose_file.exists():
-        _warn("Docker workers compose file not found: %s", compose_file)
+        _warn(f"Docker workers compose file not found: {compose_file}")
         return
 
     _log("Building Docker worker images...")
@@ -555,7 +272,7 @@ def setup_docker_workers():
         capture_output=True, text=True, timeout=1800,
     )
     if result.returncode != 0:
-        _warn("Docker build failed: %s", result.stderr[-500:])
+        _warn(f"Docker build failed: {result.stderr[-500:]}")
     else:
         _log("Docker worker images built successfully.")
 
@@ -568,11 +285,8 @@ def main():
         return
 
     if target == "all":
-        _log("Setting up creative tools (bare-metal only)...")
+        _log("Setting up bare-metal tool venvs...")
         for name, fn in TOOLS.items():
-            if name in DOCKERIZED_TOOLS:
-                _log(f"  Skipping {name} — runs in Docker (use 'python -m infra.setup docker')")
-                continue
             print()
             try:
                 fn()
@@ -580,11 +294,7 @@ def main():
                 _warn(f"  {name} setup failed: {e}")
         print()
         _log("Bare-metal tool venvs + llama.cpp build complete.")
-        _log("Run 'python -m infra.setup docker' to build Docker worker images.")
-        return
-
-    if target in DOCKERIZED_TOOLS:
-        _warn(f"  {target} is Dockerized — run 'python -m infra.setup docker' instead")
+        _log("Run 'python -m infra.setup docker' to build CUDA worker images.")
         return
 
     fn = TOOLS.get(target)

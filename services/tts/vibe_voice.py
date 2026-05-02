@@ -3,8 +3,7 @@
 Generates expressive, long-form audio (podcasts, conversations) from text
 using the VibeVoice 7B model. Supports up to 4 speakers, up to 45 min output.
 
-Uses CLIToolMixin subprocess pattern — the tool's venv has compiled
-flash-attn and pinned transformers==4.51.3.
+Runs in a Docker container (CUDA 12.4) accessed via HTTPToolMixin.
 
 Code repo: https://github.com/microsoft/VibeVoice
 Model weights: vibevoice/VibeVoice-7B on HuggingFace (18.7GB, community re-upload)
@@ -14,13 +13,11 @@ ASR is separate: services.asr.gpu_asr.VibeVoiceASRDeployment
 from __future__ import annotations
 
 import logging
-import tempfile
-from pathlib import Path
 
 from ray import serve
 from starlette.responses import Response
 
-from services.base import BaseGPUDeployment, CLIToolMixin
+from services.base import BaseGPUDeployment, HTTPToolMixin
 
 logger = logging.getLogger(__name__)
 
@@ -34,20 +31,20 @@ logger = logging.getLogger(__name__)
         "num_cpus": 0.5,
     },
 )
-class VibeVoiceDeployment(BaseGPUDeployment, CLIToolMixin):
-    """VibeVoice long-form multi-speaker TTS via subprocess CLI."""
+class VibeVoiceDeployment(BaseGPUDeployment, HTTPToolMixin):
+    """VibeVoice long-form multi-speaker TTS via Docker worker."""
 
     def _load(self, model_name: str = "vibevoice-tts-7b") -> None:
-        self._init_cli("services.tts.vibe_voice")
+        self._init_http(port=18403, service_name="vibevoice", timeout=600)
         self.model = True
         self.model_name = model_name
-        logger.info("VibeVoice CLI ready")
+        logger.info("VibeVoice HTTP ready (port=18403)")
 
     def _unload(self) -> None:
         self.model = None
 
     def _ensure_loaded(self) -> None:
-        if not hasattr(self, "_venv_python"):
+        if not hasattr(self, "_base_url"):
             self._load()
 
     async def __call__(self, request):
@@ -62,33 +59,12 @@ class VibeVoiceDeployment(BaseGPUDeployment, CLIToolMixin):
         if isinstance(speaker_names, str):
             speaker_names = speaker_names.split(",")
 
-        with tempfile.TemporaryDirectory() as tmpdir:
-            txt_path = Path(tmpdir) / "input.txt"
-            txt_path.write_text(
-                "\n".join(f"Speaker {i+1}: {text}" for i in range(len(speaker_names)))
-            )
+        data = await self._call_worker(
+            "generate",
+            json={
+                "input": text,
+                "speaker_names": speaker_names,
+            },
+        )
 
-            result = self._run_cli(
-                args=[
-                    "--model_path", "/models/VibeVoice-7B",
-                    "--txt_path", str(txt_path),
-                    "--speaker_names", *speaker_names,
-                    "--output_dir", tmpdir,
-                ],
-                extra_env={"MODEL_PATH": "/models/VibeVoice-7B"},
-            )
-
-            if result.returncode != 0:
-                raise RuntimeError(
-                    f"VibeVoice failed (exit {result.returncode}): "
-                    f"{result.stderr[-500:]}"
-                )
-
-            # Find the output wav file
-            wav_files = list(Path(tmpdir).glob("*.wav"))
-            if not wav_files:
-                raise RuntimeError("VibeVoice produced no output file")
-
-            audio_data = wav_files[0].read_bytes()
-
-        return Response(content=audio_data, media_type="audio/wav")
+        return Response(content=data, media_type="audio/wav")

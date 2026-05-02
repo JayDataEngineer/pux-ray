@@ -3,22 +3,33 @@
 Only one GPU model can run at a time on a single-GPU machine.
 This actor serializes the load/unload sequence to prevent VRAM conflicts.
 
-Uses handle.options(method_name=...).remote() for Serve 2.x compatibility.
-
-For CLIToolMixin services, the scheduler just tracks which service "owns"
-the GPU — the actual subprocess is launched per-request by the deployment.
+Handles two types of GPU services:
+- Docker workers (TRELLIS, AniGen, VibeVoice): start/stop containers
+- Ray Serve deployments (LLM, IndexTTS, etc.): handle-based load/unload
 """
 
 from __future__ import annotations
 
 import asyncio
 import logging
+import subprocess
+from pathlib import Path
 from typing import Any, Optional
 
 import ray
 from ray import serve
 
 logger = logging.getLogger(__name__)
+
+# Docker worker config: service_name -> {port, profile}
+DOCKER_WORKERS = {
+    "trellis": {"port": 18401, "profile": "trellis"},
+    "anigen": {"port": 18402, "profile": "anigen"},
+    "vibevoice": {"port": 18403, "profile": "vibevoice"},
+}
+
+# Path to the Docker Compose file for workers
+COMPOSE_FILE = Path(__file__).resolve().parent.parent / "infra" / "docker" / "compose.workers.yaml"
 
 
 @ray.remote
@@ -27,9 +38,9 @@ class GPUScheduler:
 
     Usage:
         scheduler = ray.get_actor("gpu_scheduler")
-        await scheduler.acquire_gpu("llm", "qwen3.5-27b")
-        # ... use the LLM ...
         await scheduler.acquire_gpu("trellis", "trellis")
+        # ... use TRELLIS ...
+        await scheduler.acquire_gpu("llm", "qwen3.5-27b")
     """
 
     def __init__(self):
@@ -51,11 +62,14 @@ class GPUScheduler:
                 await self._unload_current()
 
             # Load requested service
-            handle = self._get_handle(service_name)
-            if not handle:
-                raise ValueError(f"Unknown service: {service_name}")
-            logger.info("Loading %s/%s on GPU", service_name, model_name)
-            await handle.options(method_name="load_model").remote(model_name)
+            if service_name in DOCKER_WORKERS:
+                await self._start_worker(service_name)
+            else:
+                handle = self._get_handle(service_name)
+                if not handle:
+                    raise ValueError(f"Unknown service: {service_name}")
+                logger.info("Loading %s/%s on GPU", service_name, model_name)
+                await handle.options(method_name="load_model").remote(model_name)
 
             self.current_service = service_name
             self.current_model = model_name
@@ -64,9 +78,8 @@ class GPUScheduler:
 
     def _get_handle(self, service_name: str) -> Any:
         """Get a Serve deployment handle by service name."""
-        app_name = service_name
         try:
-            return serve.get_deployment_handle(service_name, app_name)
+            return serve.get_deployment_handle(service_name, service_name)
         except Exception:
             return None
 
@@ -76,13 +89,17 @@ class GPUScheduler:
             return
 
         svc = self.current_service
-        handle = self._get_handle(svc)
-        if handle:
-            logger.info("Unloading %s/%s from GPU", svc, self.current_model)
-            try:
-                await handle.options(method_name="unload_model").remote()
-            except Exception as e:
-                logger.warning("Error unloading %s: %s", svc, e)
+
+        if svc in DOCKER_WORKERS:
+            await self._stop_worker(svc)
+        else:
+            handle = self._get_handle(svc)
+            if handle:
+                logger.info("Unloading %s/%s from GPU", svc, self.current_model)
+                try:
+                    await handle.options(method_name="unload_model").remote()
+                except Exception as e:
+                    logger.warning("Error unloading %s: %s", svc, e)
 
         self.current_service = None
         self.current_model = None
@@ -93,17 +110,96 @@ class GPUScheduler:
             await self._unload_current()
             logger.info("GPU released")
 
+    # ── Docker worker lifecycle ───────────────────────────────────────────
+
+    async def _start_worker(self, service_name: str) -> None:
+        """Start a Docker worker container and wait for it to be healthy."""
+        cfg = DOCKER_WORKERS[service_name]
+        profile = cfg["profile"]
+        port = cfg["port"]
+
+        logger.info("Starting Docker worker: %s (profile=%s, port=%d)",
+                     service_name, profile, port)
+
+        loop = asyncio.get_event_loop()
+        await loop.run_in_executor(
+            None,
+            self._docker_compose_up,
+            profile,
+        )
+
+        # Wait for health check
+        import httpx
+        deadline = asyncio.get_event_loop().time() + 120
+        while asyncio.get_event_loop().time() < deadline:
+            try:
+                async with httpx.AsyncClient(timeout=5) as client:
+                    resp = await client.get(f"http://127.0.0.1:{port}/health")
+                    if resp.status_code == 200:
+                        logger.info("Worker %s is healthy", service_name)
+                        return
+            except (httpx.ConnectError, httpx.TimeoutException):
+                pass
+            await asyncio.sleep(2)
+
+        raise RuntimeError(f"Worker {service_name} failed to become healthy within 120s")
+
+    async def _stop_worker(self, service_name: str) -> None:
+        """Stop a Docker worker container."""
+        cfg = DOCKER_WORKERS[service_name]
+        profile = cfg["profile"]
+
+        logger.info("Stopping Docker worker: %s", service_name)
+
+        loop = asyncio.get_event_loop()
+        await loop.run_in_executor(
+            None,
+            self._docker_compose_stop,
+            profile,
+        )
+
+    @staticmethod
+    def _docker_compose_up(profile: str) -> None:
+        """Run docker compose up for a profile (blocking)."""
+        subprocess.run(
+            ["docker", "compose", "-f", str(COMPOSE_FILE),
+             "--profile", profile, "up", "-d", "--wait"],
+            capture_output=True, text=True, timeout=120,
+        )
+
+    @staticmethod
+    def _docker_compose_stop(profile: str) -> None:
+        """Run docker compose stop for a profile (blocking)."""
+        worker = f"{profile}-worker"
+        subprocess.run(
+            ["docker", "compose", "-f", str(COMPOSE_FILE),
+             "stop", worker],
+            capture_output=True, text=True, timeout=60,
+        )
+
+    # ── Health checks ─────────────────────────────────────────────────────
+
     async def _check_healthy(self, service_name: str) -> bool:
         """Check if a service is currently healthy."""
-        handle = self._get_handle(service_name)
-        if handle:
+        if service_name in DOCKER_WORKERS:
+            import httpx
+            port = DOCKER_WORKERS[service_name]["port"]
             try:
-                return await handle.options(
-                    method_name="is_loaded"
-                ).remote()
-            except Exception:
+                async with httpx.AsyncClient(timeout=5) as client:
+                    resp = await client.get(f"http://127.0.0.1:{port}/health")
+                    return resp.status_code == 200
+            except (httpx.ConnectError, httpx.TimeoutException):
                 return False
-        return False
+        else:
+            handle = self._get_handle(service_name)
+            if handle:
+                try:
+                    return await handle.options(
+                        method_name="is_loaded"
+                    ).remote()
+                except Exception:
+                    return False
+            return False
 
     async def status(self) -> dict:
         """Get current GPU allocation status."""

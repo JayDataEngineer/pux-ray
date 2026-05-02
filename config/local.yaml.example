@@ -3,12 +3,6 @@
 # Copy to local.yaml and customize for your machine.
 # All path defaults are RELATIVE to the project root.
 # Override any value with environment variables.
-#
-# Setup:
-#   1. cp config/local.yaml.example config/local.yaml
-#   2. docker compose -f infra/docker-compose.yml run --rm tools-sync
-#   3. bash infra/setup_venvs.sh
-#   4. ray start --head && ray serve deploy config/serve.yaml
 
 # Root directory for all model files.
 # Must be set via env var or in local.yaml. No hardcoded default.
@@ -36,60 +30,32 @@ services:
     venv_python: ${TECH_NOIR_COMFYUI_PYTHON}
     port: 18465
 
-  # Creative tools — managed by infra/docker-compose.yml git-sync sidecars.
-  # Each has its own venv (created by infra/setup_venvs.sh).
-  # Called via subprocess, not imported in-process.
+  # Bare-metal creative tools — run via CLIToolMixin subprocess.
   creative:
 
-    # TRELLIS.2 — image-to-3D mesh generation (DOCKERIZED)
-    # Source: https://github.com/microsoft/TRELLIS.2
-    # Runs in Docker container with CUDA 12.4 for compiled extensions.
-    # Port and profile configured in workers: section below.
-    trellis:
-      venv_python: ${TECH_NOIR_TRELLIS_PYTHON:infra/repos/TRELLIS.2/.venv/bin/python}
-      script: services/creative/wrappers/trellis_cli.py
-      working_dir: infra/repos/TRELLIS.2
-      model_path: ${TECH_NOIR_MODELS_ROOT}/3d/trellis/TRELLIS.2-4B/ckpts
-
-    # AniGen — animated 3D character generation (DOCKERIZED)
-    # Source: https://github.com/VAST-AI-Research/AniGen
-    # Runs in Docker container with CUDA 12.1 for pytorch3d.
-    anigen:
-      _dockerized: true
-      venv_python: ${TECH_NOIR_ANIGEN_PYTHON:infra/repos/AniGen/.venv/bin/python}
-      script: infra/repos/AniGen/example.py
-      working_dir: infra/repos/AniGen
-
     # ACE-Step 1.5 — text-to-music generation
-    # Source: https://github.com/ace-step/ACE-Step-1.5
     ace_step:
       venv_python: ${TECH_NOIR_ACE_STEP_PYTHON:infra/repos/ACE-Step-1.5/.venv/bin/python}
       script: infra/repos/ACE-Step-1.5/cli.py
       working_dir: infra/repos/ACE-Step-1.5
 
     # Qwen3-TTS LoRA Trainer — voice cloning / TTS
-    # Source: https://github.com/JayDataEngineer/QwenTTS-Lora-Trainer (private)
     qwen3_tts:
       venv_python: ${TECH_NOIR_QWEN_TTS_PYTHON:infra/repos/qwen_img_expert/.venv/bin/python}
       script: services/creative/wrappers/qwen3_tts_cli.py
       working_dir: infra/repos/qwen_img_expert
 
     # See-Through — anime character layer decomposition
-    # Source: https://github.com/shitagaki-lab/see-through
     see_through:
       venv_python: ${TECH_NOIR_SEETHROUGH_PYTHON:infra/repos/see-through/.venv/bin/python}
       script: infra/repos/see-through/inference/scripts/inference_psd.py
       working_dir: infra/repos/see-through
 
-  # TTS services with isolated environments
   tts:
-    # VibeVoice TTS — long-form multi-speaker (DOCKERIZED)
-    # Runs in Docker container with CUDA 12.4 for flash-attn + pinned transformers.
-    vibe_voice:
-      _dockerized: true
-      venv_python: ${TECH_NOIR_VIBEVOICE_PYTHON:infra/repos/VibeVoice/.venv/bin/python}
-      script: infra/repos/VibeVoice/demo/inference_from_file.py
-      working_dir: infra/repos/VibeVoice
+    gpt_sovits:
+      venv_python: ${TECH_NOIR_GPTSOVITS_PYTHON:infra/repos/GPT-SoVITS/.venv/bin/python}
+      script: ${TECH_NOIR_GPTSOVITS_SCRIPT:infra/repos/GPT-SoVITS/GPT_SoVITS/inference_cli.py}
+      working_dir: ${TECH_NOIR_GPTSOVITS_DIR:infra/repos/GPT-SoVITS}
 
 # ─── Docker Worker Containers ──────────────────────────────────────────────
 # Tools with compiled CUDA extensions run as Docker containers.

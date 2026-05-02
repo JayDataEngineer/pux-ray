@@ -2,7 +2,6 @@
 
 Configures the host OS for AI workload requirements:
 - apt packages (gcc-14 for CUDA 12.x builds, build tools)
-- CUDA header patches (glibc 2.41+ noexcept fix)
 - sysctl tuning (vm.overcommit_memory for Ray/PyTorch)
 - Swap file on /mnt/data (if LUKS data mount exists)
 
@@ -20,9 +19,6 @@ import os
 import subprocess
 import sys
 from pathlib import Path
-
-INFRA_DIR = Path(__file__).resolve().parent
-RAY_ROOT = INFRA_DIR.parent.parent
 
 
 def _log(msg: str) -> None:
@@ -75,55 +71,6 @@ def check_apt_packages(fix: bool = False) -> list[str]:
 
 
 # ---------------------------------------------------------------------------
-# CUDA header patch (glibc 2.41+ noexcept fix)
-# ---------------------------------------------------------------------------
-
-def check_cuda_header_patch(fix: bool = False) -> bool:
-    """Patch CUDA math_functions.h to add noexcept to rsqrt/rsqrtf.
-
-    Ubuntu 26.04 (glibc 2.42) declares rsqrt/rsqrtf with noexcept in
-    <bits/mathcalls.h>, but CUDA's math_functions.h doesn't match.
-    This causes compile errors when building CUDA extensions.
-
-    Affects: CUDA 12.x and 13.x on Ubuntu 26.04+.
-    """
-    patched = False
-    for cuda_home in ["/usr/local/cuda-13.1", "/usr/local/cuda-12.8"]:
-        header = Path(cuda_home) / "include" / "crt" / "math_functions.h"
-        if not header.exists():
-            continue
-
-        content = header.read_text()
-        if "rsqrt(double x) noexcept" in content:
-            _log(f"CUDA header already patched: {header}")
-            patched = True
-            continue
-
-        _warn(f"CUDA header needs noexcept patch: {header}")
-        if fix:
-            # Add noexcept to rsqrt and rsqrtf declarations
-            new_content = content.replace(
-                'rsqrt(double x);\n',
-                'rsqrt(double x) noexcept;\n',
-            ).replace(
-                'rsqrtf(float x);\n',
-                'rsqrtf(float x) noexcept;\n',
-            )
-            if new_content != content:
-                # Backup and write
-                backup = header.with_suffix(header.suffix + ".orig")
-                if not backup.exists():
-                    import shutil
-                    shutil.copy2(header, backup)
-                _run(["sudo", "tee", str(header)], input=new_content, timeout=10)
-                _log(f"Patched {header}")
-                patched = True
-            else:
-                _warn(f"Could not find rsqrt declarations to patch in {header}")
-    return patched
-
-
-# ---------------------------------------------------------------------------
 # sysctl: vm.overcommit_memory
 # ---------------------------------------------------------------------------
 
@@ -132,12 +79,11 @@ SYSCTL_FILE = Path("/etc/sysctl.d/99-tech-noir-overcommit.conf")
 
 def check_sysctl(fix: bool = False) -> bool:
     """Ensure vm.overcommit_memory=1 for Ray/PyTorch memory allocation."""
-    # Check current value
     result = _run(["sysctl", "-n", "vm.overcommit_memory"], timeout=5)
     current = result.stdout.strip() if result.returncode == 0 else "unknown"
 
     if current == "1":
-        _log(f"vm.overcommit_memory = 1 (OK)")
+        _log("vm.overcommit_memory = 1 (OK)")
         return True
 
     _warn(f"vm.overcommit_memory = {current} (expected 1)")
@@ -161,12 +107,10 @@ SWAP_SIZE_GB = 64
 
 def check_swap(fix: bool = False) -> bool:
     """Check/create swap file on /mnt/data."""
-    # Check if /mnt/data is mounted
     if not DATA_MOUNT.is_mount():
         _warn("/mnt/data not mounted — skipping swap setup")
         return False
 
-    # Check if swap file is active
     result = _run(["swapon", "--show=NAME", "--noheadings"], timeout=5)
     active_swaps = result.stdout.strip().split("\n") if result.stdout.strip() else []
 
@@ -197,53 +141,15 @@ def check_swap(fix: bool = False) -> bool:
                 _warn(f"Failed: {' '.join(cmd)}: {result.stderr[:200]}")
                 return False
 
-        # Add to fstab if not already there
         fstab = Path("/etc/fstab").read_text()
         if str(SWAP_FILE) not in fstab:
             fstab_entry = f"{SWAP_FILE} none swap sw 0 0\n"
-            Path("/tmp/fstab_swap").write_text(fstab_entry)
             _run(["sudo", "sh", "-c", f"echo '{fstab_entry.strip()}' >> /etc/fstab"], timeout=10)
             _log("Added swap to /etc/fstab")
 
         _log(f"Swap created and activated: {SWAP_FILE} ({SWAP_SIZE_GB}GB)")
         return True
 
-    return False
-
-
-# ---------------------------------------------------------------------------
-# torch CUDA version check bypass
-# ---------------------------------------------------------------------------
-
-def check_torch_cuda_patch(venv_dir: Path, fix: bool = False) -> bool:
-    """Patch torch _check_cuda_version to skip CUDA version mismatch.
-
-    CUDA 13.1 on the system vs torch cu124/cu128 triggers a version
-    check error during extension builds. We bypass it by returning early.
-    """
-    cpp_ext = venv_dir / ".venv" / "lib" / "python3.12" / "site-packages" / "torch" / "utils" / "cpp_extension.py"
-    if not cpp_ext.exists():
-        _warn(f"torch cpp_extension.py not found: {cpp_ext}")
-        return False
-
-    content = cpp_ext.read_text()
-    marker = "return  # Patched: skip CUDA version check"
-
-    if marker in content:
-        _log("torch _check_cuda_version already patched")
-        return True
-
-    _warn(f"torch _check_cuda_version needs patching: {cpp_ext}")
-    if fix:
-        # Insert 'return' as first line of _check_cuda_version function
-        old = "def _check_cuda_version(compiler_name: str, compiler_version: TorchVersion) -> None:\n"
-        new = old + f"    {marker}\n"
-        if old in content:
-            cpp_ext.write_text(content.replace(old, new))
-            _log("Patched torch _check_cuda_version")
-            return True
-        else:
-            _warn("Could not find _check_cuda_version function signature")
     return False
 
 
@@ -263,28 +169,15 @@ def main():
 
     issues = 0
 
-    # 1. apt packages
     missing = check_apt_packages(fix=fix)
     if missing:
         issues += len(missing)
 
-    # 2. CUDA header patch
-    if not check_cuda_header_patch(fix=fix):
-        issues += 1
-
-    # 3. sysctl
     if not check_sysctl(fix=fix):
         issues += 1
 
-    # 4. swap
     if not check_swap(fix=fix):
         issues += 1
-
-    # 5. torch CUDA patch (for TRELLIS venv)
-    trellis_dir = RAY_ROOT / "infra" / "repos" / "TRELLIS.2"
-    if trellis_dir.exists():
-        if not check_torch_cuda_patch(trellis_dir, fix=fix):
-            issues += 1
 
     _log("=" * 60)
     if issues == 0:

@@ -15,8 +15,8 @@
 #   docker compose up -d web               # Start local-web-mcp
 #   docker compose down                    # Stop MCP services
 #
-# After first clone, run: bash infra/setup_venvs.sh
-# to create Python venvs for each creative tool.
+# After first clone, run: python -m infra.setup all
+# to create Python venvs for bare-metal tools.
 
 x-git-sync-common: &git-sync-common
   image: docker.io/alpine/git:2.45.2

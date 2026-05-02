@@ -18,14 +18,14 @@ class TestJobConfigResolution:
     def teardown_method(self):
         Config().reload()
 
-    def test_resolves_trellis_paths(self, tmp_path):
+    def test_resolves_see_through_paths(self, tmp_path):
         fake_yaml = {
             "services": {
                 "creative": {
-                    "trellis": {
-                        "venv_python": "infra/repos/TRELLIS.2/.venv/bin/python",
-                        "script": "services/creative/wrappers/trellis_cli.py",
-                        "working_dir": "infra/repos/TRELLIS.2",
+                    "see_through": {
+                        "venv_python": "infra/repos/see-through/.venv/bin/python",
+                        "script": "infra/repos/see-through/inference/scripts/inference_psd.py",
+                        "working_dir": "infra/repos/see-through",
                     }
                 }
             }
@@ -34,9 +34,9 @@ class TestJobConfigResolution:
         yaml_file.write_text("unused: true\n")
         Config._instance._data = fake_yaml
 
-        venv, script, cwd = _resolve_config_paths("services.creative.trellis")
+        venv, script, cwd = _resolve_config_paths("services.creative.see_through")
         root = Config().project_root
-        assert (root / "infra/repos/TRELLIS.2/.venv/bin/python").resolve() == venv.resolve()
+        assert (root / "infra/repos/see-through/.venv/bin/python").resolve() == venv.resolve()
 
     def test_resolves_ace_step_paths(self, tmp_path):
         fake_yaml = {

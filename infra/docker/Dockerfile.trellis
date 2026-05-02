@@ -78,6 +78,16 @@ RUN git clone --depth 1 https://github.com/NVlabs/nvdiffrec.git /tmp/nvdiffrec \
     && uv pip install --system --no-cache . \
     && rm -rf /tmp/nvdiffrec
 
+# 7. TRELLIS.2 source code + utils3d dependency
+RUN git clone --depth 1 https://github.com/microsoft/TRELLIS.2.git /build/trellis \
+    && cd /build/trellis \
+    && uv pip install --system --no-cache \
+        git+https://github.com/EasternJournalist/utils3d.git@9a4eb15e4021b67b12c460c7057d642626897ec8
+
+# Apply DINOv3 model access fix (self.model.layer -> self.model.model.layer)
+RUN sed -i 's/for i, layer_module in enumerate(self\.model\.layer):/for i, layer_module in enumerate(self.model.model.layer):/' \
+    /build/trellis/trellis2/modules/image_feature_extractor.py
+
 # ---- Runtime Stage ----
 FROM nvidia/cuda:12.4.0-runtime-ubuntu22.04 AS runtime
 
@@ -93,6 +103,9 @@ COPY --from=builder /usr/local /usr/local
 RUN ln -sf /usr/local/bin/python3.12 /usr/bin/python3.12 \
     && ln -sf /usr/local/bin/python3.12 /usr/bin/python \
     && ldconfig
+
+# Copy TRELLIS source from builder
+COPY --from=builder /build/trellis /app/repo
 
 # Install uv + fastapi + uvicorn for the HTTP server
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
