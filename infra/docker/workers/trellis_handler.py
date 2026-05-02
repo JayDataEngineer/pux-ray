@@ -26,6 +26,46 @@ class Handler:
         self.pipeline = None
         self.model_name: str | None = None
 
+    def _patch_pipeline_json(self, model_path: str) -> str:
+        """Remap host-specific model paths to container mount paths in pipeline.json.
+
+        Models volume is mounted read-only, so creates a patched copy in /tmp.
+        Returns the patched model directory path.
+        """
+        import json
+        import shutil
+        import tempfile
+
+        pipeline_json = Path(model_path) / "pipeline.json"
+        if not pipeline_json.exists():
+            return model_path
+
+        content = pipeline_json.read_text()
+        # Remap common host model prefixes to container mount point
+        original = content
+        for old in ["/home/user/Documents/models/3d/trellis"]:
+            content = content.replace(old, "/models")
+
+        if content == original:
+            return model_path
+
+        # Create patched copy in /tmp (read-only mount can't be modified)
+        patched_dir = Path("/tmp") / "trellis_model"
+        patched_dir.mkdir(parents=True, exist_ok=True)
+
+        # Symlink all checkpoint files, only replace pipeline.json
+        for item in Path(model_path).iterdir():
+            dest = patched_dir / item.name
+            if dest.exists() or dest.is_symlink():
+                dest.unlink()
+            if item.name == "pipeline.json":
+                dest.write_text(content)
+            else:
+                dest.symlink_to(item)
+
+        logger.info("Patched pipeline.json: remapped host paths to /models")
+        return str(patched_dir)
+
     async def health(self):
         if self.pipeline is None:
             return {"status": "model_not_loaded"}
@@ -41,7 +81,7 @@ class Handler:
         # Model path: if local, check /models mount first
         model_path = os.environ.get("MODEL_PATH", "")
         if model_path and Path(model_path).exists():
-            model_name = model_path
+            model_name = self._patch_pipeline_json(model_path)
 
         logger.info("Loading TRELLIS pipeline: %s", model_name)
 

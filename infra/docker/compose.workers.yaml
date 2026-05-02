@@ -19,7 +19,7 @@ services:
     ports:
       - "18401:18401"
     volumes:
-      - ${MODELS_DIR:-/home/user/Documents/models}/3d/trellis:/models:ro
+      - ${MODELS_DIR:-/home/user/Documents/models}/3d/trellis:/models
     environment:
       - TOOL_NAME=trellis
       - PORT=18401
