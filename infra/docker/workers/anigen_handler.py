@@ -83,9 +83,9 @@ class Handler:
             image = Image.open(input_path).convert("RGB")
             logger.info("Generating rigged mesh from image (%dx%d)", image.width, image.height)
 
-            # AniGen inference — adapt to the repo's actual API
-            from anigen import AniGenPipeline
-            pipeline = AniGenPipeline.from_pretrained(models_root)
+            # AniGen inference
+            from anigen.pipelines import AnigenImageTo3DPipeline
+            pipeline = AnigenImageTo3DPipeline.from_pretrained(models_root)
             pipeline.to("cuda")
 
             torch.manual_seed(seed)
