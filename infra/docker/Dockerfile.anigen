@@ -42,11 +42,14 @@ RUN uv pip install --system --no-cache \
     torch==2.6.0 torchvision==0.21.0 \
     --index-url https://download.pytorch.org/whl/cu124
 
-# Core deps
+# Core deps (AniGen requirements.txt + compilation deps)
 RUN uv pip install --system --no-cache \
     pillow einops transformers accelerate trimesh \
     pygltflib numpy opencv-python-headless \
     scipy timm fvcore iopath easydict \
+    rembg onnxruntime xatlas pyvista pymeshfix \
+    igraph psutil safetensors scikit-learn geffnet \
+    imageio imageio-ffmpeg tqdm \
     wheel setuptools packaging
 
 # Build pytorch3d from source (the main compiled extension)
@@ -66,6 +69,10 @@ RUN git clone --depth 1 https://github.com/NVlabs/nvdiffrast.git /tmp/nvdiffrast
     && cd /tmp/nvdiffrast \
     && uv pip install --system --no-cache . --no-build-isolation \
     && rm -rf /tmp/nvdiffrast
+
+# utils3d (from git)
+RUN uv pip install --system --no-cache \
+    "utils3d @ git+https://github.com/EasternJournalist/utils3d.git@9a4eb15e4021b67b12c460c7057d642626897ec8"
 
 # AniGen source code
 RUN git clone --depth 1 https://github.com/VAST-AI-Research/AniGen.git /build/anigen
