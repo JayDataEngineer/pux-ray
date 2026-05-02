@@ -186,8 +186,9 @@ def llm_loaded(ensure_served):
 
 @pytest.fixture(scope="session")
 def trellis_loaded(ensure_served):
-    """Load TRELLIS model (starts Docker + initializes HTTP connection)."""
+    """Load TRELLIS model (frees GPU, starts Docker, loads model)."""
     _unload_gpu_service("llm", "llm")
+    _stop_comfyui()
     _start_docker_worker("trellis")
     _load_service("trellis", "trellis", "trellis")
 
@@ -249,6 +250,16 @@ def _unload_gpu_service(deployment_name: str, app_name: str) -> None:
     handle = _get_handle(deployment_name, app_name)
     try:
         _await_serve(handle.options(method_name="unload_model").remote())
+    except Exception:
+        pass
+    time.sleep(2)
+
+
+def _stop_comfyui() -> None:
+    """Stop ComfyUI subprocess via Serve handle."""
+    try:
+        handle = _get_handle("comfyui", "comfyui")
+        _await_serve(handle.options(method_name="stop_comfyui").remote())
     except Exception:
         pass
     time.sleep(2)
