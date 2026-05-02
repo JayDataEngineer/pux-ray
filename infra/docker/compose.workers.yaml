@@ -23,7 +23,7 @@ services:
     environment:
       - TOOL_NAME=trellis
       - PORT=18401
-      - MODEL_PATH=/models/TRELLIS.2-4B
+      - MODEL_PATH=/models/TRELLIS.2-4B/ckpts
     deploy:
       resources:
         reservations:
