@@ -343,6 +343,11 @@ def _start_ray(svc: Service) -> bool:
                     "--temp-dir=/tmp/ray",
                 ],
                 cwd=root, capture_output=True, text=True, timeout=120,
+                env={
+                    **os.environ,
+                    "RAY_memory_usage_threshold": "0.98",
+                    "RAY_prestart_python_workers": "4",
+                },
             )
         except subprocess.TimeoutExpired:
             logger.error("Ray cluster start timed out")
