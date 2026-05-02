@@ -49,7 +49,7 @@ RUN uv pip install --system --no-cache \
     scipy timm fvcore iopath easydict \
     rembg onnxruntime xatlas pyvista pymeshfix \
     igraph psutil safetensors scikit-learn geffnet \
-    imageio imageio-ffmpeg tqdm \
+    imageio imageio-ffmpeg tqdm rtree \
     wheel setuptools packaging
 
 # Build pytorch3d from source (the main compiled extension)
