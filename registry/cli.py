@@ -56,6 +56,13 @@ def _parse_source(source: str) -> tuple[str, str | None]:
     return path, None
 
 
+def _parse_modelscope_source(source: str) -> str:
+    """Parse 'modelscope://repo_id' into repo_id."""
+    if not source or not source.startswith("modelscope://"):
+        return ""
+    return source[13:]
+
+
 def _compute_sha256(filepath: Path, progress=True) -> str:
     """Compute SHA256 of a file, optionally showing progress."""
     h = hashlib.sha256()
@@ -72,6 +79,69 @@ def _compute_sha256(filepath: Path, progress=True) -> str:
     if progress and size > 100_000_000:
         sys.stdout.write("\r")
     return h.hexdigest()
+
+
+# =========================================================================
+# Post-download patching
+# =========================================================================
+
+def _post_download_patch(
+    category: str, name: str, model_path: Path, registry: "ModelRegistry",
+) -> None:
+    """Apply post-download patches to model files.
+
+    Currently handles:
+    - TRELLIS pipeline.json: replace HF model IDs with local paths
+    """
+    if category == "3d" and name == "trellis":
+        _patch_trellis_pipeline(model_path, registry)
+
+
+def _patch_trellis_pipeline(
+    ckpts_path: Path, registry: "ModelRegistry",
+) -> None:
+    """Patch TRELLIS pipeline.json to use local model paths instead of HF IDs.
+
+    The pipeline.json references HuggingFace model IDs for DINOv3 and RMBG.
+    These are gated on HuggingFace but freely available on ModelScope.
+    After downloading, we patch pipeline.json to point to local copies.
+    """
+    pipeline_json = ckpts_path / "pipeline.json"
+    if not pipeline_json.is_file():
+        return
+
+    try:
+        import json
+        content = pipeline_json.read_text()
+        original = content
+
+        # Patch DINOv3 image encoder: HF ID -> local path
+        try:
+            dinov3_path = registry.get_path("3d", "trellis_dinov3")
+            hf_id = "facebook/dinov3-vitl16-pretrain-lvd1689m"
+            if hf_id in content and dinov3_path.exists():
+                content = content.replace(f'"{hf_id}"', f'"{dinov3_path}"')
+                content = content.replace(f'"{hf_id}/"', f'"{dinov3_path}/"')
+                print(f"       Patched pipeline.json: dinov3 -> {dinov3_path}")
+        except (KeyError, Exception):
+            pass
+
+        # Patch RMBG background removal: HF ID -> local path
+        try:
+            rmbg_path = registry.get_path("3d", "trellis_rmbg")
+            hf_id = "briaai/RMBG-2.0"
+            if hf_id in content and rmbg_path.exists():
+                content = content.replace(f'"{hf_id}"', f'"{rmbg_path}"')
+                content = content.replace(f'"{hf_id}/"', f'"{rmbg_path}/"')
+                print(f"       Patched pipeline.json: rmbg -> {rmbg_path}")
+        except (KeyError, Exception):
+            pass
+
+        if content != original:
+            pipeline_json.write_text(content)
+
+    except Exception as e:
+        print(f"       WARN: Could not patch pipeline.json: {e}")
 
 
 # =========================================================================
@@ -122,6 +192,8 @@ def cmd_models_list(args):
                 source_display = "hf://" + source.split("/")[2] + "/…" if "/" in source[5:] else source
             elif source and source.startswith("civitai://"):
                 source_display = "civitai"
+            elif source and source.startswith("modelscope://"):
+                source_display = "modelscope"
             elif download_mode == "manual":
                 source_display = "manual"
             else:
@@ -168,6 +240,41 @@ def cmd_models_pull(args):
                 continue
 
             source = meta.get("source", "")
+
+            # Handle ModelScope downloads (gated HF models available freely on ModelScope)
+            if download_mode == "modelscope" and source.startswith("modelscope://"):
+                model_path = registry.get_path(category, name)
+                if model_path.exists() and (model_path.is_file() or any(model_path.iterdir())):
+                    print(f"  OK   {category}/{name} - already downloaded")
+                    continue
+
+                ms_repo = _parse_modelscope_source(source)
+                if not ms_repo:
+                    skipped += 1
+                    print(f"  SKIP {category}/{name} - invalid ModelScope source")
+                    continue
+
+                print(f"  PULL {category}/{name} from ModelScope ({ms_repo})")
+                try:
+                    from modelscope import snapshot_download
+                    model_path.mkdir(parents=True, exist_ok=True)
+                    snapshot_download(
+                        model_id=ms_repo,
+                        local_dir=str(model_path),
+                    )
+                    print(f"       -> {model_path}/")
+                    pulled += 1
+
+                    # Post-download: patch TRELLIS pipeline.json
+                    _post_download_patch(category, name, model_path, registry)
+
+                except ImportError:
+                    print(f"  FAIL {category}/{name}: modelscope not installed. Run: uv pip install modelscope")
+                    skipped += 1
+                except Exception as e:
+                    print(f"  FAIL {category}/{name}: {e}")
+                    skipped += 1
+                continue
 
             # Handle Civitai downloads
             if download_mode == "civitai" and source.startswith("civitai://"):
@@ -257,6 +364,9 @@ def cmd_models_pull(args):
 
                 pulled += 1
 
+                # Post-download: patch TRELLIS pipeline.json
+                _post_download_patch(category, name, model_path, registry)
+
             except Exception as e:
                 print(f"  FAIL {category}/{name}: {e}")
                 skipped += 1
@@ -301,7 +411,7 @@ def cmd_models_verify(args):
             download = meta.get("download", "")
 
             # Skip models are system packages — nothing to verify on disk
-            if download == "skip" or (not meta.get("source") and download not in ("file", "snapshot", "civitai")):
+            if download == "skip" or (not meta.get("source") and download not in ("file", "snapshot", "civitai", "modelscope")):
                 table.add_row(f"{category}/{name}", "[dim]SKIP[/dim]", "system package")
                 skipped += 1
                 continue

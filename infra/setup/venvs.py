@@ -131,6 +131,26 @@ def _build_from_source(venv_py: Path, source_dir: str) -> None:
     _run(cmd, env=_build_ext_env())
 
 
+def _apply_patch(patch_file: str, target_dir: Path, strip: int = 1) -> None:
+    """Apply a git patch file to a target directory."""
+    patch_path = RAY_ROOT / "infra" / "patches" / patch_file
+    if not patch_path.is_file():
+        _warn(f"Patch file not found: {patch_path}")
+        return
+    _log(f"Applying patch: {patch_file}")
+    result = subprocess.run(
+        ["patch", "-p{}".format(strip), "--forward", "-i", str(patch_path)],
+        cwd=str(target_dir),
+        capture_output=True, text=True,
+    )
+    if result.returncode == 0:
+        _log(f"  Patch applied: {patch_file}")
+    elif "Reversed (or previously applied) patch detected" in result.stdout:
+        _log(f"  Patch already applied: {patch_file}")
+    else:
+        _warn(f"  Patch failed: {result.stdout[-200:] if result.stdout else result.stderr[-200:]}")
+
+
 def _clone_to_tmp(url: str, name: str, branch: str | None = None) -> str:
     """Clone a repo to /tmp and return the path."""
     dest = f"/tmp/tech_noir_build/{name}"
@@ -186,6 +206,9 @@ def setup_trellis() -> bool:
         "zstandard", "kornia", "timm", "gradio==6.0.1",
     )
     _uv_install(venv_py, "wheel", "setuptools>=70.1")
+
+    # Step 2.5: Apply patches to TRELLIS source
+    _apply_patch("trellis_dinov3_model_access.patch", dir_)
 
     # Step 3: flash-attn (pre-built wheel available)
     if not _can_import(venv_py, "flash_attn"):
