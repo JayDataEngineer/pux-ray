@@ -317,11 +317,16 @@ class CLIToolMixin:
 
     @staticmethod
     def _resolve_path(raw: str, project_root: Path) -> Path:
-        """Resolve a path that may be relative to project_root."""
+        """Resolve a path that may be relative to project_root.
+
+        Uses absolute() instead of resolve() to avoid following symlinks.
+        uv-created venvs symlink their Python to a shared managed install;
+        resolving breaks venv directory detection in _run_cli.
+        """
         p = Path(raw)
         if not p.is_absolute():
             p = project_root / p
-        return p.resolve()
+        return p.absolute()
 
     def _run_cli(
         self,
