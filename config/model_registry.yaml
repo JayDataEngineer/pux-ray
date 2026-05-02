@@ -133,14 +133,14 @@ tts:
     description: "Maya1 TTS. Placeholder."
 
   qwen3-tts:
-    path: tts/qwen3/
-    source: hf://Qwen/Qwen3-1.7B
+    path: tts/qwen3-tts-12hz-1.7b-customvoice/
+    source: hf://Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice
     download: snapshot
     sha256: null
-    size_gb: 9.2
-    vram_estimate_gb: 2.0
+    size_gb: 6.4
+    vram_estimate_gb: 8.0
     device: gpu
-    description: "Qwen3 1.7B base for TTS fine-tuning."
+    description: "Qwen3-TTS 1.7B CustomVoice. 9 premium voices with instruction control."
 
   vibevoice-tts:
     path: tts/vibevoice/

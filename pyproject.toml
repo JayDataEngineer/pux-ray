@@ -24,6 +24,7 @@ dependencies = [
     "torchaudio>=2.1",
     "transformers>=4.40",
     "accelerate>=0.30",
+    "qwen-tts>=0.2",
 ]
 
 [project.optional-dependencies]

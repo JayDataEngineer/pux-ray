@@ -41,6 +41,8 @@ REQUIRED_PACKAGES = [
     "gcc-14", "g++-14",          # CUDA 12.x requires GCC <= 14 (Ubuntu 26.04 has 15)
     "build-essential", "cmake", "ninja-build", "patch",
     "python3-dev", "python3-venv",
+    "sox", "libsox-dev",         # qwen-tts audio processing
+    "espeak-ng",                 # espeak TTS
 ]
 
 
