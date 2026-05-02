@@ -2,9 +2,9 @@
 
 A named detached Ray actor that:
 1. Sweeps infra/repos/ (bare-metal tools) and ComfyUI custom_nodes/ every check_interval
-2. Runs git pull on each repo
-3. If HEAD changed, runs uv pip install (requirements.txt and/or pyproject.toml)
-4. Logs changes; service reload is handled by each deployment on next request
+2. For unpinned repos: git fetch + git pull --ff-only origin master
+3. For pinned repos (config/sidecar.yaml): git fetch + git checkout <ref>
+4. If HEAD changed, runs uv pip install (requirements.txt and/or pyproject.toml)
 
 Registered in deploy_services.py alongside GPUScheduler and JobManager.
 """
@@ -17,6 +17,7 @@ import subprocess
 from pathlib import Path
 
 import ray
+import yaml
 
 logger = logging.getLogger(__name__)
 
@@ -25,6 +26,7 @@ _REPOS_DIR = Path(__file__).resolve().parents[1] / "infra" / "repos"
 _COMFY_CUSTOM_NODES = _REPOS_DIR / "ComfyUI" / "custom_nodes"
 _VENV_PYTHON = _REPOS_DIR.parent / ".venv" / "bin" / "python"
 _VENV_UV = _REPOS_DIR.parent / ".venv" / "bin" / "uv"
+_SIDECAR_CONFIG = _REPOS_DIR.parent / "config" / "sidecar.yaml"
 
 
 @ray.remote
@@ -39,6 +41,18 @@ class UniversalGitSidecar:
         self.comfy_custom_nodes = _COMFY_CUSTOM_NODES
         self.venv_python = _VENV_PYTHON
         self.venv_uv = _VENV_UV
+        self._pins: dict[str, str] = {}
+
+    def _load_pins(self) -> dict[str, str]:
+        """Load version pins from config/sidecar.yaml. Cached across cycles."""
+        if _SIDECAR_CONFIG.exists():
+            try:
+                data = yaml.safe_load(_SIDECAR_CONFIG.read_text()) or {}
+                self._pins = data.get("pins", {})
+            except Exception:
+                logger.warning("Failed to parse sidecar.yaml, ignoring pins")
+                self._pins = {}
+        return self._pins
 
     async def start(self) -> None:
         if self._running:
@@ -93,30 +107,38 @@ class UniversalGitSidecar:
 
     async def _sync_and_install(self, repo_path: Path) -> None:
         repo_name = repo_path.name
+        pins = self._load_pins()
+        pinned_ref = pins.get(repo_name)
 
-        # Fetch to check if behind
-        await _run_async("git", "fetch", cwd=repo_path)
+        # Fetch to check for new commits
+        await _run_async("git", "fetch", "origin", cwd=repo_path)
 
-        # Get current HEAD
-        sha_before = await _run_async("git", "rev-parse", "HEAD", cwd=repo_path)
-        sha_before = sha_before.strip()
+        sha_before = (await _run_async("git", "rev-parse", "HEAD", cwd=repo_path)).strip()
 
-        # Pull
-        result = subprocess.run(
-            ["git", "pull", "--ff-only", "origin", "master"],
-            cwd=str(repo_path),
-            capture_output=True, text=True, timeout=60,
-        )
+        if pinned_ref:
+            # Pinned: checkout the exact ref (tag, branch, or commit)
+            logger.info("%s pinned to %s, checking out", repo_name, pinned_ref)
+            subprocess.run(
+                ["git", "checkout", pinned_ref],
+                cwd=str(repo_path),
+                capture_output=True, text=True, timeout=60,
+            )
+        else:
+            # Unpinned: fast-forward to origin/master
+            subprocess.run(
+                ["git", "pull", "--ff-only", "origin", "master"],
+                cwd=str(repo_path),
+                capture_output=True, text=True, timeout=60,
+            )
 
-        sha_after = await _run_async("git", "rev-parse", "HEAD", cwd=repo_path)
-        sha_after = sha_after.strip()
-
+        sha_after = (await _run_async("git", "rev-parse", "HEAD", cwd=repo_path)).strip()
         self._repo_heads[repo_name] = sha_after
 
         if sha_before != sha_after:
+            tag = f" [pinned={pinned_ref}]" if pinned_ref else ""
             logger.info(
-                "%s changed: %s.. -> %s..",
-                repo_name, sha_before[:12], sha_after[:12],
+                "%s changed: %s.. -> %s..%s",
+                repo_name, sha_before[:12], sha_after[:12], tag,
             )
             await self._install_deps(repo_path)
             logger.info("%s update complete; will reload on next request", repo_name)
