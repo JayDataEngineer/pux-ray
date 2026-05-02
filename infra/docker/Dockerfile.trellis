@@ -108,7 +108,7 @@ ENV DEBIAN_FRONTEND=noninteractive
 ENV PYTHONUNBUFFERED=1
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    gcc libgl1-mesa-glx libglib2.0-0 libgomp1 \
+    gcc libc6-dev libgl1-mesa-glx libglib2.0-0 libgomp1 \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy Python from builder (includes all compiled packages)
