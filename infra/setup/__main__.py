@@ -1,9 +1,11 @@
 """Tech Noir Ray — Infrastructure setup.
 
 Usage:
-    python -m infra.setup [all|ace-step|see-through|gpt-sovits|qwen|llama|docker]  # venv setup
     python -m infra.setup system          # Check system prerequisites
     python -m infra.setup system --fix    # Apply system fixes
+    python -m infra.setup all             # Set up bare-metal tool venvs
+    python -m infra.setup docker          # Build Docker worker images
+    python -m infra.setup ace-step        # Set up specific tool
 """
 
 import sys

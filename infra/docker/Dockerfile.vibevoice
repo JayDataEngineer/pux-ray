@@ -46,6 +46,9 @@ RUN uv pip install --system --no-cache \
 # flash-attn (required by VibeVoice)
 RUN uv pip install --system --no-cache flash-attn --no-build-isolation
 
+# VibeVoice source code (custom model classes, voices/)
+RUN git clone --depth 1 https://github.com/microsoft/VibeVoice.git /build/vibevoice
+
 # ---- Runtime Stage ----
 FROM nvidia/cuda:12.4.0-runtime-ubuntu22.04 AS runtime
 
@@ -61,6 +64,9 @@ COPY --from=builder /usr/local /usr/local
 RUN ln -sf /usr/local/bin/python3.12 /usr/bin/python3.12 \
     && ln -sf /usr/local/bin/python3.12 /usr/bin/python \
     && ldconfig
+
+# Copy VibeVoice source from builder
+COPY --from=builder /build/vibevoice /app/repo
 
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 RUN uv pip install --system --no-cache fastapi uvicorn[standard] python-multipart soundfile httpx

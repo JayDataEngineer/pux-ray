@@ -1,16 +1,18 @@
-"""Clone or update all creative tool repos and llama.cpp.
+"""Clone or update creative tool repos and llama.cpp.
 
-Uses git directly (not Docker sidecars) for host-side clones.
-Idempotent — skips repos that are already cloned.
+Uses git directly for host-side clones. Idempotent — skips repos
+that are already cloned.
+
+Docker-based tools (TRELLIS, AniGen, VibeVoice) are NOT cloned here —
+their source is included in the Docker image during build.
 
 Usage:
     python -m infra.setup.clone          # Clone all repos
-    python -m infra.setup.clone trellis  # Clone TRELLIS only
+    python -m infra.setup.clone ace-step # Clone ACE-Step only
 """
 
 from __future__ import annotations
 
-import os
 import subprocess
 import sys
 from pathlib import Path
@@ -18,13 +20,13 @@ from pathlib import Path
 INFRA_DIR = Path(__file__).resolve().parent.parent
 REPOS_DIR = INFRA_DIR / "repos"
 
-# All repos: (url, directory_name)
+# Bare-metal tools only. Docker tools clone inside their Dockerfile.
 REPOS = {
-    "trellis": ("https://github.com/microsoft/TRELLIS.2.git", "TRELLIS.2"),
-    "anigen": ("https://github.com/VAST-AI-Research/AniGen.git", "AniGen"),
     "ace-step": ("https://github.com/ace-step/ACE-Step-1.5.git", "ACE-Step-1.5"),
     "see-through": ("https://github.com/shitagaki-lab/see-through.git", "see-through"),
     "qwen": ("https://github.com/JayDataEngineer/QwenTTS-Lora-Trainer.git", "qwen_img_expert"),
+    "gpt-sovits": ("https://github.com/RVC-Boss/GPT-SoVITS.git", "GPT-SoVITS"),
+    "comfyui": ("https://github.com/comfyanonymous/ComfyUI.git", "ComfyUI"),
     "llama": ("https://github.com/ggml-org/llama.cpp.git", "llama.cpp"),
 }
 
@@ -65,7 +67,7 @@ def main():
     target = sys.argv[1] if len(sys.argv) > 1 else "all"
 
     if target == "all":
-        _log("Cloning all tool repos...")
+        _log("Cloning bare-metal tool repos...")
         for name, (url, dest) in REPOS.items():
             try:
                 clone_repo(name, url, dest)
