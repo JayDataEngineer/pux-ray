@@ -142,6 +142,32 @@ root = Config().models_root
 3. Tailscale auto-starts → server at `100.86.69.57`
 4. systemd `tech-noir.service` calls `tech-noir boot` → all services start automatically
 
+## System Prerequisites (zero-to-running)
+
+On a fresh Ubuntu 26.04 install, run these in order:
+
+```bash
+# 1. System provisioning (apt packages, CUDA header patch, sysctl, swap)
+sudo python -m infra.setup system --fix
+
+# 2. Clone all tool repos
+python -m infra.setup.clone
+
+# 3. Download all models (HF + ModelScope + Civitai)
+task models:pull
+
+# 4. Set up bare-metal tool venvs + llama.cpp build
+python -m infra.setup all
+
+# 5. Build Docker worker images (TRELLIS, AniGen, VibeVoice)
+python -m infra.setup docker
+
+# 6. Start everything
+task boot
+```
+
+All steps are idempotent — safe to re-run. No manual steps required.
+
 ## Adding / Moving Projects
 
 Projects live in `/home/user/Documents/programs/`. When adding a new project:
