@@ -244,6 +244,16 @@ vision:
 # ComfyUI - Image/video generation models (flat key: comfyui-<type>-<name>)
 # ---------------------------------------------------------------------------
 comfyui:
+  checkpoint-sdxl-base:
+    path: image-gen/comfyui/checkpoints/sd_xl_base_1.0.safetensors
+    source: hf://stabilityai/stable-diffusion-xl-base-1.0/sd_xl_base_1.0.safetensors
+    download: file
+    sha256: null
+    size_gb: 6.5
+    vram_estimate_gb: 7.0
+    device: gpu
+    description: "Stable Diffusion XL 1.0 base checkpoint."
+
   checkpoint-ltx-2.3-distilled:
     path: image-gen/comfyui/checkpoints/ltx-2.3-22b-distilled-1.1.safetensors
     source: hf://Lightricks/LTX-2.3/ltx-2.3-22b-distilled-1.1.safetensors
