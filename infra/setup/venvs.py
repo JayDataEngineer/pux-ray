@@ -197,6 +197,10 @@ def setup_trellis() -> bool:
             "--index-url", "https://download.pytorch.org/whl/cu124",
         )
 
+    # Step 1.5: Patch torch _check_cuda_version (CUDA 13.1 vs cu124 mismatch)
+    from infra.setup.system import check_torch_cuda_patch
+    check_torch_cuda_patch(dir_, fix=True)
+
     # Step 2: Basic dependencies
     _log("Installing TRELLIS.2 basic dependencies...")
     _uv_install(
