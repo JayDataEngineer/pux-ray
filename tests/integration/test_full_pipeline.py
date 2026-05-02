@@ -187,6 +187,7 @@ def llm_loaded(ensure_served):
 @pytest.fixture(scope="session")
 def trellis_loaded(ensure_served):
     """Load TRELLIS model (starts Docker + initializes HTTP connection)."""
+    _unload_gpu_service("llm", "llm")
     _start_docker_worker("trellis")
     _load_service("trellis", "trellis", "trellis")
 
