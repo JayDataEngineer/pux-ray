@@ -46,7 +46,7 @@ RUN uv pip install --system --no-cache \
 RUN uv pip install --system --no-cache \
     pillow einops transformers accelerate trimesh \
     pygltflib numpy opencv-python-headless \
-    scipy timm fvcore iopath \
+    scipy timm fvcore iopath easydict \
     wheel setuptools packaging
 
 # Build pytorch3d from source (the main compiled extension)
