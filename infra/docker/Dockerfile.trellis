@@ -38,51 +38,56 @@ RUN uv pip install --system --no-cache \
     torch==2.6.0 torchvision==0.21.0 \
     --index-url https://download.pytorch.org/whl/cu124
 
-# Install core Python deps
+# Install core Python deps (matches TRELLIS.2 setup.sh --basic)
 RUN uv pip install --system --no-cache \
-    pillow einops transformers accelerate \
-    trimesh pygltflib numpy opencv-python-headless
+    imageio imageio-ffmpeg tqdm easydict ninja \
+    opencv-python-headless trimesh transformers \
+    gradio==6.0.1 tensorboard pandas lpips zstandard \
+    kornia timm einops accelerate \
+    pygltflib numpy soundfile
 
 # Build CUDA extensions one by one (cacheable layers)
+# URLs match official TRELLIS.2 setup.sh
 
 # 1. flash-attn (used by TRELLIS transformer backbone)
-RUN uv pip install --system --no-cache flash-attn --no-build-isolation
+RUN uv pip install --system --no-cache flash-attn==2.7.3 --no-build-isolation
 
-# 2. o_voxel (TRELLIS voxel processing — primary output format)
-RUN git clone --depth 1 https://github.com/microsoft/o_voxel.git /tmp/o_voxel \
-    && cd /tmp/o_voxel \
-    && uv pip install --system --no-cache . \
-    && rm -rf /tmp/o_voxel
-
-# 3. nvdiffrast (differentiable rendering for texture baking)
-RUN git clone --depth 1 https://github.com/NVlabs/nvdiffrast.git /tmp/nvdiffrast \
-    && cd /tmp/nvdiffrast \
-    && uv pip install --system --no-cache . \
-    && rm -rf /tmp/nvdiffrast
-
-# 4. CuMesh (CUDA mesh processing)
-RUN git clone --depth 1 https://github.com/nv-tlabs/CuMesh.git /tmp/cumesh \
-    && cd /tmp/cumesh \
-    && uv pip install --system --no-cache . \
-    && rm -rf /tmp/cumesh
-
-# 5. FlexGEMM (flexible GEMM kernel)
-RUN git clone --depth 1 https://github.com/NVlabs/FlexGEMM.git /tmp/flexgemm \
-    && cd /tmp/flexgemm \
-    && uv pip install --system --no-cache . \
-    && rm -rf /tmp/flexgemm
-
-# 6. nvdiffrec (neural field reconstruction)
-RUN git clone --depth 1 https://github.com/NVlabs/nvdiffrec.git /tmp/nvdiffrec \
-    && cd /tmp/nvdiffrec \
-    && uv pip install --system --no-cache . \
-    && rm -rf /tmp/nvdiffrec
-
-# 7. TRELLIS.2 source code + utils3d dependency
+# 2. TRELLIS.2 source code + utils3d dependency (needed before o-voxel)
 RUN git clone --depth 1 https://github.com/microsoft/TRELLIS.2.git /build/trellis \
     && cd /build/trellis \
     && uv pip install --system --no-cache \
         git+https://github.com/EasternJournalist/utils3d.git@9a4eb15e4021b67b12c460c7057d642626897ec8
+
+# 3. o-voxel (bundled in TRELLIS.2 repo, not a standalone repo)
+RUN cd /build/trellis \
+    && cp -r o-voxel /tmp/o-voxel \
+    && cd /tmp/o-voxel \
+    && uv pip install --system --no-cache . --no-build-isolation \
+    && rm -rf /tmp/o-voxel
+
+# 4. nvdiffrast (differentiable rendering for texture baking, pinned to v0.4.0)
+RUN git clone -b v0.4.0 --depth 1 https://github.com/NVlabs/nvdiffrast.git /tmp/nvdiffrast \
+    && cd /tmp/nvdiffrast \
+    && uv pip install --system --no-cache . --no-build-isolation \
+    && rm -rf /tmp/nvdiffrast
+
+# 5. CuMesh (CUDA mesh processing, needs --recursive for submodules)
+RUN git clone --depth 1 --recursive https://github.com/JeffreyXiang/CuMesh.git /tmp/cumesh \
+    && cd /tmp/cumesh \
+    && uv pip install --system --no-cache . --no-build-isolation \
+    && rm -rf /tmp/cumesh
+
+# 6. FlexGEMM (flexible GEMM kernel, needs --recursive for submodules)
+RUN git clone --depth 1 --recursive https://github.com/JeffreyXiang/FlexGEMM.git /tmp/flexgemm \
+    && cd /tmp/flexgemm \
+    && uv pip install --system --no-cache . --no-build-isolation \
+    && rm -rf /tmp/flexgemm
+
+# 7. nvdiffrec (JeffreyXiang fork with renderutils branch)
+RUN git clone -b renderutils --depth 1 https://github.com/JeffreyXiang/nvdiffrec.git /tmp/nvdiffrec \
+    && cd /tmp/nvdiffrec \
+    && uv pip install --system --no-cache . --no-build-isolation \
+    && rm -rf /tmp/nvdiffrec
 
 # Apply DINOv3 model access fix (self.model.layer -> self.model.model.layer)
 RUN sed -i 's/for i, layer_module in enumerate(self\.model\.layer):/for i, layer_module in enumerate(self.model.model.layer):/' \

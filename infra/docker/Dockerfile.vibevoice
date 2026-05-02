@@ -44,7 +44,7 @@ RUN uv pip install --system --no-cache \
     numpy soundfile scipy
 
 # flash-attn (required by VibeVoice)
-RUN uv pip install --system --no-cache flash-attn --no-build-isolation
+RUN uv pip install --system --no-cache flash-attn==2.7.3 --no-build-isolation
 
 # VibeVoice source code (custom model classes, voices/)
 RUN git clone --depth 1 https://github.com/microsoft/VibeVoice.git /build/vibevoice
