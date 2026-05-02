@@ -26,7 +26,7 @@ class TestSetupModule:
             capture_output=True, text=True, timeout=10,
         )
         assert result.returncode == 0
-        assert int(result.stdout.strip()) >= 5
+        assert int(result.stdout.strip()) >= 4
 
     def test_venvs_module_importable(self):
         result = subprocess.run(
@@ -34,16 +34,18 @@ class TestSetupModule:
             capture_output=True, text=True, timeout=10,
         )
         assert result.returncode == 0
-        assert int(result.stdout.strip()) >= 5
+        assert int(result.stdout.strip()) >= 4
 
     def test_clone_module_lists_repos(self):
         from infra.setup.clone import REPOS
-        expected = {"trellis", "anigen", "ace-step", "see-through", "qwen", "llama"}
+        # Bare-metal tools only (Docker tools clone inside Dockerfile)
+        expected = {"ace-step", "see-through", "qwen", "gpt-sovits", "comfyui", "llama"}
         assert set(REPOS.keys()) == expected
 
     def test_venvs_module_lists_tools(self):
         from infra.setup.venvs import TOOLS
-        expected = {"trellis", "anigen", "ace-step", "see-through", "qwen", "llama"}
+        # Bare-metal tools only (Docker tools built via `python -m infra.setup docker`)
+        expected = {"ace-step", "see-through", "gpt-sovits", "qwen", "comfyui", "llama"}
         assert set(TOOLS.keys()) == expected
 
     def test_all_repos_have_valid_urls(self):
