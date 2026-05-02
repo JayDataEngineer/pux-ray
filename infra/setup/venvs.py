@@ -16,6 +16,7 @@ not managed here. Run 'python -m infra.setup docker' to build them.
 from __future__ import annotations
 
 import os
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -82,6 +83,18 @@ def _can_import(venv_py: Path, module: str) -> bool:
         return result.returncode == 0
     except (subprocess.TimeoutExpired, FileNotFoundError):
         return False
+
+
+def _venv_version(venv_py: Path) -> str:
+    """Get Python version string from a venv."""
+    try:
+        result = subprocess.run(
+            [str(venv_py), "--version"],
+            capture_output=True, text=True, timeout=10,
+        )
+        return result.stdout.strip()
+    except (subprocess.TimeoutExpired, FileNotFoundError):
+        return "?"
 
 
 # ─── ACE-Step 1.5 — text-to-music generation ─────────────────────────────

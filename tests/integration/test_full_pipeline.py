@@ -192,13 +192,16 @@ def trellis_loaded(ensure_served):
 
 @pytest.fixture(scope="session")
 def anigen_loaded(ensure_served):
-    """Load AniGen model."""
+    """Load AniGen model (stops TRELLIS worker to free VRAM, starts AniGen worker)."""
+    _stop_docker_worker("trellis")
     _load_service("anigen", "anigen", "anigen")
 
 
 @pytest.fixture(scope="session")
 def ace_step_loaded(ensure_served):
-    """Load ACE-STEP model."""
+    """Load ACE-STEP model (stops TRELLIS worker to free VRAM)."""
+    _stop_docker_worker("trellis")
+    _unload_gpu_service("llm", "llm")
     _load_service("ace_step", "ace_step", "ace-step")
 
 
@@ -215,6 +218,26 @@ def get_vram_free_mb() -> int:
         capture_output=True, text=True, timeout=5,
     )
     return int(result.stdout.strip().split("\n")[0].strip())
+
+
+def _stop_docker_worker(profile: str) -> None:
+    """Stop a Docker worker container to free VRAM."""
+    compose_file = str(RAY_ROOT / "infra" / "docker" / "compose.workers.yaml")
+    subprocess.run(
+        ["docker", "compose", "-f", compose_file, "--profile", profile, "stop", f"{profile}-worker"],
+        capture_output=True, text=True, timeout=30,
+    )
+    time.sleep(2)
+
+
+def _unload_gpu_service(deployment_name: str, app_name: str) -> None:
+    """Unload a GPU model via Serve handle to free VRAM."""
+    handle = _get_handle(deployment_name, app_name)
+    try:
+        _await_serve(handle.options(method_name="unload_model").remote())
+    except Exception:
+        pass
+    time.sleep(2)
 
 
 # =============================================================================
@@ -330,27 +353,37 @@ class TestComfyUI:
     It auto-starts on first request and runs as a managed subprocess.
     """
 
-    # Minimal txt2img workflow using SDXL checkpoint.
-    LTX_WORKFLOW = {
-        "3": {
-            "class_type": "KSampler",
-            "inputs": {
-                "seed": 42,
-                "steps": 5,
-                "cfg": 7.0,
-                "sampler_name": "euler",
-                "scheduler": "normal",
-                "denoise": 1.0,
-                "model": ["4", 0],
-                "positive": ["6", 0],
-                "negative": ["7", 0],
-                "latent_image": ["5", 0],
-            }
-        },
-        "4": {
+    # Fast txt2img workflow: SDXL base + DMD2 4-step LoRA.
+    # DMD2 distillation allows high-quality images in just 4 steps.
+    WORKFLOW = {
+        "1": {
             "class_type": "CheckpointLoaderSimple",
             "inputs": {
                 "ckpt_name": "sd_xl_base_1.0.safetensors"
+            }
+        },
+        "2": {
+            "class_type": "LoraLoader",
+            "inputs": {
+                "lora_name": "DMD2/dmd2_sdxl_4step_lora_fp16.safetensors",
+                "strength_model": 1.0,
+                "strength_clip": 1.0,
+                "model": ["1", 0],
+                "clip": ["1", 1],
+            }
+        },
+        "3": {
+            "class_type": "CLIPTextEncode",
+            "inputs": {
+                "text": "a beautiful sunset over mountains, high quality photo",
+                "clip": ["2", 1]
+            }
+        },
+        "4": {
+            "class_type": "CLIPTextEncode",
+            "inputs": {
+                "text": "blurry, low quality, distorted",
+                "clip": ["2", 1]
             }
         },
         "5": {
@@ -362,31 +395,32 @@ class TestComfyUI:
             }
         },
         "6": {
-            "class_type": "CLIPTextEncode",
+            "class_type": "KSampler",
             "inputs": {
-                "text": "a beautiful sunset over mountains, high quality photo",
-                "clip": ["4", 1]
+                "seed": 42,
+                "steps": 4,
+                "cfg": 1.5,
+                "sampler_name": "dpmpp_2m",
+                "scheduler": "karras",
+                "denoise": 1.0,
+                "model": ["2", 0],
+                "positive": ["3", 0],
+                "negative": ["4", 0],
+                "latent_image": ["5", 0],
             }
         },
         "7": {
-            "class_type": "CLIPTextEncode",
+            "class_type": "VAEDecode",
             "inputs": {
-                "text": "blurry, low quality, distorted",
-                "clip": ["4", 1]
+                "samples": ["6", 0],
+                "vae": ["1", 2]
             }
         },
         "8": {
-            "class_type": "VAEDecode",
-            "inputs": {
-                "samples": ["3", 0],
-                "vae": ["4", 2]
-            }
-        },
-        "9": {
             "class_type": "SaveImage",
             "inputs": {
                 "filename_prefix": "test_e2e",
-                "images": ["8", 0]
+                "images": ["7", 0]
             }
         }
     }
@@ -399,13 +433,13 @@ class TestComfyUI:
         )
 
     def test_generate_image(self, client, ensure_served):
-        """Submit a txt2img workflow to ComfyUI and verify output."""
+        """Submit a fast txt2img workflow to ComfyUI (SDXL + DMD2 4-step)."""
         # Ensure ComfyUI is running
         client.get("/comfyui/", timeout=180)
 
         resp = client.post(
             "/comfyui/prompt",
-            json={"prompt": self.LTX_WORKFLOW},
+            json={"prompt": self.WORKFLOW},
             timeout=TIMEOUT,
         )
         assert resp.status_code == 200, (
@@ -416,7 +450,7 @@ class TestComfyUI:
 
         prompt_id = data["prompt_id"]
 
-        # Poll until execution completes with outputs (5min max)
+        # Poll until execution completes (60 iterations × 5s = 5min max)
         last_status = {}
         for _ in range(60):
             time.sleep(5)

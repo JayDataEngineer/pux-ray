@@ -67,7 +67,7 @@ class Service:
 # Service Registry
 # ---------------------------------------------------------------------------
 
-PROGRAMS = "/home/user/Documents/programs"
+PROGRAMS = str(get_programs_dir())
 
 SERVICES: dict[str, Service] = {}
 
