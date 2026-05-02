@@ -2,21 +2,21 @@
 # Multi-stage build: compile pytorch3d + CUDA extensions in devel image
 #
 # Required extensions (compiled from source):
-#   pytorch3d, spconv, flash-attn
+#   pytorch3d, spconv, flash-attn, nvdiffrast
 #
 # Build:  docker build -f Dockerfile.anigen -t anigen-worker .
 # Run:    docker run --gpus all -p 18402:18402 -v /models:/models:ro anigen-worker
 
-# ---- Python Stage ----
+# ---- Python Stage (provides Python 3.12 without deadsnakes PPA) ----
 FROM python:3.12-slim-bookworm AS python-base
 
 # ---- Build Stage ----
-FROM nvidia/cuda:12.1.0-devel-ubuntu22.04 AS builder
+FROM nvidia/cuda:12.4.0-devel-ubuntu22.04 AS builder
 
 ENV DEBIAN_FRONTEND=noninteractive
 ENV PYTHONUNBUFFERED=1
 
-# System deps
+# System deps for building extensions
 RUN apt-get update && apt-get install -y --no-install-recommends \
     git build-essential ninja-build \
     libgl1-mesa-glx libglib2.0-0 \
@@ -27,6 +27,7 @@ COPY --from=python-base /usr/local /usr/local
 RUN ln -sf /usr/local/bin/python3.12 /usr/bin/python3.12 \
     && ln -sf /usr/local/bin/python3.12 /usr/bin/python
 
+# Install uv for fast pip
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 
 WORKDIR /build
@@ -36,10 +37,10 @@ ENV TORCH_CUDA_ARCH_LIST="8.9"
 ENV TORCH_NVCC_FLAGS="-Xfatbin -compress-all"
 ENV MAX_JOBS=2
 
-# Install torch + torchvision (CUDA 12.1 compatible)
+# Install torch + torchvision (CUDA 12.4)
 RUN uv pip install --system --no-cache \
     torch==2.6.0 torchvision==0.21.0 \
-    --index-url https://download.pytorch.org/whl/cu121
+    --index-url https://download.pytorch.org/whl/cu124
 
 # Core deps
 RUN uv pip install --system --no-cache \
@@ -51,11 +52,11 @@ RUN uv pip install --system --no-cache \
 # Build pytorch3d from source (the main compiled extension)
 RUN git clone --depth 1 https://github.com/facebookresearch/pytorch3d.git /tmp/pytorch3d \
     && cd /tmp/pytorch3d \
-    && uv pip install --system --no-cache . \
+    && uv pip install --system --no-cache . --no-build-isolation \
     && rm -rf /tmp/pytorch3d
 
-# spconv (sparse convolution)
-RUN uv pip install --system --no-cache spconv-cu120
+# spconv (sparse convolution, cu124 build)
+RUN uv pip install --system --no-cache spconv-cu124
 
 # flash-attn
 RUN uv pip install --system --no-cache flash-attn==2.7.3 --no-build-isolation
@@ -63,33 +64,37 @@ RUN uv pip install --system --no-cache flash-attn==2.7.3 --no-build-isolation
 # nvdiffrast (for mesh rendering)
 RUN git clone --depth 1 https://github.com/NVlabs/nvdiffrast.git /tmp/nvdiffrast \
     && cd /tmp/nvdiffrast \
-    && uv pip install --system --no-cache . \
+    && uv pip install --system --no-cache . --no-build-isolation \
     && rm -rf /tmp/nvdiffrast
 
 # AniGen source code
 RUN git clone --depth 1 https://github.com/VAST-AI-Research/AniGen.git /build/anigen
 
 # ---- Runtime Stage ----
-FROM nvidia/cuda:12.1.0-runtime-ubuntu22.04 AS runtime
+FROM nvidia/cuda:12.4.0-runtime-ubuntu22.04 AS runtime
 
 ENV DEBIAN_FRONTEND=noninteractive
 ENV PYTHONUNBUFFERED=1
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    libgl1-mesa-glx libglib2.0-0 libgomp1 \
+    gcc libc6-dev libgl1-mesa-glx libglib2.0-0 libgomp1 \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy Python from builder
+# Copy Python from builder (includes all compiled packages)
 COPY --from=builder /usr/local /usr/local
 RUN ln -sf /usr/local/bin/python3.12 /usr/bin/python3.12 \
     && ln -sf /usr/local/bin/python3.12 /usr/bin/python \
     && ldconfig
 
+# Copy CUDA headers for any JIT compilation at runtime
+COPY --from=builder /usr/local/cuda/include /usr/local/cuda/include
+ENV CUDA_HOME=/usr/local/cuda
+
 # Copy AniGen source from builder
 COPY --from=builder /build/anigen /app/repo
 
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
-RUN uv pip install --system --no-cache fastapi uvicorn[standard] python-multipart httpx
+RUN uv pip install --system --no-cache fastapi uvicorn[standard] python-multipart httpx soundfile
 
 WORKDIR /app
 
