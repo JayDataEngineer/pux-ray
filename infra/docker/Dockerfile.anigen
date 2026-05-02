@@ -55,7 +55,7 @@ RUN uv pip install --system --no-cache \
 # Build pytorch3d from source (the main compiled extension)
 RUN git clone --depth 1 https://github.com/facebookresearch/pytorch3d.git /tmp/pytorch3d \
     && cd /tmp/pytorch3d \
-    && uv pip install --system --no-cache . --no-build-isolation \
+    && FORCE_CUDA=1 uv pip install --system --no-cache . --no-build-isolation \
     && rm -rf /tmp/pytorch3d
 
 # spconv (sparse convolution, cu124 build)
