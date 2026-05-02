@@ -186,21 +186,24 @@ def llm_loaded(ensure_served):
 
 @pytest.fixture(scope="session")
 def trellis_loaded(ensure_served):
-    """Load TRELLIS model (HTTPToolMixin - initializes HTTP connection)."""
+    """Load TRELLIS model (starts Docker + initializes HTTP connection)."""
+    _start_docker_worker("trellis")
     _load_service("trellis", "trellis", "trellis")
 
 
 @pytest.fixture(scope="session")
 def anigen_loaded(ensure_served):
-    """Load AniGen model (stops TRELLIS worker to free VRAM, starts AniGen worker)."""
+    """Load AniGen model (stops trellis, starts AniGen worker)."""
     _stop_docker_worker("trellis")
+    _start_docker_worker("anigen")
     _load_service("anigen", "anigen", "anigen")
 
 
 @pytest.fixture(scope="session")
 def ace_step_loaded(ensure_served):
-    """Load ACE-STEP model (stops TRELLIS worker to free VRAM)."""
+    """Load ACE-STEP model (stops Docker workers, unloads GPU services to free VRAM)."""
     _stop_docker_worker("trellis")
+    _stop_docker_worker("anigen")
     _unload_gpu_service("llm", "llm")
     _load_service("ace_step", "ace_step", "ace-step")
 
@@ -218,6 +221,16 @@ def get_vram_free_mb() -> int:
         capture_output=True, text=True, timeout=5,
     )
     return int(result.stdout.strip().split("\n")[0].strip())
+
+
+def _start_docker_worker(profile: str) -> None:
+    """Start a Docker worker container (idempotent)."""
+    compose_file = str(RAY_ROOT / "infra" / "docker" / "compose.workers.yaml")
+    subprocess.run(
+        ["docker", "compose", "-f", compose_file, "--profile", profile, "up", "-d"],
+        capture_output=True, text=True, timeout=120,
+    )
+    time.sleep(5)
 
 
 def _stop_docker_worker(profile: str) -> None:
@@ -365,7 +378,7 @@ class TestComfyUI:
         "2": {
             "class_type": "LoraLoader",
             "inputs": {
-                "lora_name": "DMD2/dmd2_sdxl_4step_lora_fp16.safetensors",
+                "lora_name": "loras/DMD2/dmd2_sdxl_4step_lora_fp16.safetensors",
                 "strength_model": 1.0,
                 "strength_clip": 1.0,
                 "model": ["1", 0],
