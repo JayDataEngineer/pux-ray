@@ -339,10 +339,16 @@ class CLIToolMixin:
         for key in list(env.keys()):
             if key.startswith(("PYTHON", "VIRTUAL_ENV", "CONDA")):
                 del env[key]
-        # uv-created venvs use symlinks to a shared Python; they need
-        # VIRTUAL_ENV set so Python can find its site-packages.
+        # uv-created venvs use symlinks to a shared managed Python.
+        # When Ray Serve runs the subprocess, sys.executable resolves to
+        # the real path, bypassing venv detection. Fix: explicitly set
+        # VIRTUAL_ENV and PYTHONPATH to the venv's site-packages.
         venv_dir = str(Path(self._venv_python).parent.parent)
         env["VIRTUAL_ENV"] = venv_dir
+        # Find the venv's site-packages (e.g. lib/python3.12/site-packages)
+        sp = list(Path(venv_dir).glob("lib/python*/site-packages"))
+        if sp:
+            env["PYTHONPATH"] = str(sp[0])
         env["PATH"] = f"{Path(self._venv_python).parent}:{env.get('PATH', '')}"
         if extra_env:
             env.update(extra_env)
