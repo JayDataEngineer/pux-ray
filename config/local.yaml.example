@@ -46,10 +46,10 @@ services:
     # Runs in Docker container with CUDA 12.4 for compiled extensions.
     # Port and profile configured in workers: section below.
     trellis:
-      _dockerized: true
       venv_python: ${TECH_NOIR_TRELLIS_PYTHON:infra/repos/TRELLIS.2/.venv/bin/python}
       script: services/creative/wrappers/trellis_cli.py
       working_dir: infra/repos/TRELLIS.2
+      model_path: ${TECH_NOIR_MODELS_ROOT}/3d/trellis/TRELLIS.2-4B/ckpts
 
     # AniGen — animated 3D character generation (DOCKERIZED)
     # Source: https://github.com/VAST-AI-Research/AniGen
@@ -98,7 +98,7 @@ workers:
   trellis:
     port: 18401
     profile: trellis
-    model_path: ${TECH_NOIR_MODELS_ROOT}/3d/trellis/TRELLIS.2-4B
+    model_path: ${TECH_NOIR_MODELS_ROOT}/3d/trellis/TRELLIS.2-4B/ckpts
   anigen:
     port: 18402
     profile: anigen
