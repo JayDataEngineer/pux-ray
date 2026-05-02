@@ -30,7 +30,11 @@ class QwenTTSDeployment(BaseGPUDeployment):
         from registry.models import ModelRegistry
 
         registry = ModelRegistry()
-        model_path = registry.get_path("tts", model_name)
+        try:
+            model_path = registry.get_path("tts", model_name)
+        except (KeyError, ValueError):
+            model_path = registry.get_path("tts", "qwen3-tts")
+            model_name = "qwen3-tts"
 
         # Qwen3-TTS uses a specific pipeline
         from qwen_tts import Qwen3TTSModel

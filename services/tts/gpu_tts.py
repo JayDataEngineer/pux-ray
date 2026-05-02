@@ -31,7 +31,11 @@ class IndexTTSDeployment(BaseGPUDeployment):
         from registry.models import ModelRegistry
 
         registry = ModelRegistry()
-        model_path = registry.get_path("tts", model_name)
+        try:
+            model_path = registry.get_path("tts", model_name)
+        except (KeyError, ValueError):
+            model_path = registry.get_path("tts", "index-tts")
+            model_name = "index-tts"
 
         # IndexTTS loads from directory with gpt.pth, s2mel.pth, etc.
         # The actual import depends on the IndexTTS library structure

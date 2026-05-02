@@ -30,6 +30,11 @@ REPOS = {
     "llama": ("https://github.com/ggml-org/llama.cpp.git", "llama.cpp"),
 }
 
+# ComfyUI custom extensions — cloned into ComfyUI/custom_nodes/
+COMFYUI_EXTENSIONS = {
+    "pose-director": "https://github.com/JayDataEngineer/comfyui-pose-director.git",
+}
+
 
 def _log(msg: str) -> None:
     print(f"\033[0;32m[clone]\033[0m {msg}")
@@ -37,6 +42,31 @@ def _log(msg: str) -> None:
 
 def _warn(msg: str) -> None:
     print(f"\033[1;33m[clone]\033[0m {msg}")
+
+
+def clone_comfyui_extension(name: str, url: str) -> bool:
+    """Clone a single ComfyUI custom extension into custom_nodes/."""
+    comfyui_dir = REPOS_DIR / "ComfyUI"
+    target = comfyui_dir / "custom_nodes" / name
+    if (target / ".git").is_dir():
+        _log(f"  Extension {name} already cloned, pulling...")
+        result = subprocess.run(
+            ["git", "pull", "--ff-only"],
+            cwd=str(target), capture_output=True, text=True, timeout=60,
+        )
+        if result.returncode != 0:
+            _warn(f"  git pull failed for {name}: {result.stderr[:100]}")
+        return True
+    _log(f"  Cloning extension {name}...")
+    target.parent.mkdir(parents=True, exist_ok=True)
+    result = subprocess.run(
+        ["git", "clone", "--depth", "1", url, str(target)],
+        capture_output=True, text=True, timeout=120,
+    )
+    if result.returncode != 0:
+        _warn(f"  git clone failed for {name}: {result.stderr[:200]}")
+        return False
+    return True
 
 
 def clone_repo(name: str, url: str, dest: str) -> bool:
@@ -73,6 +103,14 @@ def main():
                 clone_repo(name, url, dest)
             except Exception as e:
                 _warn(f"  {name} failed: {e}")
+
+        _log("Cloning ComfyUI custom extensions...")
+        for name, url in COMFYUI_EXTENSIONS.items():
+            try:
+                clone_comfyui_extension(name, url)
+            except Exception as e:
+                _warn(f"  extension {name} failed: {e}")
+
         _log("All repos synced.")
         return
 

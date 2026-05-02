@@ -125,8 +125,8 @@ class APIIngress:
         """POST /v1/audio/speech - OpenAI-compatible TTS.
 
         Routes to the appropriate TTS service based on the 'model' field:
-          - tts-01-kokoro (default), tts-01-espeak, tts-01-index,
-            tts-01-qwen, tts-01-vibevoice, tts-01-gpt-sovits
+          - tts-01-kokoro (default), tts-01-espeak (CPU, no acquire)
+          - tts-01-index, tts-01-qwen, tts-01-vibevoice, tts-01-gpt-sovits (GPU)
         """
         body = await request.json()
         model = body.get("model", "tts-01-kokoro")
@@ -141,7 +141,22 @@ class APIIngress:
             "tts-01-gpt-sovits": ("gpt_sovits", "gpt_sovits"),
         }
 
+        # GPU-based TTS services need model loaded via GPU scheduler
+        gpu_tts_models = {
+            "tts-01-index": "index-tts",
+            "tts-01-qwen": "qwen3-tts",
+            "tts-01-vibevoice": "vibevoice",
+            "tts-01-gpt-sovits": "gpt-sovits",
+        }
+
         dep_name, app_name = tts_services.get(model, ("kokoro_tts", "kokoro_tts"))
+
+        if model in gpu_tts_models:
+            self._ensure_initialized()
+            if self.gpu_scheduler:
+                real_model = gpu_tts_models[model]
+                await self.gpu_scheduler.acquire_gpu.remote(dep_name, real_model)
+
         handle = serve.get_deployment_handle(dep_name, app_name)
         audio = await handle.synthesize.remote(
             text=body.get("input", ""),
