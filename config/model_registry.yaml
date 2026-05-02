@@ -366,173 +366,163 @@ comfyui:
 
   # -- Sprite Pipeline (Qwen Image Edit + VNCCS) --
 
-  checkpoint-qwen-image-edit-2511-lightning:
-    path: image-gen/comfyui/checkpoints/qwen_image_edit_2511_fp8_e4m3fn_scaled_lightning_comfyui.safetensors
-    source: hf://Kijai/Qwen_Image_Edit_2511_fp8_scaled/qwen_image_edit_2511_fp8_e4m3fn_scaled_lightning_comfyui.safetensors
+  checkpoint-qwen-image-edit-2511-lc:
+    path: image-gen/comfyui/checkpoints/qwen_image_edit_2511_fp8_e4m3fn_scaled_lightning_comfyui_4steps_v1.0.safetensors
+    source: hf://lightx2v/Qwen-Image-Edit-2511-Lightning/qwen_image_edit_2511_fp8_e4m3fn_scaled_lightning_comfyui_4steps_v1.0.safetensors
     download: file
     sha256: null
     size_gb: 9.0
     vram_estimate_gb: 9.0
     device: gpu
-    description: "Qwen Image Edit 2511 Lightning (FP8 scaled, ComfyUI format). Kijai conversion."
+    description: "Qwen Image Edit 2511 Lightning 4-step (FP8 scaled, ComfyUI format). From lightx2v."
 
   vae-qwen-image:
     path: image-gen/comfyui/vae/qwen_image_vae.safetensors
-    source: hf://Kijai/Qwen_Image_Edit_2511_fp8_scaled/qwen_image_vae.safetensors
+    source: hf://Comfy-Org/Qwen-Image_ComfyUI/split_files/vae/qwen_image_vae.safetensors
     download: file
     sha256: null
     size_gb: 0.3
     vram_estimate_gb: 0.5
     device: gpu
-    description: "Qwen Image Edit VAE. From Kijai ComfyUI repo."
+    description: "Qwen Image VAE. From Comfy-Org repackaged."
 
   lora-qwen-lightning-4steps:
     path: image-gen/comfyui/loras/Qwen-Image-Edit-2511-Lightning-4steps-V1.0-bf16.safetensors
-    source: hf://Kijai/Qwen_Image_Edit_2511_fp8_scaled/Qwen-Image-Edit-2511-Lightning-4steps-V1.0-bf16.safetensors
+    source: hf://lightx2v/Qwen-Image-Edit-2511-Lightning/Qwen-Image-Edit-2511-Lightning-4steps-V1.0-bf16.safetensors
     download: file
     sha256: null
-    size_gb: 0.3
+    size_gb: 0.42
     vram_estimate_gb: 0.0
     device: gpu
-    description: "Qwen Image Edit Lightning 4-step LoRA (BF16)."
+    description: "Qwen Image Edit 2511 Lightning 4-step LoRA (BF16). From lightx2v."
 
   lora-vnccs-posestudio:
     path: image-gen/comfyui/loras/VNCCS_PoseStudioQIE2511_V2.safetensors
-    source: null
-    download: skip
+    source: hf://MIUProject/VNCCS_PoseStudio/models/loras/qwen/VNCCS/VNCCS_PoseStudioQIE2511_V2.safetensors
+    download: file
     sha256: null
     size_gb: 1.2
     vram_estimate_gb: 0.0
     device: gpu
-    description: "VNCCS PoseStudio Qwen Image Edit 2511 V2 LoRA."
+    description: "VNCCS PoseStudio Qwen Image Edit 2511 V2 LoRA. From MIUProject."
 
   clip-qwen25-vl-7b:
     path: image-gen/comfyui/clip/qwen_2.5_vl_7b_fp8_scaled.safetensors
-    source: hf://Kijai/Qwen_Image_Edit_2511_fp8_scaled/qwen_2.5_vl_7b_fp8_scaled.safetensors
+    source: hf://Comfy-Org/Qwen-Image_ComfyUI/split_files/text_encoders/qwen_2.5_vl_7b_fp8_scaled.safetensors
     download: file
     sha256: null
     size_gb: 3.5
     vram_estimate_gb: 3.5
     device: gpu
-    description: "Qwen 2.5 VL 7B (FP8 scaled). Text encoder for Qwen Image Edit."
+    description: "Qwen 2.5 VL 7B (FP8 scaled). Text encoder for Qwen Image Edit. From Comfy-Org."
 
   # -- ControlNet / Pose --
 
   controlnet-openpose:
-    path: image-gen/comfyui/controlnet/dw-ll_ucoco_384_bs5.torchscript.pt
-    source: hf://yzd-v/DWPose/dw-ll_ucoco_384_bs5.torchscript.pt
+    path: image-gen/comfyui/controlnet/sdpose_wholebody_fp16.safetensors
+    source: hf://Comfy-Org/SDPose/checkpoints/sdpose_wholebody_fp16.safetensors
     download: file
     sha256: null
-    size_gb: 0.2
-    vram_estimate_gb: 0.5
+    size_gb: 1.2
+    vram_estimate_gb: 1.5
     device: cpu
-    description: "DWPose detector model for OpenposePreprocessor."
+    description: "SDPose whole-body detector. From Comfy-Org repackaged."
 
   # -- LTX Video (GGUF) --
 
   unet-ltx23-gguf:
     path: image-gen/comfyui/unet/ltx-2.3-22b-distilled-1.1-UD-Q4_K_M.gguf
-    source: hf://city96/LTX-2.3-22B-distilled-1.1-gguf/ltx-2.3-22b-distilled-1.1-UD-Q4_K_M.gguf
+    source: hf://unsloth/LTX-2.3-GGUF/distilled-1.1/ltx-2.3-22b-distilled-1.1-UD-Q4_K_M.gguf
     download: file
     sha256: null
     size_gb: 7.0
     vram_estimate_gb: 8.0
     device: gpu
-    description: "LTX 2.3 22B distilled GGUF Q4_K_M. For UnetLoaderGGUF."
+    description: "LTX 2.3 22B distilled GGUF Q4_K_M UD (GQA-optimized). From unsloth."
 
   clip-gemma3-12b-gguf:
     path: image-gen/comfyui/clip/gemma-3-12b-it-IQ4_XS.gguf
-    source: hf://bartowski/gemma-3-12b-it-GGUF/gemma-3-12b-it-IQ4_XS.gguf
+    source: hf://unsloth/gemma-3-12b-it-GGUF/gemma-3-12b-it-IQ4_XS.gguf
     download: file
     sha256: null
     size_gb: 6.5
     vram_estimate_gb: 7.0
     device: gpu
-    description: "Gemma 3 12B GGUF IQ4_XS. Text encoder for LTX Video."
+    description: "Gemma 3 12B GGUF IQ4_XS. Text encoder for LTX Video. From unsloth."
 
   textproj-ltxv-dual:
-    path: image-gen/comfyui/text_encoders/ltxv_text_projection_dual.safetensors
-    source: hf://Lightricks/LTX-2.3/ltxv_text_projection_dual.safetensors
+    path: image-gen/comfyui/text_encoders/ltx-2.3_text_projection_bf16.safetensors
+    source: hf://Kijai/LTX2.3_comfy/text_encoders/ltx-2.3_text_projection_bf16.safetensors
     download: file
     sha256: null
     size_gb: 0.02
     vram_estimate_gb: 0.1
     device: gpu
-    description: "LTX Video dual text projection. From Lightricks LTX-2.3 repo."
+    description: "LTX 2.3 text projection (BF16). From Kijai ComfyUI repo."
 
   vae-ltx23-bf16:
     path: image-gen/comfyui/vae/LTX23_video_vae_bf16.safetensors
-    source: hf://Lightricks/LTX-2.3/LTX23_video_vae_bf16.safetensors
+    source: hf://Kijai/LTX2.3_comfy/vae/LTX23_video_vae_bf16.safetensors
     download: file
     sha256: null
     size_gb: 0.3
     vram_estimate_gb: 0.5
     device: gpu
-    description: "LTX 2.3 Video VAE (BF16). From Lightricks LTX-2.3 repo."
+    description: "LTX 2.3 Video VAE (BF16). From Kijai ComfyUI repo."
 
   # -- Z-Image (Character Generation) --
 
   unet-zimage-turbo:
     path: image-gen/comfyui/unet/z_image_turbo_bf16.safetensors
-    source: hf://Tongyi-MAI/Z-Image-Turbo/z_image_turbo_bf16.safetensors
+    source: hf://Comfy-Org/z_image_turbo/split_files/diffusion_models/z_image_turbo_bf16.safetensors
     download: file
     sha256: null
     size_gb: 4.0
     vram_estimate_gb: 4.0
     device: gpu
-    description: "Z-Image Turbo UNet (BF16). Tongyi-MAI character generation."
+    description: "Z-Image Turbo UNet (BF16). From Comfy-Org repackaged."
 
   vae-zimage:
     path: image-gen/comfyui/vae/ae.safetensors
-    source: hf://Tongyi-MAI/Z-Image-Turbo/ae.safetensors
+    source: hf://Comfy-Org/z_image_turbo/split_files/vae/ae.safetensors
     download: file
     sha256: null
     size_gb: 0.3
     vram_estimate_gb: 0.5
     device: gpu
-    description: "Z-Image VAE (AE). From Tongyi-MAI Z-Image-Turbo repo."
+    description: "Z-Image VAE (AE). From Comfy-Org repackaged."
 
   clip-qwen3-4b:
     path: image-gen/comfyui/clip/qwen_3_4b.safetensors
-    source: hf://Tongyi-MAI/Z-Image-Turbo/qwen_3_4b.safetensors
+    source: hf://Comfy-Org/z_image_turbo/split_files/text_encoders/qwen_3_4b.safetensors
     download: file
     sha256: null
     size_gb: 3.0
     vram_estimate_gb: 3.0
     device: gpu
-    description: "Qwen 3 4B CLIP text encoder. From Z-Image-Turbo repo."
+    description: "Qwen 3 4B text encoder. From Comfy-Org repackaged."
 
   clip-vision-h:
-    path: image-gen/comfyui/clip_vision/clip_vision_h.safetensors
-    source: hf://Tongyi-MAI/Z-Image-Turbo/clip_vision_h.safetensors
+    path: image-gen/comfyui/clip_vision/CLIP-ViT-H-14-laion2B-s32B-b79K.safetensors
+    source: hf://Comfy-Org/CLIP-ViT-H-14-laion2B-s32B-b79K_repackaged/split_files/clip_vision/CLIP-ViT-H-14-laion2B-s32B-b79K.safetensors
     download: file
     sha256: null
     size_gb: 1.5
     vram_estimate_gb: 1.5
     device: gpu
-    description: "CLIP Vision H model. From Z-Image-Turbo repo."
+    description: "CLIP Vision H model. From Comfy-Org repackaged."
 
   # -- EditAnything (Post-processing) --
 
   unet-qwen-image-edit-gguf:
-    path: image-gen/comfyui/unet/Qwen-Image-Edit-2511-Q5_0.gguf
-    source: hf://city96/Qwen-Image-Edit-2511-gguf/Qwen-Image-Edit-2511-Q5_0.gguf
+    path: image-gen/comfyui/unet/qwen-image-edit-2511-Q5_0.gguf
+    source: hf://unsloth/Qwen-Image-Edit-2511-GGUF/qwen-image-edit-2511-Q5_0.gguf
     download: file
     sha256: null
     size_gb: 7.0
     vram_estimate_gb: 8.0
     device: gpu
-    description: "Qwen Image Edit 2511 GGUF Q5_0. For UnetLoaderGGUF (editing stage)."
-
-  lora-edit-anything:
-    path: image-gen/comfyui/loras/ltx23_edit_anything_global_rank128_v1_9000steps_adamw.safetensors
-    source: null
-    download: skip
-    sha256: null
-    size_gb: 0.5
-    vram_estimate_gb: 0.0
-    device: gpu
-    description: "EditAnything LoRA for LTX Video 2.3."
+    description: "Qwen Image Edit 2511 GGUF Q5_0. For UnetLoaderGGUF (editing stage). From unsloth."
 
 # ---------------------------------------------------------------------------
 # 3D - TRELLIS.2 and AniGen models

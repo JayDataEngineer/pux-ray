@@ -19,7 +19,9 @@ from __future__ import annotations
 import argparse
 import hashlib
 import os
+import shutil
 import sys
+import tempfile
 import time
 from pathlib import Path
 
@@ -344,15 +346,22 @@ def cmd_models_pull(args):
 
                 # Determine download method
                 if download_mode == "file" or filename:
-                    # Single file download
-                    dest_dir = model_path.parent
-                    dest_dir.mkdir(parents=True, exist_ok=True)
-                    downloaded = hf_hub_download(
-                        repo_id=repo_id,
-                        filename=filename,
-                        local_dir=str(dest_dir),
-                    )
-                    print(f"       -> {downloaded}")
+                    # Single file download.
+                    # hf_hub_download creates {local_dir}/{filename} — if filename
+                    # contains subdirectories (e.g. split_files/vae/ae.safetensors),
+                    # the file lands at a nested path. To land at the flat path
+                    # specified in the registry, download to a temp dir and move.
+                    # Use the models root for temp storage — /tmp may not have
+                    # enough space for large model files.
+                    model_path.parent.mkdir(parents=True, exist_ok=True)
+                    with tempfile.TemporaryDirectory(dir=str(models_root)) as tmpdir:
+                        tmp_downloaded = hf_hub_download(
+                            repo_id=repo_id,
+                            filename=filename,
+                            local_dir=tmpdir,
+                        )
+                        shutil.move(tmp_downloaded, str(model_path))
+                    print(f"       -> {model_path}")
                 else:
                     # Entire repo snapshot
                     model_path.mkdir(parents=True, exist_ok=True)

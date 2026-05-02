@@ -73,7 +73,7 @@ def _setup_comfyui_models() -> None:
     }
 
     if not config_path.exists():
-        _log("Creating ComfyUI extra_model_paths.yaml → %s", models_root)
+        _log(f"Creating ComfyUI extra_model_paths.yaml -> {models_root}")
         config_path.write_text(yaml.dump(config, default_flow_style=False))
     else:
         _log("ComfyUI extra_model_paths.yaml already exists")
