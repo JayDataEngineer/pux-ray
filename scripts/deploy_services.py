@@ -44,6 +44,18 @@ except ValueError:
     ).remote()
     print("JobManager deployed")
 
+# Deploy ComfyUI Sidecar (polls git repos and reloads on push)
+from gateway.comfyui_sidecar import ComfyUISidecar
+try:
+    sidecar = ray.get_actor("comfyui_sidecar")
+    print("ComfyUI sidecar already running")
+except ValueError:
+    sidecar = ComfyUISidecar.options(
+        name="comfyui_sidecar", lifetime="detached"
+    ).remote()
+    sidecar.start.remote()
+    print("ComfyUI sidecar deployed")
+
 # --- Deploy services ---
 
 print("Deploying LLM...")
