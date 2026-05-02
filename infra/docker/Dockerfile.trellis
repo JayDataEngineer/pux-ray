@@ -135,7 +135,7 @@ COPY workers/ /app/workers/
 
 ENV TOOL_NAME=trellis
 ENV PORT=18401
-ENV MODEL_PATH=/models/TRELLIS.2-4B
+ENV MODEL_PATH=/models/TRELLIS.2-4B/ckpts
 ENV PYTHONPATH=/app:/app/repo
 
 EXPOSE 18401
