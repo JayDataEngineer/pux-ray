@@ -357,6 +357,9 @@ class CLIToolMixin:
         env["PATH"] = f"{Path(self._venv_python).parent}:{env.get('PATH', '')}"
         if extra_env:
             env.update(extra_env)
+        # Ray workers get oom_score_adj=1000 (kill first). Subprocesses
+        # inherit this and get OOM-killed before using swap. Reset it.
+        preexec_fn = lambda: open("/proc/self/oom_score_adj", "w").write("0")
         result = subprocess.run(
             cmd,
             capture_output=True,
