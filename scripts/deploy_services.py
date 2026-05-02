@@ -44,15 +44,15 @@ except ValueError:
     ).remote()
     print("JobManager deployed")
 
-# Deploy Git Sidecar (polls all infra git repos and reloads on push)
-from gateway.git_sidecar import GitSidecar
+# Deploy Universal Git Sidecar (polls all infra repos and auto-installs deps)
+from gateway.git_sidecar import UniversalGitSidecar
 try:
     sidecar = ray.get_actor("git_sidecar")
     print("Git sidecar already running")
 except ValueError:
-    sidecar = GitSidecar.options(
+    sidecar = UniversalGitSidecar.options(
         name="git_sidecar", lifetime="detached"
-    ).remote()
+    ).remote(check_interval=300)
     sidecar.start.remote()
     print("Git sidecar deployed")
 
