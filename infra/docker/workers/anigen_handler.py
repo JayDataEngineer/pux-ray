@@ -84,12 +84,19 @@ class Handler:
             logger.info("Generating rigged mesh from image (%dx%d)", image.width, image.height)
 
             # AniGen inference
-            from anigen.pipelines import AnigenImageTo3DPipeline
-            pipeline = AnigenImageTo3DPipeline.from_pretrained(models_root)
-            pipeline.to("cuda")
+            # AniGen hardcodes './ckpts/' relative to cwd for some models
+            import os as _os
+            _cwd = _os.getcwd()
+            _os.chdir(models_root)
+            try:
+                from anigen.pipelines import AnigenImageTo3DPipeline
+                pipeline = AnigenImageTo3DPipeline.from_pretrained(models_root)
+                pipeline.to("cuda")
 
-            torch.manual_seed(seed)
-            result = pipeline(image, output_dir=str(output_dir))
+                torch.manual_seed(seed)
+                result = pipeline(image, output_dir=str(output_dir))
+            finally:
+                _os.chdir(_cwd)
 
             # Find output GLB
             mesh_file = output_dir / "input" / "mesh.glb"
