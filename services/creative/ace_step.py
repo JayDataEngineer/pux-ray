@@ -76,6 +76,7 @@ class ACEStepDeployment(BaseGPUDeployment, CLIToolMixin):
                 f'batch_size = 1',
                 f'audio_format = "{audio_format}"',
                 f'save_dir = "{tmpdir}"',
+                'thinking = false',  # disable LM reasoning (avoids interactive prompt)
             ]
             config_path.write_text("\n".join(toml_lines) + "\n")
 
