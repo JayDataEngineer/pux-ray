@@ -45,7 +45,10 @@ class FasterWhisperASR:
         if model_path and model_path.exists() and any(model_path.iterdir()):
             self.model = WhisperModel(str(model_path), device="cpu", compute_type="int8")
         else:
-            self.model = WhisperModel(model_size, device="cpu", compute_type="int8")
+            raise FileNotFoundError(
+                f"Faster-Whisper model not found at {model_path}. "
+                f"Run 'task models:pull' to download it."
+            )
 
         self.model_name = model_size
         logger.info("Faster-Whisper loaded: %s (CPU)", model_size)

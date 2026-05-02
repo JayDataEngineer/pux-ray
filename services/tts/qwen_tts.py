@@ -33,27 +33,13 @@ class QwenTTSDeployment(BaseGPUDeployment):
     def _load(self, model_name: str = "qwen3-tts") -> None:
         from qwen_tts import Qwen3TTSModel
         import torch
-        from pathlib import Path
-        from registry.models import ModelRegistry
 
-        registry = ModelRegistry()
-        model_path = registry.get_path("tts", "qwen3-tts")
-        model_dir = Path(model_path)
-
-        if not model_dir.exists():
-            # Download via HF snapshot to our models dir (single source of truth)
-            from huggingface_hub import snapshot_download
-            model_dir.mkdir(parents=True, exist_ok=True)
-            snapshot_download(
-                "Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice",
-                local_dir=str(model_dir),
-                local_dir_use_symlinks=False,
-            )
-
+        # Use HF model ID directly — auto-downloads and caches
         self.model = Qwen3TTSModel.from_pretrained(
             str(model_dir),
             device_map="cuda:0",
             dtype=torch.bfloat16,
+            local_files_only=True,
         )
         self.model_name = model_name
         self._speakers = self.model.get_supported_speakers()
@@ -68,14 +54,16 @@ class QwenTTSDeployment(BaseGPUDeployment):
     async def synthesize(
         self,
         text: str,
-        voice: str = "Chelsie",
+        voice: str = "Aiden",
         mode: str = "customvoice",
         output_format: str = "wav",
+        instruct: str = "",
     ) -> bytes:
         """Synthesize speech.
 
         For CustomVoice model: text, language, speaker, instruct.
         Voice can be: Vivian, Serena, Uncle_Fu, Dylan, Eric, Ryan, Aiden, Ono_Anna, Sohee
+        instruct: natural language instruction for tone/emotion/style control.
         """
         if not self.is_loaded():
             raise RuntimeError("No model loaded")
@@ -98,10 +86,15 @@ class QwenTTSDeployment(BaseGPUDeployment):
         else:
             lang = "English"
 
+        gen_kwargs = {}
+        if instruct:
+            gen_kwargs["instruct"] = instruct
+
         wavs, sr = self.model.generate_custom_voice(
             text=text,
             language=lang,
             speaker=speaker,
+            **gen_kwargs,
         )
         buf = io.BytesIO()
         sf.write(buf, wavs[0], sr, format="WAV")
@@ -117,9 +110,10 @@ class QwenTTSDeployment(BaseGPUDeployment):
             )
         audio = await self.synthesize(
             text=body.get("input", ""),
-            voice=body.get("voice", "Chelsie"),
+            voice=body.get("voice", "Aiden"),
             mode=body.get("mode", "customvoice"),
             output_format=body.get("response_format", "wav"),
+            instruct=body.get("instruct", ""),
         )
         from starlette.responses import Response
         return Response(content=audio, media_type="audio/wav")
