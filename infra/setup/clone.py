@@ -33,6 +33,9 @@ REPOS = {
 # ComfyUI custom extensions — cloned into ComfyUI/custom_nodes/
 COMFYUI_EXTENSIONS = {
     "pose-director": "https://github.com/JayDataEngineer/comfyui-pose-director.git",
+    "comfyui_controlnet_aux": "https://github.com/Fannovel16/comfyui_controlnet_aux.git",
+    "ComfyUI-GGUF": "https://github.com/city96/ComfyUI-GGUF.git",
+    "ComfyUI-LTXVideo": "https://github.com/Lightricks/ComfyUI-LTXVideo.git",
 }
 
 
