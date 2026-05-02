@@ -532,6 +532,40 @@ comfyui:
     vram_estimate_gb: 1.5
     device: cpu
     description: SDPose whole-body detector. From Comfy-Org repackaged.
+  # -- YOLO Detectors (auto-downloaded by ultralytics, tracked for IaC) --
+
+  ultralytics-face:
+    path: image-gen/comfyui/ultralytics/bbox/face_yolov8m.pt
+    source: null
+    download: skip
+    sha256: null
+    size_gb: 0.02
+    vram_estimate_gb: 0.0
+    device: cpu
+    description: "YOLOv8m face detector. Auto-downloaded by ultralytics at first use."
+
+  ultralytics-person:
+    path: image-gen/comfyui/ultralytics/segm/person_yolov8m-seg.pt
+    source: null
+    download: skip
+    sha256: null
+    size_gb: 0.02
+    vram_estimate_gb: 0.0
+    device: cpu
+    description: "YOLOv8m person segmentation. Auto-downloaded by ultralytics at first use."
+
+  # -- DWPose (auto-downloaded by comfyui_controlnet_aux) --
+
+  dwpose:
+    path: image-gen/comfyui/controlnet/dw-ll_ucoco_384_bs5.torchscript.pt
+    source: null
+    download: skip
+    sha256: null
+    size_gb: 0.2
+    vram_estimate_gb: 0.5
+    device: cpu
+    description: "DWPose detector. Auto-downloaded by comfyui_controlnet_aux at first use."
+
   unet-ltx23-gguf:
     path: image-gen/comfyui/unet/ltx-2.3-22b-distilled-1.1-UD-Q4_K_M.gguf
     source: hf://unsloth/LTX-2.3-GGUF/distilled-1.1/ltx-2.3-22b-distilled-1.1-UD-Q4_K_M.gguf

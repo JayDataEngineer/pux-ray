@@ -50,7 +50,12 @@ def _warn(msg: str) -> None:
 
 
 def _setup_comfyui_models() -> None:
-    """Create extra_model_paths.yaml pointing ComfyUI to shared models dir."""
+    """Set up ComfyUI model paths: extra_model_paths.yaml + symlinks for custom types.
+
+    extra_model_paths.yaml handles standard types (checkpoints, vae, loras, etc.).
+    Extensions that use add_model_folder_path() for custom types (RMBG, sams) need
+    symlinks from ComfyUI/models/<type> → shared models dir.
+    """
     import yaml
 
     comfyui_dir = REPOS_DIR / "ComfyUI"
@@ -77,6 +82,21 @@ def _setup_comfyui_models() -> None:
         config_path.write_text(yaml.dump(config, default_flow_style=False))
     else:
         _log("ComfyUI extra_model_paths.yaml already exists")
+
+    # Symlink custom model types from shared dir → ComfyUI/models/ so
+    # extensions using add_model_folder_path() find pre-downloaded files.
+    custom_types = {
+        "RMBG": "Background removal (VNCCS sheet_manager)",
+        "sams": "SAM segment-anything (VNCCS, controlnet_aux)",
+        "ultralytics": "YOLO detectors (VNCCS QwenDetailer)",
+    }
+    for folder, description in custom_types.items():
+        shared_path = Path(models_root) / folder
+        link_path = comfyui_dir / "models" / folder
+        (comfyui_dir / "models").mkdir(parents=True, exist_ok=True)
+        if shared_path.exists() and not link_path.exists():
+            _log(f"Symlink ComfyUI/models/{folder} -> shared {folder} ({description})")
+            link_path.symlink_to(shared_path)
 
 
 def clone_comfyui_extension(name: str, url: str) -> bool:
