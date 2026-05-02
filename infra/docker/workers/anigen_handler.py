@@ -95,14 +95,19 @@ class Handler:
                 pipeline.to("cuda")
 
                 torch.manual_seed(seed)
-                result = pipeline(image, output_dir=str(output_dir))
+                result = pipeline.run(
+                    image=image,
+                    seed=seed,
+                    output_glb=str(output_dir / "mesh.glb"),
+                )
             finally:
                 _os.chdir(_cwd)
 
-            # Find output GLB
-            mesh_file = output_dir / "input" / "mesh.glb"
+            # AniGen writes output to output_glb path
+            mesh_file = Path(output_dir) / "mesh.glb"
             if not mesh_file.exists():
-                for glb in output_dir.rglob("*.glb"):
+                # fallback: search for any mesh glb
+                for glb in Path(output_dir).rglob("*.glb"):
                     if "mesh" in glb.name:
                         mesh_file = glb
                         break
