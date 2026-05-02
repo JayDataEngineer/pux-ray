@@ -76,19 +76,19 @@ class Handler:
         if self.pipeline is not None:
             return {"status": "already_loaded", "model": self.model_name}
 
-        model_name = body.get("model", os.environ.get("MODEL_NAME", "microsoft/TRELLIS.2-4B"))
-
-        # Model path: if local, check /models mount first
+        # Model path: must come from volume mount, no online fallback
         model_path = os.environ.get("MODEL_PATH", "")
-        if model_path and Path(model_path).exists():
-            model_name = self._patch_pipeline_json(model_path)
-
-        logger.info("Loading TRELLIS pipeline: %s", model_name)
+        if not model_path or not Path(model_path).exists():
+            return {"status": "error", "message": "MODEL_PATH not mounted"}
+        model_name = self._patch_pipeline_json(model_path)
 
         import o_voxel
         from trellis2.pipelines import Trellis2ImageTo3DPipeline
 
-        self.pipeline = Trellis2ImageTo3DPipeline.from_pretrained(model_name)
+        logger.info("Loading TRELLIS pipeline from: %s", model_name)
+        self.pipeline = Trellis2ImageTo3DPipeline.from_pretrained(
+            model_name, local_files_only=True,
+        )
         self.pipeline.cuda()
         self.model_name = model_name
 

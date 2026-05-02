@@ -33,19 +33,24 @@ class Handler:
         if self.model is not None:
             return {"status": "already_loaded", "model": self.model_name}
 
-        model_path = os.environ.get("MODEL_PATH", "vibevoice/VibeVoice-7B")
+        model_path = os.environ.get("MODEL_PATH", "")
+        if not model_path:
+            return {"status": "error", "message": "MODEL_PATH not set"}
         logger.info("Loading VibeVoice model from %s", model_path)
 
         import torch
         from transformers import AutoProcessor
         from vibevoice import VibeVoiceForConditionalGenerationInference
 
-        self.processor = AutoProcessor.from_pretrained(model_path, trust_remote_code=True)
+        self.processor = AutoProcessor.from_pretrained(
+            model_path, trust_remote_code=True, local_files_only=True,
+        )
         self.model = VibeVoiceForConditionalGenerationInference.from_pretrained(
             model_path,
             torch_dtype=torch.bfloat16,
             device_map="auto",
             trust_remote_code=True,
+            local_files_only=True,
         )
         self.model_name = model_path
 

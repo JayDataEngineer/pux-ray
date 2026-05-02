@@ -24,6 +24,8 @@ services:
       - TOOL_NAME=trellis
       - PORT=18401
       - MODEL_PATH=/models/TRELLIS.2-4B/ckpts
+      - HF_HOME=/models/cache/huggingface
+      - HF_HUB_CACHE=/models/cache/huggingface/hub
     deploy:
       resources:
         reservations:
@@ -48,6 +50,8 @@ services:
       - TOOL_NAME=anigen
       - PORT=18402
       - MODEL_PATH=/models/ckpts
+      - HF_HOME=/models/cache/huggingface
+      - HF_HUB_CACHE=/models/cache/huggingface/hub
     deploy:
       resources:
         reservations:
@@ -72,6 +76,8 @@ services:
       - TOOL_NAME=vibevoice
       - PORT=18403
       - MODEL_PATH=/models/VibeVoice-7B
+      - HF_HOME=/models/cache/huggingface
+      - HF_HUB_CACHE=/models/cache/huggingface/hub
     deploy:
       resources:
         reservations:

@@ -11,7 +11,9 @@ Empty/unset = no auth (dev mode).
 from __future__ import annotations
 
 import logging
+import os
 import subprocess
+from pathlib import Path
 from typing import Any, Optional
 
 import ray
@@ -28,6 +30,13 @@ from gateway import dashboard
 from gateway import studio
 
 logger = logging.getLogger(__name__)
+
+# Redirect ALL HuggingFace downloads to our managed models directory.
+# Prevents double-download: IaC uses local_dir, from_pretrained uses env cache.
+_HF_CACHE = Path(Config().models_root) / "cache" / "huggingface"
+os.environ.setdefault("HF_HOME", str(_HF_CACHE))
+os.environ.setdefault("HF_HUB_CACHE", str(_HF_CACHE / "hub"))
+logger.info("HF_HOME=%s", os.environ["HF_HOME"])
 
 
 def _get_api_key() -> str:

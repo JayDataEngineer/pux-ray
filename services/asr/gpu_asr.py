@@ -35,10 +35,18 @@ class VibeVoiceASRDeployment(BaseGPUDeployment):
 
         registry = ModelRegistry()
         model_path = registry.get_path("asr", model_name)
+        if not model_path.exists():
+            raise FileNotFoundError(
+                f"VibeVoice ASR model not found at {model_path}. "
+                f"Run 'task models:pull' to download it."
+            )
 
-        self.processor = AutoProcessor.from_pretrained(str(model_path))
+        self.processor = AutoProcessor.from_pretrained(
+            str(model_path), local_files_only=True,
+        )
         self.model = AutoModelForCausalLM.from_pretrained(
             str(model_path), torch_dtype="auto", device_map="auto",
+            local_files_only=True,
         )
         self.model_name = model_name
         logger.info("VibeVoice ASR loaded from %s", model_path)
@@ -115,10 +123,18 @@ class QwenASRDeployment(BaseGPUDeployment):
 
         registry = ModelRegistry()
         model_path = registry.get_path("asr", model_name)
+        if not model_path.exists():
+            raise FileNotFoundError(
+                f"Qwen ASR model not found at {model_path}. "
+                f"Run 'task models:pull' to download it."
+            )
 
-        self.processor = AutoProcessor.from_pretrained(str(model_path))
+        self.processor = AutoProcessor.from_pretrained(
+            str(model_path), local_files_only=True,
+        )
         self.model = AutoModelForCausalLM.from_pretrained(
             str(model_path), torch_dtype="auto", device_map="auto",
+            local_files_only=True,
         )
         self.model_name = model_name
         logger.info("Qwen ASR loaded from %s", model_path)
