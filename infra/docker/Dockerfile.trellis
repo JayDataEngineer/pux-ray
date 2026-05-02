@@ -108,7 +108,7 @@ ENV DEBIAN_FRONTEND=noninteractive
 ENV PYTHONUNBUFFERED=1
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    libgl1-mesa-glx libglib2.0-0 libgomp1 \
+    gcc libgl1-mesa-glx libglib2.0-0 libgomp1 \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy Python from builder (includes all compiled packages)
@@ -116,6 +116,10 @@ COPY --from=builder /usr/local /usr/local
 RUN ln -sf /usr/local/bin/python3.12 /usr/bin/python3.12 \
     && ln -sf /usr/local/bin/python3.12 /usr/bin/python \
     && ldconfig
+
+# Copy CUDA headers for Triton JIT compilation (FlexGEMM imports triton at runtime)
+COPY --from=builder /usr/local/cuda/include /usr/local/cuda/include
+ENV CUDA_HOME=/usr/local/cuda
 
 # Copy TRELLIS source from builder
 COPY --from=builder /build/trellis /app/repo
