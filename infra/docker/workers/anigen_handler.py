@@ -84,13 +84,14 @@ class Handler:
             logger.info("Generating rigged mesh from image (%dx%d)", image.width, image.height)
 
             # AniGen inference
-            # AniGen hardcodes './ckpts/' relative to cwd for some models
+            # AniGen hardcodes './ckpts/' relative to cwd for some models.
+            # from_pretrained defaults use relative paths from cwd.
             import os as _os
             _cwd = _os.getcwd()
             _os.chdir(models_root)
             try:
                 from anigen.pipelines import AnigenImageTo3DPipeline
-                pipeline = AnigenImageTo3DPipeline.from_pretrained(models_root)
+                pipeline = AnigenImageTo3DPipeline.from_pretrained()
                 pipeline.to("cuda")
 
                 torch.manual_seed(seed)
