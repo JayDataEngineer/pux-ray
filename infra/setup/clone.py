@@ -31,13 +31,14 @@ REPOS = {
 }
 
 # ComfyUI custom extensions — cloned into ComfyUI/custom_nodes/
+# Each entry is (url, ref_or_None). ref pins to a specific commit/branch/tag.
 COMFYUI_EXTENSIONS = {
-    "pose-director": "https://github.com/JayDataEngineer/comfyui-pose-director.git",
-    "comfyui_controlnet_aux": "https://github.com/Fannovel16/comfyui_controlnet_aux.git",
-    "ComfyUI-GGUF": "https://github.com/city96/ComfyUI-GGUF.git",
-    "ComfyUI-LTXVideo": "https://github.com/Lightricks/ComfyUI-LTXVideo.git",
-    "vnccs": "https://github.com/AHEKOT/ComfyUI_VNCCS.git",
-    "vnccs_utils": "https://github.com/AHEKOT/ComfyUI_VNCCS_Utils.git",
+    "pose-director": ("https://github.com/JayDataEngineer/comfyui-pose-director.git", None),
+    "comfyui_controlnet_aux": ("https://github.com/Fannovel16/comfyui_controlnet_aux.git", None),
+    "ComfyUI-GGUF": ("https://github.com/city96/ComfyUI-GGUF.git", None),
+    "ComfyUI-LTXVideo": ("https://github.com/Lightricks/ComfyUI-LTXVideo.git", "4c5add5"),
+    "vnccs": ("https://github.com/AHEKOT/ComfyUI_VNCCS.git", None),
+    "vnccs_utils": ("https://github.com/AHEKOT/ComfyUI_VNCCS_Utils.git", None),
 }
 
 
@@ -115,6 +116,8 @@ def _setup_comfyui_deps() -> None:
         "opencv-python-headless",  # comfyui_controlnet_aux, vnccs, vnccs_utils
         "gguf",                     # ComfyUI-GGUF
         "matplotlib",              # comfyui_controlnet_aux DWPose
+        "scikit-image",            # comfyui_controlnet_aux DWPose
+        "ltx-video",               # ComfyUI-LTXVideo (pinned to 4c5add5)
     ]
 
     for pkg in required:
@@ -130,69 +133,75 @@ def _setup_comfyui_deps() -> None:
                 capture_output=True,
             )
 
-    # Fix: ComfyUI-LTXVideo extension has automated PRs that delete files
-    # still imported by __init__.py. Restore from the initial working commit
-    # where all modules existed (f82614d: "Automated PR - 2026-01-29").
-    # We restore any imported .py file that is missing from the working tree.
-    ltxv_dir = comfyui_dir / "custom_nodes" / "ComfyUI-LTXVideo"
-    _LXV_RESTORE_COMMIT = "f82614d"
-    if ltxv_dir.exists() and (ltxv_dir / ".git").is_dir():
-        # Discover all relative imports from __init__.py
-        try:
-            init_text = (ltxv_dir / "__init__.py").read_text()
-            import re
-            needed = set()
-            for m in re.finditer(r"from \.(\w+) import", init_text):
-                needed.add(m.group(1))
-            # Also scan sub-modules for their relative imports
-            for pyfile in sorted(ltxv_dir.glob("*.py")):
-                if pyfile.name.startswith("_"):
-                    continue
-                text = pyfile.read_text()
-                for m in re.finditer(r"from \.(\w+) import", text):
-                    needed.add(m.group(1))
-
-            restored = 0
-            for mod in sorted(needed):
-                target = ltxv_dir / f"{mod}.py"
-                if not target.exists():
-                    result = subprocess.run(
-                        ["git", "show",
-                         f"{_LXV_RESTORE_COMMIT}:{mod}.py"],
-                        capture_output=True, text=True,
-                        cwd=str(ltxv_dir),
-                    )
-                    if result.returncode == 0:
-                        target.write_text(result.stdout)
-                        restored += 1
-            if restored:
-                _log(f"Restored {restored} missing files in ComfyUI-LTXVideo")
-        except Exception as e:
-            _warn(f"Could not fix LTXVideo extension: {e}")
+    # ltx-video pins transformers<5 but ComfyUI needs >=5.
+    # Re-upgrade after ltx-video install.
+    result = subprocess.run(
+        [str(venv_python), "-c", "import transformers; print(transformers.__version__)"],
+        capture_output=True, text=True,
+    )
+    if result.returncode == 0 and result.stdout.strip().startswith("4."):
+        _log("Re-upgrading transformers to >=5 (downgraded by ltx-video)")
+        subprocess.run(
+            [str(venv_python), "-m", "pip", "install", "transformers>=5"],
+            check=False, capture_output=True,
+        )
 
 
-def clone_comfyui_extension(name: str, url: str) -> bool:
-    """Clone a single ComfyUI custom extension into custom_nodes/."""
+def clone_comfyui_extension(name: str, url: str, ref: str | None = None) -> bool:
+    """Clone a single ComfyUI custom extension into custom_nodes/.
+    If ref is set, checkout that commit/tag/branch after clone/pull.
+    """
     comfyui_dir = REPOS_DIR / "ComfyUI"
     target = comfyui_dir / "custom_nodes" / name
     if (target / ".git").is_dir():
-        _log(f"  Extension {name} already cloned, pulling...")
-        result = subprocess.run(
-            ["git", "pull", "--ff-only"],
-            cwd=str(target), capture_output=True, text=True, timeout=60,
-        )
-        if result.returncode != 0:
-            _warn(f"  git pull failed for {name}: {result.stderr[:100]}")
+        if ref:
+            # Pinned: fetch and checkout the exact ref, skip pull
+            result = subprocess.run(
+                ["git", "fetch", "origin"],
+                cwd=str(target), capture_output=True, text=True, timeout=60,
+            )
+            current = subprocess.run(
+                ["git", "rev-parse", "HEAD"],
+                cwd=str(target), capture_output=True, text=True,
+            ).stdout.strip()[:7]
+            if current != ref[:7]:
+                _log(f"  Extension {name} pinning to {ref} ...")
+                subprocess.run(
+                    ["git", "checkout", "-f", ref],
+                    cwd=str(target), capture_output=True,
+                )
+                subprocess.run(
+                    ["git", "clean", "-fd"],
+                    cwd=str(target), capture_output=True,
+                )
+        else:
+            _log(f"  Extension {name} already cloned, pulling...")
+            result = subprocess.run(
+                ["git", "pull", "--ff-only"],
+                cwd=str(target), capture_output=True, text=True, timeout=60,
+            )
+            if result.returncode != 0:
+                _warn(f"  git pull failed for {name}: {result.stderr[:100]}")
         return True
     _log(f"  Cloning extension {name}...")
     target.parent.mkdir(parents=True, exist_ok=True)
+    clone_cmd = ["git", "clone"]
+    if not ref:
+        clone_cmd.append("--depth=1")
+    clone_cmd.extend([url, str(target)])
     result = subprocess.run(
-        ["git", "clone", "--depth", "1", url, str(target)],
+        clone_cmd,
         capture_output=True, text=True, timeout=120,
     )
     if result.returncode != 0:
         _warn(f"  git clone failed for {name}: {result.stderr[:200]}")
         return False
+    if ref:
+        _log(f"  Checking out {name} at {ref} ...")
+        subprocess.run(
+            ["git", "checkout", ref],
+            cwd=str(target), capture_output=True,
+        )
     return True
 
 
@@ -232,9 +241,9 @@ def main():
                 _warn(f"  {name} failed: {e}")
 
         _log("Cloning ComfyUI custom extensions...")
-        for name, url in COMFYUI_EXTENSIONS.items():
+        for name, (url, ref) in COMFYUI_EXTENSIONS.items():
             try:
-                clone_comfyui_extension(name, url)
+                clone_comfyui_extension(name, url, ref)
             except Exception as e:
                 _warn(f"  extension {name} failed: {e}")
 
