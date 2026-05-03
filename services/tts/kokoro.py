@@ -1,14 +1,12 @@
 """Kokoro TTS - lightweight CPU text-to-speech.
 
 Uses the kokoro library (82M params) for fast CPU inference.
-Wraps espeak-ng as phonemizer backend.
 """
 
 from __future__ import annotations
 
 import io
 import logging
-import struct
 import wave
 from typing import Optional
 
@@ -20,29 +18,25 @@ logger = logging.getLogger(__name__)
 @serve.deployment(
     name="kokoro_tts",
     num_replicas=1,
-    ray_actor_options={"num_cpus": 2, "num_gpus": 0},
+    ray_actor_options={"num_cpus": 0.5, "num_gpus": 0},
     max_ongoing_requests=4,
 )
 class KokoroTTS:
     """CPU-based Kokoro TTS. No GPU needed."""
 
     def __init__(self):
-        # Lazy import - kokoro may not be installed yet
-        pass
+        self._model = None
+        self._pipeline = None
 
     def _ensure_model(self):
-        if not hasattr(self, "_model") or self._model is None:
-            from kokoro import KokoroModel
-            from registry.models import ModelRegistry
+        if self._pipeline is not None:
+            return
 
-            registry = ModelRegistry()
-            model_path = registry.get_path("tts", "kokoro")
-            if model_path.exists():
-                self._model = KokoroModel.load(str(model_path))
-            else:
-                # Try loading from HuggingFace
-                self._model = KokoroModel.load()
-            logger.info("Kokoro TTS loaded (CPU)")
+        from kokoro import KModel, KPipeline
+
+        self._model = KModel()
+        self._pipeline = KPipeline(lang_code="a", model=self._model)
+        logger.info("Kokoro TTS loaded (CPU)")
 
     async def synthesize(
         self,
@@ -53,14 +47,19 @@ class KokoroTTS:
     ) -> bytes:
         """Synthesize speech. Returns audio bytes."""
         self._ensure_model()
-        audio = self._model.synthesize(text, voice=voice, speed=speed)
+
+        voice_pack = self._pipeline.load_voice(voice)
+        # pipeline() yields (graphemes, phonemes, audio_tensor) segments
+        audio_chunks = []
+        for _gs, _ps, audio in self._pipeline(text, voice=voice_pack, speed=speed):
+            audio_chunks.append(audio.cpu().numpy())
+
+        import numpy as np
+        audio_data = np.concatenate(audio_chunks) if audio_chunks else np.array([])
 
         if output_format == "wav":
-            return self._to_wav(audio)
-        elif output_format == "mp3":
-            return self._to_mp3(audio)
-        else:
-            return self._to_wav(audio)
+            return self._to_wav(audio_data)
+        return self._to_wav(audio_data)
 
     def _to_wav(self, audio, sample_rate: int = 24000) -> bytes:
         buf = io.BytesIO()
@@ -70,16 +69,6 @@ class KokoroTTS:
             wf.setframerate(sample_rate)
             wf.writeframes((audio * 32767).astype("int16").tobytes())
         return buf.getvalue()
-
-    def _to_mp3(self, audio, sample_rate: int = 24000) -> bytes:
-        # Requires ffmpeg or pydub
-        wav_data = self._to_wav(audio, sample_rate)
-        import subprocess
-        result = subprocess.run(
-            ["ffmpeg", "-f", "wav", "-i", "pipe:0", "-f", "mp3", "pipe:1"],
-            input=wav_data, capture_output=True,
-        )
-        return result.stdout
 
     async def __call__(self, request):
         body = await request.json()

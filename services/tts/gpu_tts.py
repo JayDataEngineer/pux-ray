@@ -21,26 +21,31 @@ logger = logging.getLogger(__name__)
     max_ongoing_requests=2,
     ray_actor_options={
         "num_gpus": 0.01,
-        "runtime_env": {
-            "pip": ["torch>=2.1", "torchaudio", "transformers>=4.40",
-                    "accelerate", "soundfile", "numpy"],
-        },
+        "num_cpus": 0.5,
     },
 )
 class IndexTTSDeployment(BaseGPUDeployment):
     """GPU-based IndexTTS-2. High quality multi-speaker TTS."""
 
     def _load(self, model_name: str = "index-tts") -> None:
+        import sys
+        from pathlib import Path
+
         from registry.models import ModelRegistry
 
         registry = ModelRegistry()
-        model_path = registry.get_path("tts", model_name)
+        try:
+            model_path = registry.get_path("tts", model_name)
+        except (KeyError, ValueError):
+            model_path = registry.get_path("tts", "index-tts")
+            model_name = "index-tts"
+
+        # Inject sidecar-managed repo so Python finds the index_tts module
+        repo_path = Path(__file__).resolve().parents[3] / "infra" / "repos" / "IndexTTS"
+        if repo_path.exists() and str(repo_path) not in sys.path:
+            sys.path.insert(0, str(repo_path))
 
         # IndexTTS loads from directory with gpt.pth, s2mel.pth, etc.
-        # The actual import depends on the IndexTTS library structure
-        import sys
-        sys.path.insert(0, str(model_path))
-
         from index_tts import IndexTTSModel
         self.model = IndexTTSModel(str(model_path))
         self.model.to("cuda")

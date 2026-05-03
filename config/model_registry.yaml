@@ -1,803 +1,738 @@
-# =============================================================================
-# Model Registry
-# Comprehensive catalog of all local models relative to MODELS_ROOT
-# Generated: 2026-04-24 | Updated: 2026-04-25
-#
-# vram_estimate: Approximate VRAM needed in GB (based on file size + overhead)
-# device: gpu | cpu | both - primary execution device
-# path: Relative to MODELS_ROOT environment variable
-# source: hf://repo_id[/file] - HuggingFace download source (null = local only)
-# sha256: Expected hash for verification (null = unchecked)
-# =============================================================================
-
-# ---------------------------------------------------------------------------
-# LLM - GGUF files for llama.cpp
-# ---------------------------------------------------------------------------
 llm:
   qwen3.6-27b-iq4_nl:
     path: llm/Qwen3.6-27B-IQ4_NL.gguf
-    source: hf://bartowski/Qwen3.6-27B-GGUF/Qwen3.6-27B-IQ4_NL.gguf
+    source: hf://unsloth/Qwen3.6-27B-GGUF/Qwen3.6-27B-UD-IQ4_NL.gguf
+    download: file
     sha256: null
     size_gb: 15.0
     vram_estimate_gb: 17.0
     device: gpu
-    description: "Qwen 3.6 27B parameter model, IQ4_NL quantization. General-purpose chat/reasoning LLM."
-
+    mmproj_path: vision/mmproj-Qwen_Qwen3.6-27B-bf16.gguf
+    description: Qwen 3.6 27B UD-IQ4_NL. Chat/reasoning LLM with vision.
   gemma-4-26b-a4b-it-ud-iq4_nl:
     path: llm/gemma-4-26B-A4B-it-UD-IQ4_NL.gguf
-    source: hf://bartowski/gemma-4-26B-A4B-it-GGUF/gemma-4-26B-A4B-it-UD-IQ4_NL.gguf
+    source: hf://unsloth/gemma-4-26B-A4B-it-GGUF/gemma-4-26B-A4B-it-UD-IQ4_NL.gguf
+    download: file
     sha256: null
     size_gb: 13.0
     vram_estimate_gb: 15.0
     device: gpu
-    description: "Gemma 4 26B (A4B architecture) instruction-tuned, ultra-distributed IQ4_NL quantization. Efficient medium-large LLM."
-
+    mmproj_path: vision/gemma-4-26B-A4B-it-mmproj-F16.gguf
+    description: Gemma 4 26B A4B IT UD-IQ4_NL.
   gemma-4-31b-it-ud-q4_k_xl:
     path: llm/gemma-4-31B-it-UD-Q4_K_XL.gguf
-    source: hf://bartowski/gemma-4-31B-it-GGUF/gemma-4-31B-it-UD-Q4_K_XL.gguf
+    source: hf://unsloth/gemma-4-31B-it-GGUF/gemma-4-31B-it-UD-Q4_K_XL.gguf
+    download: file
     sha256: null
     size_gb: 18.0
     vram_estimate_gb: 20.0
     device: gpu
-    description: "Gemma 4 31B instruction-tuned, ultra-distributed Q4_K_XL quantization. Higher quality at larger size."
-
+    mmproj_path: vision/gemma-4-31B-it-mmproj-F16.gguf
+    description: Gemma 4 31B IT UD-Q4_K_XL.
   qwen3.6-27b-q4_k_m:
     path: llm/Qwen3.6-27B-Q4_K_M.gguf
-    source: hf://bartowski/Qwen3.6-27B-GGUF/Qwen3.6-27B-Q4_K_M.gguf
+    source: hf://unsloth/Qwen3.6-27B-GGUF/Qwen3.6-27B-UD-Q4_K_M.gguf
+    download: file
     sha256: null
     size_gb: 16.0
     vram_estimate_gb: 18.0
     device: gpu
-    description: "Qwen 3.6 27B parameter model, Q4_K_M quantization. Balanced quality/speed LLM."
-
+    description: Qwen 3.6 27B Q4_K_M.
   qwen3.6-35b-a3b-ud-iq4_nl:
     path: llm/Qwen3.6-35B-A3B-UD-IQ4_NL.gguf
-    source: hf://bartowski/Qwen3.6-35B-A3B-GGUF/Qwen3.6-35B-A3B-UD-IQ4_NL.gguf
+    source: hf://unsloth/Qwen3.6-35B-A3B-GGUF/Qwen3.6-35B-A3B-UD-IQ4_NL.gguf
+    download: file
     sha256: null
     size_gb: 17.0
     vram_estimate_gb: 19.0
     device: gpu
-    description: "Qwen 3.6 35B (A3B MoE architecture) ultra-distributed IQ4_NL quantization. Sparse mixture-of-experts LLM."
-
+    mmproj_path: vision/Qwen3.6-35B-A3B-mmproj-BF16.gguf
+    description: Qwen 3.6 35B A3B MoE UD-IQ4_NL.
   qwen3.5-2b-ud-q4_k_xl:
     path: llm/Qwen3.5-2B-UD-Q4_K_XL.gguf
-    source: hf://bartowski/Qwen3.5-2B-GGUF/Qwen3.5-2B-UD-Q4_K_XL.gguf
+    source: hf://unsloth/Qwen3.5-2B-GGUF/Qwen3.5-2B-UD-Q4_K_XL.gguf
+    download: file
     sha256: null
     size_gb: 1.3
     vram_estimate_gb: 2.0
     device: gpu
-    description: "Qwen 3.5 2B parameter model, ultra-distributed Q4_K_XL quantization. Lightweight LLM for fast inference."
-
-# ---------------------------------------------------------------------------
-# TTS - Text-to-Speech models
-# ---------------------------------------------------------------------------
+    description: Qwen 3.5 2B UD-Q4_K_XL. Lightweight LLM.
 tts:
   espeak-ng:
     path: tts/espeak-ng/
     source: null
+    download: skip
     sha256: null
     size_gb: 0.01
     vram_estimate_gb: 0.1
     device: cpu
-    description: "eSpeak-NG phoneme data. Used as a phonemizer backend by various TTS engines."
-
+    description: eSpeak-NG phoneme data. System package.
   gpt-sovits:
     path: tts/gpt-sovits/
-    source: null
+    source: hf://lj1995/GPT-SoVITS
+    download: snapshot
     sha256: null
-    size_gb: 0.01
+    size_gb: 2.0
     vram_estimate_gb: 1.0
     device: gpu
-    description: "GPT-SoVITS voice cloning framework. Minimal local footprint; weights may be downloaded on demand."
-
+    description: GPT-SoVITS voice cloning. Full repo with pretrained models.
   index-tts:
     path: tts/index-tts/
-    source: null
+    source: hf://IndexTeam/IndexTTS-1
+    download: snapshot
     sha256: null
     size_gb: 12.0
     vram_estimate_gb: 13.0
     device: gpu
-    description: "Index-TTS neural text-to-speech model. Large high-quality TTS engine."
-
+    description: Index-TTS neural TTS. 12GB high-quality model.
   kokoro:
     path: tts/kokoro/
     source: hf://hexgrad/Kokoro-82M
+    download: snapshot
     sha256: null
     size_gb: 0.35
     vram_estimate_gb: 1.0
-    device: gpu
-    description: "Kokoro TTS model suite. Lightweight multi-voice text-to-speech."
-
+    device: cpu
+    description: Kokoro 82M TTS. Multi-voice text-to-speech.
   maya1:
     path: tts/maya1/
     source: null
+    download: skip
     sha256: null
     size_gb: 0.01
     vram_estimate_gb: 0.5
     device: gpu
-    description: "Maya1 TTS voice preset data. Placeholder for future voice models."
-
+    description: Maya1 TTS. Placeholder.
   qwen3-tts:
-    path: tts/qwen3/
-    source: null
+    path: tts/qwen3-tts-12hz-1.7b-customvoice/
+    source: hf://Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice
+    download: snapshot
     sha256: null
-    size_gb: 9.2
-    vram_estimate_gb: 2.0
+    size_gb: 6.4
+    vram_estimate_gb: 8.0
     device: gpu
-    description: "Qwen3 TTS models (12Hz 1.7B Base + VoiceDesign + Tokenizer) and LoRA adapter (sakura)."
-
+    description: Qwen3-TTS 1.7B CustomVoice. 9 premium voices with instruction control.
   vibevoice-tts:
     path: tts/vibevoice/
-    source: null
+    source: hf://vibevoice/VibeVoice-7B
+    download: snapshot
     sha256: null
-    size_gb: 0.01
-    vram_estimate_gb: 0.5
+    size_gb: 18.7
+    vram_estimate_gb: 20.0
     device: gpu
-    description: "VibeVoice TTS voice preset data. Placeholder for VibeVoice TTS models."
-
-# ---------------------------------------------------------------------------
-# ASR - Automatic Speech Recognition models
-# ---------------------------------------------------------------------------
+    description: VibeVoice 7B TTS. 18.7GB multi-speaker synthesis.
 asr:
   faster-whisper:
     path: asr/faster-whisper/
-    source: hf://Systran/faster-whisper-distil-large-v3
+    source: hf://Systran/faster-distil-whisper-large-v3
+    download: snapshot
     sha256: null
-    size_gb: 0.01
+    size_gb: 1.5
     vram_estimate_gb: 1.0
-    device: gpu
-    description: "Faster-Whisper ASR engine directory. Models may be downloaded on demand via HuggingFace."
-
+    device: cpu
+    description: Faster-Whisper distil-large-v3. CTranslate2 format.
   qwen-asr:
     path: asr/qwen-asr/
     source: null
+    download: skip
     sha256: null
     size_gb: 0.01
     vram_estimate_gb: 1.0
     device: gpu
-    description: "Qwen ASR engine directory. Placeholder for Qwen-based speech recognition."
-
+    description: Qwen ASR. Not actively used — faster-whisper is primary.
   vibevoice-asr-engine:
     path: asr/vibevoice/
     source: null
+    download: skip
     sha256: null
     size_gb: 0.01
     vram_estimate_gb: 1.0
     device: gpu
-    description: "VibeVoice ASR engine directory. Placeholder for VibeVoice speech recognition."
-
+    description: VibeVoice ASR engine. Bundled with VibeVoice repo.
   vibevoice-asr:
     path: asr/vibevoice-asr/
-    source: null
+    source: hf://microsoft/VibeVoice-ASR
+    download: snapshot
     sha256: null
     size_gb: 16.0
     vram_estimate_gb: 17.0
     device: gpu
-    description: "VibeVoice ASR full model (~16 GB, 8-shard safetensors). Large-scale speech recognition model."
-
-# ---------------------------------------------------------------------------
-# Vision - Multimodal projection models for GGUF LLMs
-# ---------------------------------------------------------------------------
+    description: VibeVoice ASR full model. 16GB speech recognition.
 vision:
-  mmproj-generic-bf16:
-    path: vision/mmproj-BF16.gguf
-    source: null
+  qwen3.6-27b-mmproj-bf16:
+    path: vision/mmproj-Qwen_Qwen3.6-27B-bf16.gguf
+    source: hf://unsloth/Qwen3.6-27B-GGUF/mmproj-BF16.gguf
+    download: file
     sha256: null
-    size_gb: 0.86
+    size_gb: 0.89
     vram_estimate_gb: 1.5
     device: gpu
-    description: "Generic multimodal projection model (BF16 GGUF). Used with compatible LLM for vision tasks."
-
-  gemma-4-31b-mmproj-f16:
-    path: vision/gemma-4-31B-it-UD-Q4_K_XL-mmproj-F16.gguf
-    source: hf://bartowski/gemma-4-31B-it-GGUF/gemma-4-31B-it-mmproj-F16.gguf
-    sha256: null
-    size_gb: 1.2
-    vram_estimate_gb: 2.0
-    device: gpu
-    description: "Gemma 4 31B multimodal projection (F16 GGUF). Companion to Gemma-4-31B-it LLM for image understanding."
-
+    description: Qwen 3.6 27B mmproj (BF16).
   gemma-4-26b-a4b-mmproj-f16:
     path: vision/gemma-4-26B-A4B-it-mmproj-F16.gguf
-    source: hf://bartowski/gemma-4-26B-A4B-it-GGUF/gemma-4-26B-A4B-it-mmproj-F16.gguf
+    source: hf://unsloth/gemma-4-26B-A4B-it-GGUF/gemma-4-26B-A4B-it-mmproj-F16.gguf
+    download: file
     sha256: null
     size_gb: 1.2
     vram_estimate_gb: 2.0
     device: gpu
-    description: "Gemma 4 26B A4B multimodal projection (F16 GGUF). Companion to Gemma-4-26B-A4B LLM for image understanding."
-
-  gemma-4-mmproj-bf16:
-    path: vision/gemma-4-mmproj-BF16.gguf
-    source: null
+    description: Gemma 4 26B A4B mmproj (F16).
+  gemma-4-31b-mmproj-f16:
+    path: vision/gemma-4-31B-it-mmproj-F16.gguf
+    source: hf://unsloth/gemma-4-31B-it-GGUF/gemma-4-31B-it-mmproj-F16.gguf
+    download: file
     sha256: null
     size_gb: 1.2
     vram_estimate_gb: 2.0
     device: gpu
-    description: "Gemma 4 multimodal projection (BF16 GGUF). General Gemma 4 vision adapter."
-
-  qwen3.6-27b-mmproj-bf16:
-    path: vision/Qwen3.6-27B-mmproj-BF16.gguf
-    source: hf://bartowski/Qwen3.6-27B-GGUF/Qwen3.6-27B-mmproj-BF16.gguf
-    sha256: null
-    size_gb: 0.89
-    vram_estimate_gb: 1.5
-    device: gpu
-    description: "Qwen 3.6 27B multimodal projection (BF16 GGUF). Companion to Qwen3.6-27B LLM for image understanding."
-
+    description: Gemma 4 31B mmproj (F16).
   qwen3.6-35b-a3b-mmproj-bf16:
-    path: vision/Qwen3.6-35B-A3B-UD-IQ4_NL_mmproj-BF16.gguf
-    source: hf://bartowski/Qwen3.6-35B-A3B-GGUF/Qwen3.6-35B-A3B-mmproj-BF16.gguf
+    path: vision/Qwen3.6-35B-A3B-mmproj-BF16.gguf
+    source: hf://unsloth/Qwen3.6-35B-A3B-GGUF/mmproj-BF16.gguf
+    download: file
     sha256: null
     size_gb: 0.86
     vram_estimate_gb: 1.5
     device: gpu
-    description: "Qwen 3.6 35B A3B multimodal projection (BF16 GGUF). Companion to Qwen3.6-35B-A3B MoE LLM."
-
-  qwen3.5-27b-mmproj-f16:
-    path: vision/mmproj-Qwen3.5-27B-F16.gguf
-    source: hf://bartowski/Qwen3.5-27B-GGUF/mmproj-Qwen3.5-27B-F16.gguf
+    description: Qwen 3.6 35B A3B mmproj (BF16).
+comfyui:
+  checkpoint-sdxl-base:
+    path: image-gen/comfyui/checkpoints/sd_xl_base_1.0.safetensors
+    source: hf://stabilityai/stable-diffusion-xl-base-1.0/sd_xl_base_1.0.safetensors
+    download: file
     sha256: null
-    size_gb: 0.89
-    vram_estimate_gb: 1.5
+    size_gb: 6.5
+    vram_estimate_gb: 7.0
     device: gpu
-    description: "Qwen 3.5 27B multimodal projection (F16 GGUF). Companion to Qwen3.5-27B LLM for image understanding."
-
-  z-image-turbo-q4_k_m:
-    path: vision/z-image-turbo-Q4_K_M.gguf
-    source: null
+    description: Stable Diffusion XL 1.0 base checkpoint.
+  checkpoint-ltx-2.3-distilled:
+    path: image-gen/comfyui/checkpoints/ltx-2.3-22b-distilled-1.1.safetensors
+    source: hf://Lightricks/LTX-2.3/ltx-2.3-22b-distilled-1.1.safetensors
+    download: file
     sha256: null
-    size_gb: 4.7
-    vram_estimate_gb: 5.5
+    size_gb: 46.0
+    vram_estimate_gb: 7.0
     device: gpu
-    description: "Z-Image Turbo vision model (Q4_K_M GGUF). Image understanding / captioning model."
-
-  z-image-turbo-full:
-    path: vision/z-image-turbo/
-    source: null
+    description: LTX Video 2.3 22B distilled checkpoint.
+  checkpoint-prefectillustrious-v70:
+    path: image-gen/comfyui/checkpoints/prefectIllustriousXL_v70.safetensors
+    source: civitai://2553102
+    download: civitai
     sha256: null
-    size_gb: 7.2
-    vram_estimate_gb: 8.0
+    size_gb: 6.5
+    vram_estimate_gb: 7.5
     device: gpu
-    description: "Z-Image Turbo full model directory. Diffusion-based image generation with transformer, text_encoder, vae."
-
-# ---------------------------------------------------------------------------
-# Image Generation - ComfyUI models
-# ---------------------------------------------------------------------------
-image_gen:
-  comfyui:
-    checkpoints:
-      ltx-2.3-connectors-textproj:
-        path: image-gen/comfyui/checkpoints/ltx-2.3-connectors-textproj.safetensors
-        source: null
-        sha256: null
-        size_gb: 6.0
-        vram_estimate_gb: 7.0
-        device: gpu
-        description: "LTX Video 2.3 connectors + text projection checkpoint. Used for video generation in ComfyUI."
-
-      prefectillustrious-xl-v70:
-        path: image-gen/comfyui/checkpoints/prefectIllustriousXL_v70.safetensors
-        source: null
-        sha256: null
-        size_gb: 6.5
-        vram_estimate_gb: 7.5
-        device: gpu
-        description: "PrefectIllustrious XL v7.0 SDXL checkpoint. Anime-styled image generation model."
-
-      qwen-image-edit-2511-fp8:
-        path: image-gen/comfyui/checkpoints/qwen_image_edit_2511_fp8_e4m3fn_scaled_lightning_comfyui.safetensors
-        source: null
-        sha256: null
-        size_gb: 20.0
-        vram_estimate_gb: 22.0
-        device: gpu
-        description: "Qwen Image Edit 2511 (FP8 scaled + Lightning). Large image editing model for ComfyUI."
-
-    diffusion_models:
-      z-image-bf16:
-        path: image-gen/comfyui/diffusion_models/z_image_bf16.safetensors
-        source: null
-        sha256: null
-        size_gb: 12.0
-        vram_estimate_gb: 13.5
-        device: gpu
-        description: "Z-Image diffusion model (BF16). Full-precision image generation backbone."
-
-      z-image-turbo-bf16:
-        path: image-gen/comfyui/diffusion_models/z_image_turbo_bf16.safetensors
-        source: null
-        sha256: null
-        size_gb: 12.0
-        vram_estimate_gb: 13.5
-        device: gpu
-        description: "Z-Image Turbo diffusion model (BF16). Accelerated image generation backbone."
-
-    unet:
-      ltx-2.3-22b-distilled-q4_k_m:
-        path: image-gen/comfyui/unet/ltx-2.3-22b-distilled-1.1-UD-Q4_K_M.gguf
-        source: null
-        sha256: null
-        size_gb: 16.0
-        vram_estimate_gb: 18.0
-        device: gpu
-        description: "LTX Video 2.3 22B distilled UNet (Q4_K_M GGUF). Quantized video generation UNet for ComfyUI."
-
-      qwen-image-edit-2511-q5_0:
-        path: image-gen/comfyui/unet/Qwen-Image-Edit-2511-Q5_0.gguf
-        source: null
-        sha256: null
-        size_gb: 14.0
-        vram_estimate_gb: 16.0
-        device: gpu
-        description: "Qwen Image Edit 2511 UNet (Q5_0 GGUF). Quantized image editing UNet for ComfyUI."
-
-    text_encoders:
-      gemma-3-12b-it-fp8:
-        path: image-gen/comfyui/text_encoders/gemma_3_12B_it_fp8_e4m3fn.safetensors
-        source: null
-        sha256: null
-        size_gb: 13.0
-        vram_estimate_gb: 14.0
-        device: gpu
-        description: "Gemma 3 12B instruction-tuned text encoder (FP8). Used for CLIP/TE conditioning in ComfyUI."
-
-      ltx-2.3-22b-distilled-embeddings:
-        path: image-gen/comfyui/text_encoders/ltx-2.3-22b-distilled_embeddings_connectors.safetensors
-        source: null
-        sha256: null
-        size_gb: 2.2
-        vram_estimate_gb: 3.0
-        device: gpu
-        description: "LTX Video 2.3 22B distilled embeddings + connectors. Text encoder component."
-
-      ltx-2.3-text-projection-bf16:
-        path: image-gen/comfyui/text_encoders/ltx-2.3_text_projection_bf16.safetensors
-        source: null
-        sha256: null
-        size_gb: 2.2
-        vram_estimate_gb: 3.0
-        device: gpu
-        description: "LTX Video 2.3 text projection layer (BF16). Maps text embeddings to generation space."
-
-      ltxv-text-projection-dual:
-        path: image-gen/comfyui/text_encoders/ltxv_text_projection_dual.safetensors
-        source: null
-        sha256: null
-        size_gb: 2.2
-        vram_estimate_gb: 3.0
-        device: gpu
-        description: "LTX Video dual text projection layer. Enhanced text-to-video conditioning."
-
-      qwen-2.5-vl-7b-fp8:
-        path: image-gen/comfyui/text_encoders/qwen_2.5_vl_7b_fp8_scaled.safetensors
-        source: null
-        sha256: null
-        size_gb: 8.8
-        vram_estimate_gb: 10.0
-        device: gpu
-        description: "Qwen 2.5 VL 7B vision-language text encoder (FP8 scaled). Multimodal conditioning for ComfyUI."
-
-      qwen-3-4b:
-        path: image-gen/comfyui/text_encoders/qwen_3_4b.safetensors
-        source: null
-        sha256: null
-        size_gb: 7.5
-        vram_estimate_gb: 8.5
-        device: gpu
-        description: "Qwen 3 4B text encoder. Lightweight text conditioning model for ComfyUI."
-
-      gemma-3-12b-it-dir:
-        path: image-gen/comfyui/text_encoders/gemma-3-12b-it/
-        source: hf://google/gemma-3-12b-it
-        sha256: null
-        size_gb: 2.2
-        vram_estimate_gb: 3.0
-        device: gpu
-        description: "Gemma 3 12B instruction-tuned text encoder directory. Full safetensors shard set for ComfyUI."
-
-    controlnet:
-      ltx-2.3-controlnet:
-        path: image-gen/comfyui/controlnet/  # directory-level entry
-        source: null
-        sha256: null
-        size_gb: 4.7
-        vram_estimate_gb: 5.5
-        device: gpu
-        description: "LTX Video 2.3 ControlNet models. Structural guidance for conditioned video generation."
-
-    loras:
-      ltx-2-19b-distilled-lora:
-        path: image-gen/comfyui/loras/ltx-2-19b-distilled-lora-384.safetensors
-        source: null
-        sha256: null
-        size_gb: 7.2
-        vram_estimate_gb: 2.0
-        device: gpu
-        description: "LTX Video 2 19B distilled LoRA (rank 384). Fine-tuning adapter for accelerated video generation."
-
-      ltx23-edit-anything-global:
-        path: image-gen/comfyui/loras/ltx23_edit_anything_global_rank128_v1_9000steps_adamw.safetensors
-        source: null
-        sha256: null
-        size_gb: 1.3
-        vram_estimate_gb: 1.5
-        device: gpu
-        description: "LTX 2.3 Edit Anything global LoRA (rank 128). Universal video/image editing adapter."
-
-      elusarca-anime-style:
-        path: image-gen/comfyui/loras/elusarcaAnimeStyC59fe.hW2v.safetensors
-        source: null
-        sha256: null
-        size_gb: 0.16
-        vram_estimate_gb: 0.5
-        device: gpu
-        description: "Elusarca anime style LoRA. Stylization adapter for anime aesthetic."
-
-      vn-character-sheet:
-        path: image-gen/comfyui/loras/vn_character_sheet.safetensors
-        source: null
-        sha256: null
-        size_gb: 0.22
-        vram_estimate_gb: 0.5
-        device: gpu
-        description: "Visual novel character sheet LoRA. Generates character reference sheets."
-
-      vn-character-sheet-v4:
-        path: image-gen/comfyui/loras/vn_character_sheet_v4.safetensors
-        source: null
-        sha256: null
-        size_gb: 0.22
-        vram_estimate_gb: 0.5
-        device: gpu
-        description: "Visual novel character sheet v4 LoRA. Updated character reference sheet generator."
-
-      dmd2-sdxl-4step:
-        path: image-gen/comfyui/loras/DMD2/dmd2_sdxl_4step_lora_fp16.safetensors
-        source: null
-        sha256: null
-        size_gb: 0.38
-        vram_estimate_gb: 0.5
-        device: gpu
-        description: "DMD2 SDXL 4-step LoRA (FP16). Distillation adapter for fast 4-step SDXL generation."
-
-      il-90s-anime-aesthetic:
-        path: image-gen/comfyui/loras/IL/90s anime aesthetic Anima-step00001600.safetensors
-        source: null
-        sha256: null
-        size_gb: 0.13
-        vram_estimate_gb: 0.5
-        device: gpu
-        description: "90s anime aesthetic LoRA. Retro anime stylization adapter."
-
-      il-mimimeter:
-        path: image-gen/comfyui/loras/IL/mimimeter.safetensors
-        source: null
-        sha256: null
-        size_gb: 0.05
-        vram_estimate_gb: 0.3
-        device: gpu
-        description: "Mimimeter LoRA. Small stylization adapter."
-
-      qwen-image-2512-lightning:
-        path: image-gen/comfyui/loras/qwen/Qwen-Image-2512-Lightning-4steps-V1.0-bf16.safetensors
-        source: null
-        sha256: null
-        size_gb: 0.81
-        vram_estimate_gb: 1.0
-        device: gpu
-        description: "Qwen Image 2512 Lightning 4-step LoRA (BF16). Accelerated Qwen image generation adapter."
-
-      qwen-image-edit-2511-lightning:
-        path: image-gen/comfyui/loras/qwen/Qwen-Image-Edit-2511-Lightning-4steps-V1.0-bf16.safetensors
-        source: null
-        sha256: null
-        size_gb: 0.81
-        vram_estimate_gb: 1.0
-        device: gpu
-        description: "Qwen Image Edit 2511 Lightning 4-step LoRA (BF16). Accelerated Qwen image editing adapter."
-
-      qwen-image-edit-2511-multiple-angles:
-        path: image-gen/comfyui/loras/qwen/qwen-image-edit-2511-multiple-angles-lora.safetensors
-        source: null
-        sha256: null
-        size_gb: 0.28
-        vram_estimate_gb: 0.5
-        device: gpu
-        description: "Qwen Image Edit 2511 multi-angle LoRA. Multi-view editing adapter."
-
-      vnccs-clothes-helper:
-        path: image-gen/comfyui/loras/qwen/VNCCS/ClothesHelperUltimateV1_000005100.safetensors
-        source: null
-        sha256: null
-        size_gb: 0.14
-        vram_estimate_gb: 0.3
-        device: gpu
-        description: "VNCCS Clothes Helper Ultimate V1 LoRA. Clothing/wardrobe editing adapter."
-
-      vnccs-emotion-core-v1:
-        path: image-gen/comfyui/loras/qwen/VNCCS/EmotionCoreV1_000003000.safetensors
-        source: null
-        sha256: null
-        size_gb: 0.28
-        vram_estimate_gb: 0.5
-        device: gpu
-        description: "VNCCS Emotion Core V1 LoRA. Facial expression / emotion editing adapter."
-
-      vnccs-emotion-core-v2:
-        path: image-gen/comfyui/loras/qwen/VNCCS/EmotionCoreV2_000004700.safetensors
-        source: null
-        sha256: null
-        size_gb: 0.28
-        vram_estimate_gb: 0.5
-        device: gpu
-        description: "VNCCS Emotion Core V2 LoRA. Updated emotion editing adapter."
-
-      vnccs-poser-helper-v2:
-        path: image-gen/comfyui/loras/qwen/VNCCS/poser_helper_v2_000004200.safetensors
-        source: null
-        sha256: null
-        size_gb: 0.28
-        vram_estimate_gb: 0.5
-        device: gpu
-        description: "VNCCS Poser Helper V2 LoRA. Pose control / adjustment adapter."
-
-      vnccs-transfer-clothes:
-        path: image-gen/comfyui/loras/qwen/VNCCS/TransferClothes_000006700.safetensors
-        source: null
-        sha256: null
-        size_gb: 0.28
-        vram_estimate_gb: 0.5
-        device: gpu
-        description: "VNCCS Transfer Clothes LoRA. Clothing transfer / swap adapter."
-
-    clip:
-      gemma-3-12b-it-fp4-mixed:
-        path: image-gen/comfyui/clip/gemma_3_12B_it_fp4_mixed.safetensors
-        source: null
-        sha256: null
-        size_gb: 8.8
-        vram_estimate_gb: 10.0
-        device: gpu
-        description: "Gemma 3 12B IT CLIP model (FP4 mixed). Quantized vision-language model for ComfyUI conditioning."
-
-      gemma-3-12b-it-iq4-xs-gguf:
-        path: image-gen/comfyui/clip/gemma-3-12b-it-IQ4_XS.gguf
-        source: null
-        sha256: null
-        size_gb: 6.2
-        vram_estimate_gb: 7.0
-        device: gpu
-        description: "Gemma 3 12B IT CLIP model (IQ4_XS GGUF). Highly quantized CLIP for ComfyUI."
-
-      ltx-2-19b-embeddings-connector:
-        path: image-gen/comfyui/clip/ltx-2-19b-embeddings_connector_dev_bf16.safetensors
-        source: null
-        sha256: null
-        size_gb: 2.7
-        vram_estimate_gb: 3.0
-        device: gpu
-        description: "LTX Video 2 19B embeddings + connector (BF16). CLIP component for video conditioning."
-
-    vae:
-      ae:
-        path: image-gen/comfyui/vae/ae.safetensors
-        source: null
-        sha256: null
-        size_gb: 0.32
-        vram_estimate_gb: 0.5
-        device: gpu
-        description: "Generic autoencoder VAE. Latent space encoder/decoder for image generation."
-
-      ltx23-video-vae-bf16:
-        path: image-gen/comfyui/vae/LTX23_video_vae_bf16.safetensors
-        source: null
-        sha256: null
-        size_gb: 1.4
-        vram_estimate_gb: 2.0
-        device: gpu
-        description: "LTX 2.3 Video VAE (BF16). Video latent encoder/decoder for LTX Video pipeline."
-
-      qwen-image-vae:
-        path: image-gen/comfyui/vae/qwen_image_vae.safetensors
-        source: null
-        sha256: null
-        size_gb: 0.24
-        vram_estimate_gb: 0.5
-        device: gpu
-        description: "Qwen Image VAE. Latent encoder/decoder for Qwen image generation pipeline."
-
-      taeltx2-3:
-        path: image-gen/comfyui/vae/taeltx2_3.safetensors
-        source: null
-        sha256: null
-        size_gb: 0.02
-        vram_estimate_gb: 0.2
-        device: gpu
-        description: "TAE LTX 2.3 tiny autoencoder. Lightweight latent codec."
-
-    sams:
-      sam-vit-b:
-        path: image-gen/comfyui/sams/sam_vit_b_01ec64.pth
-        source: null
-        sha256: null
-        size_gb: 0.36
-        vram_estimate_gb: 0.5
-        device: gpu
-        description: "Segment Anything Model ViT-B. General-purpose image segmentation for ComfyUI."
-
-    latent_upscale_models:
-      ltx-2-spatial-upscaler:
-        path: image-gen/comfyui/latent_upscale_models/ltx-2-spatial-upscaler-x2-1.0.safetensors
-        source: null
-        sha256: null
-        size_gb: 0.95
-        vram_estimate_gb: 1.5
-        device: gpu
-        description: "LTX Video 2 spatial upscaler (2x). Upscales latent spatial resolution."
-
-      ltx-2-temporal-upscaler:
-        path: image-gen/comfyui/latent_upscale_models/ltx-2-temporal-upscaler-x2-1.0.safetensors
-        source: null
-        sha256: null
-        size_gb: 0.25
-        vram_estimate_gb: 0.5
-        device: gpu
-        description: "LTX Video 2 temporal upscaler (2x). Increases video frame count in latent space."
-
-# ---------------------------------------------------------------------------
-# 3D - TRELLIS.2 and AniGen models
-# ---------------------------------------------------------------------------
-3d:
-  trellis:
-    shape-decoder:
-      path: 3d/trellis/TRELLIS.2-4B/ckpts/shape_dec_next_dc_f16c32_fp16.safetensors
-      source: null
-      sha256: null
-      size_gb: 0.91
-      vram_estimate_gb: 1.5
-      device: gpu
-      description: "TRELLIS.2 4B shape decoder (FP16). Decodes structured latent into 3D geometry."
-
-    texture-encoder:
-      path: 3d/trellis/TRELLIS.2-4B/ckpts/tex_enc_next_dc_f16c32_fp16.safetensors
-      source: null
-      sha256: null
-      size_gb: 0.68
-      vram_estimate_gb: 1.0
-      device: gpu
-      description: "TRELLIS.2 4B texture encoder (FP16). Encodes texture information for 3D generation."
-
-  anigen:
-    slat-dae-decoder:
-      path: 3d/anigen/ckpts/ckpts/anigen/slat_dae/ckpts/decoder_final.pt
-      source: null
-      sha256: null
-      size_gb: 0.77
-      vram_estimate_gb: 1.0
-      device: gpu
-      description: "AniGen SLAT DAE decoder. Decodes structured latent representations for 3D animation."
-
-    slat-dae-encoder:
-      path: 3d/anigen/ckpts/ckpts/anigen/slat_dae/ckpts/encoder_final.pt
-      source: null
-      sha256: null
-      size_gb: 1.1
-      vram_estimate_gb: 1.5
-      device: gpu
-      description: "AniGen SLAT DAE encoder. Encodes structured latent representations for 3D animation."
-
-    ss-dae-decoder:
-      path: 3d/anigen/ckpts/ckpts/anigen/ss_dae/ckpts/decoder_final.pt
-      source: null
-      sha256: null
-      size_gb: 0.65
-      vram_estimate_gb: 1.0
-      device: gpu
-      description: "AniGen SS DAE decoder. Sparse structured latent decoder for 3D generation."
-
-    ss-dae-encoder:
-      path: 3d/anigen/ckpts/ckpts/anigen/ss_dae/ckpts/encoder_final.pt
-      source: null
-      sha256: null
-      size_gb: 0.62
-      vram_estimate_gb: 1.0
-      device: gpu
-      description: "AniGen SS DAE encoder. Sparse structured latent encoder for 3D generation."
-
-    dinov2-vitl14:
-      path: 3d/anigen/ckpts/ckpts/dinov2/dinov2_vitl14/dinov2_vitl14_reg4_pretrain.pth
-      source: null
-      sha256: null
-      size_gb: 1.2
-      vram_estimate_gb: 1.5
-      device: gpu
-      description: "DINOv2 ViT-L/14 pretrained model. Self-supervised vision backbone for 3D feature extraction."
-
-    dsine:
-      path: 3d/anigen/ckpts/ckpts/dsine/dsine.pt
-      source: null
-      sha256: null
-      size_gb: 0.28
-      vram_estimate_gb: 0.5
-      device: gpu
-      description: "DSINE surface normal estimation model. Predicts surface normals from images."
-
-    dsine-backbone:
-      path: 3d/anigen/ckpts/ckpts/dsine/tf_efficientnet_b5_ap-9e82fae8.pth
-      source: null
-      sha256: null
-      size_gb: 0.12
-      vram_estimate_gb: 0.3
-      device: gpu
-      description: "EfficientNet-B5 backbone for DSINE. Feature extraction backbone for normal estimation."
-
-    vgg16:
-      path: 3d/anigen/ckpts/ckpts/vgg/vgg16-397923af.pth
-      source: null
-      sha256: null
-      size_gb: 0.53
-      vram_estimate_gb: 0.8
-      device: gpu
-      description: "VGG-16 pretrained model. Classic CNN backbone used for perceptual feature extraction."
-
-# ---------------------------------------------------------------------------
-# Audio - Music generation models
-# ---------------------------------------------------------------------------
-audio:
-  ace_step:
-    checkpoint:
-      path: audio/acestep/
-      source: null
-      sha256: null
-      size_gb: 54.0
-      vram_estimate_gb: 8.0
-      device: gpu
-      description: "ACE-STEP 1.5 music generation checkpoints. Full model weights for text-to-music synthesis."
-
-# ---------------------------------------------------------------------------
-# Voices - Voice preset files
-# ---------------------------------------------------------------------------
-voices:
-  emma:
-    path: voices/Emma.wav
-    source: null
+    description: PrefectIllustrious XL v7.0 SDXL checkpoint.
+  text-encoder-ltx-2.3-projection:
+    path: image-gen/comfyui/text_encoders/ltx-2.3_text_projection_bf16.safetensors
+    source: hf://Kijai/LTX2.3_comfy/text_encoders/ltx-2.3_text_projection_bf16.safetensors
+    download: file
     sha256: null
-    size_gb: 0.01
-    vram_estimate_gb: 0.0
-    device: cpu
-    description: "Emma voice preset WAV file. Reference audio for voice cloning / TTS synthesis."
-
-# ---------------------------------------------------------------------------
-# Embeddings - Text embedding models
-# ---------------------------------------------------------------------------
-embeddings:
-  jina-v5-small-clustering-q5_k_m:
-    path: embeddings/jina-v5-small-clustering-Q5_K_M.gguf
-    source: null
-    sha256: null
-    size_gb: 0.44
-    vram_estimate_gb: 0.5
+    size_gb: 2.2
+    vram_estimate_gb: 3.0
     device: gpu
-    description: "Jina Embeddings v5 small, clustering-tuned (Q5_K_M GGUF). Optimized for clustering tasks."
-
-  jina-v5-small-retrieval-iq4_nl:
-    path: embeddings/jina-v5-small-retrieval-IQ4_NL.gguf
-    source: null
+    description: LTX 2.3 text projection (BF16). From Kijai ComfyUI repo.
+  text-encoder-gemma-3-12b-it:
+    path: image-gen/comfyui/text_encoders/gemma-3-12b-it/
+    source: hf://google/gemma-3-12b-it
+    download: snapshot
+    sha256: null
+    size_gb: 24.0
+    vram_estimate_gb: 3.0
+    device: gpu
+    description: Gemma 3 12B IT text encoder. Full safetensors.
+  lora-dmd2-sdxl-4step:
+    path: image-gen/comfyui/loras/DMD2/dmd2_sdxl_4step_lora_fp16.safetensors
+    source: hf://tianweiy/DMD2/dmd2_sdxl_4step_lora_fp16.safetensors
+    download: file
     sha256: null
     size_gb: 0.38
     vram_estimate_gb: 0.5
     device: gpu
-    description: "Jina Embeddings v5 small, retrieval-tuned (IQ4_NL GGUF). Optimized for search/retrieval tasks."
+    description: DMD2 SDXL 4-step LoRA.
+  lora-ltx23-edit-anything:
+    path: image-gen/comfyui/loras/ltx23_edit_anything_global_rank128_v1_9000steps_adamw.safetensors
+    source: civitai://2553102
+    download: civitai
+    sha256: null
+    size_gb: 1.3
+    vram_estimate_gb: 1.5
+    device: gpu
+    description: LTX 2.3 Edit Anything LoRA. Civitai download.
+  vae-ltx23-video:
+    path: image-gen/comfyui/vae/LTX23_video_vae_bf16.safetensors
+    source: hf://Kijai/LTX2.3_comfy/vae/LTX23_video_vae_bf16.safetensors
+    download: file
+    sha256: null
+    size_gb: 1.4
+    vram_estimate_gb: 2.0
+    device: gpu
+    description: LTX 2.3 Video VAE (BF16). From Kijai ComfyUI repo.
+  vae-taeltx2-3:
+    path: image-gen/comfyui/vae/taeltx2_3.safetensors
+    source: hf://Kijai/LTX2.3_comfy/vae/taeltx2_3.safetensors
+    download: file
+    sha256: null
+    size_gb: 0.02
+    vram_estimate_gb: 0.2
+    device: gpu
+    description: TAE LTX 2.3 tiny autoencoder. From Kijai ComfyUI repo.
+  sam-vit-b:
+    path: image-gen/comfyui/sams/sam_vit_b_01ec64.pth
+    source: hf://MIUProject/VNCCS/models/sams/sam_vit_b_01ec64.pth
+    download: file
+    sha256: null
+    size_gb: 0.36
+    vram_estimate_gb: 0.5
+    device: cpu
+    description: SAM ViT-B segment anything model. From MIUProject/VNCCS.
+  lora-vnccs-charactersheet-v4:
+    path: image-gen/comfyui/loras/vn_character_sheet_v4.safetensors
+    source: hf://MIUProject/VNCCS/models/loras/vn_character_sheet_v4.safetensors
+    download: file
+    sha256: null
+    size_gb: 0.3
+    vram_estimate_gb: 0.0
+    device: gpu
+    description: VNCCS Character Sheet V4 LoRA. Core model for character sheet generation.
+  lora-vnccs-charactersheet-v1:
+    path: image-gen/comfyui/loras/vn_character_sheet.safetensors
+    source: hf://MIUProject/VNCCS/models/loras/vn_character_sheet.safetensors
+    download: file
+    sha256: null
+    size_gb: 0.3
+    vram_estimate_gb: 0.0
+    device: gpu
+    description: VNCCS Character Sheet V1 LoRA (legacy).
+  lora-vnccs-clothes-helper:
+    path: image-gen/comfyui/loras/qwen/VNCCS/ClothesHelperUltimateV1_000005100.safetensors
+    source: hf://MIUProject/VNCCS/models/loras/qwen/VNCCS/ClothesHelperUltimateV1_000005100.safetensors
+    download: file
+    sha256: null
+    size_gb: 1.0
+    vram_estimate_gb: 0.0
+    device: gpu
+    description: VNCCS Clothes Helper V1 LoRA. Maintains clothing consistency across
+      poses.
+  lora-vnccs-emotioncore-v1:
+    path: image-gen/comfyui/loras/qwen/VNCCS/EmotionCoreV1_000003000.safetensors
+    source: hf://MIUProject/VNCCS/models/loras/qwen/VNCCS/EmotionCoreV1_000003000.safetensors
+    download: file
+    sha256: null
+    size_gb: 1.0
+    vram_estimate_gb: 0.0
+    device: gpu
+    description: VNCCS Emotion Core V1 LoRA. Emotion generation for character sprites.
+  lora-vnccs-emotioncore-v2:
+    path: image-gen/comfyui/loras/qwen/VNCCS/EmotionCoreV2_000004700.safetensors
+    source: hf://MIUProject/VNCCS/models/loras/qwen/VNCCS/EmotionCoreV2_000004700.safetensors
+    download: file
+    sha256: null
+    size_gb: 1.0
+    vram_estimate_gb: 0.0
+    device: gpu
+    description: VNCCS Emotion Core V2 LoRA. Updated emotion generation.
+  lora-vnccs-transfer-clothes:
+    path: image-gen/comfyui/loras/qwen/VNCCS/TransferClothes_000006700.safetensors
+    source: hf://MIUProject/VNCCS/models/loras/qwen/VNCCS/TransferClothes_000006700.safetensors
+    download: file
+    sha256: null
+    size_gb: 1.0
+    vram_estimate_gb: 0.0
+    device: gpu
+    description: VNCCS Transfer Clothes LoRA. Outfit transfer between poses.
+  lora-vnccs-poser-helper:
+    path: image-gen/comfyui/loras/qwen/VNCCS/poser_helper_v2_000004200.safetensors
+    source: hf://MIUProject/VNCCS/models/loras/qwen/VNCCS/poser_helper_v2_000004200.safetensors
+    download: file
+    sha256: null
+    size_gb: 1.0
+    vram_estimate_gb: 0.0
+    device: gpu
+    description: VNCCS Poser Helper V2 LoRA. Pose alignment and stability.
+  controlnet-sdxl-anytest:
+    path: image-gen/comfyui/controlnet/AnytestV4.safetensors
+    source: hf://MIUProject/VNCCS/models/controlnet/SDXL/AnytestV4.safetensors
+    download: file
+    sha256: null
+    size_gb: 1.5
+    vram_estimate_gb: 2.0
+    device: gpu
+    description: SDXL ControlNet AnyTest V4. High-quality pose guidance for SDXL.
+  controlnet-sdxl-openpose-illustrious:
+    path: image-gen/comfyui/controlnet/IllustriousXL_openpose.safetensors
+    source: hf://MIUProject/VNCCS/models/controlnet/SDXL/IllustriousXL_openpose.safetensors
+    download: file
+    sha256: null
+    size_gb: 1.5
+    vram_estimate_gb: 2.0
+    device: gpu
+    description: OpenPose ControlNet for Illustrious/Anime SDXL style.
+  upscale-apisr-2x:
+    path: image-gen/comfyui/upscale_models/2x_APISR_RRDB_GAN_generator.pth
+    source: hf://MIUProject/VNCCS/models/upscale_models/2x_APISR_RRDB_GAN_generator.pth
+    download: file
+    sha256: null
+    size_gb: 0.05
+    vram_estimate_gb: 0.5
+    device: gpu
+    description: APISR 2x upscaler (RRDB GAN). From MIUProject/VNCCS.
+  upscale-apisr-4x:
+    path: image-gen/comfyui/upscale_models/4x_APISR_GRL_GAN_generator.pth
+    source: hf://MIUProject/VNCCS/models/upscale_models/4x_APISR_GRL_GAN_generator.pth
+    download: file
+    sha256: null
+    size_gb: 0.1
+    vram_estimate_gb: 0.5
+    device: gpu
+    description: APISR 4x upscaler (GRL GAN). From MIUProject/VNCCS.
+  lora-vnccs-posestudio-v1:
+    path: image-gen/comfyui/loras/qwen/VNCCS/VNCCS_PoseStudioQIE2511_V1.safetensors
+    source: hf://MIUProject/VNCCS_PoseStudio/models/loras/qwen/VNCCS/VNCCS_PoseStudioQIE2511_V1.safetensors
+    download: file
+    sha256: null
+    size_gb: 1.2
+    vram_estimate_gb: 0.0
+    device: gpu
+    description: VNCCS PoseStudio Qwen Image Edit 2511 V1 LoRA.
+  lora-vnccs-posestudio-v3-art:
+    path: image-gen/comfyui/loras/qwen/VNCCS/VNCCS_PoseStudioQIE2511_V3_Art.safetensors
+    source: hf://MIUProject/VNCCS_PoseStudio/models/loras/qwen/VNCCS/VNCCS_PoseStudioQIE2511_V3_Art.safetensors
+    download: file
+    sha256: null
+    size_gb: 1.2
+    vram_estimate_gb: 0.0
+    device: gpu
+    description: VNCCS PoseStudio Qwen Image Edit 2511 V3 Art LoRA.
+  lora-vnccs-posestudio-v5:
+    path: image-gen/comfyui/loras/qwen/VNCCS/VNCCS_PoseStudioV5_000012800.safetensors
+    source: hf://MIUProject/VNCCS_PoseStudio/models/loras/qwen/VNCCS/VNCCS_PoseStudioV5_000012800.safetensors
+    download: file
+    sha256: null
+    size_gb: 1.2
+    vram_estimate_gb: 0.0
+    device: gpu
+    description: VNCCS PoseStudio V5 LoRA.
+  lora-vnccs-posestudio-art-v5:
+    path: image-gen/comfyui/loras/qwen/VNCCS/VNCCS_QIE2511_PoseStudio_ART_V5.safetensors
+    source: hf://MIUProject/VNCCS_PoseStudio/models/loras/qwen/VNCCS/VNCCS_QIE2511_PoseStudio_ART_V5.safetensors
+    download: file
+    sha256: null
+    size_gb: 1.2
+    vram_estimate_gb: 0.0
+    device: gpu
+    description: VNCCS PoseStudio ART V5 LoRA.
+  rmbg-v2:
+    path: image-gen/comfyui/RMBG/RMBG-2.0/model.safetensors
+    source: hf://1038lab/RMBG-2.0/model.safetensors
+    download: file
+    sha256: null
+    size_gb: 0.9
+    vram_estimate_gb: 1.0
+    device: gpu
+    description: RMBG-2.0 background removal model (BiRefNet). From 1038lab.
+  rmbg-inspyrenet:
+    path: image-gen/comfyui/RMBG/INSPYRENET/inspyrenet.safetensors
+    source: hf://1038lab/inspyrenet/inspyrenet.safetensors
+    download: file
+    sha256: null
+    size_gb: 0.1
+    vram_estimate_gb: 0.5
+    device: gpu
+    description: INSPYRENET background removal model. From 1038lab.
+  rmbg-ben:
+    path: image-gen/comfyui/RMBG/BEN/BEN_Base.pth
+    source: hf://1038lab/BEN/BEN_Base.pth
+    download: file
+    sha256: null
+    size_gb: 0.1
+    vram_estimate_gb: 0.5
+    device: gpu
+    description: BEN background removal model. From 1038lab.
+  rmbg-ben2:
+    path: image-gen/comfyui/RMBG/BEN2/BEN2_Base.pth
+    source: hf://1038lab/BEN2/BEN2_Base.pth
+    download: file
+    sha256: null
+    size_gb: 0.2
+    vram_estimate_gb: 0.5
+    device: gpu
+    description: BEN2 background removal model. From 1038lab.
+  upscale-ltx-spatial:
+    path: image-gen/comfyui/latent_upscale_models/ltx-2-spatial-upscaler-x2-1.0.safetensors
+    source: hf://Lightricks/LTX-2.3/ltx-2.3-spatial-upscaler-x2-1.1.safetensors
+    download: file
+    sha256: null
+    size_gb: 0.95
+    vram_estimate_gb: 1.5
+    device: gpu
+    description: LTX 2.3 spatial upscaler (2x).
+  upscale-ltx-temporal:
+    path: image-gen/comfyui/latent_upscale_models/ltx-2-temporal-upscaler-x2-1.0.safetensors
+    source: hf://Lightricks/LTX-2.3/ltx-2.3-temporal-upscaler-x2-1.0.safetensors
+    download: file
+    sha256: null
+    size_gb: 0.25
+    vram_estimate_gb: 0.5
+    device: gpu
+    description: LTX 2.3 temporal upscaler (2x).
+  checkpoint-qwen-image-edit-2511-lc:
+    path: image-gen/comfyui/checkpoints/qwen_image_edit_2511_fp8_e4m3fn_scaled_lightning_comfyui_4steps_v1.0.safetensors
+    source: hf://lightx2v/Qwen-Image-Edit-2511-Lightning/qwen_image_edit_2511_fp8_e4m3fn_scaled_lightning_comfyui_4steps_v1.0.safetensors
+    download: file
+    sha256: null
+    size_gb: 9.0
+    vram_estimate_gb: 9.0
+    device: gpu
+    description: Qwen Image Edit 2511 Lightning 4-step (FP8 scaled, ComfyUI format).
+      From lightx2v.
+  vae-qwen-image:
+    path: image-gen/comfyui/vae/qwen_image_vae.safetensors
+    source: hf://Comfy-Org/Qwen-Image_ComfyUI/split_files/vae/qwen_image_vae.safetensors
+    download: file
+    sha256: null
+    size_gb: 0.3
+    vram_estimate_gb: 0.5
+    device: gpu
+    description: Qwen Image VAE. From Comfy-Org repackaged.
+  lora-qwen-lightning-4steps:
+    path: image-gen/comfyui/loras/qwen/Qwen-Image-Edit-2511-Lightning-4steps-V1.0-bf16.safetensors
+    source: hf://lightx2v/Qwen-Image-Edit-2511-Lightning/Qwen-Image-Edit-2511-Lightning-4steps-V1.0-bf16.safetensors
+    download: file
+    sha256: null
+    size_gb: 0.42
+    vram_estimate_gb: 0.0
+    device: gpu
+    description: Qwen Image Edit 2511 Lightning 4-step LoRA (BF16). From lightx2v.
+  lora-vnccs-posestudio:
+    path: image-gen/comfyui/loras/qwen/VNCCS/VNCCS_PoseStudioQIE2511_V2.safetensors
+    source: hf://MIUProject/VNCCS_PoseStudio/models/loras/qwen/VNCCS/VNCCS_PoseStudioQIE2511_V2.safetensors
+    download: file
+    sha256: null
+    size_gb: 1.2
+    vram_estimate_gb: 0.0
+    device: gpu
+    description: VNCCS PoseStudio Qwen Image Edit 2511 V2 LoRA. From MIUProject.
+  clip-qwen25-vl-7b:
+    path: image-gen/comfyui/clip/qwen_2.5_vl_7b_fp8_scaled.safetensors
+    source: hf://Comfy-Org/Qwen-Image_ComfyUI/split_files/text_encoders/qwen_2.5_vl_7b_fp8_scaled.safetensors
+    download: file
+    sha256: null
+    size_gb: 3.5
+    vram_estimate_gb: 3.5
+    device: gpu
+    description: Qwen 2.5 VL 7B (FP8 scaled). Text encoder for Qwen Image Edit. From
+      Comfy-Org.
+  controlnet-openpose:
+    path: image-gen/comfyui/controlnet/sdpose_wholebody_fp16.safetensors
+    source: hf://Comfy-Org/SDPose/checkpoints/sdpose_wholebody_fp16.safetensors
+    download: file
+    sha256: null
+    size_gb: 1.2
+    vram_estimate_gb: 1.5
+    device: cpu
+    description: SDPose whole-body detector. From Comfy-Org repackaged.
+  # -- YOLO Detectors (auto-downloaded by ultralytics, tracked for IaC) --
 
-# ---------------------------------------------------------------------------
-# Cache - Cached weights (not directly loaded)
-# ---------------------------------------------------------------------------
+  ultralytics-face:
+    path: image-gen/comfyui/ultralytics/bbox/face_yolov8m.pt
+    source: null
+    download: skip
+    sha256: null
+    size_gb: 0.02
+    vram_estimate_gb: 0.0
+    device: cpu
+    description: "YOLOv8m face detector. Auto-downloaded by ultralytics at first use."
+
+  ultralytics-person:
+    path: image-gen/comfyui/ultralytics/segm/person_yolov8m-seg.pt
+    source: null
+    download: skip
+    sha256: null
+    size_gb: 0.02
+    vram_estimate_gb: 0.0
+    device: cpu
+    description: "YOLOv8m person segmentation. Auto-downloaded by ultralytics at first use."
+
+  # -- DWPose (auto-downloaded by comfyui_controlnet_aux) --
+
+  dwpose:
+    path: image-gen/comfyui/controlnet/dw-ll_ucoco_384_bs5.torchscript.pt
+    source: null
+    download: skip
+    sha256: null
+    size_gb: 0.2
+    vram_estimate_gb: 0.5
+    device: cpu
+    description: "DWPose detector. Auto-downloaded by comfyui_controlnet_aux at first use."
+
+  unet-ltx23-gguf:
+    path: image-gen/comfyui/unet/ltx-2.3-22b-distilled-1.1-UD-Q4_K_M.gguf
+    source: hf://unsloth/LTX-2.3-GGUF/distilled-1.1/ltx-2.3-22b-distilled-1.1-UD-Q4_K_M.gguf
+    download: file
+    sha256: null
+    size_gb: 7.0
+    vram_estimate_gb: 8.0
+    device: gpu
+    description: LTX 2.3 22B distilled GGUF Q4_K_M UD (GQA-optimized). From unsloth.
+  clip-gemma3-12b-gguf:
+    path: image-gen/comfyui/clip/gemma-3-12b-it-IQ4_XS.gguf
+    source: hf://unsloth/gemma-3-12b-it-GGUF/gemma-3-12b-it-IQ4_XS.gguf
+    download: file
+    sha256: null
+    size_gb: 6.5
+    vram_estimate_gb: 7.0
+    device: gpu
+    description: Gemma 3 12B GGUF IQ4_XS. Text encoder for LTX Video. From unsloth.
+  textproj-ltxv-dual:
+    path: image-gen/comfyui/text_encoders/ltx-2.3_text_projection_bf16.safetensors
+    source: hf://Kijai/LTX2.3_comfy/text_encoders/ltx-2.3_text_projection_bf16.safetensors
+    download: file
+    sha256: null
+    size_gb: 0.02
+    vram_estimate_gb: 0.1
+    device: gpu
+    description: LTX 2.3 text projection (BF16). From Kijai ComfyUI repo.
+  vae-ltx23-bf16:
+    path: image-gen/comfyui/vae/LTX23_video_vae_bf16.safetensors
+    source: hf://Kijai/LTX2.3_comfy/vae/LTX23_video_vae_bf16.safetensors
+    download: file
+    sha256: null
+    size_gb: 0.3
+    vram_estimate_gb: 0.5
+    device: gpu
+    description: LTX 2.3 Video VAE (BF16). From Kijai ComfyUI repo.
+  unet-zimage-turbo:
+    path: image-gen/comfyui/unet/z_image_turbo_bf16.safetensors
+    source: hf://Comfy-Org/z_image_turbo/split_files/diffusion_models/z_image_turbo_bf16.safetensors
+    download: file
+    sha256: null
+    size_gb: 4.0
+    vram_estimate_gb: 4.0
+    device: gpu
+    description: Z-Image Turbo UNet (BF16). From Comfy-Org repackaged.
+  vae-zimage:
+    path: image-gen/comfyui/vae/ae.safetensors
+    source: hf://Comfy-Org/z_image_turbo/split_files/vae/ae.safetensors
+    download: file
+    sha256: null
+    size_gb: 0.3
+    vram_estimate_gb: 0.5
+    device: gpu
+    description: Z-Image VAE (AE). From Comfy-Org repackaged.
+  clip-qwen3-4b:
+    path: image-gen/comfyui/clip/qwen_3_4b.safetensors
+    source: hf://Comfy-Org/z_image_turbo/split_files/text_encoders/qwen_3_4b.safetensors
+    download: file
+    sha256: null
+    size_gb: 3.0
+    vram_estimate_gb: 3.0
+    device: gpu
+    description: Qwen 3 4B text encoder. From Comfy-Org repackaged.
+  clip-vision-h:
+    path: image-gen/comfyui/clip_vision/CLIP-ViT-H-14-laion2B-s32B-b79K.safetensors
+    source: hf://Comfy-Org/CLIP-ViT-H-14-laion2B-s32B-b79K_repackaged/split_files/clip_vision/CLIP-ViT-H-14-laion2B-s32B-b79K.safetensors
+    download: file
+    sha256: null
+    size_gb: 1.5
+    vram_estimate_gb: 1.5
+    device: gpu
+    description: CLIP Vision H model. From Comfy-Org repackaged.
+  unet-qwen-image-edit-gguf:
+    path: image-gen/comfyui/unet/qwen-image-edit-2511-Q5_0.gguf
+    source: hf://unsloth/Qwen-Image-Edit-2511-GGUF/qwen-image-edit-2511-Q5_0.gguf
+    download: file
+    sha256: null
+    size_gb: 7.0
+    vram_estimate_gb: 8.0
+    device: gpu
+    description: Qwen Image Edit 2511 GGUF Q5_0. For UnetLoaderGGUF (editing stage).
+      From unsloth.
+3d:
+  trellis:
+    path: 3d/trellis/TRELLIS.2-4B/ckpts/
+    source: hf://microsoft/TRELLIS.2-4B
+    download: snapshot
+    sha256: null
+    size_gb: 16.0
+    vram_estimate_gb: 2.0
+    device: gpu
+    description: TRELLIS.2 4B checkpoints. Shape decoder, texture encoder, flow models.
+  trellis_dinov3:
+    path: 3d/trellis/dinov3/facebook/dinov3-vitl16-pretrain-lvd1689m/
+    source: modelscope://facebook/dinov3-vitl16-pretrain-lvd1689m
+    download: modelscope
+    sha256: null
+    size_gb: 1.2
+    vram_estimate_gb: 0.5
+    device: gpu
+    description: DINOv3 ViT-L/16 image encoder for TRELLIS.2. Gated on HuggingFace,
+      free on ModelScope.
+  trellis_rmbg:
+    path: 3d/trellis/rmbg/briaai/RMBG-2___0/
+    source: modelscope://briaai/RMBG-2.0
+    download: modelscope
+    sha256: null
+    size_gb: 0.9
+    vram_estimate_gb: 0.3
+    device: gpu
+    description: RMBG-2.0 background removal model for TRELLIS.2. Gated on HuggingFace,
+      free on ModelScope.
+  anigen:
+    path: 3d/anigen/ckpts/
+    source: hf://VAST-AI/AniGen
+    download: snapshot
+    sha256: null
+    size_gb: 9.0
+    vram_estimate_gb: 2.0
+    device: gpu
+    description: AniGen checkpoints. SLAT DAE, SS DAE, dinov2, dsine, vgg, flow models.
+audio:
+  ace-step:
+    path: audio/acestep/
+    source: hf://ACE-Step/Ace-Step1.5
+    download: snapshot
+    sha256: null
+    size_gb: 8.0
+    vram_estimate_gb: 8.0
+    device: gpu
+    description: ACE-STEP 1.5 music generation. v15-turbo, 5Hz-lm-1.7B, Qwen3-Embedding.
+voices:
+  emma:
+    path: voices/Emma.wav
+    source: null
+    download: skip
+    sha256: null
+    size_gb: 0.01
+    vram_estimate_gb: 0.0
+    device: cpu
+    description: Emma voice preset. Reference audio for voice cloning.
+embeddings:
+  jina-v5-nano-clustering-q5_k_m:
+    path: embeddings/jina-v5-nano-clustering-Q5_K_M.gguf
+    source: hf://jinaai/jina-embeddings-v5-text-nano-clustering-GGUF/jina-embeddings-v5-text-nano-clustering-Q5_K_M.gguf
+    download: file
+    sha256: null
+    size_gb: 0.16
+    vram_estimate_gb: 0.5
+    device: gpu
+    description: Jina v5 nano clustering (Q5_K_M GGUF).
+  jina-v5-nano-retrieval-iq4_nl:
+    path: embeddings/jina-v5-nano-retrieval-IQ4_NL.gguf
+    source: hf://jinaai/jina-embeddings-v5-text-nano-retrieval-GGUF/jina-embeddings-v5-text-nano-retrieval-IQ4_NL.gguf
+    download: file
+    sha256: null
+    size_gb: 0.14
+    vram_estimate_gb: 0.5
+    device: gpu
+    description: Jina v5 nano retrieval (IQ4_NL GGUF).
 cache:
   huggingface:
     path: cache/huggingface/
     source: null
+    download: skip
     sha256: null
     size_gb: 32.0
     vram_estimate_gb: 0.0
     device: cpu
-    description: "HuggingFace model cache. Downloaded weights and tokenizer files cached from HF Hub. Not loaded directly."
+    description: HuggingFace model cache. Auto-populated.

@@ -1,0 +1,16 @@
+[Unit]
+Description=Tech Noir Ray Cluster - Boot Services
+After=network-online.target tailscaled.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=user
+ExecStart=/bin/bash -c 'cd /home/user/Documents/programs/ray && /home/user/Documents/programs/ray/.venv/bin/python -m boot.cli boot'
+Restart=on-failure
+RestartSec=30
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

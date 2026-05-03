@@ -79,9 +79,9 @@ class TestConfigSingleton:
 
     def test_get_nested(self, tmp_path, monkeypatch):
         yaml_file = tmp_path / "test.yaml"
-        yaml_file.write_text("services:\n  comfyui:\n    port: 8465\n")
+        yaml_file.write_text("services:\n  comfyui:\n    port: 18465\n")
         monkeypatch.setattr(Config, "_pick_path", lambda s: yaml_file)
-        assert Config().get("services.comfyui.port") == 8465
+        assert Config().get("services.comfyui.port") == 18465
 
     def test_get_missing_returns_default(self, tmp_path, monkeypatch):
         yaml_file = tmp_path / "test.yaml"

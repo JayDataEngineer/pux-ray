@@ -1,0 +1,196 @@
+# Tech Noir Ray — Task Runner
+# ============================================
+# Professional task runner for AI infrastructure setup and operations.
+#
+# Install Task:  sh -c "$(curl --location https://taskfile.dev/install.sh)" -- -d -b ~/.local/bin
+# Quick start:   task setup
+# Daily use:     task boot          (starts everything)
+#                task status        (show all services)
+#
+# Service lifecycle is managed by the boot/ Python package.
+# See: boot/cli.py, boot/services.py, AGENTS.md
+
+version: '3'
+
+vars:
+  VENV_PYTHON: .venv/bin/python
+  RAY_BIN: .venv/bin/ray
+
+tasks:
+  # ── Boot (main entry point) ──────────────────────────────────────────────
+  boot:
+    desc: "Start all services (Ray + Docker)"
+    cmds:
+      - "{{.VENV_PYTHON}} -m boot.cli boot"
+
+  boot:ray:
+    desc: "Start Ray cluster + deploy services + ingress"
+    cmds:
+      - "{{.VENV_PYTHON}} -m boot.cli boot ray"
+
+  boot:docker:
+    desc: "Start all Docker Compose services"
+    cmds:
+      - "{{.VENV_PYTHON}} -m boot.cli boot docker"
+
+  # ── Service lifecycle ────────────────────────────────────────────────────
+  up:
+    desc: "Start specific service (e.g. task up ray-cluster)"
+    cmds:
+      - "{{.VENV_PYTHON}} -m boot.cli up {{.CLI_ARGS}}"
+
+  down:
+    desc: "Stop all services"
+    cmds:
+      - "{{.VENV_PYTHON}} -m boot.cli stop"
+
+  stop:
+    desc: "Stop specific service (e.g. task stop redshiftdb)"
+    cmds:
+      - "{{.VENV_PYTHON}} -m boot.cli stop {{.CLI_ARGS}}"
+
+  status:
+    desc: "Show all service status"
+    cmds:
+      - "{{.VENV_PYTHON}} -m boot.cli status"
+
+  # ── Setup ────────────────────────────────────────────────────────────────
+  setup:
+    desc: "Full bootstrap (first run on new machine)"
+    cmds:
+      - task: setup:prereqs
+      - task: setup:config
+      - task: setup:venv
+      - task: setup:repos
+      - task: setup:tools
+      - task: models:status
+
+  setup:prereqs:
+    desc: "Check prerequisites (Python, uv, CUDA, Docker)"
+    internal: true
+    cmds:
+      - python3 --version
+      - uv --version
+      - "nvidia-smi --query-gpu=name --format=csv,noheader || echo 'WARNING: No GPU detected'"
+      - "docker --version || echo 'WARNING: Docker not found (needed for repo sync)'"
+
+  setup:config:
+    desc: "Copy config template if local.yaml doesn't exist"
+    status:
+      - test -f config/local.yaml
+    cmds:
+      - cp config/local.yaml.example config/local.yaml
+      - |
+        echo ""
+        echo ">>> config/local.yaml created from template."
+        echo ">>> Set these env vars or edit config/local.yaml:"
+        echo "    TECH_NOIR_MODELS_ROOT   - Where models are stored"
+        echo "    TECH_NOIR_COMFYUI_DIR   - ComfyUI installation path"
+        echo "    TECH_NOIR_COMFYUI_PYTHON - ComfyUI venv Python"
+        echo ""
+
+  setup:venv:
+    desc: "Create main Python venv and install dependencies"
+    sources:
+      - pyproject.toml
+      - uv.lock
+    generates:
+      - .venv/bin/python
+    cmds:
+      - uv sync
+
+  setup:repos:
+    desc: "Clone creative tool repos + llama.cpp"
+    cmds:
+      - "{{.VENV_PYTHON}} -m infra.setup.clone"
+
+  setup:tools:
+    desc: "Build llama.cpp + create bare-metal tool venvs + build Docker workers"
+    deps: [setup:repos]
+    cmds:
+      - "{{.VENV_PYTHON}} -m infra.setup all"
+      - task: workers:build
+
+  # ── Legacy cluster tasks (kept for compatibility) ────────────────────────
+  start:
+    desc: "Start Ray cluster (legacy, use boot:ray)"
+    cmds:
+      - "{{.VENV_PYTHON}} -m boot.cli up ray-cluster"
+
+  deploy:
+    desc: "Deploy all Ray Serve services (legacy, use boot:ray)"
+    cmds:
+      - "{{.VENV_PYTHON}} -m scripts.deploy_services"
+
+  # ── Models ───────────────────────────────────────────────────────────────
+  models:list:
+    desc: "List all models and download status"
+    cmds:
+      - "{{.VENV_PYTHON}} -m registry.cli models list"
+
+  models:pull:
+    desc: "Download missing models from HuggingFace (pass model name as arg)"
+    cmds:
+      - "{{.VENV_PYTHON}} -m registry.cli models pull {{.CLI_ARGS}}"
+
+  models:verify:
+    desc: "Verify all models exist and have correct size"
+    cmds:
+      - "{{.VENV_PYTHON}} -m registry.cli models verify"
+
+  models:status:
+    desc: "Show model disk usage summary"
+    cmds:
+      - "{{.VENV_PYTHON}} -m registry.cli models status"
+
+  # ── Testing ──────────────────────────────────────────────────────────────
+  test:
+    desc: "Run pytest test suite"
+    cmds:
+      - "{{.VENV_PYTHON}} -m pytest tests/ -v {{.CLI_ARGS}}"
+
+  test:infra:
+    desc: "Run infrastructure validation tests (registry, setup modules)"
+    cmds:
+      - "{{.VENV_PYTHON}} -m pytest tests/test_registry.py tests/test_infra_setup.py -v"
+
+  test:e2e:
+    desc: "Run full E2E tests (models on disk, repos cloned, venvs working)"
+    cmds:
+      - "{{.VENV_PYTHON}} -m pytest tests/test_e2e_setup.py -v"
+
+  test:integration:
+    desc: "Run service integration tests (LLM, TTS, ASR, 3D, music, ComfyUI) — requires running cluster"
+    cmds:
+      - "{{.VENV_PYTHON}} -m pytest tests/integration/test_full_pipeline.py -v {{.CLI_ARGS}}"
+
+  # ── Docker Workers ──────────────────────────────────────────────────────
+  workers:build:
+    desc: "Build all Docker worker images (TRELLIS, AniGen, VibeVoice)"
+    cmds:
+      - docker compose -f infra/docker/compose.workers.yaml build
+
+  workers:build-trellis:
+    desc: "Build TRELLIS worker image only"
+    cmds:
+      - docker compose -f infra/docker/compose.workers.yaml build trellis-worker
+
+  workers:build-anigen:
+    desc: "Build AniGen worker image only"
+    cmds:
+      - docker compose -f infra/docker/compose.workers.yaml build anigen-worker
+
+  workers:build-vibevoice:
+    desc: "Build VibeVoice worker image only"
+    cmds:
+      - docker compose -f infra/docker/compose.workers.yaml build vibevoice-worker
+
+  workers:ps:
+    desc: "Show running Docker worker containers"
+    cmds:
+      - docker compose -f infra/docker/compose.workers.yaml ps
+
+  workers:stop:
+    desc: "Stop all Docker worker containers"
+    cmds:
+      - docker compose -f infra/docker/compose.workers.yaml down

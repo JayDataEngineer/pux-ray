@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 @serve.deployment(
     name="espeak_tts",
     num_replicas=1,
-    ray_actor_options={"num_cpus": 1, "num_gpus": 0},
+    ray_actor_options={"num_cpus": 0.5, "num_gpus": 0},
     max_ongoing_requests=4,
 )
 class EspeakTTS:
