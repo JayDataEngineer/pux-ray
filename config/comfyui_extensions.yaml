@@ -1,0 +1,101 @@
+# ComfyUI Custom Nodes — Single Source of Truth (Ray-native)
+# ============================================================
+# Managed by ComfyUIExtensionManager Ray actor.
+# All ComfyUI custom_nodes declared here. No shell scripts.
+#
+# Each entry:
+#   name:      directory name in custom_nodes/
+#   url:       GitHub clone URL
+#   desc:      what it provides (human-readable)
+#   required:  hard dependency for the ComfyUI pipeline (bool)
+extensions:
+  # ── Core / Required ────────────────────────────────────
+  - name: ComfyUI-Manager
+    url: https://github.com/Comfy-Org/ComfyUI-Manager.git
+    desc: Extension manager (catalog, install, update)
+    required: true
+
+  - name: comfyui_controlnet_aux
+    url: https://github.com/Fannovel16/comfyui_controlnet_aux
+    desc: Normal/depth/pose preprocessors
+    required: true
+
+  # ── VNCCS / Pose Director ──────────────────────────────
+  - name: comfyui-pose-director
+    url: https://github.com/JayDataEngineer/comfyui-pose-director.git
+    desc: VNCCS, BodyMeshRenderer, pose tools
+    required: true
+
+  - name: ComfyUI_VNCCS
+    url: https://github.com/AHEKOT/ComfyUI_VNCCS.git
+    desc: VNCCS node definitions
+    required: true
+
+  - name: ComfyUI_VNCCS_Utils
+    url: https://github.com/AHEKOT/ComfyUI_VNCCS_Utils.git
+    desc: VNCCS utilities
+    required: true
+
+  # ── PBR / Material Generation ───────────────────────────
+  - name: COMFYUI-PBRFusion4
+    url: https://github.com/Night1099/COMFYUI-PBRFusion4.git
+    desc: Normal + Depth maps from textures
+    required: false
+
+  - name: ComfyUI-QFX-PBRGenerator
+    url: https://github.com/qornflex/ComfyUI-QFX-PBRGenerator.git
+    desc: Roughness, Metallic, AO, Height maps
+    required: false
+
+  # ── Image / Video Utilities ─────────────────────────────
+  - name: ComfyUI-GGUF
+    url: https://github.com/city96/ComfyUI-GGUF
+    desc: GGUF quantized model support
+    required: false
+
+  - name: ComfyUI_Comfyroll_CustomNodes
+    url: https://github.com/Suzie1/ComfyUI_Comfyroll_CustomNodes
+    desc: Workflow templates and utility nodes
+    required: false
+
+  - name: ComfyUI-Impact-Pack
+    url: https://github.com/ltdrdata/ComfyUI-Impact-Pack
+    desc: Image processing and workflow nodes
+    required: false
+
+  - name: ComfyUI-Impact-Subpack
+    url: https://github.com/ltdrdata/ComfyUI-Impact-Subpack
+    desc: Impact pack utilities
+    required: false
+
+  - name: ComfyUI-Inspire-Pack
+    url: https://github.com/ltdrdata/ComfyUI-Inspire-Pack
+    desc: AI-powered node pack
+    required: false
+
+  - name: ComfyUI-VideoHelperSuite
+    url: https://github.com/Kosinkadink/ComfyUI-VideoHelperSuite
+    desc: Video loading, frame manipulation, combining
+    required: false
+
+  - name: Comfyui-QwenEditUtils
+    url: https://github.com/lrzjason/Comfyui-QwenEditUtils
+    desc: Qwen image editing utilities
+    required: false
+
+  # ── Animation / Motion ──────────────────────────────────
+  - name: ComfyUI-HY-Motion1
+    url: https://github.com/jtydhr88/ComfyUI-HY-Motion1
+    desc: HY-Motion video generation
+    required: false
+
+  - name: ComfyUI-LTXVideo
+    url: https://github.com/Lightricks/ComfyUI-LTXVideo
+    desc: LTXVideo text-to-video generation
+    required: false
+
+  # ── Tiling ──────────────────────────────────────────────
+  - name: ComfyUI-seamless-tiling
+    url: https://github.com/spinagon/ComfyUI-seamless-tiling
+    desc: Seamless tiling for textures
+    required: false

@@ -33,6 +33,17 @@ except ValueError:
     ).remote()
     print("GPU scheduler deployed")
 
+# Deploy ComfyUI Extension Manager (syncs custom_nodes from YAML config)
+from gateway.comfyui_manager import ComfyUIExtensionManager
+try:
+    ext_manager = ray.get_actor("comfyui_ext_manager")
+    print("ComfyUI extension manager already running")
+except ValueError:
+    ext_manager = ComfyUIExtensionManager.options(
+        name="comfyui_ext_manager", lifetime="detached"
+    ).remote()
+    print("ComfyUI extension manager deployed")
+
 # --- Deploy services ---
 
 print("Deploying LLM...")
