@@ -28,9 +28,13 @@ def ray_cluster():
 
 @pytest.fixture
 def free_vram_mb() -> int:
-    """Get current free VRAM in MB."""
-    result = subprocess.run(
-        ["nvidia-smi", "--query-gpu=memory.free", "--format=csv,noheader,nounits"],
-        capture_output=True, text=True, timeout=5,
-    )
-    return int(result.stdout.strip().split("\n")[0].strip())
+    """Get current free VRAM in MB via torch.cuda (Ray-native, no nvidia-smi)."""
+    try:
+        import torch
+        if torch.cuda.is_available():
+            total = torch.cuda.get_device_properties(0).total_memory / (1024 * 1024)
+            reserved = torch.cuda.memory_reserved(0) / (1024 * 1024)
+            return int(total - reserved)
+    except Exception:
+        pass
+    return 0

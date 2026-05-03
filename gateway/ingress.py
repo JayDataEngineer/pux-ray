@@ -11,7 +11,6 @@ Empty/unset = no auth (dev mode).
 from __future__ import annotations
 
 import logging
-import subprocess
 from typing import Any, Optional
 
 import ray
@@ -165,27 +164,16 @@ class APIIngress:
     # --- Status Routes ---
 
     async def status(self, request: Request) -> Response:
-        """GET /status - infrastructure overview."""
+        """GET /status - infrastructure overview (Ray-native, no nvidia-smi)."""
         self._ensure_initialized()
         status = {}
         if self.gpu_scheduler:
             gpu_status = await self.gpu_scheduler.status.remote()
             status["gpu"] = gpu_status
 
-        try:
-            result = subprocess.run(
-                ["nvidia-smi", "--query-gpu=memory.free,memory.used,memory.total",
-                 "--format=csv,noheader,nounits"],
-                capture_output=True, text=True, timeout=5,
-            )
-            parts = result.stdout.strip().split(",")
-            status["vram"] = {
-                "free_mb": int(parts[0].strip()),
-                "used_mb": int(parts[1].strip()),
-                "total_mb": int(parts[2].strip()),
-            }
-        except Exception:
-            status["vram"] = {"error": "nvidia-smi unavailable"}
+        from services.base import gpu_memory_info, gpu_resources
+        status["vram"] = gpu_memory_info()
+        status["resources"] = gpu_resources()
 
         return JSONResponse(status)
 
