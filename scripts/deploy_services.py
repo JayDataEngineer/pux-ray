@@ -33,17 +33,6 @@ except ValueError:
     ).remote()
     print("GPU scheduler deployed")
 
-# Deploy JobManager as a named actor (tracks queued generation jobs)
-from gateway.jobs import JobManager
-try:
-    job_manager = ray.get_actor("job_manager")
-    print("JobManager already running")
-except ValueError:
-    job_manager = JobManager.options(
-        name="job_manager", lifetime="detached"
-    ).remote()
-    print("JobManager deployed")
-
 # --- Deploy services ---
 
 print("Deploying LLM...")
@@ -116,9 +105,4 @@ print("  /comfyui/*        - ComfyUI (GPU, WebUI)")
 print("  /3d/trellis/*     - TRELLIS.2 (GPU)")
 print("  /3d/anigen/*      - AniGen (GPU)")
 print("  /creative/see-through/* - See-Through (GPU)")
-print("")
-print("Job Routes (queued, async):")
-print("  POST /jobs/{type}     - Submit job (trellis, anigen, ace_step, comfyui)")
-print("  GET  /jobs/{id}       - Get job status")
-print("  GET  /jobs/{id}/result- Get job result (binary)")
-print("  GET  /jobs            - List all jobs")
+print("  /music/ace-step/* - ACE-STEP music (GPU)")

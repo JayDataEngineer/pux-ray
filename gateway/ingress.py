@@ -193,100 +193,6 @@ class APIIngress:
         """GET /health"""
         return JSONResponse({"status": "ok"})
 
-    # --- Job Routes (queued, async generation) ---
-
-    def _job_manager(self):
-        try:
-            return ray.get_actor("job_manager")
-        except ValueError:
-            return None
-
-    async def job_submit(self, request: Request) -> Response:
-        """POST /jobs/{type} — submit a generation job. Returns job_id immediately."""
-        self._ensure_initialized()
-        job_type = request.path_params.get("type", "")
-        jm = self._job_manager()
-        if jm is None:
-            return JSONResponse({"error": "JobManager not available"}, status_code=503)
-
-        body = await request.json()
-        kwargs = dict(body)
-        kwargs.pop("type", None)
-
-        if job_type == "trellis":
-            form = await request.form() if "image" not in kwargs else None
-            if form:
-                image = await form["image"].read()
-                kwargs["image"] = image
-            if "image" not in kwargs:
-                return JSONResponse({"error": "image required"}, status_code=400)
-            job_id = await jm.submit.remote("trellis", **kwargs)
-        elif job_type == "anigen":
-            form = await request.form() if "image" not in kwargs else None
-            if form:
-                image = await form["image"].read()
-                kwargs["image"] = image
-            if "image" not in kwargs:
-                return JSONResponse({"error": "image required"}, status_code=400)
-            job_id = await jm.submit.remote("anigen", **kwargs)
-        elif job_type == "ace_step":
-            if "prompt" not in kwargs:
-                return JSONResponse({"error": "prompt required"}, status_code=400)
-            job_id = await jm.submit.remote("ace_step", **kwargs)
-        elif job_type == "comfyui":
-            if "workflow" not in kwargs:
-                return JSONResponse({"error": "workflow required"}, status_code=400)
-            job_id = await jm.submit.remote("comfyui", **kwargs)
-        else:
-            return JSONResponse({"error": f"unknown job type: {job_type}"}, status_code=400)
-
-        return JSONResponse({"job_id": job_id, "type": job_type, "status": "queued"})
-
-    async def job_status(self, request: Request) -> Response:
-        """GET /jobs/{job_id} — get job status."""
-        self._ensure_initialized()
-        job_id = request.path_params["job_id"]
-        jm = self._job_manager()
-        if jm is None:
-            return JSONResponse({"error": "JobManager not available"}, status_code=503)
-        status = await jm.status.remote(job_id)
-        return JSONResponse(status)
-
-    async def job_result(self, request: Request) -> Response:
-        """GET /jobs/{job_id}/result — get job result bytes."""
-        self._ensure_initialized()
-        job_id = request.path_params["job_id"]
-        jm = self._job_manager()
-        if jm is None:
-            return JSONResponse({"error": "JobManager not available"}, status_code=503)
-
-        try:
-            result = await jm.result.remote(job_id)
-        except Exception as e:
-            return JSONResponse({"error": str(e), "job_id": job_id}, status_code=500)
-
-        if result is None:
-            return JSONResponse({"error": "job not found"}, status_code=404)
-
-        # Binary results (bytes) returned directly
-        if isinstance(result, bytes):
-            return Response(content=result, media_type="application/octet-stream")
-
-        # Dict results (AniGen: mesh + skeleton)
-        if isinstance(result, dict):
-            return JSONResponse({"status": "completed", "keys": list(result.keys())})
-
-        return JSONResponse({"result": str(result)})
-
-    async def job_list(self, request: Request) -> Response:
-        """GET /jobs — list all jobs."""
-        self._ensure_initialized()
-        jm = self._job_manager()
-        if jm is None:
-            return JSONResponse({"error": "JobManager not available"}, status_code=503)
-        jobs = await jm.list_jobs.remote()
-        return JSONResponse(jobs)
-
     # --- Admin Routes ---
 
     async def load_model(self, request: Request) -> Response:
@@ -331,11 +237,6 @@ def create_app() -> Starlette:
         Route("/music/generate", ingress.music_generate, methods=["POST"]),
         # Creative
         Route("/creative/decompose", ingress.decompose, methods=["POST"]),
-        # Jobs (queued generation)
-        Route("/jobs", ingress.job_list, methods=["GET"]),
-        Route("/jobs/{type:str}", ingress.job_submit, methods=["POST"]),
-        Route("/jobs/{job_id:str}", ingress.job_status, methods=["GET"]),
-        Route("/jobs/{job_id:str}/result", ingress.job_result, methods=["GET"]),
         # Admin
         Route("/admin/load", ingress.load_model, methods=["POST"]),
         Route("/admin/unload", ingress.unload_all, methods=["POST"]),
