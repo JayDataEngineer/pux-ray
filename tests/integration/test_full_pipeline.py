@@ -187,15 +187,17 @@ def llm_loaded(ensure_served):
 @pytest.fixture(scope="session")
 def trellis_loaded(ensure_served):
     """Load TRELLIS model (stops ComfyUI, starts Docker worker, loads model)."""
-    _unload_gpu_service("comfyui", "comfyui")
+    _stop_comfyui()
     _start_docker_worker("trellis")
     _load_service("trellis", "trellis", "trellis")
 
 
 @pytest.fixture(scope="session")
 def anigen_loaded(ensure_served):
-    """Load AniGen model (stops TRELLIS worker, starts AniGen worker)."""
+    """Load AniGen model (stops TRELLIS, unloads GPU services, starts AniGen worker)."""
     _stop_docker_worker("trellis")
+    _stop_comfyui()
+    _unload_gpu_service("llm", "llm")
     _start_docker_worker("anigen")
     _load_service("anigen", "anigen", "anigen")
 
@@ -266,6 +268,16 @@ def _unload_gpu_service(deployment_name: str, app_name: str) -> None:
     except Exception:
         pass
     time.sleep(2)
+
+
+def _stop_comfyui() -> None:
+    """Stop ComfyUI subprocess via Serve handle."""
+    try:
+        handle = _get_handle("comfyui", "comfyui")
+        _await_serve(handle.options(method_name="stop_comfyui").remote())
+    except Exception:
+        pass
+    time.sleep(3)
 
 
 # =============================================================================
