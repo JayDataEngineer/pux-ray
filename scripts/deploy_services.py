@@ -41,13 +41,9 @@ if os.path.isdir(_ray_tmp):
         except OSError:
             pass
 
-# Configure Serve HTTP proxy — only if not already running
-try:
-    serve.status()
-    print("Ray Serve already running, skipping HTTP config")
-except Exception:
-    serve.start(http_options={"host": "0.0.0.0", "port": 18800})
-    print("Ray Serve HTTP configured on 0.0.0.0:18800")
+# Configure Serve HTTP proxy on port 18800
+serve.start(http_options={"host": "0.0.0.0", "port": 18800})
+print("Ray Serve HTTP configured on 0.0.0.0:18800")
 
 # Deploy GPU scheduler as a named actor
 from gateway.gpu_scheduler import GPUScheduler
