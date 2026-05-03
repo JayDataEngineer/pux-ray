@@ -17,17 +17,15 @@ ENV DEBIAN_FRONTEND=noninteractive \
     PYTHONUNBUFFERED=1 \
     CUDA_HOME=/usr/local/cuda
 
-# System deps (deadsnakes PPA for Python 3.12 on Ubuntu 22.04)
-RUN apt-get update && apt-get install -y --no-install-recommends software-properties-common \
-    && add-apt-repository -y ppa:deadsnakes/ppa \
-    && apt-get update && apt-get install -y --no-install-recommends \
-    python3.12 python3.12-dev python3.12-venv \
+# System deps (Python 3.10 is native on Ubuntu 22.04)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    python3.10 python3.10-dev python3.10-venv \
     curl git wget build-essential cmake \
     libgl1-mesa-glx libglib2.0-0 libsm6 libxext6 libxrender-dev \
     libsndfile1 libsndfile1-dev \
     && rm -rf /var/lib/apt/lists/* \
-    && ln -sf /usr/bin/python3.12 /usr/bin/python \
-    && ln -sf /usr/bin/python3.12 /usr/bin/python3
+    && ln -sf /usr/bin/python3.10 /usr/bin/python \
+    && ln -sf /usr/bin/python3.10 /usr/bin/python3
 
 # uv for fast Python package management
 RUN curl -LsSf https://astral.sh/uv/install.sh | sh
