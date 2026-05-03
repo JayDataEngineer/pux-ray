@@ -186,17 +186,15 @@ def llm_loaded(ensure_served):
 
 @pytest.fixture(scope="session")
 def trellis_loaded(ensure_served):
-    """Load TRELLIS model (frees GPU, starts Docker, loads model)."""
-    _unload_gpu_service("llm", "llm")
-    _stop_comfyui()
-    _wait_for_vram_free(14000, timeout_sec=30)
+    """Load TRELLIS model (stops ComfyUI, starts Docker worker, loads model)."""
+    _unload_gpu_service("comfyui", "comfyui")
     _start_docker_worker("trellis")
     _load_service("trellis", "trellis", "trellis")
 
 
 @pytest.fixture(scope="session")
 def anigen_loaded(ensure_served):
-    """Load AniGen model (stops trellis, starts AniGen worker)."""
+    """Load AniGen model (stops TRELLIS worker, starts AniGen worker)."""
     _stop_docker_worker("trellis")
     _start_docker_worker("anigen")
     _load_service("anigen", "anigen", "anigen")
@@ -213,7 +211,9 @@ def ace_step_loaded(ensure_served):
 
 @pytest.fixture(scope="session")
 def see_through_loaded(ensure_served):
-    """Load See-Through model."""
+    """Load See-Through model (stops Docker workers, unloads ACE-Step)."""
+    _stop_docker_worker("anigen")
+    _unload_gpu_service("ace_step", "ace_step")
     _load_service("see_through", "see_through", "see-through")
 
 
@@ -226,24 +226,36 @@ def get_vram_free_mb() -> int:
     return int(result.stdout.strip().split("\n")[0].strip())
 
 
-def _start_docker_worker(profile: str) -> None:
-    """Start a Docker worker container (idempotent)."""
-    compose_file = str(RAY_ROOT / "infra" / "docker" / "compose.workers.yaml")
-    subprocess.run(
-        ["docker", "compose", "-f", compose_file, "--profile", profile, "up", "-d"],
-        capture_output=True, text=True, timeout=120,
-    )
-    time.sleep(5)
-
-
 def _stop_docker_worker(profile: str) -> None:
-    """Stop a Docker worker container to free VRAM."""
+    """Stop and remove a Docker worker container to free VRAM."""
     compose_file = str(RAY_ROOT / "infra" / "docker" / "compose.workers.yaml")
     subprocess.run(
-        ["docker", "compose", "-f", compose_file, "--profile", profile, "stop", f"{profile}-worker"],
+        ["docker", "compose", "-f", compose_file, "--profile", profile, "down"],
         capture_output=True, text=True, timeout=30,
     )
     time.sleep(2)
+
+
+def _start_docker_worker(profile: str) -> None:
+    """Start a Docker worker container and wait for health check."""
+    compose_file = str(RAY_ROOT / "infra" / "docker" / "compose.workers.yaml")
+    result = subprocess.run(
+        ["docker", "compose", "-f", compose_file, "--profile", profile, "up", "-d"],
+        capture_output=True, text=True, timeout=60,
+    )
+    if result.returncode != 0:
+        raise RuntimeError(f"Failed to start {profile} worker: {result.stderr}")
+
+    # Wait for worker to be ready
+    port = {"trellis": 18401, "anigen": 18402, "vibevoice": 18403}[profile]
+    for _ in range(30):
+        import urllib.request
+        try:
+            urllib.request.urlopen(f"http://127.0.0.1:{port}/health", timeout=3)
+            return
+        except Exception:
+            time.sleep(2)
+    raise TimeoutError(f"Docker worker {profile} did not become healthy within 60s")
 
 
 def _unload_gpu_service(deployment_name: str, app_name: str) -> None:
@@ -254,31 +266,6 @@ def _unload_gpu_service(deployment_name: str, app_name: str) -> None:
     except Exception:
         pass
     time.sleep(2)
-
-
-def _stop_comfyui() -> None:
-    """Stop ComfyUI subprocess via Serve handle."""
-    try:
-        handle = _get_handle("comfyui", "comfyui")
-        _await_serve(handle.options(method_name="stop_comfyui").remote())
-    except Exception:
-        pass
-    time.sleep(2)
-
-
-def _wait_for_vram_free(target_mb: int, timeout_sec: int = 30) -> None:
-    """Poll nvidia-smi until at least target_mb VRAM is free."""
-    deadline = time.time() + timeout_sec
-    while time.time() < deadline:
-        free = get_vram_free_mb()
-        if free >= target_mb:
-            return
-        time.sleep(1)
-    current = get_vram_free_mb()
-    raise RuntimeError(
-        f"VRAM not freed after {timeout_sec}s "
-        f"(free: {current}MB, target: {target_mb}MB)"
-    )
 
 
 # =============================================================================
