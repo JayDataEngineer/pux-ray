@@ -39,21 +39,29 @@ services:
   # Creative tools — managed by infra/docker-compose.yml git-sync sidecars.
   # Each has its own venv (created by infra/setup_venvs.sh).
   # Called via subprocess, not imported in-process.
+  #
+  # Docker migration (future): build images with infra/docker/Dockerfile.*,
+  # then set docker_image on each tool to use runtime_env["container"].
+  # The venv_python/script/working_dir become optional when docker_image is set.
   creative:
 
     # TRELLIS.2 — image-to-3D mesh generation
     # Source: https://github.com/microsoft/TRELLIS.2
+    # Docker: infra/docker/Dockerfile.trellis
     trellis:
       venv_python: ${TECH_NOIR_TRELLIS_PYTHON:infra/repos/TRELLIS.2/.venv/bin/python}
       script: services/creative/wrappers/trellis_cli.py
       working_dir: infra/repos/TRELLIS.2
+      docker_image: ${TECH_NOIR_TRELLIS_IMAGE:}
 
     # AniGen — animated 3D character generation
     # Source: https://github.com/VAST-AI-Research/AniGen
+    # Docker: infra/docker/Dockerfile.anigen
     anigen:
       venv_python: ${TECH_NOIR_ANIGEN_PYTHON:infra/repos/AniGen/.venv/bin/python}
       script: infra/repos/AniGen/example.py
       working_dir: infra/repos/AniGen
+      docker_image: ${TECH_NOIR_ANIGEN_IMAGE:}
 
     # ACE-Step 1.5 — text-to-music generation
     # Source: https://github.com/ace-step/ACE-Step-1.5
@@ -71,7 +79,9 @@ services:
 
     # See-Through — anime character layer decomposition
     # Source: https://github.com/shitagaki-lab/see-through
+    # Docker: infra/docker/Dockerfile.seethrough
     see_through:
       venv_python: ${TECH_NOIR_SEETHROUGH_PYTHON:infra/repos/see-through/.venv/bin/python}
       script: infra/repos/see-through/inference/scripts/inference_psd.py
       working_dir: infra/repos/see-through
+      docker_image: ${TECH_NOIR_SEETHROUGH_IMAGE:}

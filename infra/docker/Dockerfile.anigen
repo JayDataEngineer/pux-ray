@@ -1,0 +1,64 @@
+# AniGen — Image-to-Rigged-3D Docker image for Ray Serve runtime_env["container"]
+# =============================================================================
+# Build:
+#   docker build -f infra/docker/Dockerfile.anigen -t tech-noir/anigen:latest .
+#
+# Base: CUDA 12.1 + Ubuntu 22.04 (matches AniGen requirements)
+FROM nvidia/cuda:12.1.0-devel-ubuntu22.04
+
+ENV DEBIAN_FRONTEND=noninteractive \
+    LANG=C.UTF-8 \
+    PYTHONUNBUFFERED=1 \
+    CUDA_HOME=/usr/local/cuda \
+    FORCE_CUDA=1
+
+# System deps
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    python3.12 python3.12-dev python3.12-venv \
+    curl git wget build-essential cmake \
+    libgl1-mesa-glx libglib2.0-0 libsm6 libxext6 libxrender-dev \
+    libspatialindex-dev \
+    && rm -rf /var/lib/apt/lists/* \
+    && ln -sf /usr/bin/python3.12 /usr/bin/python \
+    && ln -sf /usr/bin/python3.12 /usr/bin/python3
+
+# uv
+RUN curl -LsSf https://astral.sh/uv/install.sh | sh
+ENV PATH="/root/.local/bin:$PATH"
+
+# PyTorch 2.5.1 + CUDA 12.1
+RUN uv pip install --system --no-cache \
+    torch==2.5.1 torchvision==0.20.1 torchaudio==2.5.1 \
+    --index-url https://download.pytorch.org/whl/cu121
+
+# Clone AniGen
+WORKDIR /opt
+RUN git clone --recurse-submodules --depth 1 https://github.com/VAST-AI-Research/AniGen.git anigen
+
+WORKDIR /opt/anigen
+
+# Compiled extensions (pytorch3d, spconv, nvdiffrast)
+RUN pip install pytorch3d --no-build-isolation \
+    && pip install spconv-cu121 --no-build-isolation \
+    && pip install nvdiffrast --no-build-isolation
+
+# Core deps
+RUN uv pip install --system --no-cache \
+    transformers accelerate safetensors diffusers \
+    einops matplotlib scipy opencv-python-headless \
+    trimesh scikit-learn pandas h5py \
+    huggingface-hub omegaconf rich rembg onnxruntime \
+    fastapi uvicorn[standard] python-multipart easydict
+
+# AniGen package
+RUN pip install -e . --no-build-isolation --no-deps || pip install -e . --no-deps
+
+# FastAPI wrapper
+COPY infra/docker/api_anigen.py /opt/api.py
+
+RUN mkdir -p /models/3d/anigen/ckpts
+ENV ANIGEN_MODEL_DIR=/models/3d/anigen/ckpts \
+    HF_HOME=/models/.cache
+
+EXPOSE 8000
+CMD ["python", "/opt/api.py"]
