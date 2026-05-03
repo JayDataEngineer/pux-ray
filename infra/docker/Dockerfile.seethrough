@@ -1,0 +1,36 @@
+# See-Through — Anime character layer decomposition Docker image
+# =============================================================================
+# Build:
+#   docker build -f infra/docker/Dockerfile.seethrough -t tech-noir/seethrough:latest .
+#
+FROM nvidia/cuda:12.8.0-devel-ubuntu22.04
+
+ENV DEBIAN_FRONTEND=noninteractive LANG=C.UTF-8 PYTHONUNBUFFERED=1
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    python3.12 python3.12-dev python3.12-venv \
+    curl git libgl1-mesa-glx libglib2.0-0 \
+    && rm -rf /var/lib/apt/lists/* \
+    && ln -sf /usr/bin/python3.12 /usr/bin/python
+
+RUN curl -LsSf https://astral.sh/uv/install.sh | sh
+ENV PATH="/root/.local/bin:$PATH"
+
+RUN uv pip install --system --no-cache \
+    torch==2.8.0+cu128 torchvision==0.23.0+cu128 torchaudio==2.8.0+cu128 \
+    --index-url https://download.pytorch.org/whl/cu128
+
+WORKDIR /opt
+RUN git clone --depth 1 https://github.com/shitagaki-lab/see-through.git seethrough
+
+WORKDIR /opt/seethrough
+RUN uv pip install --system --no-cache -r requirements.txt \
+    && pip install fastapi uvicorn[standard] python-multipart
+
+COPY infra/docker/api_seethrough.py /opt/api.py
+
+RUN mkdir -p /models/vision/see-through
+ENV SEETHROUGH_MODEL_DIR=/models/vision/see-through HF_HOME=/models/.cache
+
+EXPOSE 8000
+CMD ["python", "/opt/api.py"]
