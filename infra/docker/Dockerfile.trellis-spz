@@ -2,12 +2,12 @@
 # =============================================================================
 # Fork: https://github.com/IgorAherne/trellis-stable-projectorz
 # Optimizations: float16 (vs float32), int32 (vs int64) — fits in 8GB VRAM
-# 
+#
 # Build:
 #   docker build -f infra/docker/Dockerfile.trellis-spz -t tech-noir/trellis-spz:latest .
 #
 # Models: jetx/TRELLIS-image-large loaded from /models (host-mounted at runtime)
-FROM nvidia/cuda:12.4.0-devel-ubuntu22.04
+FROM nvidia/cuda:12.1.0-devel-ubuntu22.04
 
 ENV DEBIAN_FRONTEND=noninteractive \
     LANG=C.UTF-8 \
@@ -23,38 +23,38 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && ln -sf /usr/bin/python3.11 /usr/bin/python3 \
     && ln -sf /usr/bin/pip3 /usr/bin/pip
 
-# Clone trellis-stable-projectorz with submodules (flexicubes fork)
 RUN git clone --recurse-submodules --depth 1 \
     https://github.com/IgorAherne/trellis-stable-projectorz.git /opt/trellis
 WORKDIR /opt/trellis
 
-# Install torch for CUDA 12.4 (compatible with fork's CUDA 12.8 requirement)
+# Install torch + torchvision (cu121 — original TRELLIS CUDA version)
 RUN pip install --no-cache-dir \
-    torch==2.5.1 torchvision==0.20.1 torchaudio==2.5.1 \
-    --index-url https://download.pytorch.org/whl/cu124
+    torch torchvision torchaudio \
+    --index-url https://download.pytorch.org/whl/cu121
 
-# Install pip deps (skip CUDA extension wheels — install from requirements first, then whl folder)
-# Install pip deps (filter out Windows-only packages like pywin32)
-RUN grep -v 'pywin32\|pyreadline3' requirements.txt > /tmp/reqs_linux.txt && \
-    pip install --no-cache-dir -r /tmp/reqs_linux.txt && \
-    pip install --no-cache-dir \
-    flash-attn==2.7.3 --no-build-isolation \
-    fastapi "uvicorn[standard]" python-multipart
+# Install Python deps (filter Windows-only packages AND kaolin placeholder)
+RUN grep -v 'pywin32\|pyreadline3\|^kaolin' requirements.txt > /tmp/reqs_linux.txt && \
+    pip install --no-cache-dir -r /tmp/reqs_linux.txt
 
-# Install wheel files from whl/ directory (pre-built CUDA extensions)
-RUN pip install --no-cache-dir /opt/trellis/whl/*.whl 2>/dev/null; true
+# Flash-attention and API deps
+RUN pip install --no-cache-dir flash-attn --no-build-isolation || \
+    pip install --no-cache-dir xformers
 
-# Install remaining compiled CUDA packages via pip
-RUN pip install --no-cache-dir \
-    spconv-cu124 xformers \
-    || pip install --no-cache-dir spconv xformers
+# Compiled CUDA extensions and 3D libraries
+RUN pip install --no-cache-dir utils3d || true
+# Patch: kaolin placeholder blocks import — replace with no-op (check_tensor is a validation util)
+RUN sed -i 's/from kaolin.utils.testing import check_tensor/def check_tensor(*a,**k): return True/' \
+    /opt/trellis/trellis/representations/mesh/flexicubes/flexicubes.py
+RUN pip install --no-cache-dir nvdiffrast || true
+RUN pip install --no-cache-dir spconv-cu121 || pip install --no-cache-dir spconv || true
 
-# Our API wrapper — matches the existing TRELLIS HTTPToolMixin contract
+RUN pip install --no-cache-dir fastapi "uvicorn[standard]" python-multipart
+
 COPY infra/docker/api_trellis_spz.py /opt/api.py
 
 ENV ATTN_BACKEND=flash-attn \
     SPCONV_ALGO=native \
-    HF_HOME=/models/.cache
+    HF_HOME=/tmp/hf_cache
 
 EXPOSE 8000
 CMD ["python", "/opt/api.py"]
