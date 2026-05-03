@@ -9,7 +9,8 @@
 # No manual cloning, no git submodules.
 #
 # Usage:
-#   docker compose run --rm tools-sync     # Clone all creative tools (first run)
+#   docker compose run --rm comfyui-ext-sync    # Clone ComfyUI extensions
+#   docker compose run --rm tools-sync           # Clone all creative tools (first run)
 #   docker compose run --rm llama-sync     # Clone llama.cpp (first run)
 #   docker compose up -d media             # Start media-analysis-mcp
 #   docker compose up -d web               # Start local-web-mcp
@@ -17,6 +18,11 @@
 #
 # After first clone, run: bash infra/setup_venvs.sh
 # to create Python venvs for each creative tool.
+#
+# ComfyUI extensions: after cloning, symlink into ComfyUI custom_nodes:
+#   for d in infra/repos/comfyui-extensions/*; do
+#     ln -s "$(pwd)/$d" /path/to/comfyui/custom_nodes/;
+#   done
 
 x-git-sync-common: &git-sync-common
   image: docker.io/alpine/git:2.45.2
@@ -202,6 +208,39 @@ services:
         echo 'Updating llama.cpp...';
         cd /repos/llama.cpp && git pull --ff-only;
       fi"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# ComfyUI Custom Node Extensions (IaC-managed)
+# Cloned to ./repos/comfyui-extensions/ — symlink into ComfyUI custom_nodes/
+# ─────────────────────────────────────────────────────────────────────────────
+  comfyui-ext-sync:
+    <<: *git-sync-common
+    container_name: comfyui-ext-sync
+    volumes:
+      - ./repos:/repos
+    command: >
+      "mkdir -p /repos/comfyui-extensions;
+      if [ -n \"$$GH_TOKEN\" ]; then
+        git config --global credential.helper store;
+        echo \"https://x-access-token:$$GH_TOKEN@github.com\" > ~/.git-credentials;
+      fi;
+      for repo in COMFYUI-PBRFusion4 ComfyUI-QFX-PBRGenerator;
+      do
+        case \"$$repo\" in
+          COMFYUI-PBRFusion4)
+            url='https://github.com/Night1099/COMFYUI-PBRFusion4.git' ;;
+          ComfyUI-QFX-PBRGenerator)
+            url='https://github.com/qornflex/ComfyUI-QFX-PBRGenerator.git' ;;
+        esac;
+        if [ ! -d \"/repos/comfyui-extensions/$$repo/.git\" ]; then
+          echo \"Cloning $$repo...\";
+          git clone --depth 1 \"$$url\" \"/repos/comfyui-extensions/$$repo\";
+        else
+          echo \"Updating $$repo...\";
+          git -C \"/repos/comfyui-extensions/$$repo\" pull --ff-only;
+        fi;
+      done;
+      echo 'All ComfyUI extensions synced.'"
 
 volumes:
   media-models:
