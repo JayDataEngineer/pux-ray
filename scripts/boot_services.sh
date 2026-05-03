@@ -16,6 +16,16 @@ log "Waiting for network..."
 until ping -c 1 -W 2 8.8.8.8 &>/dev/null; do sleep 2; done
 log "Network ready"
 
+# Clean old Ray session logs from tmpfs to prevent disk exhaustion.
+# Ray stores ~1-2 GB of logs per session; old sessions never auto-removed.
+if [ -d /tmp/ray ]; then
+    log "Cleaning old Ray session logs..."
+    find /tmp/ray/session_* -maxdepth 0 -type d 2>/dev/null | while read d; do
+        echo "  Removing $d"
+        rm -rf "$d"
+    done
+fi
+
 # Start Ray cluster
 log "Starting Ray cluster..."
 bash "$PROJECT_ROOT/scripts/start_cluster.sh" >> "$LOG_DIR/ray.log" 2>&1

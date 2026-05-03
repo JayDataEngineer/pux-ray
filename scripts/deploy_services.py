@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import sys
 import os
+import shutil
+import time
 
 # Add project root to path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -19,8 +21,33 @@ from ray import serve
 if not ray.is_initialized():
     ray.init(address="auto")
 
-# Configure Serve HTTP proxy
-serve.start(http_options={"host": "0.0.0.0", "port": 18800})
+# Clean up old Ray session logs from /tmp to prevent tmpfs exhaustion.
+# Ray creates /tmp/ray/session_<timestamp>_<id>/logs/ per start; logs
+# accumulate ~1-2 GB per session and are never auto-removed.
+# boot_services.sh also cleans these before Ray start, but clean again
+# as a safety net for manual deploys.
+_ray_tmp = "/tmp/ray"
+if os.path.isdir(_ray_tmp):
+    _now = time.time()
+    for entry in sorted(os.listdir(_ray_tmp)):
+        if not entry.startswith("session_"):
+            continue
+        session_dir = os.path.join(_ray_tmp, entry)
+        try:
+            age_hours = (_now - os.stat(session_dir).st_mtime) / 3600
+            if age_hours > 1:
+                shutil.rmtree(session_dir)
+                print(f"Cleaned old Ray session: {entry} ({age_hours:.0f}h old)")
+        except OSError:
+            pass
+
+# Configure Serve HTTP proxy — only if not already running
+try:
+    serve.status()
+    print("Ray Serve already running, skipping HTTP config")
+except Exception:
+    serve.start(http_options={"host": "0.0.0.0", "port": 18800})
+    print("Ray Serve HTTP configured on 0.0.0.0:18800")
 
 # Deploy GPU scheduler as a named actor
 from gateway.gpu_scheduler import GPUScheduler
