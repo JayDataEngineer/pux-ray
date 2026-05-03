@@ -19,13 +19,14 @@ ENV DEBIAN_FRONTEND=noninteractive \
 
 # System deps (Python 3.10 is native on Ubuntu 22.04)
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    python3.10 python3.10-dev python3.10-venv \
+    python3.10 python3.10-dev python3.10-venv python3-pip \
     curl git wget build-essential cmake \
     libgl1-mesa-glx libglib2.0-0 libsm6 libxext6 libxrender-dev \
     libsndfile1 libsndfile1-dev \
     && rm -rf /var/lib/apt/lists/* \
     && ln -sf /usr/bin/python3.10 /usr/bin/python \
-    && ln -sf /usr/bin/python3.10 /usr/bin/python3
+    && ln -sf /usr/bin/python3.10 /usr/bin/python3 \
+    && ln -sf /usr/bin/pip3 /usr/bin/pip
 
 # uv for fast Python package management
 RUN curl -LsSf https://astral.sh/uv/install.sh | sh
@@ -42,10 +43,10 @@ RUN git clone --recursive --depth 1 https://github.com/microsoft/TRELLIS.2.git t
 
 WORKDIR /opt/trellis2
 
-# Install compiled CUDA extensions (o-voxel, cumesh, nvdiffrast, flexgemm)
-# Each must be built from source against the installed CUDA toolkit.
-RUN cd o-voxel && pip install -e . --no-build-isolation && cd .. \
-    && pip install nvdiffrast --no-build-isolation \
+# Install compiled CUDA extensions (o-voxel from source with GCC 12 for CUDA compat)
+RUN apt-get update && apt-get install -y --no-install-recommends gcc-12 g++-12 && rm -rf /var/lib/apt/lists/* && \
+    CC=gcc-12 CXX=g++-12 pip install -e o-voxel --no-build-isolation && \
+    pip install nvdiffrast --no-build-isolation \
     && pip install flexgemm --no-build-isolation
 
 # Python deps (matched from setup.sh --basic)

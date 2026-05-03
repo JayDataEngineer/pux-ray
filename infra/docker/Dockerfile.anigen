@@ -14,13 +14,14 @@ ENV DEBIAN_FRONTEND=noninteractive \
 
 # System deps (Python 3.10 is native on Ubuntu 22.04)
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    python3.10 python3.10-dev python3.10-venv \
+    python3.10 python3.10-dev python3.10-venv python3-pip \
     curl git wget build-essential cmake \
     libgl1-mesa-glx libglib2.0-0 libsm6 libxext6 libxrender-dev \
     libspatialindex-dev \
     && rm -rf /var/lib/apt/lists/* \
     && ln -sf /usr/bin/python3.10 /usr/bin/python \
-    && ln -sf /usr/bin/python3.10 /usr/bin/python3
+    && ln -sf /usr/bin/python3.10 /usr/bin/python3 \
+    && ln -sf /usr/bin/pip3 /usr/bin/pip
 
 # uv
 RUN curl -LsSf https://astral.sh/uv/install.sh | sh
@@ -37,9 +38,11 @@ RUN git clone --recurse-submodules --depth 1 https://github.com/VAST-AI-Research
 
 WORKDIR /opt/anigen
 
-# Compiled extensions (pytorch3d, spconv, nvdiffrast)
-RUN pip install pytorch3d --no-build-isolation \
-    && pip install spconv-cu121 --no-build-isolation \
+# Compiled extensions: pytorch3d from source (no pre-built CUDA 12.1 wheel)
+RUN pip install "git+https://github.com/facebookresearch/pytorch3d.git@stable" \
+    || pip install pytorch3d --no-build-isolation \
+    || true && \
+    pip install spconv-cu121 --no-build-isolation \
     && pip install nvdiffrast --no-build-isolation
 
 # Core deps

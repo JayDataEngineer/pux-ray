@@ -1,0 +1,60 @@
+# TRELLIS StableProjectorz — VRAM-optimized (8GB) Image-to-3D Docker image
+# =============================================================================
+# Fork: https://github.com/IgorAherne/trellis-stable-projectorz
+# Optimizations: float16 (vs float32), int32 (vs int64) — fits in 8GB VRAM
+# 
+# Build:
+#   docker build -f infra/docker/Dockerfile.trellis-spz -t tech-noir/trellis-spz:latest .
+#
+# Models: jetx/TRELLIS-image-large loaded from /models (host-mounted at runtime)
+FROM nvidia/cuda:12.4.0-devel-ubuntu22.04
+
+ENV DEBIAN_FRONTEND=noninteractive \
+    LANG=C.UTF-8 \
+    PYTHONUNBUFFERED=1
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    python3.11 python3.11-dev python3.11-venv python3-pip \
+    build-essential git cmake \
+    libgl1-mesa-glx libglib2.0-0 libsm6 libxext6 libxrender-dev \
+    libspatialindex-dev \
+    && rm -rf /var/lib/apt/lists/* \
+    && ln -sf /usr/bin/python3.11 /usr/bin/python \
+    && ln -sf /usr/bin/python3.11 /usr/bin/python3 \
+    && ln -sf /usr/bin/pip3 /usr/bin/pip
+
+# Clone trellis-stable-projectorz with submodules (flexicubes fork)
+RUN git clone --recurse-submodules --depth 1 \
+    https://github.com/IgorAherne/trellis-stable-projectorz.git /opt/trellis
+WORKDIR /opt/trellis
+
+# Install torch for CUDA 12.4 (compatible with fork's CUDA 12.8 requirement)
+RUN pip install --no-cache-dir \
+    torch==2.5.1 torchvision==0.20.1 torchaudio==2.5.1 \
+    --index-url https://download.pytorch.org/whl/cu124
+
+# Install pip deps (skip CUDA extension wheels — install from requirements first, then whl folder)
+# Install pip deps (filter out Windows-only packages like pywin32)
+RUN grep -v 'pywin32\|pyreadline3' requirements.txt > /tmp/reqs_linux.txt && \
+    pip install --no-cache-dir -r /tmp/reqs_linux.txt && \
+    pip install --no-cache-dir \
+    flash-attn==2.7.3 --no-build-isolation \
+    fastapi "uvicorn[standard]" python-multipart
+
+# Install wheel files from whl/ directory (pre-built CUDA extensions)
+RUN pip install --no-cache-dir /opt/trellis/whl/*.whl 2>/dev/null; true
+
+# Install remaining compiled CUDA packages via pip
+RUN pip install --no-cache-dir \
+    spconv-cu124 xformers \
+    || pip install --no-cache-dir spconv xformers
+
+# Our API wrapper — matches the existing TRELLIS HTTPToolMixin contract
+COPY infra/docker/api_trellis_spz.py /opt/api.py
+
+ENV ATTN_BACKEND=flash-attn \
+    SPCONV_ALGO=native \
+    HF_HOME=/models/.cache
+
+EXPOSE 8000
+CMD ["python", "/opt/api.py"]

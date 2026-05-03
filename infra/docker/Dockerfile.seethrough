@@ -3,29 +3,33 @@
 # Build:
 #   docker build -f infra/docker/Dockerfile.seethrough -t tech-noir/seethrough:latest .
 #
-FROM nvidia/cuda:12.8.0-devel-ubuntu22.04
+# Base: CUDA 12.4 (stable, widely supported)
+FROM nvidia/cuda:12.4.0-devel-ubuntu22.04
 
 ENV DEBIAN_FRONTEND=noninteractive LANG=C.UTF-8 PYTHONUNBUFFERED=1
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    python3.10 python3.10-dev python3.10-venv \
+    python3.10 python3.10-dev python3.10-venv python3-pip \
     curl git libgl1-mesa-glx libglib2.0-0 \
+    build-essential \
     && rm -rf /var/lib/apt/lists/* \
-    && ln -sf /usr/bin/python3.10 /usr/bin/python
+    && ln -sf /usr/bin/python3.10 /usr/bin/python \
+    && ln -sf /usr/bin/python3.10 /usr/bin/python3 \
+    && ln -sf /usr/bin/pip3 /usr/bin/pip
 
-RUN curl -LsSf https://astral.sh/uv/install.sh | sh
-ENV PATH="/root/.local/bin:$PATH"
-
-RUN uv pip install --system --no-cache \
-    torch==2.8.0+cu128 torchvision==0.23.0+cu128 torchaudio==2.8.0+cu128 \
-    --index-url https://download.pytorch.org/whl/cu128
+RUN pip install --no-cache-dir \
+    torch==2.6.0 torchvision==0.21.0 torchaudio==2.6.0 \
+    --index-url https://download.pytorch.org/whl/cu124
 
 WORKDIR /opt
 RUN git clone --depth 1 https://github.com/shitagaki-lab/see-through.git seethrough
 
 WORKDIR /opt/seethrough
-RUN uv pip install --system --no-cache -r requirements.txt \
-    && pip install fastapi uvicorn[standard] python-multipart
+# Install deps (skip editable local packages and heavyweight Qt/UI deps, resolve separately)
+RUN grep -v '^-e \|PyQt\|qtpy\|natsort\|py7zr\|ipykernel\|Cython\|pytest' requirements.txt > /tmp/reqs_fixed.txt && \
+    pip install --no-cache-dir -r /tmp/reqs_fixed.txt || true && \
+    pip install --no-cache-dir ./common ./annotators || true && \
+    pip install --no-cache-dir fastapi "uvicorn[standard]" python-multipart
 
 COPY infra/docker/api_seethrough.py /opt/api.py
 

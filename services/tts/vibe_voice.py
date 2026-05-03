@@ -26,10 +26,7 @@ logger = logging.getLogger(__name__)
     name="vibevoice",
     num_replicas=1,
     max_ongoing_requests=1,
-    ray_actor_options={
-        "num_gpus": 0.01,
-        "num_cpus": 0.5,
-    },
+    ray_actor_options={"num_gpus": 1.0, "num_cpus": 0.5},
 )
 class VibeVoiceDeployment(BaseGPUDeployment, HTTPToolMixin):
     """VibeVoice long-form multi-speaker TTS via Docker worker."""
@@ -44,8 +41,7 @@ class VibeVoiceDeployment(BaseGPUDeployment, HTTPToolMixin):
         self.model = None
 
     def _ensure_loaded(self) -> None:
-        if not hasattr(self, "_base_url"):
-            self._load()
+        self._ensure_healthy(port=18403, service_name="vibevoice", timeout=600)
 
     async def __call__(self, request):
         self._ensure_loaded()

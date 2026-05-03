@@ -1,25 +1,22 @@
-"""LLM deployment - wraps llama.cpp server as a Ray Serve deployment.
+"""LLM deployment — llama.cpp server in Docker via HTTPToolMixin.
 
-Manages the llama.cpp subprocess lifecycle:
-- Start with specific GGUF model
-- Proxy OpenAI-compatible API calls (non-streaming via handle, streaming via ingress)
-- Kill and restart for model swaps (with ghost VRAM prevention)
+Manages llama.cpp lifecycle via Docker container (ghcr.io/ggml-org/llama.cpp:server-cuda).
+Models mounted from host at /models. Docker container started with custom CLI args
+for model selection, context size, GPU layers, etc.
 
-Model loading runs in a thread to avoid blocking the Ray Serve event loop.
-The ingress router handles streaming by proxying directly to llama-server.
+Model swaps: stop current container, start new one with different model.
+Health check: polls /v1/models until the model appears.
 """
-
 from __future__ import annotations
 
 import logging
 import time
 from pathlib import Path
-from typing import Optional
 
 import httpx
 from ray import serve
 
-from services.base import BaseGPUDeployment, SubprocessMixin
+from services.base import BaseGPUDeployment, HTTPToolMixin
 
 logger = logging.getLogger(__name__)
 
@@ -28,52 +25,21 @@ logger = logging.getLogger(__name__)
     name="llm",
     num_replicas=1,
     max_ongoing_requests=8,
-    ray_actor_options={
-        "num_gpus": 0.01,
-    },
+    ray_actor_options={"num_gpus": 1.0},
 )
-class LLMDeployment(BaseGPUDeployment, SubprocessMixin):
-    """Ray Serve deployment wrapping llama.cpp server."""
+class LLMDeployment(BaseGPUDeployment, HTTPToolMixin):
+    """Ray Serve deployment wrapping llama.cpp server (Docker)."""
+
+    PORT = 18399
 
     def __init__(self):
         super().__init__()
-        self.port = 18399
-        self.base_url = f"http://127.0.0.1:{self.port}"
-        self._llama_server_path: Optional[str] = None
-
-    def _resolve_server_path(self) -> str:
-        """Lazily resolve llama-server binary path from config."""
-        import os
-        from registry.config import Config
-
-        env_path = os.environ.get("LLAMA_SERVER_PATH")
-        if env_path:
-            return env_path
-
-        config = Config()
-        raw = config.get("binaries.llama_server", "llama-server")
-        p = Path(raw)
-        if not p.is_absolute():
-            p = config.project_root / p
-        resolved = str(p.resolve())
-
-        if not Path(resolved).exists():
-            raise FileNotFoundError(
-                f"llama-server not found at {resolved}. "
-                f"Set LLAMA_SERVER_PATH or configure binaries.llama_server."
-            )
-        return resolved
+        self.base_url = f"http://127.0.0.1:{self.PORT}"
 
     def _load(self, model_name: str) -> None:
-        """Start llama-server with the specified model.
-
-        Runs in a thread via load_model() -> asyncio.to_thread().
-        """
+        """Start llama-server Docker container with the specified model."""
         from registry.config import Config
         from registry.models import ModelRegistry
-
-        if not self._llama_server_path:
-            self._llama_server_path = self._resolve_server_path()
 
         config = Config()
         registry = ModelRegistry()
@@ -87,11 +53,14 @@ class LLMDeployment(BaseGPUDeployment, SubprocessMixin):
         parallel = meta.get("parallel", config.get("llm.parallel", 4))
         n_gpu_layers = meta.get("n_gpu_layers", 99)
 
-        cmd = [
-            self._llama_server_path,
-            "-m", str(model_path),
-            "--port", str(self.port),
-            "--host", "127.0.0.1",
+        # Resolve model path inside container (/models is host models_root)
+        container_model = f"/models/{model_path.relative_to(config.models_root)}"
+
+        # Docker CMD args: override the default entrypoint with our model
+        docker_args = [
+            "-m", container_model,
+            "--port", str(self.PORT),
+            "--host", "0.0.0.0",
             "-ngl", str(n_gpu_layers),
             "-c", str(ctx_size),
             "--parallel", str(parallel),
@@ -104,63 +73,30 @@ class LLMDeployment(BaseGPUDeployment, SubprocessMixin):
             if not full_mmproj.is_absolute():
                 full_mmproj = Path(config.models_root) / mmproj_path
             if full_mmproj.exists():
-                cmd.extend(["--mmproj", str(full_mmproj)])
+                container_mmproj = f"/models/{full_mmproj.relative_to(config.models_root)}"
+                docker_args.extend(["--mmproj", container_mmproj])
 
-        logger.info("Starting llama-server: %s", " ".join(cmd))
-        self.start_process(cmd)
+        logger.info("Starting llama-server: model=%s (port=%d)...", model_name, self.PORT)
+
+        self._init_http(
+            port=self.PORT,
+            service_name="llm",
+            timeout=300,
+            container_port=self.PORT,
+            image_name="ghcr.io/ggml-org/llama.cpp:server-cuda",
+            health_path="/v1/models",
+            docker_args=docker_args,
+        )
+
         self.model_name = model_name
         self.model = True
-
-        # Single wait loop: poll /v1/models until the model appears
-        if not self._wait_for_model_ready(model_path.name, timeout=300):
-            if self.process and self.process.poll() is not None:
-                stderr = ""
-                if hasattr(self, "_stderr_file") and self._stderr_file:
-                    try:
-                        self._stderr_file.flush()
-                        stderr = Path(self._stderr_file.name).read_text()[-500:]
-                    except Exception:
-                        pass
-                raise RuntimeError(f"llama-server died during startup: {stderr}")
-            raise TimeoutError(f"Model {model_name} didn't become ready in 300s")
-
-        logger.info("LLM %s ready on port %d", model_name, self.port)
+        logger.info("LLM %s ready on port %d", model_name, self.PORT)
 
     def _unload(self) -> None:
-        """Kill llama-server subprocess."""
-        self.stop_process()
-
-    def _wait_for_model_ready(self, model_filename: str, timeout: int = 300) -> bool:
-        """Poll /v1/models until our model appears or server is healthy.
-
-        Single loop replaces the old double wait_for_health + _wait_for_model_ready.
-        Checks /v1/models first (model ready), falls back to /health (server up).
-        """
-        deadline = time.time() + timeout
-        model_id = model_filename.replace(".gguf", "")
-
-        while time.time() < deadline:
-            # Check if subprocess died
-            if self.process and self.process.poll() is not None:
-                return False
-
-            try:
-                resp = httpx.get(f"{self.base_url}/v1/models", timeout=5)
-                if resp.status_code == 200:
-                    data = resp.json()
-                    models = data.get("data", [])
-                    # Check if our model is listed
-                    for m in models:
-                        if model_id in m.get("id", ""):
-                            return True
-                    # Single model mode — if only 1 model listed, it's ours
-                    if len(models) == 1:
-                        return True
-            except (httpx.ConnectError, httpx.TimeoutException):
-                pass
-
-            time.sleep(2)
-        return False
+        """Stop the llama-server Docker container."""
+        self._stop_container()
+        self.model = None
+        self.model_name = None
 
     async def chat(self, messages: list[dict], model: str = "",
                    stream: bool = False, **kwargs) -> dict:

@@ -42,18 +42,18 @@ bash "$PROJECT_ROOT/scripts/start_mcp.sh" start >> "$LOG_DIR/mcp.log" 2>&1
 log "MCP servers started"
 
 # Start ingress
-log "Starting ingress on port 8080..."
+log "Starting ingress on port 18080..."
 cd "$PROJECT_ROOT"
 nohup "$VENV/python" -c "
 import ray
 ray.init(address='auto', namespace='tech_noir')
 import uvicorn
 from gateway.ingress import create_app
-uvicorn.run(create_app(), host='0.0.0.0', port=8080)
+uvicorn.run(create_app(), host='0.0.0.0', port=18080)
 " >> "$LOG_DIR/ingress.log" 2>&1 &
 log "Ingress PID: $!"
 
 log "Boot complete. All services running."
-log "  Ingress:    http://$(tailscale ip -4 2>/dev/null || hostname -I | awk '{print $1}'):8080"
-log "  Dashboard:  http://$(tailscale ip -4 2>/dev/null || hostname -I | awk '{print $1}'):8080/dashboard"
-log "  Ray:        http://$(tailscale ip -4 2>/dev/null || hostname -I | awk '{print $1}'):8265"
+log "  Ingress:    http://$(tailscale ip -4 2>/dev/null || hostname -I | awk '{print $1}'):18080"
+log "  Dashboard:  http://$(tailscale ip -4 2>/dev/null || hostname -I | awk '{print $1}'):18080/dashboard"
+log "  Ray:        http://$(tailscale ip -4 2>/dev/null || hostname -I | awk '{print $1}'):18265"

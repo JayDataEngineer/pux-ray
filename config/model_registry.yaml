@@ -648,6 +648,33 @@ comfyui:
     device: gpu
     description: Qwen Image Edit 2511 GGUF Q5_0. For UnetLoaderGGUF (editing stage).
       From unsloth.
+  hy-motion-1.0:
+    path: image-gen/comfyui/HY-Motion/ckpts/tencent/HY-Motion-1.0/
+    source: hf://tencent/HY-Motion-1.0/HY-Motion-1.0
+    download: snapshot
+    sha256: null
+    size_gb: 4.2
+    vram_estimate_gb: 26.0
+    device: gpu
+    description: HY-Motion 1.0 text-to-3D human motion. 1.0B DiT model. ComfyUI-HY-Motion1.
+  hy-motion-1.0-lite:
+    path: image-gen/comfyui/HY-Motion/ckpts/tencent/HY-Motion-1.0-Lite/
+    source: hf://tencent/HY-Motion-1.0/HY-Motion-1.0-Lite
+    download: snapshot
+    sha256: null
+    size_gb: 2.5
+    vram_estimate_gb: 24.0
+    device: gpu
+    description: HY-Motion 1.0 Lite text-to-3D human motion. 0.46B DiT. ComfyUI-HY-Motion1.
+  hy-motion-clip:
+    path: image-gen/comfyui/HY-Motion/ckpts/clip-vit-large-patch14/
+    source: hf://openai/clip-vit-large-patch14
+    download: snapshot
+    sha256: null
+    size_gb: 1.7
+    vram_estimate_gb: 1.0
+    device: gpu
+    description: CLIP ViT-L/14 text encoder for HY-Motion. ComfyUI-HY-Motion1.
 3d:
   trellis:
     path: 3d/trellis/TRELLIS.2-4B/ckpts/

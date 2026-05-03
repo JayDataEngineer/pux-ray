@@ -1,5 +1,8 @@
 """Deploy all Ray Serve applications.
 
+Ray-native IaC: deploys GPU scheduler, ComfyUI extension manager,
+and all AI service deployments via Ray Serve.
+
 Usage:
     python -m scripts.deploy_services
 """
@@ -8,6 +11,8 @@ from __future__ import annotations
 
 import sys
 import os
+import time
+from pathlib import Path
 
 # Add project root to path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -15,12 +20,32 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import ray
 from ray import serve
 
+# Clean old Ray session logs from tmpfs to prevent disk exhaustion.
+# Ray stores ~1-2 GB of logs per session; old sessions never auto-removed.
+# Age-based: only purge sessions older than 1 hour (protects running sessions).
+_now = time.time()
+_tmp_ray = Path("/tmp/ray")
+if _tmp_ray.exists():
+    for session_dir in _tmp_ray.glob("session_*"):
+        try:
+            if session_dir.is_dir() and (_now - session_dir.stat().st_mtime) > 3600:
+                import shutil
+                shutil.rmtree(session_dir)
+                print(f"  Purged old session: {session_dir.name}")
+        except Exception:
+            pass
+
 # Start Ray if not already running
 if not ray.is_initialized():
     ray.init(address="auto")
 
-# Configure Serve HTTP proxy
-serve.start(http_options={"host": "0.0.0.0", "port": 8000})
+# Configure Serve HTTP proxy (only if not already running — prevents "config differs" race)
+try:
+    serve.status()
+    print("Ray Serve already running, skipping serve.start()")
+except Exception:
+    serve.start(http_options={"host": "0.0.0.0", "port": 18800})
+    print("Ray Serve started on port 18800")
 
 # Deploy GPU scheduler as a named actor
 from gateway.gpu_scheduler import GPUScheduler
@@ -90,6 +115,9 @@ serve.run(TRELLISDeployment.bind(), name="trellis", route_prefix="/3d/trellis")
 from services.creative.anigen import AniGenDeployment
 serve.run(AniGenDeployment.bind(), name="anigen", route_prefix="/3d/anigen")
 
+from services.creative.hy_motion import HYMotionDeployment
+serve.run(HYMotionDeployment.bind(), name="hy_motion", route_prefix="/3d/hy-motion")
+
 from services.creative.see_through import SeeThroughDeployment
 serve.run(SeeThroughDeployment.bind(), name="see_through", route_prefix="/creative/see-through")
 
@@ -98,8 +126,8 @@ serve.run(ACEStepDeployment.bind(), name="ace_step", route_prefix="/music/ace-st
 
 print("")
 print("All services deployed!")
-print("  Dashboard: http://localhost:8265")
-print("  API:       http://localhost:8000")
+print("  Dashboard: http://localhost:18265")
+print("  API:       http://localhost:18800")
 print("")
 print("Routes:")
 print("  /llm/*            - LLM (llama.cpp)")
@@ -115,5 +143,6 @@ print("  /asr/qwen/*       - Qwen ASR (GPU)")
 print("  /comfyui/*        - ComfyUI (GPU, WebUI)")
 print("  /3d/trellis/*     - TRELLIS.2 (GPU)")
 print("  /3d/anigen/*      - AniGen (GPU)")
+print("  /3d/hy-motion/*   - HY-Motion (GPU)")
 print("  /creative/see-through/* - See-Through (GPU)")
 print("  /music/ace-step/* - ACE-STEP music (GPU)")
