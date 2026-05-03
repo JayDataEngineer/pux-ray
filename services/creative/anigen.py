@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
     name="anigen",
     num_replicas=1,
     max_ongoing_requests=1,
-    ray_actor_options={"num_gpus": 0.01, "num_cpus": 0.5},
+    ray_actor_options={"num_gpus": 1.0, "num_cpus": 0.5},
 )
 class AniGenDeployment(BaseGPUDeployment, HTTPToolMixin):
     """AniGen animated 3D asset generation via Docker worker."""
@@ -35,8 +35,7 @@ class AniGenDeployment(BaseGPUDeployment, HTTPToolMixin):
         self.model = None
 
     def _ensure_loaded(self) -> None:
-        if not hasattr(self, "_base_url"):
-            self._load()
+        self._ensure_healthy(port=18402, service_name="anigen", timeout=600)
 
     async def __call__(self, request):
         self._ensure_loaded()

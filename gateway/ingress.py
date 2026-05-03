@@ -1,13 +1,13 @@
-"""API Ingress - single entry point for all AI service requests.
+"""API Ingress — single entry point for all AI service requests.
 
-Routes requests to the appropriate Ray Serve deployment,
-handling GPU model swaps via the GPUScheduler.
+Routes requests through the GPUScheduler to serialize GPU access.
+Ray's built-in scheduling (num_gpus=1.0 per deployment) prevents
+concurrent GPU use; the scheduler ensures clean unload-before-load.
 
 Auth: API key via X-API-Key header or api_key query param.
 Set secrets.api_key in config/local.yaml or TECH_NOIR_API_KEY env var.
 Empty/unset = no auth (dev mode).
 """
-
 from __future__ import annotations
 
 import logging
@@ -28,7 +28,6 @@ logger = logging.getLogger(__name__)
 
 
 def _get_api_key() -> str:
-    """Read API key from config (supports env var interpolation)."""
     return Config().get("secrets.api_key", "")
 
 
@@ -40,7 +39,6 @@ class APIKeyMiddleware(BaseHTTPMiddleware):
         if not api_key:
             return await call_next(request)
 
-        # Skip public endpoints
         if request.url.path in ("/health", "/status"):
             return await call_next(request)
 
@@ -52,32 +50,36 @@ class APIKeyMiddleware(BaseHTTPMiddleware):
 
 
 class APIIngress:
-    """Main API router. Composes all deployment handles."""
+    """Main API router. All GPU routes go through GPUScheduler."""
 
     def __init__(self):
         self.gpu_scheduler: Optional[Any] = None
         self._initialized = False
 
-    def _ensure_initialized(self):
+    def _ensure_scheduler(self):
         if self._initialized:
             return
         try:
             self.gpu_scheduler = ray.get_actor("gpu_scheduler")
             self._initialized = True
-            logger.info("Ingress initialized with GPU scheduler")
+            logger.info("Ingress: GPU scheduler ready")
         except Exception as e:
-            logger.warning("Ingress init deferred: %s", e)
+            logger.warning("Ingress: GPU scheduler not available (%s)", e)
+
+    async def _use_gpu(self, service: str, model: str | None = None):
+        """Acquire GPU for a service. Blocks until GPU is freed and service loaded."""
+        self._ensure_scheduler()
+        if self.gpu_scheduler:
+            await self.gpu_scheduler.acquire_gpu.remote(service, model)
 
     # --- LLM Routes ---
 
     async def chat_completions(self, request: Request) -> Response:
-        """POST /v1/chat/completions - OpenAI-compatible chat."""
-        self._ensure_initialized()
         body = await request.json()
         model = body.get("model", "qwen3.5-27b")
 
-        if self.gpu_scheduler and not model.endswith("-cpu"):
-            await self.gpu_scheduler.acquire_gpu.remote("llm", model)
+        if not model.endswith("-cpu"):
+            await self._use_gpu("llm", model)
 
         handle = serve.get_deployment_handle("llm", "llm")
         result = await handle.remote(
@@ -92,16 +94,9 @@ class APIIngress:
     # --- TTS Routes ---
 
     async def audio_speech(self, request: Request) -> Response:
-        """POST /v1/audio/speech - OpenAI-compatible TTS.
-
-        Routes to the appropriate TTS service based on the 'model' field:
-          - tts-01-kokoro (default), tts-01-espeak, tts-01-index,
-            tts-01-qwen, tts-01-vibevoice, tts-01-gpt-sovits
-        """
         body = await request.json()
         model = body.get("model", "tts-01-kokoro")
 
-        # Map model names to Ray Serve deployment names and app names
         tts_services = {
             "tts-01-kokoro": ("kokoro_tts", "kokoro_tts"),
             "tts-01-espeak": ("espeak_tts", "espeak_tts"),
@@ -112,16 +107,17 @@ class APIIngress:
         }
 
         dep_name, app_name = tts_services.get(model, ("kokoro_tts", "kokoro_tts"))
+
+        # GPU TTS services go through the scheduler
+        if dep_name in ("index_tts", "qwen_tts", "vibevoice", "gpt_sovits"):
+            await self._use_gpu(dep_name)
+
         handle = serve.get_deployment_handle(dep_name, app_name)
         return await handle.remote(request)
 
     # --- ASR Routes ---
 
     async def audio_transcriptions(self, request: Request) -> Response:
-        """POST /v1/audio/transcriptions - OpenAI-compatible ASR.
-
-        Routes to whisper by default, or qwen-asr / vibevoice-asr.
-        """
         form = await request.form()
         model = str(form.get("model", "whisper-1"))
 
@@ -132,40 +128,55 @@ class APIIngress:
         }
 
         dep_name, app_name = asr_services.get(model, ("faster_whisper", "faster_whisper"))
+
+        if dep_name in ("qwen_asr", "vibevoice_asr"):
+            await self._use_gpu(dep_name)
+
         handle = serve.get_deployment_handle(dep_name, app_name)
         return await handle.remote(request)
 
     # --- 3D Routes ---
 
     async def trellis_generate(self, request: Request) -> Response:
-        """POST /3d/trellis - Image to 3D mesh."""
-        handle = serve.get_deployment_handle("trellis", "creative")
+        await self._use_gpu("trellis")
+        handle = serve.get_deployment_handle("trellis", "trellis")
         return await handle.remote(request)
 
     async def anigen_generate(self, request: Request) -> Response:
-        """POST /3d/anigen - Image to rigged 3D."""
-        handle = serve.get_deployment_handle("anigen", "creative")
+        await self._use_gpu("anigen")
+        handle = serve.get_deployment_handle("anigen", "anigen")
+        return await handle.remote(request)
+
+    async def hymotion_generate(self, request: Request) -> Response:
+        await self._use_gpu("hy_motion")
+        handle = serve.get_deployment_handle("hy_motion", "hy_motion")
         return await handle.remote(request)
 
     # --- Music Routes ---
 
     async def music_generate(self, request: Request) -> Response:
-        """POST /music/generate - Text to music."""
-        handle = serve.get_deployment_handle("ace_step", "creative")
+        await self._use_gpu("ace_step")
+        handle = serve.get_deployment_handle("ace_step", "ace_step")
         return await handle.remote(request)
 
     # --- Creative Routes ---
 
     async def decompose(self, request: Request) -> Response:
-        """POST /creative/decompose - Image to layers."""
-        handle = serve.get_deployment_handle("see_through", "creative")
+        await self._use_gpu("see_through")
+        handle = serve.get_deployment_handle("see_through", "see_through")
+        return await handle.remote(request)
+
+    # --- ComfyUI proxy ---
+
+    async def comfyui_proxy(self, request: Request) -> Response:
+        await self._use_gpu("comfyui")
+        handle = serve.get_deployment_handle("comfyui", "comfyui")
         return await handle.remote(request)
 
     # --- Status Routes ---
 
     async def status(self, request: Request) -> Response:
-        """GET /status - infrastructure overview (Ray-native, no nvidia-smi)."""
-        self._ensure_initialized()
+        self._ensure_scheduler()
         status = {}
         if self.gpu_scheduler:
             gpu_status = await self.gpu_scheduler.status.remote()
@@ -178,26 +189,22 @@ class APIIngress:
         return JSONResponse(status)
 
     async def health(self, request: Request) -> Response:
-        """GET /health"""
         return JSONResponse({"status": "ok"})
 
     # --- Admin Routes ---
 
     async def load_model(self, request: Request) -> Response:
-        """POST /admin/load - explicitly load a model."""
-        self._ensure_initialized()
+        self._ensure_scheduler()
         body = await request.json()
         service = body["service"]
-        model = body["model"]
-
+        model = body.get("model")
         if self.gpu_scheduler:
             await self.gpu_scheduler.acquire_gpu.remote(service, model)
             return JSONResponse({"status": "loaded", "service": service, "model": model})
         return JSONResponse({"error": "scheduler not available"}, status_code=503)
 
     async def unload_all(self, request: Request) -> Response:
-        """POST /admin/unload - release GPU."""
-        self._ensure_initialized()
+        self._ensure_scheduler()
         if self.gpu_scheduler:
             await self.gpu_scheduler.release_gpu.remote()
             return JSONResponse({"status": "unloaded"})
@@ -209,7 +216,6 @@ def create_app() -> Starlette:
     ingress = APIIngress()
 
     routes = [
-        # Health & Status (public, no auth)
         Route("/health", ingress.health),
         Route("/status", ingress.status),
         # LLM (OpenAI-compatible)
@@ -218,9 +224,13 @@ def create_app() -> Starlette:
         Route("/v1/audio/speech", ingress.audio_speech, methods=["POST"]),
         # ASR (OpenAI-compatible)
         Route("/v1/audio/transcriptions", ingress.audio_transcriptions, methods=["POST"]),
+        # ComfyUI (proxy all paths)
+        Route("/comfyui/{path:path}", ingress.comfyui_proxy, methods=["GET", "POST", "PUT", "DELETE"]),
+        Route("/comfyui", ingress.comfyui_proxy, methods=["GET", "POST", "PUT", "DELETE"]),
         # 3D
         Route("/3d/trellis", ingress.trellis_generate, methods=["POST"]),
         Route("/3d/anigen", ingress.anigen_generate, methods=["POST"]),
+        Route("/3d/hy-motion", ingress.hymotion_generate, methods=["POST"]),
         # Music
         Route("/music/generate", ingress.music_generate, methods=["POST"]),
         # Creative
@@ -239,4 +249,4 @@ def create_app() -> Starlette:
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(create_app(), host="0.0.0.0", port=8000)
+    uvicorn.run(create_app(), host="0.0.0.0", port=18080)

@@ -212,6 +212,215 @@ class SubprocessMixin:
         return False
 
 
+# ─── HTTPToolMixin — Docker-based GPU services ────────────────────────────────
+
+class HTTPToolMixin:
+    """Mixin for services running inside Docker containers.
+
+    Manages Docker container lifecycle (start, health check, stop)
+    and provides async HTTP calls to the container's internal API.
+
+    Used by TRELLIS, AniGen, VibeVoice, and ComfyUI (Docker workers).
+    Each service has a Docker image built from infra/docker/Dockerfile.*.
+    The container runs a FastAPI or ComfyUI server internally.
+    Health check confirms container readiness before accepting requests.
+
+    Subclass example::
+
+        class MyService(BaseGPUDeployment, HTTPToolMixin):
+            def _load(self, model_name):
+                self._init_http(port=18401, service_name="my_service")
+                self.model = True
+                self.model_name = model_name
+
+            async def __call__(self, request):
+                data = await self._call_worker("endpoint", json={...})
+                return Response(content=data)
+    """
+
+    _base_url: str = ""
+    _container_name: str = ""
+
+    def _init_http(
+        self,
+        port: int,
+        service_name: str,
+        timeout: int = 600,
+        container_port: int = 8000,
+        health_path: str = "/health",
+        image_name: str = "",
+        docker_args: list[str] | None = None,
+        mounts: dict[str, str] | None = None,
+    ) -> None:
+        """Start Docker container and wait for health check.
+
+        Args:
+            port: Host port to map.
+            service_name: Docker image name (tech-noir/{service_name}:latest).
+            timeout: Seconds to wait for health check.
+            container_port: Internal container port (8000 for FastAPI, 18465 for ComfyUI).
+            health_path: URL path for health check (e.g. "/health", "/").
+            image_name: Override the default image (e.g. "ghcr.io/ggml-org/llama.cpp:server-cuda").
+            docker_args: Extra args appended after image (e.g. ["-m", "/models/llm/foo.gguf"]).
+            mounts: Additional volume mounts (host_path: container_path).
+        """
+        import time as _time
+
+        image = image_name or f"tech-noir/{service_name}:latest"
+        self._container_name = f"tech-noir-{service_name}"
+
+        # Check if container already running
+        result = subprocess.run(
+            ["docker", "ps", "-q", "-f", f"name={self._container_name}"],
+            capture_output=True, text=True,
+        )
+        if result.stdout.strip():
+            self._base_url = f"http://127.0.0.1:{port}"
+            logger.info("%s container already running on port %d", service_name, port)
+            return
+
+        # Remove any stopped container with same name
+        subprocess.run(
+            ["docker", "rm", "-f", self._container_name],
+            capture_output=True,
+        )
+
+        from registry.config import Config
+        config = Config()
+        models_root = config.models_root
+
+        # Build docker run command
+        cmd = [
+            "docker", "run", "-d",
+            "--name", self._container_name,
+            "--gpus", "all",
+            "-p", f"{port}:{container_port}",
+            "-v", f"{models_root}:/models:ro",
+            "--shm-size", "16g",
+        ]
+
+        if mounts:
+            for host_path, container_path in mounts.items():
+                cmd.extend(["-v", f"{host_path}:{container_path}"])
+
+        cmd.append(image)
+
+        if docker_args:
+            cmd.extend(docker_args)
+
+        logger.info("Starting %s container (port %d → %d)...", service_name, port, container_port)
+        result = subprocess.run(cmd, capture_output=True, text=True)
+        if result.returncode != 0:
+            raise RuntimeError(f"Failed to start {service_name} container: {result.stderr}")
+
+        self._base_url = f"http://127.0.0.1:{port}"
+
+        # Wait for health
+        import httpx
+        deadline = _time.time() + timeout
+        health_url = f"{self._base_url}{health_path}"
+        while _time.time() < deadline:
+            try:
+                resp = httpx.get(health_url, timeout=5)
+                if resp.status_code == 200:
+                    logger.info("%s healthy (port=%d)", service_name, port)
+                    return
+            except (httpx.ConnectError, httpx.TimeoutException, httpx.ReadError):
+                pass
+            _time.sleep(2)
+        raise TimeoutError(f"{service_name} not healthy after {timeout}s (tried {health_url})")
+
+    async def _call_worker(
+        self,
+        endpoint: str,
+        method: str = "POST",
+        timeout: int = 300,
+        **kwargs,
+    ) -> bytes:
+        """Call the container's internal API and return raw bytes.
+
+        Args:
+            endpoint: API endpoint path (e.g. "generate").
+            method: HTTP method.
+            timeout: Request timeout in seconds.
+            **kwargs: Passed to httpx.AsyncClient.request() (files, json, data, etc.).
+        """
+        import httpx
+        url = f"{self._base_url}/{endpoint}"
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            resp = await client.request(method, url, **kwargs)
+            resp.raise_for_status()
+            return resp.content
+
+    def _is_container_alive(self) -> bool:
+        """Check if the Docker container is running and healthy."""
+        if not self._container_name or not self._base_url:
+            return False
+
+        result = subprocess.run(
+            ["docker", "ps", "-q", "-f", f"name={self._container_name}"],
+            capture_output=True, text=True,
+        )
+        if not result.stdout.strip():
+            return False
+
+        import httpx
+        try:
+            resp = httpx.get(f"{self._base_url}{self._health_path}", timeout=5)
+            return resp.status_code == 200
+        except Exception:
+            return False
+
+    def _ensure_healthy(
+        self,
+        port: int,
+        service_name: str,
+        timeout: int = 120,
+        container_port: int = 8000,
+        health_path: str = "/health",
+        image_name: str = "",
+        docker_args: list[str] | None = None,
+    ) -> None:
+        """Ensure the Docker container is alive and healthy. Re-inits if dead.
+        
+        Use this instead of custom _ensure_loaded patterns. Checks both
+        that the container process is alive AND the health endpoint responds.
+        If either fails, tears down and re-initializes the container.
+        """
+        if self._is_container_alive():
+            return
+
+        if self._container_name:
+            self._stop_container()
+
+        self._health_path = health_path
+        self._init_http(
+            port=port,
+            service_name=service_name,
+            timeout=timeout,
+            container_port=container_port,
+            health_path=health_path,
+            image_name=image_name,
+            docker_args=docker_args,
+        )
+
+    def _stop_container(self) -> None:
+        """Stop and remove the Docker container."""
+        if not self._container_name:
+            return
+        subprocess.run(
+            ["docker", "stop", "-t", "10", self._container_name],
+            capture_output=True,
+        )
+        subprocess.run(
+            ["docker", "rm", "-f", self._container_name],
+            capture_output=True,
+        )
+        self._base_url = ""
+        self._container_name = ""
+        logger.info("Stopped container: %s", self._container_name)
+
+
 # ─── CLIToolMixin — compiled CUDA tools (→ Docker later) ─────────────────────
 
 class CLIToolMixin:

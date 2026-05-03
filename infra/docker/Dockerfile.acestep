@@ -1,0 +1,37 @@
+# ACE-STEP 1.5 — Text-to-Music Docker image for Ray Serve
+# =============================================================================
+# Build:
+#   docker build -f infra/docker/Dockerfile.acestep -t tech-noir/acestep:latest .
+#
+# Base: CUDA 12.6 runtime (matches upstream ACE-Step Dockerfile)
+# Models mounted at /models/audio/acestep (host models_root/audio/acestep)
+FROM nvidia/cuda:12.6.0-runtime-ubuntu22.04
+
+ENV DEBIAN_FRONTEND=noninteractive \
+    LANG=C.UTF-8 \
+    PYTHONUNBUFFERED=1 \
+    ACESTEP_CHECKPOINTS_DIR=/models/audio/acestep \
+    HF_HOME=/models/.cache
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    python3.10 python3.10-dev python3.10-venv python3-pip \
+    build-essential git curl \
+    libsndfile1 libsndfile1-dev \
+    && rm -rf /var/lib/apt/lists/* \
+    && ln -sf /usr/bin/python3.10 /usr/bin/python \
+    && ln -sf /usr/bin/python3.10 /usr/bin/python3 \
+    && ln -sf /usr/bin/pip3 /usr/bin/pip
+
+WORKDIR /opt
+RUN git clone --depth 1 https://github.com/ace-step/ACE-Step-1.5.git acestep
+WORKDIR /opt/acestep
+
+RUN pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu124 && \
+    pip install --no-cache-dir -r requirements.txt || true && \
+    pip install --no-cache-dir fastapi uvicorn python-multipart
+
+COPY infra/docker/api_acestep.py /opt/api.py
+
+EXPOSE 8000
+CMD ["python", "/opt/api.py"]

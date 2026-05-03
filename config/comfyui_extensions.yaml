@@ -1,24 +1,25 @@
-# ComfyUI Custom Nodes — Single Source of Truth (Ray-native)
-# ============================================================
+# ComfyUI Custom Nodes — Single Source of Truth (Ray-native IaC)
+# =======================================================================
 # Managed by ComfyUIExtensionManager Ray actor.
 # All ComfyUI custom_nodes declared here. No shell scripts.
 #
-# Each entry:
-#   name:      directory name in custom_nodes/
-#   url:       GitHub clone URL
-#   desc:      what it provides (human-readable)
-#   required:  hard dependency for the ComfyUI pipeline (bool)
+# fields:
+#   name:       directory name in custom_nodes/
+#   url:        GitHub clone URL
+#   desc:       what it provides (human-readable)
+#   required:   hard dependency for the ComfyUI pipeline (bool)
+#   ref:        (optional) pin to a specific commit/tag (e.g. "4c5add5")
+#   pip:        (optional) pip packages to install in ComfyUI venv
 extensions:
   # ── Core / Required ────────────────────────────────────
-  - name: ComfyUI-Manager
-    url: https://github.com/Comfy-Org/ComfyUI-Manager.git
-    desc: Extension manager (catalog, install, update)
-    required: true
-
   - name: comfyui_controlnet_aux
     url: https://github.com/Fannovel16/comfyui_controlnet_aux
     desc: Normal/depth/pose preprocessors
     required: true
+    pip:
+      - opencv-python-headless
+      - matplotlib
+      - scikit-image
 
   # ── VNCCS / Pose Director ──────────────────────────────
   - name: comfyui-pose-director
@@ -31,10 +32,12 @@ extensions:
     desc: VNCCS node definitions
     required: true
 
-  - name: vnccs-utils
+  - name: vnccs_utils
     url: https://github.com/AHEKOT/ComfyUI_VNCCS_Utils.git
     desc: VNCCS utilities
     required: true
+    pip:
+      - opencv-python-headless
 
   # ── PBR / Material Generation ───────────────────────────
   - name: COMFYUI-PBRFusion4
@@ -52,6 +55,8 @@ extensions:
     url: https://github.com/city96/ComfyUI-GGUF
     desc: GGUF quantized model support
     required: false
+    pip:
+      - gguf
 
   - name: ComfyUI_Comfyroll_CustomNodes
     url: https://github.com/Suzie1/ComfyUI_Comfyroll_CustomNodes
@@ -92,7 +97,10 @@ extensions:
   - name: ComfyUI-LTXVideo
     url: https://github.com/Lightricks/ComfyUI-LTXVideo
     desc: LTXVideo text-to-video generation
+    ref: 4c5add5
     required: false
+    pip:
+      - ltx-video
 
   # ── Tiling ──────────────────────────────────────────────
   - name: ComfyUI-seamless-tiling

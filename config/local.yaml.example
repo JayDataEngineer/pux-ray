@@ -24,17 +24,17 @@ secrets:
 
 # External binaries (not managed by IaC — system-installed)
 binaries:
-  llama_server: ${TECH_NOIR_LLAMA_SERVER:infra/repos/llama.cpp/build/bin/llama-server}
   espeak_ng: espeak-ng
 
 # ─── Services ──────────────────────────────────────────────────────────────────
 services:
 
-  # ComfyUI — external, not IaC-managed. Must be configured per machine.
+  # ComfyUI — Docker-based (tech-noir/comfyui:latest) with flash-attn.
+  # Extensions baked into image at build time from config/comfyui_extensions.yaml.
+  # Models mounted from models_root at /models (read-only).
+  # Port 18465 for direct WebUI/MCP access; Ray Serve proxies via docker container.
   comfyui:
-    working_dir: ${TECH_NOIR_COMFYUI_DIR}
-    venv_python: ${TECH_NOIR_COMFYUI_PYTHON}
-    port: 8465
+    port: 18465
 
   # Creative tools — managed by infra/docker-compose.yml git-sync sidecars.
   # Each has its own venv (created by infra/setup_venvs.sh).

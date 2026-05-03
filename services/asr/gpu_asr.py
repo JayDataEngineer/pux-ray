@@ -22,7 +22,7 @@ logger = logging.getLogger(__name__)
     num_replicas=1,
     max_ongoing_requests=2,
     ray_actor_options={
-        "num_gpus": 0.01,
+        "num_gpus": 1.0,
         "num_cpus": 0.5,
     },
 )
@@ -110,7 +110,7 @@ class VibeVoiceASRDeployment(BaseGPUDeployment):
     num_replicas=1,
     max_ongoing_requests=2,
     ray_actor_options={
-        "num_gpus": 0.01,
+        "num_gpus": 1.0,
         "num_cpus": 0.5,
     },
 )

@@ -1,0 +1,39 @@
+# HY-Motion 1.0 — Text-to-3D Human Motion Docker image for Ray Serve
+# =============================================================================
+# Build:
+#   docker build -f infra/docker/Dockerfile.hymotion -t tech-noir/hymotion:latest .
+#
+# Repo: https://github.com/Tencent-Hunyuan/HY-Motion-1.0
+# Models at /models/image-gen/comfyui/HY-Motion/ckpts/tencent/ (mounted from host)
+FROM nvidia/cuda:12.4.0-devel-ubuntu22.04
+
+ENV DEBIAN_FRONTEND=noninteractive \
+    LANG=C.UTF-8 \
+    PYTHONUNBUFFERED=1
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    python3.11 python3.11-dev python3.11-venv python3-pip \
+    build-essential git cmake \
+    libgl1-mesa-glx libglib2.0-0 libsm6 libxext6 \
+    && rm -rf /var/lib/apt/lists/* \
+    && ln -sf /usr/bin/python3.11 /usr/bin/python \
+    && ln -sf /usr/bin/python3.11 /usr/bin/python3 \
+    && ln -sf /usr/bin/pip3 /usr/bin/pip
+
+RUN git clone --depth 1 https://github.com/Tencent-Hunyuan/HY-Motion-1.0.git /opt/hymotion
+WORKDIR /opt/hymotion
+
+RUN pip install --no-cache-dir \
+    torch==2.6.0 torchvision==0.21.0 torchaudio==2.6.0 \
+    --index-url https://download.pytorch.org/whl/cu124
+
+RUN pip install --no-cache-dir -r requirements.txt && \
+    pip install --no-cache-dir fastapi uvicorn[standard] python-multipart
+
+COPY infra/docker/api_hymotion.py /opt/api.py
+
+ENV PYTHONPATH=/opt/hymotion \
+    HF_HOME=/models/.cache
+
+EXPOSE 8000
+CMD ["python", "/opt/api.py"]

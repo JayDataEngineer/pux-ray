@@ -1,32 +1,21 @@
-"""ComfyUI Ray deployment - runs ComfyUI as a managed subprocess.
+"""ComfyUI Ray deployment — Docker-based, flash-attn enabled.
 
-Preserves the WebUI for visual workflow development while
-making it controllable through Ray Serve.
+ComfyUI runs in a Docker container (tech-noir/comfyui:latest) with
+all extensions baked in during build. Models mounted from host at /models.
 
-ComfyUI runs as a subprocess using its own venv Python (torch 2.10+cu130).
-Launch flags match the IaC setup at comfyui-setup/run.sh:
-  --use-flash-attention --dont-upcast-attention --port 18465
-
-Access patterns:
-  - Ray API proxy:     localhost:18800/comfyui/*  (HTTP API, no websocket)
-  - ComfyUI direct:    localhost:18465             (full WebUI + websocket)
-  - Comfy-Cozy MCP:    localhost:18465             (MCP server connects direct)
-  - Pose Director:     localhost:18465             (connects direct)
+GPU managed by Ray: num_gpus=1.0 ensures only one GPU service runs at a time.
+GPUScheduler coordinates load/unload across all GPU services.
 """
-
 from __future__ import annotations
 
 import logging
-import os
-from pathlib import Path
 
 import httpx
 from ray import serve
 from starlette.requests import Request
 from starlette.responses import Response
 
-from registry.config import Config
-from services.base import SubprocessMixin
+from services.base import BaseGPUDeployment, HTTPToolMixin
 
 logger = logging.getLogger(__name__)
 
@@ -35,86 +24,40 @@ logger = logging.getLogger(__name__)
     name="comfyui",
     num_replicas=1,
     max_ongoing_requests=8,
-    ray_actor_options={"num_gpus": 0.01, "num_cpus": 0.5},
+    ray_actor_options={"num_gpus": 1.0, "num_cpus": 0.5},
 )
-class ComfyUIDeployment(SubprocessMixin):
-    """Runs ComfyUI server as a subprocess. Proxies API and WebUI requests."""
+class ComfyUIDeployment(BaseGPUDeployment, HTTPToolMixin):
+    """ComfyUI with flash-attn via Docker container. Proxies API and WebUI requests."""
 
-    def __init__(self):
-        self._config = Config()
-        self.comfyui_dir = self._config.get("services.comfyui.working_dir")
-        self.port = self._config.get("services.comfyui.port", 18465)
-        self.venv_python = self._config.get("services.comfyui.venv_python")
+    COMFYUI_PORT = 18465
 
-        if not self.comfyui_dir or self.comfyui_dir.startswith("${"):
-            raise ValueError(
-                "ComfyUI not configured. Set TECH_NOIR_COMFYUI_DIR env var "
-                "or services.comfyui.working_dir in config/local.yaml"
-            )
-        if not self.venv_python or self.venv_python.startswith("${"):
-            raise ValueError(
-                "ComfyUI venv Python not configured. Set TECH_NOIR_COMFYUI_PYTHON "
-                "env var or services.comfyui.venv_python in config/local.yaml"
-            )
-        self.base_url = f"http://127.0.0.1:{self.port}"
-        self.process = None
-        self._running = False
+    def _load(self, model_name: str = "comfyui") -> None:
+        self._ensure_healthy(
+            port=self.COMFYUI_PORT,
+            service_name="comfyui",
+            timeout=120,
+            container_port=self.COMFYUI_PORT,
+            health_path="/",
+        )
+        self.model_name = model_name
+        self.model = True
 
-    def start_comfyui(self) -> bool:
-        """Start ComfyUI subprocess with flash attention flags."""
-        if self.process and self.process.poll() is None:
-            logger.info("ComfyUI already running on port %d", self.port)
-            return True
+    def _unload(self) -> None:
+        self._stop_container()
 
-        cmd = [
-            self.venv_python, "main.py",
-            "--port", str(self.port),
-            "--listen", "127.0.0.1",
-            "--preview-method", "auto",
-            "--dont-upcast-attention",
-        ]
+    def is_loaded(self) -> bool:
+        return self._is_container_alive()
 
-        env = {
-            "PYTHONWARNINGS": "ignore::FutureWarning,ignore::SyntaxWarning",
-        }
-
-        logger.info("Starting ComfyUI: %s", " ".join(cmd))
-        self.start_process(cmd, cwd=self.comfyui_dir, env=env)
-
-        if not self.wait_for_health(f"{self.base_url}/", timeout=120):
-            if self.process and self.process.poll() is not None:
-                stderr = ""
-                if hasattr(self, "_stderr_file") and self._stderr_file:
-                    try:
-                        self._stderr_file.flush()
-                        stderr = Path(self._stderr_file.name).read_text()[-500:]
-                    except Exception:
-                        pass
-                raise RuntimeError(f"ComfyUI died during startup: {stderr}")
-            raise TimeoutError("ComfyUI didn't start in 120s")
-
-        self._running = True
-        logger.info("ComfyUI running on port %d (flash attention enabled)", self.port)
-        return True
-
-    def is_running(self) -> bool:
-        """Check if ComfyUI subprocess is alive."""
-        return self._running and self.process is not None and self.process.poll() is None
-
-    def stop_comfyui(self) -> None:
-        """Stop ComfyUI subprocess."""
-        self.stop_process()
-        self._running = False
-        logger.info("ComfyUI stopped")
+    def _ensure_loaded(self) -> None:
+        if not self._is_container_alive():
+            self._load()
 
     async def submit_workflow(self, workflow: dict) -> dict:
         """Submit a workflow JSON to ComfyUI's /prompt endpoint."""
-        if not self._running:
-            self.start_comfyui()
-
+        self._ensure_loaded()
         async with httpx.AsyncClient(timeout=300) as client:
             resp = await client.post(
-                f"{self.base_url}/prompt",
+                f"http://127.0.0.1:{self.COMFYUI_PORT}/prompt",
                 json={"prompt": workflow},
             )
             resp.raise_for_status()
@@ -122,32 +65,25 @@ class ComfyUIDeployment(SubprocessMixin):
 
     async def get_history(self, prompt_id: str = "") -> dict:
         """Get execution history."""
+        self._ensure_loaded()
         async with httpx.AsyncClient(timeout=30) as client:
-            url = f"{self.base_url}/history"
+            url = f"http://127.0.0.1:{self.COMFYUI_PORT}/history"
             if prompt_id:
                 url += f"/{prompt_id}"
             resp = await client.get(url)
             resp.raise_for_status()
             return resp.json()
 
-    async def get_output_path(self, filename: str) -> str:
-        """Get the full path to an output file."""
-        return os.path.join(self.comfyui_dir, "output", filename)
-
     async def __call__(self, request: Request) -> Response:
-        """Proxy all HTTP requests to ComfyUI's own server.
-
-        This allows the WebUI to work through Ray Serve's HTTP proxy.
-        """
-        if not self._running:
-            self.start_comfyui()
+        """Proxy all HTTP requests to ComfyUI's Docker container."""
+        self._ensure_loaded()
 
         async with httpx.AsyncClient(timeout=300) as client:
             path = request.url.path
             if path.startswith("/comfyui"):
                 path = path[len("/comfyui"):] or "/"
 
-            target_url = f"{self.base_url}{path}"
+            target_url = f"http://127.0.0.1:{self.COMFYUI_PORT}{path}"
             if request.url.query:
                 target_url += f"?{request.url.query}"
 

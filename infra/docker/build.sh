@@ -10,9 +10,15 @@
 #   bash infra/docker/build.sh --push all   # Build + push to registry
 #
 # Images:
-#   tech-noir/trellis     — TRELLIS.2 image-to-3D
+#   tech-noir/comfyui     — ComfyUI with flash-attn + extensions
+#   tech-noir/trellis     — TRELLIS.2 image-to-3D (original)
+#   tech-noir/trellis-spz — TRELLIS StableProjectorz (VRAM-optimized, 8GB)
 #   tech-noir/anigen      — AniGen image-to-rigged-3D
+#   tech-noir/vibevoice   — VibeVoice long-form TTS
 #   tech-noir/seethrough  — See-Through layer decomposition
+#   tech-noir/acestep     — ACE-STEP text-to-music
+#   tech-noir/hymotion    — HY-Motion 1.0 text-to-3D human motion
+#   tech-noir/gptsovits   — GPT-SoVITS voice cloning TTS
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -52,20 +58,43 @@ build_image() {
 }
 
 case "$TARGET" in
+    comfyui)
+        build_image comfyui latest Dockerfile.comfyui
+        ;;
     trellis)
         build_image trellis latest Dockerfile.trellis
+        ;;
+    trellis-spz)
+        build_image trellis-spz latest Dockerfile.trellis-spz
         ;;
     anigen)
         build_image anigen latest Dockerfile.anigen
         ;;
+    vibevoice)
+        build_image vibevoice latest Dockerfile.vibevoice
+        ;;
     seethrough)
         build_image seethrough latest Dockerfile.seethrough
         ;;
+    acestep)
+        build_image acestep latest Dockerfile.acestep
+        ;;
+    gptsovits)
+        build_image gptsovits latest Dockerfile.gptsovits
+        ;;
+    hymotion)
+        build_image hymotion latest Dockerfile.hymotion
+        ;;
     all)
         log "Building all Docker images..."
-        build_image trellis latest Dockerfile.trellis &
+        build_image comfyui latest Dockerfile.comfyui &
+        build_image trellis-spz latest Dockerfile.trellis-spz &
         build_image anigen latest Dockerfile.anigen &
+        build_image vibevoice latest Dockerfile.vibevoice &
         build_image seethrough latest Dockerfile.seethrough &
+        build_image acestep latest Dockerfile.acestep &
+        build_image gptsovits latest Dockerfile.gptsovits &
+        build_image hymotion latest Dockerfile.hymotion &
         wait
         log "All images built."
         if $PUSH; then
@@ -73,7 +102,7 @@ case "$TARGET" in
         fi
         ;;
     *)
-        echo "Usage: $0 [--push] {trellis|anigen|seethrough|all}"
+        echo "Usage: $0 [--push] {comfyui|trellis|trellis-spz|anigen|vibevoice|seethrough|acestep|gptsovits|hymotion|all}"
         exit 1
         ;;
 esac

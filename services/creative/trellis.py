@@ -20,23 +20,22 @@ logger = logging.getLogger(__name__)
     name="trellis",
     num_replicas=1,
     max_ongoing_requests=1,
-    ray_actor_options={"num_gpus": 0.01, "num_cpus": 0.5},
+    ray_actor_options={"num_gpus": 0.5, "num_cpus": 0.5},
 )
 class TRELLISDeployment(BaseGPUDeployment, HTTPToolMixin):
     """TRELLIS.2 image-to-3D generation via Docker worker."""
 
     def _load(self, model_name: str = "trellis") -> None:
-        self._init_http(port=18401, service_name="trellis", timeout=600)
+        self._init_http(port=18401, service_name="trellis-spz", timeout=600)
         self.model = True
         self.model_name = model_name
-        logger.info("TRELLIS HTTP ready (port=18401)")
+        logger.info("TRELLIS HTTP ready (port=18401, VRAM-optimized spz)")
 
     def _unload(self) -> None:
         self.model = None
 
     def _ensure_loaded(self) -> None:
-        if not hasattr(self, "_base_url"):
-            self._load()
+        self._ensure_healthy(port=18401, service_name="trellis-spz", timeout=600)
 
     async def __call__(self, request):
         self._ensure_loaded()
