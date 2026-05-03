@@ -1,0 +1,91 @@
+# VibeVoice TTS Docker Worker
+# Multi-stage build: compile flash-attn in devel image
+#
+# Key constraints:
+#   transformers==4.51.3 (pinned, conflicts with everything else)
+#   flash-attn (compiled CUDA extension)
+#   Custom VibeVoice model classes (trust_remote_code)
+#
+# Build:  docker build -f Dockerfile.vibevoice -t vibevoice-worker .
+# Run:    docker run --gpus all -p 18403:18403 -v /models:/models:ro vibevoice-worker
+
+# ---- Python Stage ----
+FROM python:3.12-slim-bookworm AS python-base
+
+# ---- Build Stage ----
+FROM nvidia/cuda:12.4.0-devel-ubuntu22.04 AS builder
+
+ENV DEBIAN_FRONTEND=noninteractive
+ENV PYTHONUNBUFFERED=1
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    git build-essential ninja-build \
+    libgl1-mesa-glx libglib2.0-0 \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy Python 3.12 from the python-base stage
+COPY --from=python-base /usr/local /usr/local
+RUN ln -sf /usr/local/bin/python3.12 /usr/bin/python3.12 \
+    && ln -sf /usr/local/bin/python3.12 /usr/bin/python
+
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
+
+WORKDIR /build
+
+# CUDA build settings (no GPU visible during docker build)
+ENV TORCH_CUDA_ARCH_LIST="8.9"
+ENV TORCH_NVCC_FLAGS="-Xfatbin -compress-all"
+ENV MAX_JOBS=2
+
+# Install torch (CUDA 12.4)
+RUN uv pip install --system --no-cache \
+    torch==2.6.0 torchvision==0.21.0 torchaudio==2.6.0 \
+    --index-url https://download.pytorch.org/whl/cu124
+
+# Pinned transformers (VibeVoice requires exactly 4.51.3)
+RUN uv pip install --system --no-cache \
+    transformers==4.51.3 \
+    pillow einops accelerate \
+    numpy soundfile scipy \
+    wheel setuptools packaging
+
+# flash-attn (required by VibeVoice)
+RUN uv pip install --system --no-cache flash-attn==2.7.3 --no-build-isolation
+
+# VibeVoice source code (custom model classes, voices/)
+RUN git clone --depth 1 https://github.com/microsoft/VibeVoice.git /build/vibevoice
+
+# ---- Runtime Stage ----
+FROM nvidia/cuda:12.4.0-runtime-ubuntu22.04 AS runtime
+
+ENV DEBIAN_FRONTEND=noninteractive
+ENV PYTHONUNBUFFERED=1
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libgl1-mesa-glx libglib2.0-0 libgomp1 \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy Python from builder
+COPY --from=builder /usr/local /usr/local
+RUN ln -sf /usr/local/bin/python3.12 /usr/bin/python3.12 \
+    && ln -sf /usr/local/bin/python3.12 /usr/bin/python \
+    && ldconfig
+
+# Copy VibeVoice source from builder
+COPY --from=builder /build/vibevoice /app/repo
+
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
+RUN uv pip install --system --no-cache fastapi uvicorn[standard] python-multipart soundfile httpx
+
+WORKDIR /app
+
+COPY workers/ /app/workers/
+
+ENV TOOL_NAME=vibevoice
+ENV PORT=18403
+ENV MODEL_PATH=/models/VibeVoice-7B
+ENV PYTHONPATH=/app:/app/repo
+
+EXPOSE 18403
+
+CMD ["python", "-m", "workers.server"]

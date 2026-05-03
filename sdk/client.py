@@ -19,7 +19,7 @@ class RayClient:
         result = await client.transcribe("meeting.wav")
     """
 
-    def __init__(self, base_url: str = "http://localhost:8000", timeout: float = 300):
+    def __init__(self, base_url: str = "http://localhost:18080", timeout: float = 300):
         self.base_url = base_url.rstrip("/")
         self.client = httpx.AsyncClient(base_url=self.base_url, timeout=timeout)
 
@@ -118,6 +118,51 @@ class RayClient:
         )
         resp.raise_for_status()
         return resp.content
+
+    # -- Job Queue -----------------------------------------------------------
+
+    async def submit_job(self, job_type: str, **kwargs) -> str:
+        """Submit a generation job. Returns job_id immediately.
+
+        Supported types: ace_step, trellis, anigen, comfyui.
+        For trellis/anigen, pass image=bytes.
+        For ace_step, pass prompt=str (text2music) or audio=bytes (other modes).
+        """
+        files = {}
+        data = {k: v for k, v in kwargs.items() if not isinstance(v, bytes)}
+        if "image" in kwargs and isinstance(kwargs["image"], bytes):
+            files["image"] = ("image.png", io.BytesIO(kwargs["image"]))
+        if "audio" in kwargs and isinstance(kwargs["audio"], bytes):
+            files["audio"] = ("audio.wav", io.BytesIO(kwargs["audio"]))
+
+        if files:
+            resp = await self.client.post(
+                f"/jobs/{job_type}", data=data, files=files,
+            )
+        else:
+            resp = await self.client.post(f"/jobs/{job_type}", json=kwargs)
+        resp.raise_for_status()
+        return resp.json()["job_id"]
+
+    async def job_status(self, job_id: str) -> dict[str, Any]:
+        """Get job status (queued, running, completed, error)."""
+        resp = await self.client.get(f"/jobs/{job_id}")
+        resp.raise_for_status()
+        return resp.json()
+
+    async def job_result(self, job_id: str) -> bytes:
+        """Get job result bytes. Blocks until complete."""
+        resp = await self.client.get(f"/jobs/{job_id}/result")
+        resp.raise_for_status()
+        return resp.content
+
+    async def job_list(self) -> list[dict[str, Any]]:
+        """List all jobs with status."""
+        resp = await self.client.get("/jobs")
+        resp.raise_for_status()
+        return resp.json()
+
+    # -- Infrastructure -------------------------------------------------------
 
     async def status(self) -> dict[str, Any]:
         """Get infrastructure status (GPU, loaded models, VRAM)."""

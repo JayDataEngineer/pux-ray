@@ -24,7 +24,7 @@ logger = logging.getLogger(__name__)
     name="see_through",
     num_replicas=1,
     max_ongoing_requests=1,
-    ray_actor_options={"num_gpus": 0.01},
+    ray_actor_options={"num_gpus": 0.01, "num_cpus": 0.5},
 )
 class SeeThroughDeployment(BaseGPUDeployment, CLIToolMixin):
     """See-Through layer decomposition via subprocess CLI."""
@@ -37,6 +37,10 @@ class SeeThroughDeployment(BaseGPUDeployment, CLIToolMixin):
 
     def _unload(self) -> None:
         self.model = None
+
+    def _ensure_loaded(self) -> None:
+        if not hasattr(self, "_venv_python"):
+            self._load()
 
     async def decompose(
         self,
@@ -51,8 +55,7 @@ class SeeThroughDeployment(BaseGPUDeployment, CLIToolMixin):
           - 'layers': list of layer PNG bytes
           - 'psd': PSD file bytes (if save_to_psd=True)
         """
-        if not self.is_loaded():
-            raise RuntimeError("No model loaded")
+        self._ensure_loaded()
 
         with tempfile.TemporaryDirectory(prefix="seethrough_") as tmpdir:
             input_path = Path(tmpdir) / "input.png"

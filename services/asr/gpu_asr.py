@@ -23,10 +23,7 @@ logger = logging.getLogger(__name__)
     max_ongoing_requests=2,
     ray_actor_options={
         "num_gpus": 0.01,
-        "runtime_env": {
-            "pip": ["torch>=2.1", "torchaudio", "transformers>=4.40",
-                    "accelerate", "soundfile", "numpy"],
-        },
+        "num_cpus": 0.5,
     },
 )
 class VibeVoiceASRDeployment(BaseGPUDeployment):
@@ -38,10 +35,18 @@ class VibeVoiceASRDeployment(BaseGPUDeployment):
 
         registry = ModelRegistry()
         model_path = registry.get_path("asr", model_name)
+        if not model_path.exists():
+            raise FileNotFoundError(
+                f"VibeVoice ASR model not found at {model_path}. "
+                f"Run 'task models:pull' to download it."
+            )
 
-        self.processor = AutoProcessor.from_pretrained(str(model_path))
+        self.processor = AutoProcessor.from_pretrained(
+            str(model_path), local_files_only=True,
+        )
         self.model = AutoModelForCausalLM.from_pretrained(
             str(model_path), torch_dtype="auto", device_map="auto",
+            local_files_only=True,
         )
         self.model_name = model_name
         logger.info("VibeVoice ASR loaded from %s", model_path)
@@ -106,10 +111,7 @@ class VibeVoiceASRDeployment(BaseGPUDeployment):
     max_ongoing_requests=2,
     ray_actor_options={
         "num_gpus": 0.01,
-        "runtime_env": {
-            "pip": ["torch>=2.1", "torchaudio", "transformers>=4.40",
-                    "accelerate", "soundfile", "numpy"],
-        },
+        "num_cpus": 0.5,
     },
 )
 class QwenASRDeployment(BaseGPUDeployment):
@@ -121,10 +123,18 @@ class QwenASRDeployment(BaseGPUDeployment):
 
         registry = ModelRegistry()
         model_path = registry.get_path("asr", model_name)
+        if not model_path.exists():
+            raise FileNotFoundError(
+                f"Qwen ASR model not found at {model_path}. "
+                f"Run 'task models:pull' to download it."
+            )
 
-        self.processor = AutoProcessor.from_pretrained(str(model_path))
+        self.processor = AutoProcessor.from_pretrained(
+            str(model_path), local_files_only=True,
+        )
         self.model = AutoModelForCausalLM.from_pretrained(
             str(model_path), torch_dtype="auto", device_map="auto",
+            local_files_only=True,
         )
         self.model_name = model_name
         logger.info("Qwen ASR loaded from %s", model_path)

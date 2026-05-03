@@ -1,6 +1,13 @@
-"""VibeVoice TTS/ASR - unified voice service.
+"""VibeVoice TTS - long-form multi-speaker speech synthesis.
 
-Supports TTS (0.5B streaming, 1.5B, 7B) and ASR (7B with diarization).
+Generates expressive, long-form audio (podcasts, conversations) from text
+using the VibeVoice 7B model. Supports up to 4 speakers, up to 45 min output.
+
+Runs in a Docker container (CUDA 12.4) accessed via HTTPToolMixin.
+
+Code repo: https://github.com/microsoft/VibeVoice
+Model weights: vibevoice/VibeVoice-7B on HuggingFace (18.7GB, community re-upload)
+ASR is separate: services.asr.gpu_asr.VibeVoiceASRDeployment
 """
 
 from __future__ import annotations
@@ -8,8 +15,9 @@ from __future__ import annotations
 import logging
 
 from ray import serve
+from starlette.responses import Response
 
-from services.base import BaseGPUDeployment
+from services.base import BaseGPUDeployment, HTTPToolMixin
 
 logger = logging.getLogger(__name__)
 
@@ -17,52 +25,46 @@ logger = logging.getLogger(__name__)
 @serve.deployment(
     name="vibevoice",
     num_replicas=1,
-    max_ongoing_requests=2,
+    max_ongoing_requests=1,
     ray_actor_options={
         "num_gpus": 0.01,
-        "runtime_env": {
-            "pip": ["torch>=2.1", "torchaudio", "transformers>=4.40",
-                    "accelerate", "soundfile", "numpy"],
-        },
+        "num_cpus": 0.5,
     },
 )
-class VibeVoiceDeployment(BaseGPUDeployment):
-    """VibeVoice unified TTS/ASR."""
+class VibeVoiceDeployment(BaseGPUDeployment, HTTPToolMixin):
+    """VibeVoice long-form multi-speaker TTS via Docker worker."""
 
     def _load(self, model_name: str = "vibevoice-tts-7b") -> None:
-        from registry.models import ModelRegistry
-
-        registry = ModelRegistry()
-        meta = registry.get_metadata("tts", "vibevoice-tts")
-        model_path = registry.get_path("tts", "vibevoice-tts")
-
-        from transformers import AutoModelForCausalLM, AutoTokenizer
-        self.tokenizer = AutoTokenizer.from_pretrained(str(model_path))
-        self.model = AutoModelForCausalLM.from_pretrained(
-            str(model_path), torch_dtype="auto", device_map="auto",
-        )
+        self._init_http(port=18403, service_name="vibevoice", timeout=600)
+        self.model = True
         self.model_name = model_name
-        logger.info("VibeVoice loaded: %s", model_name)
+        logger.info("VibeVoice HTTP ready (port=18403)")
 
     def _unload(self) -> None:
-        if self.model is not None:
-            del self.model
-            del self.tokenizer
-            self.model = None
+        self.model = None
 
-    async def synthesize(self, text: str, voice: str = "default",
-                         output_format: str = "wav") -> bytes:
-        if not self.is_loaded():
-            raise RuntimeError("No model loaded")
-        # VibeVoice TTS inference
-        # Implementation depends on specific VibeVoice API
-        raise NotImplementedError("VibeVoice TTS inference TBD - needs model code")
+    def _ensure_loaded(self) -> None:
+        if not hasattr(self, "_base_url"):
+            self._load()
 
     async def __call__(self, request):
+        self._ensure_loaded()
         body = await request.json()
-        audio = await self.synthesize(
-            text=body.get("input", ""),
-            voice=body.get("voice", "default"),
+        text = body.get("input", "")
+        if not text:
+            from starlette.responses import JSONResponse
+            return JSONResponse({"error": "input text is required"}, status_code=400)
+
+        speaker_names = body.get("speaker_names", ["Andrew"])
+        if isinstance(speaker_names, str):
+            speaker_names = speaker_names.split(",")
+
+        data = await self._call_worker(
+            "generate",
+            json={
+                "input": text,
+                "speaker_names": speaker_names,
+            },
         )
-        from starlette.responses import Response
-        return Response(content=audio, media_type="audio/wav")
+
+        return Response(content=data, media_type="audio/wav")

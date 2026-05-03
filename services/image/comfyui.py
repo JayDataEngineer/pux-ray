@@ -5,19 +5,20 @@ making it controllable through Ray Serve.
 
 ComfyUI runs as a subprocess using its own venv Python (torch 2.10+cu130).
 Launch flags match the IaC setup at comfyui-setup/run.sh:
-  --use-flash-attention --dont-upcast-attention --port 8465
+  --use-flash-attention --dont-upcast-attention --port 18465
 
 Access patterns:
-  - Ray API proxy:     localhost:8000/comfyui/*  (HTTP API, no websocket)
-  - ComfyUI direct:    localhost:8465             (full WebUI + websocket)
-  - Comfy-Cozy MCP:    localhost:8465             (MCP server connects direct)
-  - Pose Director:     localhost:8465             (connects direct)
+  - Ray API proxy:     localhost:18800/comfyui/*  (HTTP API, no websocket)
+  - ComfyUI direct:    localhost:18465             (full WebUI + websocket)
+  - Comfy-Cozy MCP:    localhost:18465             (MCP server connects direct)
+  - Pose Director:     localhost:18465             (connects direct)
 """
 
 from __future__ import annotations
 
 import logging
 import os
+from pathlib import Path
 
 import httpx
 from ray import serve
@@ -34,7 +35,7 @@ logger = logging.getLogger(__name__)
     name="comfyui",
     num_replicas=1,
     max_ongoing_requests=8,
-    ray_actor_options={"num_gpus": 0.01},
+    ray_actor_options={"num_gpus": 0.01, "num_cpus": 0.5},
 )
 class ComfyUIDeployment(SubprocessMixin):
     """Runs ComfyUI server as a subprocess. Proxies API and WebUI requests."""
@@ -42,7 +43,7 @@ class ComfyUIDeployment(SubprocessMixin):
     def __init__(self):
         self._config = Config()
         self.comfyui_dir = self._config.get("services.comfyui.working_dir")
-        self.port = self._config.get("services.comfyui.port", 8465)
+        self.port = self._config.get("services.comfyui.port", 18465)
         self.venv_python = self._config.get("services.comfyui.venv_python")
 
         if not self.comfyui_dir or self.comfyui_dir.startswith("${"):
@@ -70,7 +71,6 @@ class ComfyUIDeployment(SubprocessMixin):
             "--port", str(self.port),
             "--listen", "127.0.0.1",
             "--preview-method", "auto",
-            "--use-flash-attention",
             "--dont-upcast-attention",
         ]
 
@@ -83,13 +83,23 @@ class ComfyUIDeployment(SubprocessMixin):
 
         if not self.wait_for_health(f"{self.base_url}/", timeout=120):
             if self.process and self.process.poll() is not None:
-                stderr = self.process.stderr.read().decode() if self.process.stderr else ""
-                raise RuntimeError(f"ComfyUI died during startup: {stderr[:500]}")
+                stderr = ""
+                if hasattr(self, "_stderr_file") and self._stderr_file:
+                    try:
+                        self._stderr_file.flush()
+                        stderr = Path(self._stderr_file.name).read_text()[-500:]
+                    except Exception:
+                        pass
+                raise RuntimeError(f"ComfyUI died during startup: {stderr}")
             raise TimeoutError("ComfyUI didn't start in 120s")
 
         self._running = True
         logger.info("ComfyUI running on port %d (flash attention enabled)", self.port)
         return True
+
+    def is_running(self) -> bool:
+        """Check if ComfyUI subprocess is alive."""
+        return self._running and self.process is not None and self.process.poll() is None
 
     def stop_comfyui(self) -> None:
         """Stop ComfyUI subprocess."""

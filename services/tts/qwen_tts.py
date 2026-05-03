@@ -1,6 +1,7 @@
-"""Qwen3-TTS - GPU text-to-speech using Qwen3 TTS model.
+"""Qwen3-TTS - GPU text-to-speech using the Qwen3-TTS model.
 
-Multi-speaker TTS with voice cloning support.
+Multi-speaker TTS with CustomVoice (9 premium voices + instruction control).
+Model: Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice (~8GB VRAM).
 """
 
 from __future__ import annotations
@@ -13,6 +14,9 @@ from services.base import BaseGPUDeployment
 
 logger = logging.getLogger(__name__)
 
+# Default HuggingFace model — qwen-tts handles auto-download if not cached locally.
+DEFAULT_MODEL = "Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice"
+
 
 @serve.deployment(
     name="qwen_tts",
@@ -20,27 +24,27 @@ logger = logging.getLogger(__name__)
     max_ongoing_requests=2,
     ray_actor_options={
         "num_gpus": 0.01,
-        "runtime_env": {
-            "pip": ["torch>=2.1", "torchaudio", "transformers>=4.40",
-                    "accelerate", "soundfile", "numpy", "ffmpeg-python"],
-        },
+        "num_cpus": 0.5,
     },
 )
 class QwenTTSDeployment(BaseGPUDeployment):
-    """GPU-based Qwen3-TTS with multiple voice modes."""
+    """GPU-based Qwen3-TTS with CustomVoice."""
 
     def _load(self, model_name: str = "qwen3-tts") -> None:
-        from registry.models import ModelRegistry
-
-        registry = ModelRegistry()
-        model_path = registry.get_path("tts", model_name)
-
-        # Qwen3-TTS uses a specific pipeline
         from qwen_tts import Qwen3TTSModel
-        self.model = Qwen3TTSModel.from_pretrained(str(model_path))
-        self.model.to("cuda")
+        import torch
+
+        # Use HF model ID directly — auto-downloads and caches
+        self.model = Qwen3TTSModel.from_pretrained(
+            str(model_dir),
+            device_map="cuda:0",
+            dtype=torch.bfloat16,
+            local_files_only=True,
+        )
         self.model_name = model_name
-        logger.info("Qwen3-TTS loaded from %s", model_path)
+        self._speakers = self.model.get_supported_speakers()
+        self._languages = self.model.get_supported_languages()
+        logger.info("Qwen3-TTS loaded. Speakers: %s", self._speakers)
 
     def _unload(self) -> None:
         if self.model is not None:
@@ -50,31 +54,66 @@ class QwenTTSDeployment(BaseGPUDeployment):
     async def synthesize(
         self,
         text: str,
-        voice: str = "Chelsie",
+        voice: str = "Aiden",
         mode: str = "customvoice",
         output_format: str = "wav",
+        instruct: str = "",
     ) -> bytes:
         """Synthesize speech.
 
-        Modes: customvoice, voicedesign, clone, fast
+        For CustomVoice model: text, language, speaker, instruct.
+        Voice can be: Vivian, Serena, Uncle_Fu, Dylan, Eric, Ryan, Aiden, Ono_Anna, Sohee
+        instruct: natural language instruction for tone/emotion/style control.
         """
         if not self.is_loaded():
             raise RuntimeError("No model loaded")
 
-        audio = self.model.generate_custom_voice(text, voice=voice)
         import soundfile as sf
         import io
+
+        speaker = voice
+        # Try to infer language from speaker
+        zh_speakers = {"Vivian", "Serena", "Uncle_Fu", "Dylan", "Eric"}
+        ja_speakers = {"Ono_Anna"}
+        ko_speakers = {"Sohee"}
+
+        if speaker in zh_speakers:
+            lang = "Chinese"
+        elif speaker in ja_speakers:
+            lang = "Japanese"
+        elif speaker in ko_speakers:
+            lang = "Korean"
+        else:
+            lang = "English"
+
+        gen_kwargs = {}
+        if instruct:
+            gen_kwargs["instruct"] = instruct
+
+        wavs, sr = self.model.generate_custom_voice(
+            text=text,
+            language=lang,
+            speaker=speaker,
+            **gen_kwargs,
+        )
         buf = io.BytesIO()
-        sf.write(buf, audio, 24000, format="WAV")
+        sf.write(buf, wavs[0], sr, format="WAV")
         return buf.getvalue()
 
     async def __call__(self, request):
         body = await request.json()
+        if not self.is_loaded():
+            from starlette.responses import JSONResponse
+            return JSONResponse(
+                {"error": "QwenTTS model not loaded. Use /v1/audio/speech via ingress (port 18080)."},
+                status_code=503,
+            )
         audio = await self.synthesize(
             text=body.get("input", ""),
-            voice=body.get("voice", "Chelsie"),
+            voice=body.get("voice", "Aiden"),
             mode=body.get("mode", "customvoice"),
             output_format=body.get("response_format", "wav"),
+            instruct=body.get("instruct", ""),
         )
         from starlette.responses import Response
         return Response(content=audio, media_type="audio/wav")

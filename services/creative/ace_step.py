@@ -25,7 +25,7 @@ logger = logging.getLogger(__name__)
     name="ace_step",
     num_replicas=1,
     max_ongoing_requests=1,
-    ray_actor_options={"num_gpus": 0.01},
+    ray_actor_options={"num_gpus": 0.01, "num_cpus": 0.5},
 )
 class ACEStepDeployment(BaseGPUDeployment, CLIToolMixin):
     """ACE-STEP music generation via subprocess CLI."""
@@ -45,6 +45,10 @@ class ACEStepDeployment(BaseGPUDeployment, CLIToolMixin):
     def _unload(self) -> None:
         self.model = None
 
+    def _ensure_loaded(self) -> None:
+        if not hasattr(self, "_venv_python"):
+            self._load()
+
     async def generate_music(
         self,
         prompt: str,
@@ -56,8 +60,7 @@ class ACEStepDeployment(BaseGPUDeployment, CLIToolMixin):
         task_type: str = "text2music",
     ) -> bytes:
         """Generate music from text prompt. Returns audio bytes."""
-        if not self.is_loaded():
-            raise RuntimeError("No model loaded")
+        self._ensure_loaded()
 
         tmpdir = tempfile.mkdtemp(prefix="acestep_")
         try:
@@ -73,6 +76,7 @@ class ACEStepDeployment(BaseGPUDeployment, CLIToolMixin):
                 f'batch_size = 1',
                 f'audio_format = "{audio_format}"',
                 f'save_dir = "{tmpdir}"',
+                'thinking = false',  # disable LM reasoning (avoids interactive prompt)
             ]
             config_path.write_text("\n".join(toml_lines) + "\n")
 

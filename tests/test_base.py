@@ -30,7 +30,8 @@ class TestPathResolution:
 
     def test_relative_with_dots(self):
         result = self._resolve_path("../tools/wrapper.py", Path("/home/user/ray"))
-        assert str(result) == "/home/user/tools/wrapper.py"
+        # absolute() preserves .. segments (unlike resolve() which collapses them)
+        assert str(result) == "/home/user/ray/../tools/wrapper.py"
 
     def test_relative_config_paths(self):
         root = Path("/opt/tech-noir")

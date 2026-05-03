@@ -1,0 +1,803 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Tech Noir — GPU Dashboard</title>
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+    --bg-primary: #09090b;
+    --bg-card: #18181b;
+    --bg-card-alt: #1c1c20;
+    --bg-hover: #27272a;
+    --border: #27272a;
+    --border-focus: #3f3f46;
+    --text-primary: #fafafa;
+    --text-secondary: #a1a1aa;
+    --text-muted: #71717a;
+    --accent: #818cf8;
+    --accent-dim: #6366f1;
+    --accent-bg: rgba(99,102,241,0.15);
+    --green: #4ade80;
+    --green-bg: rgba(74,222,128,0.15);
+    --yellow: #facc15;
+    --yellow-bg: rgba(250,204,21,0.15);
+    --red: #f87171;
+    --red-bg: rgba(248,113,113,0.15);
+    --blue: #60a5fa;
+    --blue-bg: rgba(96,165,250,0.15);
+    --orange: #fb923c;
+    --purple: #a78bfa;
+    --font-mono: 'SF Mono', 'Cascadia Code', 'Fira Code', ui-monospace, monospace;
+    --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+    --radius: 12px;
+    --radius-sm: 8px;
+}
+
+html { font-size: 14px; }
+body {
+    font-family: var(--font-sans);
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    min-height: 100vh;
+    display: flex;
+}
+
+/* ---- Layout ---- */
+#sidebar {
+    width: 220px;
+    min-height: 100vh;
+    background: var(--bg-card);
+    border-right: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    padding: 20px 0;
+    flex-shrink: 0;
+}
+#main {
+    flex: 1;
+    padding: 28px 32px;
+    overflow-y: auto;
+    max-height: 100vh;
+}
+
+/* ---- Sidebar ---- */
+.sidebar-logo {
+    padding: 0 20px 24px;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 16px;
+}
+.sidebar-logo h1 {
+    font-size: 1.15rem;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    color: var(--text-primary);
+}
+.sidebar-logo span {
+    font-size: 0.7rem;
+    color: var(--text-muted);
+    font-family: var(--font-mono);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+}
+.sidebar-nav { list-style: none; }
+.sidebar-nav li a {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 9px 20px;
+    color: var(--text-secondary);
+    text-decoration: none;
+    font-size: 0.85rem;
+    border-radius: 0;
+    transition: all 0.15s;
+}
+.sidebar-nav li a:hover { background: var(--bg-hover); color: var(--text-primary); }
+.sidebar-nav li a.active {
+    background: var(--accent-bg);
+    color: var(--accent);
+    border-right: 2px solid var(--accent);
+}
+.sidebar-nav li a svg { width: 16px; height: 16px; opacity: 0.7; }
+.sidebar-footer {
+    margin-top: auto;
+    padding: 16px 20px;
+    border-top: 1px solid var(--border);
+    font-size: 0.7rem;
+    color: var(--text-muted);
+    font-family: var(--font-mono);
+    line-height: 1.6;
+}
+
+/* ---- Page header ---- */
+.page-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 24px;
+}
+.page-header h2 {
+    font-size: 1.3rem;
+    font-weight: 600;
+    letter-spacing: -0.02em;
+}
+.page-header .timestamp {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    font-family: var(--font-mono);
+}
+
+/* ---- Grid ---- */
+.grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; }
+.grid-4 { display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 16px; }
+@media (max-width: 1000px) { .grid-2, .grid-3, .grid-4 { grid-template-columns: 1fr; } }
+
+/* ---- Card ---- */
+.card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 20px;
+}
+.card-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 16px;
+}
+.card-header .label {
+    font-size: 0.7rem;
+    font-family: var(--font-mono);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--accent);
+}
+.card-header .value {
+    font-size: 0.7rem;
+    font-family: var(--font-mono);
+    color: var(--text-muted);
+}
+
+/* ---- Stat pills ---- */
+.stat-pills {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-bottom: 20px;
+}
+.stat-pill {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    padding: 12px 16px;
+    min-width: 120px;
+}
+.stat-pill .pill-label {
+    font-size: 0.65rem;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    margin-bottom: 4px;
+}
+.stat-pill .pill-value {
+    font-size: 1.2rem;
+    font-weight: 700;
+    font-family: var(--font-mono);
+    color: var(--text-primary);
+}
+.stat-pill .pill-unit {
+    font-size: 0.7rem;
+    font-weight: 400;
+    color: var(--text-muted);
+    margin-left: 2px;
+}
+
+/* ---- GPU card ---- */
+.gpu-name {
+    font-size: 1rem;
+    font-weight: 600;
+    margin-bottom: 4px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.gpu-subtitle {
+    font-size: 0.7rem;
+    color: var(--text-muted);
+    font-family: var(--font-mono);
+    margin-bottom: 16px;
+}
+
+/* ---- Metric bar ---- */
+.metric {
+    margin-bottom: 14px;
+}
+.metric:last-child { margin-bottom: 0; }
+.metric-top {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 4px;
+}
+.metric-label {
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+    display: flex;
+    align-items: center;
+    gap: 5px;
+}
+.metric-label svg { width: 12px; height: 12px; opacity: 0.6; }
+.metric-value {
+    font-size: 0.75rem;
+    font-family: var(--font-mono);
+    color: var(--text-primary);
+}
+.bar-track {
+    height: 6px;
+    background: var(--bg-primary);
+    border-radius: 3px;
+    overflow: hidden;
+}
+.bar-fill {
+    height: 100%;
+    border-radius: 3px;
+    transition: width 0.6s ease;
+}
+
+/* ---- Tags ---- */
+.tag {
+    display: inline-flex;
+    align-items: center;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 0.65rem;
+    font-family: var(--font-mono);
+    font-weight: 500;
+    gap: 4px;
+}
+.tag-gpu { background: var(--accent-bg); color: var(--accent); }
+.tag-cpu { background: rgba(161,161,170,0.15); color: var(--text-muted); }
+.tag-active {
+    background: var(--green-bg);
+    color: var(--green);
+}
+.tag-process {
+    background: var(--blue-bg);
+    color: var(--blue);
+}
+
+/* ---- Service tag on GPU card ---- */
+.gpu-service-tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 4px 10px;
+    border-radius: 6px;
+    font-size: 0.7rem;
+    font-family: var(--font-mono);
+    font-weight: 500;
+    margin-top: 12px;
+}
+.gpu-service-tag.active {
+    background: var(--green-bg);
+    color: var(--green);
+}
+.gpu-service-tag.idle {
+    background: rgba(161,161,170,0.1);
+    color: var(--text-muted);
+}
+
+/* ---- Sparkline ---- */
+.sparkline-card .sparkline-label {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 8px;
+}
+.sparkline-card .sparkline-title {
+    font-size: 0.7rem;
+    color: var(--text-muted);
+}
+.sparkline-card .sparkline-value {
+    font-size: 0.8rem;
+    font-family: var(--font-mono);
+    font-weight: 600;
+}
+.sparkline-card svg {
+    display: block;
+    width: 100%;
+    height: 48px;
+}
+
+/* ---- Services table ---- */
+.services-section { margin-top: 24px; }
+.services-section h3 {
+    font-size: 0.85rem;
+    font-weight: 600;
+    margin-bottom: 12px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+.services-section h3 svg { width: 16px; height: 16px; opacity: 0.6; }
+
+.services-table {
+    width: 100%;
+    border-collapse: collapse;
+}
+.services-table thead th {
+    text-align: left;
+    font-size: 0.65rem;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--border);
+    font-weight: 500;
+}
+.services-table tbody td {
+    padding: 10px 12px;
+    font-size: 0.8rem;
+    border-bottom: 1px solid var(--border);
+    color: var(--text-secondary);
+}
+.services-table tbody tr:hover { background: var(--bg-hover); }
+.services-table .svc-name {
+    font-weight: 500;
+    color: var(--text-primary);
+}
+.services-table .svc-label {
+    color: var(--text-secondary);
+}
+
+/* Status dot */
+.status-dot {
+    display: inline-block;
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    margin-right: 6px;
+    vertical-align: middle;
+}
+.status-dot.healthy { background: var(--green); box-shadow: 0 0 6px var(--green); }
+.status-dot.running { background: var(--green); box-shadow: 0 0 6px var(--green); }
+.status-dot.updating { background: var(--yellow); animation: pulse 1.5s infinite; }
+.status-dot.deploying { background: var(--yellow); animation: pulse 1.5s infinite; }
+.status-dot.unhealthy { background: var(--red); }
+.status-dot.deploy_failed { background: var(--red); }
+.status-dot.not_deployed { background: var(--text-muted); opacity: 0.4; }
+.status-dot.unknown { background: var(--text-muted); opacity: 0.4; }
+
+@keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.4; }
+}
+
+/* ---- Loading state ---- */
+.loading {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 40px;
+    color: var(--text-muted);
+    font-size: 0.8rem;
+}
+.loading-spinner {
+    width: 18px;
+    height: 18px;
+    border: 2px solid var(--border);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+    margin-right: 10px;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ---- Responsive ---- */
+@media (max-width: 800px) {
+    #sidebar { display: none; }
+    #main { padding: 16px; }
+    .grid-2, .grid-3, .grid-4 { grid-template-columns: 1fr; }
+    .stat-pills { flex-direction: column; }
+}
+</style>
+</head>
+<body>
+
+<!-- Sidebar -->
+<aside id="sidebar">
+    <div class="sidebar-logo">
+        <h1>Tech Noir</h1>
+        <span>GPU Dashboard</span>
+    </div>
+    <ul class="sidebar-nav">
+        <li><a href="/dashboard" class="active">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6A2.25 2.25 0 0 1 6 3.75h2.25A2.25 2.25 0 0 1 10.5 6v2.25a2.25 2.25 0 0 1-2.25 2.25H6a2.25 2.25 0 0 1-2.25-2.25V6ZM3.75 15.75A2.25 2.25 0 0 1 6 13.5h2.25a2.25 2.25 0 0 1 2.25 2.25V18a2.25 2.25 0 0 1-2.25 2.25H6A2.25 2.25 0 0 1 3.75 18v-2.25ZM13.5 6a2.25 2.25 0 0 1 2.25-2.25H18A2.25 2.25 0 0 1 20.25 6v2.25A2.25 2.25 0 0 1 18 10.5h-2.25a2.25 2.25 0 0 1-2.25-2.25V6ZM13.5 15.75a2.25 2.25 0 0 1 2.25-2.25H18a2.25 2.25 0 0 1 2.25 2.25V18A2.25 2.25 0 0 1 18 20.25h-2.25a2.25 2.25 0 0 1-2.25-2.25v-2.25Z"/></svg>
+            Dashboard
+        </a></li>
+        <li><a href="/studio">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M9.53 16.122a3 3 0 0 0-5.78 1.128 2.25 2.25 0 0 1-2.4 2.245 4.5 4.5 0 0 0 8.4-2.245c0-.399-.078-.78-.22-1.128Zm0 0a15.998 15.998 0 0 0 3.388-1.62m-5.043-.025a15.994 15.994 0 0 1 1.622-3.395m3.42 3.42a15.995 15.995 0 0 0 4.764-4.648l3.876-5.814a1.151 1.151 0 0 0-1.597-1.597L14.146 6.32a15.996 15.996 0 0 0-4.649 4.763m3.42 3.42a6.776 6.776 0 0 0-3.42-3.42"/></svg>
+            Studio
+        </a></li>
+        <li><a href="http://localhost:18265" target="_blank">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M5.25 14.25h13.5m-13.5 0a3 3 0 0 1-3-3m3 3a3 3 0 1 0 0 6h13.5a3 3 0 1 0 0-6m-16.5-3a3 3 0 0 1 3-3h13.5a3 3 0 0 1 3 3m-19.5 0a4.5 4.5 0 0 1 .9-2.7L5.737 5.1a3.375 3.375 0 0 1 2.7-1.35h7.126c1.062 0 2.062.5 2.7 1.35l2.587 3.45a4.5 4.5 0 0 1 .9 2.7m0 0a3 3 0 0 1-3 3m0 3h.008v.008h-.008v-.008Zm0-6h.008v.008h-.008v-.008Zm-3 6h.008v.008h-.008v-.008Zm0-6h.008v.008h-.008v-.008Z"/></svg>
+            Ray Dashboard
+        </a></li>
+    </ul>
+    <div class="sidebar-footer">
+        <div id="host-info"></div>
+    </div>
+</aside>
+
+<!-- Main content -->
+<div id="main">
+    <div class="page-header">
+        <h2>Dashboard</h2>
+        <span class="timestamp" id="last-update">—</span>
+    </div>
+
+    <!-- Quick stats -->
+    <div class="stat-pills" id="stat-pills">
+        <div class="stat-pill">
+            <div class="pill-label">GPU Util</div>
+            <div class="pill-value" id="pill-util">—<span class="pill-unit">%</span></div>
+        </div>
+        <div class="stat-pill">
+            <div class="pill-label">VRAM Used</div>
+            <div class="pill-value" id="pill-vram">—<span class="pill-unit">GB</span></div>
+        </div>
+        <div class="stat-pill">
+            <div class="pill-label">Temperature</div>
+            <div class="pill-value" id="pill-temp">—<span class="pill-unit">°C</span></div>
+        </div>
+        <div class="stat-pill">
+            <div class="pill-label">Power</div>
+            <div class="pill-value" id="pill-power">—<span class="pill-unit">W</span></div>
+        </div>
+        <div class="stat-pill">
+            <div class="pill-label">Active Service</div>
+            <div class="pill-value" id="pill-service" style="font-size:0.9rem">—</div>
+        </div>
+        <div class="stat-pill">
+            <div class="pill-label">Services Online</div>
+            <div class="pill-value" id="pill-services">—</div>
+        </div>
+    </div>
+
+    <!-- GPU detail card + sparklines -->
+    <div class="grid-2" style="margin-bottom: 16px">
+        <!-- GPU Card -->
+        <div class="card" id="gpu-card">
+            <div class="card-header">
+                <span class="label" id="gpu-index-label">GPU 0</span>
+                <span class="value" id="gpu-power-label">—</span>
+            </div>
+            <div class="gpu-name" id="gpu-name">Loading...</div>
+            <div class="gpu-subtitle" id="gpu-vram-subtitle"></div>
+
+            <div class="metric">
+                <div class="metric-top">
+                    <span class="metric-label">
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M3.75 13.5l10.5-11.25L12 10.5h8.25L9.75 21.75 12 13.5H3.75z"/></svg>
+                        GPU Utilization
+                    </span>
+                    <span class="metric-value" id="gpu-util-value">—</span>
+                </div>
+                <div class="bar-track"><div class="bar-fill" id="gpu-util-bar" style="width:0%"></div></div>
+            </div>
+
+            <div class="metric">
+                <div class="metric-top">
+                    <span class="metric-label">
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M21 7.5l-2.25-1.313M21 7.5v2.25m0-2.25l-2.25 1.313M3 7.5l2.25-1.313M3 7.5l2.25 1.313M3 7.5v2.25m9 3l2.25-1.313M12 12.75l-2.25-1.313M12 12.75V15m0 6.75l2.25-1.313M12 21.75V19.5m0 2.25l-2.25-1.313m0-16.875L12 2.25l2.25 1.313M21 14.25v2.25l-2.25 1.313m-13.5 0L3 16.5v-2.25"/></svg>
+                        VRAM
+                    </span>
+                    <span class="metric-value" id="gpu-mem-value">—</span>
+                </div>
+                <div class="bar-track"><div class="bar-fill" id="gpu-mem-bar" style="width:0%"></div></div>
+            </div>
+
+            <div class="metric">
+                <div class="metric-top">
+                    <span class="metric-label">
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M15.362 5.214A8.252 8.252 0 0 1 12 21 8.25 8.25 0 0 1 6.038 7.047 8.287 8.287 0 0 0 9 9.601a8.983 8.983 0 0 1 3.361-6.867 8.21 8.21 0 0 0 3 2.48Z"/></svg>
+                        Temperature
+                    </span>
+                    <span class="metric-value" id="gpu-temp-value">—</span>
+                </div>
+                <div class="bar-track"><div class="bar-fill" id="gpu-temp-bar" style="width:0%"></div></div>
+            </div>
+
+            <div id="gpu-service-area"></div>
+            <div id="gpu-processes" style="margin-top:12px"></div>
+        </div>
+
+        <!-- Sparkline charts -->
+        <div class="card">
+            <div class="card-header">
+                <span class="label">GPU History</span>
+                <span class="value" id="history-range">collecting...</span>
+            </div>
+            <div class="grid-2">
+                <div class="sparkline-card">
+                    <div class="sparkline-label">
+                        <span class="sparkline-title">Utilization %</span>
+                        <span class="sparkline-value" id="spark-util" style="color:var(--accent)">—</span>
+                    </div>
+                    <svg id="chart-util" viewBox="0 0 240 48"></svg>
+                </div>
+                <div class="sparkline-card">
+                    <div class="sparkline-label">
+                        <span class="sparkline-title">VRAM %</span>
+                        <span class="sparkline-value" id="spark-mem" style="color:var(--green)">—</span>
+                    </div>
+                    <svg id="chart-mem" viewBox="0 0 240 48"></svg>
+                </div>
+                <div class="sparkline-card">
+                    <div class="sparkline-label">
+                        <span class="sparkline-title">Temperature °C</span>
+                        <span class="sparkline-value" id="spark-temp" style="color:var(--orange)">—</span>
+                    </div>
+                    <svg id="chart-temp" viewBox="0 0 240 48"></svg>
+                </div>
+                <div class="sparkline-card">
+                    <div class="sparkline-label">
+                        <span class="sparkline-title">Power W</span>
+                        <span class="sparkline-value" id="spark-power" style="color:var(--purple)">—</span>
+                    </div>
+                    <svg id="chart-power" viewBox="0 0 240 48"></svg>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Services table -->
+    <div class="services-section">
+        <h3>
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M5.25 14.25h13.5m-13.5 0a3 3 0 0 1-3-3m3 3a3 3 0 1 0 0 6h13.5a3 3 0 1 0 0-6m-16.5-3a3 3 0 0 1 3-3h13.5a3 3 0 0 1 3 3m-19.5 0a4.5 4.5 0 0 1 .9-2.7L5.737 5.1a3.375 3.375 0 0 1 2.7-1.35h7.126c1.062 0 2.062.5 2.7 1.35l2.587 3.45a4.5 4.5 0 0 1 .9 2.7m0 0a3 3 0 0 1-3 3m0 3h.008v.008h-.008v-.008Zm0-6h.008v.008h-.008v-.008Zm-3 6h.008v.008h-.008v-.008Zm0-6h.008v.008h-.008v-.008Z"/></svg>
+            Services
+        </h3>
+        <div class="card" style="padding:0; overflow:hidden">
+            <table class="services-table">
+                <thead>
+                    <tr>
+                        <th>Service</th>
+                        <th>Category</th>
+                        <th>Type</th>
+                        <th>Status</th>
+                        <th>Replicas</th>
+                    </tr>
+                </thead>
+                <tbody id="services-body">
+                    <tr><td colspan="5" class="loading"><div class="loading-spinner"></div>Loading services...</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<script>
+const POLL_MS = 5000;
+const GPU_TEMP_MAX = 95;
+const GPU_POWER_MAX = 450;
+
+// ---- Color helpers ----
+function barColor(pct, warn, danger) {
+    if (pct > danger) return 'var(--red)';
+    if (pct > warn) return 'var(--yellow)';
+    return 'var(--accent)';
+}
+
+function tempColor(c) {
+    if (c >= 85) return 'var(--red)';
+    if (c >= 70) return 'var(--yellow)';
+    return 'var(--green)';
+}
+
+function statusClass(s) {
+    s = (s || '').toLowerCase();
+    if (s === 'running' || s === 'healthy') return 'healthy';
+    if (s === 'updating' || s === 'deploying') return 'updating';
+    if (s.includes('unhealthy') || s.includes('failed')) return 'unhealthy';
+    if (s === 'not_deployed') return 'not_deployed';
+    return 'unknown';
+}
+
+// ---- Sparkline renderer ----
+function renderSparkline(svgEl, data, color, maxVal) {
+    if (!data || data.length < 2) {
+        svgEl.innerHTML = '<text x="120" y="28" text-anchor="middle" fill="var(--text-muted)" font-size="11">collecting...</text>';
+        return;
+    }
+    const W = 240, H = 48, P = 2;
+    const max = maxVal || Math.max(...data, 1);
+    const pts = data.map((v, i) => {
+        const x = P + (i / (data.length - 1)) * (W - 2 * P);
+        const y = H - P - ((v || 0) / max) * (H - 2 * P);
+        return [x.toFixed(1), y.toFixed(1)];
+    });
+
+    const gradId = 'g-' + svgEl.id;
+    const areaPath = `M${P},${H} ` + pts.map(p => `L${p[0]},${p[1]}`).join(' ') + ` L${pts[pts.length-1][0]},${H} Z`;
+    const linePath = 'M' + pts.map(p => p.join(',')).join(' L');
+
+    svgEl.innerHTML = `
+        <defs>
+            <linearGradient id="${gradId}" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stop-color="${color}" stop-opacity="0.25"/>
+                <stop offset="100%" stop-color="${color}" stop-opacity="0.02"/>
+            </linearGradient>
+        </defs>
+        <path d="${areaPath}" fill="url(#${gradId})" />
+        <path d="${linePath}" fill="none" stroke="${color}" stroke-width="1.5" stroke-linejoin="round" />
+    `;
+}
+
+// ---- Update functions ----
+function updateGPUCard(data) {
+    // Name
+    document.getElementById('gpu-name').textContent = data.name || 'Unknown GPU';
+    document.getElementById('gpu-index-label').textContent = 'GPU ' + (data.index ?? 0);
+    document.getElementById('gpu-vram-subtitle').textContent =
+        `${fmtMB(data.mem_total_mb)} VRAM · Fan ${data.fan_speed ?? 0}%`;
+
+    // Utilization
+    const util = data.gpu_util ?? 0;
+    document.getElementById('gpu-util-value').textContent = util + '%';
+    document.getElementById('gpu-util-bar').style.width = util + '%';
+    document.getElementById('gpu-util-bar').style.background = barColor(util, 70, 90);
+
+    // VRAM
+    const memPct = data.mem_total_mb > 0 ? (data.mem_used_mb / data.mem_total_mb * 100) : 0;
+    document.getElementById('gpu-mem-value').textContent =
+        `${fmtMB(data.mem_used_mb)} / ${fmtMB(data.mem_total_mb)}`;
+    document.getElementById('gpu-mem-bar').style.width = memPct.toFixed(1) + '%';
+    document.getElementById('gpu-mem-bar').style.background = barColor(memPct, 70, 90);
+
+    // Temperature
+    const temp = data.temp_c ?? 0;
+    document.getElementById('gpu-temp-value').textContent = temp + '°C';
+    document.getElementById('gpu-temp-bar').style.width = (temp / GPU_TEMP_MAX * 100) + '%';
+    document.getElementById('gpu-temp-bar').style.background = tempColor(temp);
+
+    // Power label
+    document.getElementById('gpu-power-label').textContent =
+        `${data.power_w ?? 0}W / ${data.power_limit_w ?? 0}W`;
+
+    // Scheduler service tag
+    const svcArea = document.getElementById('gpu-service-area');
+    const sched = data.scheduler || {};
+    if (sched.current_service) {
+        svcArea.innerHTML = `<div class="gpu-service-tag active">
+            <span class="status-dot healthy"></span>
+            ${sched.current_service} / ${sched.current_model}
+        </div>`;
+    } else {
+        svcArea.innerHTML = `<div class="gpu-service-tag idle">GPU Idle</div>`;
+    }
+
+    // Processes
+    const procArea = document.getElementById('gpu-processes');
+    const procs = data.processes || [];
+    if (procs.length > 0) {
+        procArea.innerHTML = '<div style="margin-bottom:6px;font-size:0.65rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.06em">GPU Processes</div>' +
+            procs.map(p => `<div class="tag tag-process" style="margin:2px 0">PID ${p.pid} · ${p.memory_mb}MB · ${p.name}</div>`).join('');
+    } else {
+        procArea.innerHTML = '';
+    }
+
+    // Top stat pills
+    document.getElementById('pill-util').innerHTML = util + '<span class="pill-unit">%</span>';
+    document.getElementById('pill-vram').innerHTML = (data.mem_used_mb / 1024).toFixed(1) + '<span class="pill-unit">GB</span>';
+    document.getElementById('pill-temp').innerHTML = temp + '<span class="pill-unit">°C</span>';
+    document.getElementById('pill-power').innerHTML = (data.power_w ?? 0) + '<span class="pill-unit">W</span>';
+    document.getElementById('pill-service').textContent = sched.current_service || 'Idle';
+}
+
+function updateCharts(history) {
+    if (!history || history.length === 0) return;
+
+    const utils = history.map(h => h.gpu_util);
+    const mems = history.map(h => h.mem_used_mb > 0 && h.mem_total_mb > 0 ? h.mem_used_mb / h.mem_total_mb * 100 : 0);
+    const temps = history.map(h => h.temp_c);
+    const powers = history.map(h => h.power_w);
+
+    renderSparkline(document.getElementById('chart-util'), utils, '#818cf8', 100);
+    renderSparkline(document.getElementById('chart-mem'), mems, '#4ade80', 100);
+    renderSparkline(document.getElementById('chart-temp'), temps, '#fb923c', GPU_TEMP_MAX);
+    renderSparkline(document.getElementById('chart-power'), powers, '#a78bfa', GPU_POWER_MAX);
+
+    // Latest values on sparklines
+    const last = history[history.length - 1];
+    document.getElementById('spark-util').textContent = last.gpu_util + '%';
+    document.getElementById('spark-mem').textContent = (last.mem_used_mb > 0 && last.mem_total_mb > 0 ? (last.mem_used_mb / last.mem_total_mb * 100).toFixed(0) : 0) + '%';
+    document.getElementById('spark-temp').textContent = last.temp_c + '°C';
+    document.getElementById('spark-power').textContent = last.power_w + 'W';
+
+    // Time range
+    if (history.length >= 2) {
+        const t0 = new Date(history[0].t * 1000);
+        const t1 = new Date(history[history.length - 1].t * 1000);
+        document.getElementById('history-range').textContent =
+            t0.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'}) + ' – ' +
+            t1.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'});
+    }
+}
+
+function updateServices(services) {
+    const tbody = document.getElementById('services-body');
+    if (!services || services.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="5" style="color:var(--text-muted);text-align:center;padding:20px">No services found</td></tr>';
+        return;
+    }
+
+    // Count healthy
+    const deployed = services.filter(s => s.status !== 'NOT_DEPLOYED');
+    const healthy = services.filter(s => s.status === 'RUNNING' || s.status === 'HEALTHY').length;
+    document.getElementById('pill-services').textContent = healthy + '/' + deployed.length;
+
+    // Group by category
+    const cats = {};
+    services.forEach(s => {
+        (cats[s.category] = cats[s.category] || []).push(s);
+    });
+
+    let html = '';
+    for (const [cat, svcs] of Object.entries(cats)) {
+        svcs.forEach((s, i) => {
+            const sc = statusClass(s.status);
+            const statusLabel = s.status.replace(/_/g, ' ').toLowerCase();
+            const typeTag = s.gpu
+                ? '<span class="tag tag-gpu">GPU</span>'
+                : '<span class="tag tag-cpu">CPU</span>';
+            html += `<tr>
+                <td class="svc-name">${s.label || s.name}</td>
+                <td>${i === 0 ? cat : ''}</td>
+                <td>${typeTag}</td>
+                <td><span class="status-dot ${sc}"></span>${statusLabel}</td>
+                <td style="font-family:var(--font-mono)">${s.running_replicas}/${s.target_replicas}</td>
+            </tr>`;
+        });
+    }
+    tbody.innerHTML = html;
+}
+
+function fmtMB(mb) {
+    if (mb >= 1024) return (mb / 1024).toFixed(1) + ' GB';
+    return mb + ' MB';
+}
+
+// ---- Polling ----
+let visible = true;
+document.addEventListener('visibilitychange', () => { visible = !document.hidden; });
+
+async function poll() {
+    if (!visible) return;
+    try {
+        const [gpuRes, histRes, svcRes] = await Promise.all([
+            fetch('/dashboard/api/gpu'),
+            fetch('/dashboard/api/gpu/history'),
+            fetch('/dashboard/api/services'),
+        ]);
+        if (gpuRes.ok) updateGPUCard(await gpuRes.json());
+        if (histRes.ok) updateCharts(await histRes.json());
+        if (svcRes.ok) updateServices(await svcRes.json());
+        document.getElementById('last-update').textContent = 'Updated ' + new Date().toLocaleTimeString();
+    } catch (e) {
+        console.warn('Dashboard poll failed:', e);
+    }
+}
+
+// Host info
+document.getElementById('host-info').textContent =
+    location.hostname + ':' + location.port;
+
+// Initial + interval
+poll();
+setInterval(poll, POLL_MS);
+</script>
+</body>
+</html>
