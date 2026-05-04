@@ -1,7 +1,7 @@
-"""ComfyUI Ray deployment — Docker-based, flash-attn enabled.
+"""ComfyUI Ray deployment — runs inside Ray-managed container.
 
-ComfyUI runs in a Docker container (tech-noir/comfyui:latest) with
-all extensions baked in during build. Models mounted from host at /models.
+Ray manages the container (tech-noir/comfyui:latest). The actor starts
+ComfyUI as a subprocess and proxies HTTP requests to it.
 
 GPU managed by Ray: num_gpus=1.0 ensures only one GPU service runs at a time.
 GPUScheduler coordinates load/unload across all GPU services.
@@ -9,13 +9,15 @@ GPUScheduler coordinates load/unload across all GPU services.
 from __future__ import annotations
 
 import logging
+import os
+from pathlib import Path
 
 import httpx
 from ray import serve
 from starlette.requests import Request
 from starlette.responses import Response
 
-from services.base import BaseGPUDeployment, HTTPToolMixin
+from services.base import BaseGPUDeployment, SubprocessMixin
 
 logger = logging.getLogger(__name__)
 
@@ -26,76 +28,89 @@ logger = logging.getLogger(__name__)
     max_ongoing_requests=8,
     ray_actor_options={"num_gpus": 1.0, "num_cpus": 0.5},
 )
-class ComfyUIDeployment(BaseGPUDeployment, HTTPToolMixin):
-    """ComfyUI with flash-attn via Docker container. Proxies API and WebUI requests."""
+class ComfyUIDeployment(BaseGPUDeployment, SubprocessMixin):
+    """ComfyUI with flash-attn inside Ray-managed container."""
 
     COMFYUI_PORT = 18465
 
     def _load(self, model_name: str = "comfyui") -> None:
-        self._ensure_healthy(
-            port=self.COMFYUI_PORT,
-            service_name="comfyui",
+        self._setup_model_links()
+        self.start_process(
+            [
+                "python3", "main.py",
+                "--port", str(self.COMFYUI_PORT),
+                "--listen", "0.0.0.0",
+                "--preview-method", "auto",
+                "--use-split-cross-attention",
+            ],
+            cwd="/opt/ComfyUI",
+        )
+        self.wait_for_health(
+            f"http://localhost:{self.COMFYUI_PORT}/",
             timeout=120,
-            container_port=self.COMFYUI_PORT,
-            health_path="/",
         )
         self.model_name = model_name
         self.model = True
+        logger.info("ComfyUI ready (port=%d)", self.COMFYUI_PORT)
 
     def _unload(self) -> None:
-        self._stop_container()
+        self.stop_process()
 
     def is_loaded(self) -> bool:
-        return self._is_container_alive()
+        return self.process is not None and self.process.poll() is None
 
-    def _ensure_loaded(self) -> None:
-        if not self._is_container_alive():
-            self._load()
+    def _setup_model_links(self) -> None:
+        models_dir = "/opt/ComfyUI/models"
+        os.makedirs(models_dir, exist_ok=True)
+        for d in ["HY-Motion", "RMBG", "sams", "ultralytics"]:
+            src = f"/models/image-gen/comfyui/{d}"
+            dst = f"{models_dir}/{d}"
+            if os.path.isdir(src) and not os.path.exists(dst):
+                os.symlink(src, dst)
 
     async def submit_workflow(self, workflow: dict) -> dict:
-        """Submit a workflow JSON to ComfyUI's /prompt endpoint."""
         self._ensure_loaded()
         async with httpx.AsyncClient(timeout=300) as client:
             resp = await client.post(
-                f"http://127.0.0.1:{self.COMFYUI_PORT}/prompt",
+                f"http://localhost:{self.COMFYUI_PORT}/prompt",
                 json={"prompt": workflow},
             )
             resp.raise_for_status()
             return resp.json()
 
     async def get_history(self, prompt_id: str = "") -> dict:
-        """Get execution history."""
         self._ensure_loaded()
         async with httpx.AsyncClient(timeout=30) as client:
-            url = f"http://127.0.0.1:{self.COMFYUI_PORT}/history"
+            url = f"http://localhost:{self.COMFYUI_PORT}/history"
             if prompt_id:
                 url += f"/{prompt_id}"
             resp = await client.get(url)
             resp.raise_for_status()
             return resp.json()
 
-    async def __call__(self, proxy_data: dict) -> Response:
-        """Proxy HTTP requests to ComfyUI's Docker container.
+    def _ensure_loaded(self) -> None:
+        if self.process is None or self.process.poll() is not None:
+            self._load()
 
-        proxy_data dict keys: method, path, query, headers, body
-        """
+    async def __call__(self, request: Request) -> Response:
         self._ensure_loaded()
 
         async with httpx.AsyncClient(timeout=300) as client:
-            path = proxy_data["path"]
+            path = request.url.path
             if path.startswith("/comfyui"):
                 path = path[len("/comfyui"):] or "/"
 
-            target_url = f"http://127.0.0.1:{self.COMFYUI_PORT}{path}"
-            if proxy_data.get("query"):
-                target_url += f"?{proxy_data['query']}"
+            target_url = f"http://localhost:{self.COMFYUI_PORT}{path}"
+            if request.url.query:
+                target_url += f"?{request.url.query}"
 
+            body = await request.body()
             resp = await client.request(
-                method=proxy_data["method"],
+                method=request.method,
                 url=target_url,
-                headers={k: v for k, v in proxy_data.get("headers", {}).items()
+                headers={k: v for k, v in request.headers.items()
                          if k.lower() not in ("host",)},
-                content=proxy_data.get("body", b""),
+                content=body,
             )
 
             content_type = resp.headers.get("content-type", "application/json")

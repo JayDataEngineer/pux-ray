@@ -309,6 +309,19 @@ class HTTPToolMixin:
             cmd.extend(docker_args)
 
         logger.info("Starting %s container (port %d → %d)...", service_name, port, container_port)
+
+        # Check if Docker image exists locally
+        inspect = subprocess.run(
+            ["docker", "image", "inspect", image],
+            capture_output=True, text=True,
+        )
+        if inspect.returncode != 0:
+            raise RuntimeError(
+                f"Docker image '{image}' not found on this machine. "
+                f"Build or pull it first:\n"
+                f"  docker build -f infra/docker/Dockerfile.{service_name} -t {image} ."
+            )
+
         result = subprocess.run(cmd, capture_output=True, text=True)
         if result.returncode != 0:
             raise RuntimeError(f"Failed to start {service_name} container: {result.stderr}")
@@ -408,6 +421,7 @@ class HTTPToolMixin:
         """Stop and remove the Docker container."""
         if not self._container_name:
             return
+        name = self._container_name
         subprocess.run(
             ["docker", "stop", "-t", "10", self._container_name],
             capture_output=True,
@@ -418,7 +432,7 @@ class HTTPToolMixin:
         )
         self._base_url = ""
         self._container_name = ""
-        logger.info("Stopped container: %s", self._container_name)
+        logger.info("Stopped container: %s", name)
 
 
 # ─── CLIToolMixin — compiled CUDA tools (→ Docker later) ─────────────────────

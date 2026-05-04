@@ -1,8 +1,8 @@
 """API Ingress — single entry point for all AI service requests.
 
 Routes requests through the GPUScheduler to serialize GPU access.
-Ray's built-in scheduling (num_gpus=1.0 per deployment) prevents
-concurrent GPU use; the scheduler ensures clean unload-before-load.
+All GPU services route via Ray Serve deployment handles — no direct
+port proxying needed since Ray manages container networking.
 
 Auth: API key via X-API-Key header or api_key query param.
 Set secrets.api_key in config/local.yaml or TECH_NOIR_API_KEY env var.
@@ -74,11 +74,7 @@ class APIIngress:
             await self.gpu_scheduler.acquire_gpu.remote(service, model)
 
     async def _proxy_to_port(self, request: Request, port: int, *, target_path: str = "") -> Response:
-        """Proxy request to a local Docker worker port.
-
-        If target_path is provided, it replaces the request path.
-        Otherwise passes the request path as-is.
-        """
+        """Proxy request to a local port (legacy — only for TRELLIS until migrated)."""
         async with httpx.AsyncClient(timeout=600) as client:
             path = target_path or request.url.path
             body = await request.body()
@@ -131,7 +127,6 @@ class APIIngress:
 
         dep_name, app_name = tts_services.get(model, ("kokoro_tts", "kokoro_tts"))
 
-        # GPU TTS services go through the scheduler
         if dep_name in ("index_tts", "qwen_tts", "vibevoice", "gpt_sovits"):
             await self._use_gpu(dep_name)
 
@@ -166,11 +161,13 @@ class APIIngress:
 
     async def anigen_generate(self, request: Request) -> Response:
         await self._use_gpu("anigen")
-        return await self._proxy_to_port(request, 18402, target_path="/generate")
+        handle = serve.get_deployment_handle("anigen", "anigen")
+        return await handle.remote(request)
 
     async def hymotion_generate(self, request: Request) -> Response:
         await self._use_gpu("hy_motion")
-        return await self._proxy_to_port(request, 18407, target_path="/generate")
+        handle = serve.get_deployment_handle("hy_motion", "hy_motion")
+        return await handle.remote(request)
 
     # --- Music Routes ---
 
@@ -189,33 +186,10 @@ class APIIngress:
     # --- ComfyUI proxy ---
 
     async def comfyui_proxy(self, request: Request) -> Response:
-        """Proxy directly to ComfyUI on port 18465 (managed by Ray Serve deployment)."""
+        """Route to ComfyUI via Ray Serve deployment handle."""
         await self._use_gpu("comfyui")
-
-        async with httpx.AsyncClient(timeout=300) as client:
-            path = request.url.path
-            if path.startswith("/comfyui"):
-                path = path[len("/comfyui"):] or "/"
-
-            target_url = f"http://127.0.0.1:18465{path}"
-            if request.url.query:
-                target_url += f"?{request.url.query}"
-
-            body = await request.body()
-            resp = await client.request(
-                method=request.method,
-                url=target_url,
-                headers={k: v for k, v in request.headers.items()
-                         if k.lower() not in ("host",)},
-                content=body,
-            )
-
-            content_type = resp.headers.get("content-type", "application/json")
-            return Response(
-                content=resp.content,
-                status_code=resp.status_code,
-                media_type=content_type,
-            )
+        handle = serve.get_deployment_handle("comfyui", "comfyui")
+        return await handle.remote(request)
 
     # --- Status Routes ---
 

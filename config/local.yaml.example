@@ -45,14 +45,11 @@ services:
   # The venv_python/script/working_dir become optional when docker_image is set.
   creative:
 
-    # TRELLIS.2 — image-to-3D mesh generation
+    # TRELLIS.2 — image-to-3D mesh generation (Docker-based)
+    # Docker image: tech-noir/trellis-spz:latest
     # Source: https://github.com/microsoft/TRELLIS.2
     # Docker: infra/docker/Dockerfile.trellis
-    trellis:
-      venv_python: ${TECH_NOIR_TRELLIS_PYTHON:infra/repos/TRELLIS.2/.venv/bin/python}
-      script: services/creative/wrappers/trellis_cli.py
-      working_dir: infra/repos/TRELLIS.2
-      docker_image: ${TECH_NOIR_TRELLIS_IMAGE:}
+    trellis: {}
 
     # AniGen — animated 3D character generation
     # Source: https://github.com/VAST-AI-Research/AniGen

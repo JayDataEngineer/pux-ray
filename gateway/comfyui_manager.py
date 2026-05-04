@@ -52,10 +52,16 @@ class ComfyUIExtensionManager:
             return {"error": "No extensions defined in config"}
 
         config_obj = Config()
-        comfyui_dir = Path(config_obj.get(
-            "services.comfyui.working_dir",
-            str(config_obj.project_root.parent / "img" / "comfyui"),
-        ))
+        comfyui_dir_raw = config_obj.get("services.comfyui.working_dir")
+        if not comfyui_dir_raw:
+            return {"error": "services.comfyui.working_dir not configured in config/local.yaml"}
+        comfyui_dir = Path(comfyui_dir_raw)
+        if not comfyui_dir.exists():
+            return {
+                "error": f"ComfyUI directory not found: {comfyui_dir}. "
+                         f"Extension sync only needed on the build node; "
+                         f"extensions are baked into the Docker image.",
+            }
         custom_nodes = comfyui_dir / "custom_nodes"
         custom_nodes.mkdir(parents=True, exist_ok=True)
 
@@ -187,10 +193,10 @@ class ComfyUIExtensionManager:
             config = yaml.safe_load(f)
 
         config_obj = Config()
-        comfyui_dir = Path(config_obj.get(
-            "services.comfyui.working_dir",
-            str(config_obj.project_root.parent / "img" / "comfyui"),
-        ))
+        comfyui_dir_raw = config_obj.get("services.comfyui.working_dir")
+        if not comfyui_dir_raw:
+            return {"error": "services.comfyui.working_dir not configured in config/local.yaml"}
+        comfyui_dir = Path(comfyui_dir_raw)
         custom_nodes = comfyui_dir / "custom_nodes"
 
         extensions = []
