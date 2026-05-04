@@ -13,7 +13,7 @@ ENV DEBIAN_FRONTEND=noninteractive \
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     python3.11 python3.11-dev python3.11-venv python3-pip \
-    build-essential git cmake \
+    build-essential git git-lfs cmake \
     libgl1-mesa-glx libglib2.0-0 libsm6 libxext6 \
     && rm -rf /var/lib/apt/lists/* \
     && ln -sf /usr/bin/python3.11 /usr/bin/python \
@@ -22,6 +22,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 RUN git clone --depth 1 https://github.com/Tencent-Hunyuan/HY-Motion-1.0.git /opt/hymotion
 WORKDIR /opt/hymotion
+
+# Pull git-lfs files (body model binaries, FBX skeleton assets)
+RUN git lfs pull
 
 RUN pip install --no-cache-dir \
     torch==2.6.0 torchvision==0.21.0 torchaudio==2.6.0 \
@@ -32,8 +35,10 @@ RUN pip install --no-cache-dir -r requirements.txt && \
 
 COPY infra/docker/api_hymotion.py /opt/api.py
 
+# USE_HF_MODELS=1 downloads CLIP/Qwen from HuggingFace (mounted HF cache at /root/.cache)
 ENV PYTHONPATH=/opt/hymotion \
-    HF_HOME=/models/.cache
+    HF_HOME=/root/.cache/huggingface \
+    USE_HF_MODELS=1
 
 EXPOSE 8000
 CMD ["python", "/opt/api.py"]
