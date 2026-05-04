@@ -44,6 +44,7 @@ class Service:
     port: int | None = None
     health_url: str | None = None
     compose_file: str | None = None
+    compose_profile: str = ""
     depends_on: list[str] = field(default_factory=list)
     start_cmd: list[str] | None = None
     relative_to_root: bool = False
@@ -151,7 +152,7 @@ register(Service(
     type=ServiceType.PROCESS,
     working_dir=str(get_project_root()),
     port=18080,
-    health_url="http://127.0.0.1:18080/dashboard",
+    health_url="http://127.0.0.1:18080/health",
     depends_on=["ray-serve"],
     relative_to_root=True,
     label="API Ingress",
@@ -168,6 +169,7 @@ register(Service(
     type=ServiceType.DOCKER,
     working_dir=_DOCKER_WORKERS_DIR,
     compose_file=_DOCKER_WORKERS_COMPOSE,
+    compose_profile="trellis",
     port=18401,
     label="TRELLIS.2 Worker",
 ))
@@ -177,6 +179,7 @@ register(Service(
     type=ServiceType.DOCKER,
     working_dir=_DOCKER_WORKERS_DIR,
     compose_file=_DOCKER_WORKERS_COMPOSE,
+    compose_profile="anigen",
     port=18402,
     label="AniGen Worker",
 ))
@@ -186,6 +189,7 @@ register(Service(
     type=ServiceType.DOCKER,
     working_dir=_DOCKER_WORKERS_DIR,
     compose_file=_DOCKER_WORKERS_COMPOSE,
+    compose_profile="vibevoice",
     port=18403,
     label="VibeVoice TTS Worker",
 ))
@@ -278,6 +282,8 @@ def _start_docker(svc: Service) -> bool:
     cmd = ["docker", "compose"]
     if svc.compose_file:
         cmd += ["-f", svc.compose_file]
+    if svc.compose_profile:
+        cmd += ["--profile", svc.compose_profile]
     cmd += ["up", "-d"]
 
     try:
@@ -303,6 +309,8 @@ def _stop_docker(svc: Service) -> bool:
     cmd = ["docker", "compose"]
     if svc.compose_file:
         cmd += ["-f", svc.compose_file]
+    if svc.compose_profile:
+        cmd += ["--profile", svc.compose_profile]
     cmd += ["down"]
 
     try:
