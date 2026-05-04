@@ -223,6 +223,16 @@ comfyui:
     vram_estimate_gb: 7.5
     device: gpu
     description: PrefectIllustrious XL v7.0 SDXL checkpoint.
+  checkpoint-ilflatmix:
+    path: image-gen/comfyui/checkpoints/ILFlatMix.safetensors
+    source: civitai://1188956
+    download: civitai
+    sha256: null
+    size_gb: 6.8
+    vram_estimate_gb: 7.5
+    device: gpu
+    description: "ALF mix IL v4.3 [final] — Illustrious 8-step checkpoint. VNCCS author's
+      mix (Shio_N). LCM/Euler A, CFG 1.8-2.0, 6-8 steps. Civitai model 1188956."
   text-encoder-ltx-2.3-projection:
     path: image-gen/comfyui/text_encoders/ltx-2.3_text_projection_bf16.safetensors
     source: hf://Kijai/LTX2.3_comfy/text_encoders/ltx-2.3_text_projection_bf16.safetensors
@@ -422,6 +432,15 @@ comfyui:
     vram_estimate_gb: 0.0
     device: gpu
     description: VNCCS PoseStudio ART V5 LoRA.
+  lora-il-mimimeter:
+    path: image-gen/comfyui/loras/IL/mimimeter.safetensors
+    source: hf://MIUProject/VNCCS/models/loras/IL/mimimeter.safetensors
+    download: file
+    sha256: null
+    size_gb: 0.05
+    vram_estimate_gb: 0.0
+    device: gpu
+    description: mimimeter LoRA. VNCCS demo character style LoRA for Illustrious.
   rmbg-v2:
     path: image-gen/comfyui/RMBG/RMBG-2.0/model.safetensors
     source: hf://1038lab/RMBG-2.0/model.safetensors
@@ -536,13 +555,13 @@ comfyui:
 
   ultralytics-face:
     path: image-gen/comfyui/ultralytics/bbox/face_yolov8m.pt
-    source: null
-    download: skip
+    source: hf://Bingsu/adetailer/face_yolov8m.pt
+    download: file
     sha256: null
-    size_gb: 0.02
+    size_gb: 0.05
     vram_estimate_gb: 0.0
     device: cpu
-    description: "YOLOv8m face detector. Auto-downloaded by ultralytics at first use."
+    description: "YOLOv8m face detector. ADetailer model for FaceDetailer node."
 
   ultralytics-person:
     path: image-gen/comfyui/ultralytics/segm/person_yolov8m-seg.pt
@@ -675,6 +694,24 @@ comfyui:
     vram_estimate_gb: 1.0
     device: gpu
     description: CLIP ViT-L/14 text encoder for HY-Motion. ComfyUI-HY-Motion1.
+  upscale-seedvr2-dit:
+    path: image-gen/comfyui/diffusion_models/seedvr2_ema_3b_fp16.safetensors
+    source: hf://numz/SeedVR2_comfyUI/seedvr2_ema_3b_fp16.safetensors
+    download: file
+    sha256: null
+    size_gb: 6.8
+    vram_estimate_gb: 7.0
+    device: gpu
+    description: SeedVR2 3B upscaler DiT (FP16). From numz ComfyUI repo.
+  upscale-seedvr2-vae:
+    path: image-gen/comfyui/vae/ema_vae_fp16.safetensors
+    source: hf://numz/SeedVR2_comfyUI/ema_vae_fp16.safetensors
+    download: file
+    sha256: null
+    size_gb: 0.5
+    vram_estimate_gb: 1.0
+    device: gpu
+    description: SeedVR2 upscaler VAE (FP16). From numz ComfyUI repo.
 3d:
   trellis:
     path: 3d/trellis/TRELLIS.2-4B/ckpts/
