@@ -69,9 +69,22 @@ RUN git clone -b renderutils --depth 1 \
         pip install /tmp/extensions/nvdiffrec --no-build-isolation && \
     rm -rf /tmp/extensions/nvdiffrec
 
-# stub packages: flex_gemm + cumesh (GPU accel unavailable, API uses nvdiffrast fallback)
-COPY infra/docker/create_stubs.py /tmp/create_stubs.py
-RUN python /tmp/create_stubs.py && rm /tmp/create_stubs.py
+# flex_gemm — download source, patch triton 3.x incompatibilities, install patched.
+# Two issues with stock flex_gemm on this image:
+#   1. config.py calls torch.cuda.get_device_name() at import → crashes in build (no GPU)
+#   2. Kernel files use @triton.jit which crashes with triton 3.x's new source-parsing
+# EXPLICIT_GEMM algorithm bypasses triton entirely, so we stub the broken kernels.
+COPY infra/docker/patch_flex_gemm.py /tmp/patch_flex_gemm.py
+RUN git clone --depth 1 https://github.com/JeffreyXiang/FlexGEMM.git /tmp/flex_gemm && \
+    python /tmp/patch_flex_gemm.py /tmp/flex_gemm && \
+    pip install --no-cache-dir /tmp/flex_gemm --no-build-isolation && \
+    rm -rf /tmp/flex_gemm /tmp/patch_flex_gemm.py
+
+# CuMesh — compiled from source (CUDA mesh operations: BVH, remeshing, simplification)
+RUN git clone --recursive https://github.com/JeffreyXiang/CuMesh.git /tmp/CuMesh && \
+    env TORCH_CUDA_ARCH_LIST="8.9" \
+        pip install /tmp/CuMesh --no-build-isolation && \
+    rm -rf /tmp/CuMesh
 
 # o-voxel — built from source with lazy flex_gemm/cumesh imports
 COPY infra/docker/patch_ovoxel.py /tmp/patch_ovoxel.py
@@ -93,6 +106,8 @@ ENV ATTN_BACKEND=xformers \
 COPY infra/docker/start_trellis.sh /opt/start.sh
 COPY infra/docker/patch_birefnet_runtime.py /opt/patch_birefnet_runtime.py
 COPY infra/docker/patch_dinov3_runtime.py /opt/patch_dinov3_runtime.py
+COPY infra/docker/patch_conv_flex_gemm.py /opt/patch_conv_flex_gemm.py
+COPY infra/docker/patch_cumesh_fallback.py /opt/patch_cumesh_fallback.py
 RUN chmod +x /opt/start.sh
 
 EXPOSE 8000
