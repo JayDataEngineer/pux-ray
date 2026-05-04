@@ -12,20 +12,17 @@
 
 services:
   trellis-worker:
-    build:
-      context: .
-      dockerfile: Dockerfile.trellis
+    image: tech-noir/trellis-spz:latest
     container_name: trellis-worker
     ports:
-      - "18401:18401"
+      - "18401:8000"
     volumes:
-      - ${MODELS_DIR:-/home/user/Documents/models}/3d/trellis:/models
+      - ${MODELS_DIR:-/home/user/Documents/models}/3d/trellis:/models:ro
     environment:
-      - TOOL_NAME=trellis
-      - PORT=18401
-      - MODEL_PATH=/models/TRELLIS.2-4B/ckpts
-      - HF_HOME=/models/cache/huggingface
-      - HF_HUB_CACHE=/models/cache/huggingface/hub
+      - TRELLIS_MODEL_ID=jetx/TRELLIS-image-large
+      - ATTN_BACKEND=flash-attn
+      - HF_HOME=/tmp/hf_cache
+      - HF_HUB_CACHE=/tmp/hf_cache/hub
     deploy:
       resources:
         reservations:
@@ -38,12 +35,10 @@ services:
     restart: "no"
 
   anigen-worker:
-    build:
-      context: .
-      dockerfile: Dockerfile.anigen
+    image: docker-anigen-worker:latest
     container_name: anigen-worker
     ports:
-      - "18402:18402"
+      - "18402:8000"
     volumes:
       - ${MODELS_DIR:-/home/user/Documents/models}/3d/anigen:/models:ro
     environment:
@@ -64,12 +59,10 @@ services:
     restart: "no"
 
   vibevoice-worker:
-    build:
-      context: .
-      dockerfile: Dockerfile.vibevoice
+    image: tech-noir/vibevoice:latest
     container_name: vibevoice-worker
     ports:
-      - "18403:18403"
+      - "18403:8000"
     volumes:
       - ${MODELS_DIR:-/home/user/Documents/models}/tts/vibevoice:/models:ro
     environment:

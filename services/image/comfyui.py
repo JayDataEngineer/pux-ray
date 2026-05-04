@@ -74,26 +74,28 @@ class ComfyUIDeployment(BaseGPUDeployment, HTTPToolMixin):
             resp.raise_for_status()
             return resp.json()
 
-    async def __call__(self, request: Request) -> Response:
-        """Proxy all HTTP requests to ComfyUI's Docker container."""
+    async def __call__(self, proxy_data: dict) -> Response:
+        """Proxy HTTP requests to ComfyUI's Docker container.
+
+        proxy_data dict keys: method, path, query, headers, body
+        """
         self._ensure_loaded()
 
         async with httpx.AsyncClient(timeout=300) as client:
-            path = request.url.path
+            path = proxy_data["path"]
             if path.startswith("/comfyui"):
                 path = path[len("/comfyui"):] or "/"
 
             target_url = f"http://127.0.0.1:{self.COMFYUI_PORT}{path}"
-            if request.url.query:
-                target_url += f"?{request.url.query}"
+            if proxy_data.get("query"):
+                target_url += f"?{proxy_data['query']}"
 
-            body = await request.body()
             resp = await client.request(
-                method=request.method,
+                method=proxy_data["method"],
                 url=target_url,
-                headers={k: v for k, v in request.headers.items()
+                headers={k: v for k, v in proxy_data.get("headers", {}).items()
                          if k.lower() not in ("host",)},
-                content=body,
+                content=proxy_data.get("body", b""),
             )
 
             content_type = resp.headers.get("content-type", "application/json")

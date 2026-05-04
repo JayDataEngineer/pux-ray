@@ -13,6 +13,7 @@ from __future__ import annotations
 import logging
 from typing import Any, Optional
 
+import httpx
 import ray
 from ray import serve
 from starlette.applications import Starlette
@@ -71,6 +72,28 @@ class APIIngress:
         self._ensure_scheduler()
         if self.gpu_scheduler:
             await self.gpu_scheduler.acquire_gpu.remote(service, model)
+
+    async def _proxy_to_port(self, request: Request, port: int, *, target_path: str = "") -> Response:
+        """Proxy request to a local Docker worker port.
+
+        If target_path is provided, it replaces the request path.
+        Otherwise passes the request path as-is.
+        """
+        async with httpx.AsyncClient(timeout=600) as client:
+            path = target_path or request.url.path
+            body = await request.body()
+            resp = await client.request(
+                method=request.method,
+                url=f"http://127.0.0.1:{port}{path}",
+                headers={k: v for k, v in request.headers.items()
+                         if k.lower() not in ("host",)},
+                content=body,
+            )
+            return Response(
+                content=resp.content,
+                status_code=resp.status_code,
+                media_type=resp.headers.get("content-type", "application/octet-stream"),
+            )
 
     # --- LLM Routes ---
 
@@ -139,18 +162,15 @@ class APIIngress:
 
     async def trellis_generate(self, request: Request) -> Response:
         await self._use_gpu("trellis")
-        handle = serve.get_deployment_handle("trellis", "trellis")
-        return await handle.remote(request)
+        return await self._proxy_to_port(request, 18401, target_path="/generate")
 
     async def anigen_generate(self, request: Request) -> Response:
         await self._use_gpu("anigen")
-        handle = serve.get_deployment_handle("anigen", "anigen")
-        return await handle.remote(request)
+        return await self._proxy_to_port(request, 18402, target_path="/generate")
 
     async def hymotion_generate(self, request: Request) -> Response:
         await self._use_gpu("hy_motion")
-        handle = serve.get_deployment_handle("hy_motion", "hy_motion")
-        return await handle.remote(request)
+        return await self._proxy_to_port(request, 18407, target_path="/generate")
 
     # --- Music Routes ---
 
@@ -169,9 +189,33 @@ class APIIngress:
     # --- ComfyUI proxy ---
 
     async def comfyui_proxy(self, request: Request) -> Response:
+        """Proxy directly to ComfyUI on port 18465 (managed by Ray Serve deployment)."""
         await self._use_gpu("comfyui")
-        handle = serve.get_deployment_handle("comfyui", "comfyui")
-        return await handle.remote(request)
+
+        async with httpx.AsyncClient(timeout=300) as client:
+            path = request.url.path
+            if path.startswith("/comfyui"):
+                path = path[len("/comfyui"):] or "/"
+
+            target_url = f"http://127.0.0.1:18465{path}"
+            if request.url.query:
+                target_url += f"?{request.url.query}"
+
+            body = await request.body()
+            resp = await client.request(
+                method=request.method,
+                url=target_url,
+                headers={k: v for k, v in request.headers.items()
+                         if k.lower() not in ("host",)},
+                content=body,
+            )
+
+            content_type = resp.headers.get("content-type", "application/json")
+            return Response(
+                content=resp.content,
+                status_code=resp.status_code,
+                media_type=content_type,
+            )
 
     # --- Status Routes ---
 
