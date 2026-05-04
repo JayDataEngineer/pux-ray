@@ -103,6 +103,18 @@ extensions:
       - ltx-video
 
   # ── Tiling ──────────────────────────────────────────────
+  - name: was-node-suite-comfyui
+    url: https://github.com/WASasquatch/was-node-suite-comfyui
+    desc: Extensive node suite (image processing, text, BLIP, SAM, wildcards)
+    required: false
+    pip:
+      - fairscale
+      - gitpython
+      - piexif
+      - timm
+      - numba
+      - scipy
+
   - name: ComfyUI-seamless-tiling
     url: https://github.com/spinagon/ComfyUI-seamless-tiling
     desc: Seamless tiling for textures
