@@ -61,6 +61,29 @@ services:
       - anigen
     restart: "no"
 
+  hymotion-worker:
+    image: tech-noir/hymotion:latest
+    container_name: hymotion-worker
+    ports:
+      - "18404:8000"
+    volumes:
+      - ${MODELS_DIR:-/home/user/Documents/models}/image-gen/comfyui/HY-Motion:/models/image-gen/comfyui/HY-Motion:ro
+      - ${HOME:-/home/user}/.cache/huggingface:/root/.cache/huggingface
+    environment:
+      - HYMOTION_MODEL_PATH=/models/image-gen/comfyui/HY-Motion/ckpts/tencent/HY-Motion-1.0
+      - HF_HOME=/root/.cache/huggingface
+      - USE_HF_MODELS=1
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    profiles:
+      - hymotion
+    restart: "no"
+
   vibevoice-worker:
     image: tech-noir/vibevoice:latest
     container_name: vibevoice-worker
