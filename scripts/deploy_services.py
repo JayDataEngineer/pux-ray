@@ -3,6 +3,9 @@
 Ray-native IaC: deploys GPU scheduler, ComfyUI extension manager,
 and all AI service deployments via Ray Serve.
 
+GPU services run inside Ray-managed containers. Ray handles the
+container lifecycle, GPU scheduling, and networking.
+
 Usage:
     python -m scripts.deploy_services
 """
@@ -21,8 +24,6 @@ import ray
 from ray import serve
 
 # Clean old Ray session logs from tmpfs to prevent disk exhaustion.
-# Ray stores ~1-2 GB of logs per session; old sessions never auto-removed.
-# Age-based: only purge sessions older than 1 hour (protects running sessions).
 _now = time.time()
 _tmp_ray = Path("/tmp/ray")
 if _tmp_ray.exists():
@@ -39,7 +40,7 @@ if _tmp_ray.exists():
 if not ray.is_initialized():
     ray.init(address="auto")
 
-# Configure Serve HTTP proxy (only if not already running — prevents "config differs" race)
+# Configure Serve HTTP proxy (only if not already running)
 try:
     serve.status()
     print("Ray Serve already running, skipping serve.start()")
@@ -58,7 +59,7 @@ except ValueError:
     ).remote()
     print("GPU scheduler deployed")
 
-# Deploy ComfyUI Extension Manager (syncs custom_nodes from YAML config)
+# Deploy ComfyUI Extension Manager
 from gateway.comfyui_manager import ComfyUIExtensionManager
 try:
     ext_manager = ray.get_actor("comfyui_ext_manager")
@@ -68,6 +69,29 @@ except ValueError:
         name="comfyui_ext_manager", lifetime="detached"
     ).remote()
     print("ComfyUI extension manager deployed")
+
+# --- Container runtime_env helper ---
+from registry.config import Config
+
+_config = Config()
+_models_root = _config.models_root
+
+
+def _container(image: str, extra_mounts: list[str] | None = None) -> dict:
+    """Build runtime_env container config with models mount."""
+    run_options = [
+        "-v", f"{_models_root}:/models:ro",
+        "--shm-size", "16g",
+    ]
+    if extra_mounts:
+        run_options.extend(extra_mounts)
+    return {
+        "container": {
+            "image": image,
+            "run_options": run_options,
+        }
+    }
+
 
 # --- Deploy services ---
 
@@ -94,10 +118,28 @@ from services.tts.qwen_tts import QwenTTSDeployment
 serve.run(QwenTTSDeployment.bind(), name="qwen_tts", route_prefix="/tts/qwen-tts")
 
 from services.tts.vibe_voice import VibeVoiceDeployment
-serve.run(VibeVoiceDeployment.bind(), name="vibevoice", route_prefix="/tts/vibevoice")
+serve.run(
+    VibeVoiceDeployment.options(
+        ray_actor_options={
+            "num_gpus": 1.0, "num_cpus": 0.5,
+            "runtime_env": _container("tech-noir/vibevoice:latest"),
+        }
+    ).bind(),
+    name="vibevoice",
+    route_prefix="/tts/vibevoice",
+)
 
 from services.tts.gpt_sovits import GPTSoVITSDeployment
-serve.run(GPTSoVITSDeployment.bind(), name="gpt_sovits", route_prefix="/tts/gpt-sovits")
+serve.run(
+    GPTSoVITSDeployment.options(
+        ray_actor_options={
+            "num_gpus": 1.0, "num_cpus": 0.5,
+            "runtime_env": _container("tech-noir/gptsovits:latest"),
+        }
+    ).bind(),
+    name="gpt_sovits",
+    route_prefix="/tts/gpt-sovits",
+)
 
 print("Deploying GPU ASR...")
 from services.asr.gpu_asr import VibeVoiceASRDeployment, QwenASRDeployment
@@ -106,23 +148,68 @@ serve.run(QwenASRDeployment.bind(), name="qwen_asr", route_prefix="/asr/qwen")
 
 print("Deploying ComfyUI...")
 from services.image.comfyui import ComfyUIDeployment
-serve.run(ComfyUIDeployment.bind(), name="comfyui", route_prefix="/comfyui")
+serve.run(
+    ComfyUIDeployment.options(
+        ray_actor_options={
+            "num_gpus": 1.0, "num_cpus": 0.5,
+            "runtime_env": _container("tech-noir/comfyui:latest"),
+        }
+    ).bind(),
+    name="comfyui",
+    route_prefix="/comfyui",
+)
 
 print("Deploying Creative services...")
 from services.creative.trellis import TRELLISDeployment
 serve.run(TRELLISDeployment.bind(), name="trellis", route_prefix="/3d/trellis")
 
 from services.creative.anigen import AniGenDeployment
-serve.run(AniGenDeployment.bind(), name="anigen", route_prefix="/3d/anigen")
+serve.run(
+    AniGenDeployment.options(
+        ray_actor_options={
+            "num_gpus": 1.0, "num_cpus": 0.5,
+            "runtime_env": _container("tech-noir/anigen:latest"),
+        }
+    ).bind(),
+    name="anigen",
+    route_prefix="/3d/anigen",
+)
 
 from services.creative.hy_motion import HYMotionDeployment
-serve.run(HYMotionDeployment.bind(), name="hy_motion", route_prefix="/3d/hy-motion")
+serve.run(
+    HYMotionDeployment.options(
+        ray_actor_options={
+            "num_gpus": 1.0, "num_cpus": 0.5,
+            "runtime_env": _container("tech-noir/hymotion:latest"),
+        }
+    ).bind(),
+    name="hy_motion",
+    route_prefix="/3d/hy-motion",
+)
 
 from services.creative.see_through import SeeThroughDeployment
-serve.run(SeeThroughDeployment.bind(), name="see_through", route_prefix="/creative/see-through")
+serve.run(
+    SeeThroughDeployment.options(
+        ray_actor_options={
+            "num_gpus": 1.0, "num_cpus": 0.5,
+            "runtime_env": _container("tech-noir/seethrough:latest"),
+        }
+    ).bind(),
+    name="see_through",
+    route_prefix="/creative/see-through",
+)
 
 from services.creative.ace_step import ACEStepDeployment
-serve.run(ACEStepDeployment.bind(), name="ace_step", route_prefix="/music/ace-step")
+serve.run(
+    ACEStepDeployment.options(
+        ray_actor_options={
+            "num_gpus": 1.0, "num_cpus": 0.5,
+            "runtime_env": _container("tech-noir/acestep:latest"),
+        }
+    ).bind(),
+    name="ace_step",
+    route_prefix="/music/ace-step",
+)
 
 print("")
 print("All services deployed!")
@@ -135,14 +222,14 @@ print("  /tts/kokoro/*     - Kokoro TTS (CPU)")
 print("  /tts/espeak/*     - eSpeak TTS (CPU)")
 print("  /tts/index-tts/*  - IndexTTS (GPU)")
 print("  /tts/qwen-tts/*   - Qwen3-TTS (GPU)")
-print("  /tts/vibevoice/*  - VibeVoice TTS (GPU)")
-print("  /tts/gpt-sovits/* - GPT-SoVITS (GPU)")
+print("  /tts/vibevoice/*  - VibeVoice TTS (GPU, container)")
+print("  /tts/gpt-sovits/* - GPT-SoVITS (GPU, container)")
 print("  /asr/whisper/*    - Faster-Whisper (CPU)")
 print("  /asr/vibevoice/*  - VibeVoice ASR (GPU)")
 print("  /asr/qwen/*       - Qwen ASR (GPU)")
-print("  /comfyui/*        - ComfyUI (GPU, WebUI)")
+print("  /comfyui/*        - ComfyUI (GPU, container)")
 print("  /3d/trellis/*     - TRELLIS.2 (GPU)")
-print("  /3d/anigen/*      - AniGen (GPU)")
-print("  /3d/hy-motion/*   - HY-Motion (GPU)")
-print("  /creative/see-through/* - See-Through (GPU)")
-print("  /music/ace-step/* - ACE-STEP music (GPU)")
+print("  /3d/anigen/*      - AniGen (GPU, container)")
+print("  /3d/hy-motion/*   - HY-Motion (GPU, container)")
+print("  /creative/see-through/* - See-Through (GPU, container)")
+print("  /music/ace-step/* - ACE-STEP music (GPU, container)")

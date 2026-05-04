@@ -1,60 +1,99 @@
-# TRELLIS StableProjectorz — VRAM-optimized (8GB) Image-to-3D Docker image
+# TRELLIS.2 StableProjectorz — VRAM-optimized Image-to-3D Docker image
 # =============================================================================
-# Fork: https://github.com/IgorAherne/trellis-stable-projectorz
-# Optimizations: float16 (vs float32), int32 (vs int64) — fits in 8GB VRAM
+# Repo:  https://github.com/IgorAherne/TRELLIS.2-stableprojectorz
+# Optimizations: float16, RTX 20xx+ compatible
 #
 # Build:
 #   docker build -f infra/docker/Dockerfile.trellis-spz -t tech-noir/trellis-spz:latest .
 #
-# Models: jetx/TRELLIS-image-large loaded from /models (host-mounted at runtime)
-FROM nvidia/cuda:12.1.0-devel-ubuntu22.04
+# Models auto-downloaded from HuggingFace on first container start (~20GB).
+FROM nvidia/cuda:12.8.0-devel-ubuntu22.04
 
 ENV DEBIAN_FRONTEND=noninteractive \
     LANG=C.UTF-8 \
-    PYTHONUNBUFFERED=1
+    PYTHONUNBUFFERED=1 \
+    CUDA_HOME=/usr/local/cuda \
+    TORCH_CUDA_ARCH_LIST="8.9"
 
+# System deps: python3.11 + build toolchain
 RUN apt-get update && apt-get install -y --no-install-recommends \
     python3.11 python3.11-dev python3.11-venv python3-pip \
-    build-essential git cmake \
+    build-essential git cmake ninja-build \
     libgl1-mesa-glx libglib2.0-0 libsm6 libxext6 libxrender-dev \
-    libspatialindex-dev \
+    libjpeg-dev libspatialindex-dev \
     && rm -rf /var/lib/apt/lists/* \
     && ln -sf /usr/bin/python3.11 /usr/bin/python \
     && ln -sf /usr/bin/python3.11 /usr/bin/python3 \
     && ln -sf /usr/bin/pip3 /usr/bin/pip
 
+# Clone repo with submodules (flexicubes, eigen for o-voxel)
 RUN git clone --recurse-submodules --depth 1 \
-    https://github.com/IgorAherne/trellis-stable-projectorz.git /opt/trellis
+    https://github.com/IgorAherne/TRELLIS.2-stableprojectorz.git /opt/trellis
 WORKDIR /opt/trellis
 
-# Install torch + torchvision (cu121 — original TRELLIS CUDA version)
+# PyTorch 2.11.0 + CUDA 12.8
 RUN pip install --no-cache-dir \
-    torch torchvision torchaudio \
-    --index-url https://download.pytorch.org/whl/cu121
+    torch==2.11.0 torchvision torchaudio \
+    --index-url https://download.pytorch.org/whl/cu128
 
-# Install Python deps (filter Windows-only packages AND kaolin placeholder)
-RUN grep -v 'pywin32\|pyreadline3\|^kaolin' requirements.txt > /tmp/reqs_linux.txt && \
-    pip install --no-cache-dir -r /tmp/reqs_linux.txt
+# Core Python deps
+RUN pip install --no-cache-dir \
+    imageio imageio-ffmpeg tqdm easydict opencv-python-headless \
+    ninja trimesh transformers numpy scipy \
+    tensorboard pandas lpips zstandard \
+    pillow-simd kornia timm \
+    huggingface-hub plyfile \
+    fastapi "uvicorn[standard]" python-multipart httpx
 
-# Flash-attention and API deps
-RUN pip install --no-cache-dir flash-attn --no-build-isolation || \
-    pip install --no-cache-dir xformers
+# xformers (pre-built, much faster than compiling flash-attn)
+RUN pip install --no-cache-dir xformers --index-url https://download.pytorch.org/whl/cu128
 
-# Compiled CUDA extensions and 3D libraries
-RUN pip install --no-cache-dir utils3d || true
-# Patch: kaolin placeholder blocks import — replace with no-op (check_tensor is a validation util)
-RUN sed -i 's/from kaolin.utils.testing import check_tensor/def check_tensor(*a,**k): return True/' \
-    /opt/trellis/trellis/representations/mesh/flexicubes/flexicubes.py
-RUN pip install --no-cache-dir nvdiffrast || true
-RUN pip install --no-cache-dir spconv-cu121 || pip install --no-cache-dir spconv || true
+# utils3d — pinned commit for trellis2 compatibility
+RUN git clone https://github.com/EasternJournalist/utils3d.git /opt/utils3d && \
+    cd /opt/utils3d && \
+    git checkout 9a4eb15e4021b67b12c460c7057d642626897ec8
 
-RUN pip install --no-cache-dir fastapi "uvicorn[standard]" python-multipart
+# nvdiffrast — compiled from source (setup.py patched for proper package name)
+RUN git clone -b v0.4.0 --depth 1 \
+        https://github.com/NVlabs/nvdiffrast.git /tmp/build/nvdiffrast && \
+    cd /tmp/build/nvdiffrast && \
+    sed -i '/setuptools.setup(/a\    name="nvdiffrast",' setup.py && \
+    sed -i '/name="nvdiffrast"/a\    packages=["nvdiffrast", "nvdiffrast.torch"],' setup.py && \
+    pip install . --no-build-isolation && \
+    rm -rf /tmp/build/nvdiffrast
 
-COPY infra/docker/api_trellis_spz.py /opt/api.py
+# nvdiffrec (PBR rendering)
+RUN git clone -b renderutils --depth 1 \
+        https://github.com/JeffreyXiang/nvdiffrec.git /tmp/extensions/nvdiffrec && \
+    env TORCH_CUDA_ARCH_LIST="8.9" \
+        pip install /tmp/extensions/nvdiffrec --no-build-isolation && \
+    rm -rf /tmp/extensions/nvdiffrec
 
-ENV ATTN_BACKEND=flash-attn \
-    SPCONV_ALGO=native \
-    HF_HOME=/tmp/hf_cache
+# stub packages: flex_gemm + cumesh (GPU accel unavailable, API uses nvdiffrast fallback)
+COPY infra/docker/create_stubs.py /tmp/create_stubs.py
+RUN python /tmp/create_stubs.py && rm /tmp/create_stubs.py
+
+# o-voxel — built from source with lazy flex_gemm/cumesh imports
+COPY infra/docker/patch_ovoxel.py /tmp/patch_ovoxel.py
+RUN cd /opt/trellis && \
+    git submodule update --init --recursive o-voxel/third_party/eigen && \
+    python /tmp/patch_ovoxel.py && \
+    pip install o-voxel/ --no-build-isolation && \
+    rm /tmp/patch_ovoxel.py
+
+# Patch trellis2 base.py — lazy cumesh/flex_gemm imports
+COPY infra/docker/patch_trellis2.py /tmp/patch_trellis2.py
+RUN python /tmp/patch_trellis2.py && rm /tmp/patch_trellis2.py
+
+ENV ATTN_BACKEND=xformers \
+    HF_HOME=/root/.cache/huggingface \
+    PYTHONPATH=/opt/trellis:/opt/utils3d
+
+# Startup script (applies runtime patches, then starts API)
+COPY infra/docker/start_trellis.sh /opt/start.sh
+COPY infra/docker/patch_birefnet_runtime.py /opt/patch_birefnet_runtime.py
+COPY infra/docker/patch_dinov3_runtime.py /opt/patch_dinov3_runtime.py
+RUN chmod +x /opt/start.sh
 
 EXPOSE 8000
-CMD ["python", "/opt/api.py"]
+CMD ["/opt/start.sh"]

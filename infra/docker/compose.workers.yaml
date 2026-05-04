@@ -18,11 +18,14 @@ services:
       - "18401:8000"
     volumes:
       - ${MODELS_DIR:-/home/user/Documents/models}/3d/trellis:/models:ro
+      - ${HOME:-/home/user}/.cache/huggingface:/root/.cache/huggingface
+      - ${MODELS_DIR:-/home/user/Documents/models}/3d/trellis/dinov3/facebook/dinov3-vitl16-pretrain-lvd1689m:/home/user/Documents/models/3d/trellis/dinov3/facebook/dinov3-vitl16-pretrain-lvd1689m:ro
+      - ${MODELS_DIR:-/home/user/Documents/models}/3d/trellis/rmbg/briaai/RMBG-2___0:/home/user/Documents/models/3d/trellis/rmbg/briaai/RMBG-2___0:ro
+      - ${MODELS_DIR:-/home/user/Documents/models}/3d/trellis/cache:/tmp/hf_cache
     environment:
-      - TRELLIS_MODEL_ID=jetx/TRELLIS-image-large
-      - ATTN_BACKEND=flash-attn
-      - HF_HOME=/tmp/hf_cache
-      - HF_HUB_CACHE=/tmp/hf_cache/hub
+      - ATTN_BACKEND=xformers
+      - HF_HOME=/root/.cache/huggingface
+      - HF_TOKEN=${HF_TOKEN:-}
     deploy:
       resources:
         reservations:

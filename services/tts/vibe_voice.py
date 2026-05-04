@@ -1,25 +1,31 @@
-"""VibeVoice TTS - long-form multi-speaker speech synthesis.
+"""VibeVoice TTS — Long-form multi-speaker speech synthesis.
 
 Generates expressive, long-form audio (podcasts, conversations) from text
 using the VibeVoice 7B model. Supports up to 4 speakers, up to 45 min output.
 
-Runs in a Docker container (CUDA 12.4) accessed via HTTPToolMixin.
+Runs inside Ray-managed container (tech-noir/vibevoice:latest).
+Pipeline imports directly — no subprocess or HTTP layer needed.
 
 Code repo: https://github.com/microsoft/VibeVoice
-Model weights: vibevoice/VibeVoice-7B on HuggingFace (18.7GB, community re-upload)
+Model weights: vibevoice/VibeVoice-7B on HuggingFace (18.7GB)
 ASR is separate: services.asr.gpu_asr.VibeVoiceASRDeployment
 """
-
 from __future__ import annotations
 
+import io
 import logging
+import os
+import sys
 
+import torch
 from ray import serve
-from starlette.responses import Response
+from starlette.responses import JSONResponse, Response
 
-from services.base import BaseGPUDeployment, HTTPToolMixin
+from services.base import BaseGPUDeployment, _free_cuda_cache
 
 logger = logging.getLogger(__name__)
+
+MODEL_PATH = os.environ.get("MODEL_PATH", "/models/audio/vibevoice/VibeVoice-7B")
 
 
 @serve.deployment(
@@ -28,39 +34,44 @@ logger = logging.getLogger(__name__)
     max_ongoing_requests=1,
     ray_actor_options={"num_gpus": 1.0, "num_cpus": 0.5},
 )
-class VibeVoiceDeployment(BaseGPUDeployment, HTTPToolMixin):
-    """VibeVoice long-form multi-speaker TTS via Docker worker."""
+class VibeVoiceDeployment(BaseGPUDeployment):
+    """VibeVoice long-form multi-speaker TTS via Ray native container."""
 
     def _load(self, model_name: str = "vibevoice-tts-7b") -> None:
-        self._init_http(port=18403, service_name="vibevoice", timeout=600)
-        self.model = True
+        sys.path.insert(0, "/app/repo")
+
+        from vibevoice.model import VibeVoicePipeline
+
+        self.pipeline = VibeVoicePipeline.from_pretrained(
+            MODEL_PATH,
+            torch_dtype=torch.bfloat16,
+            device_map="cuda:0",
+            trust_remote_code=True,
+        )
         self.model_name = model_name
-        logger.info("VibeVoice HTTP ready (port=18403)")
+        self.model = True
+        logger.info("VibeVoice loaded: %s", MODEL_PATH)
 
     def _unload(self) -> None:
+        self.pipeline = None
         self.model = None
-
-    def _ensure_loaded(self) -> None:
-        self._ensure_healthy(port=18403, service_name="vibevoice", timeout=600)
+        _free_cuda_cache()
 
     async def __call__(self, request):
-        self._ensure_loaded()
         body = await request.json()
         text = body.get("input", "")
         if not text:
-            from starlette.responses import JSONResponse
             return JSONResponse({"error": "input text is required"}, status_code=400)
 
         speaker_names = body.get("speaker_names", ["Andrew"])
         if isinstance(speaker_names, str):
-            speaker_names = speaker_names.split(",")
+            speaker_names = [s.strip() for s in speaker_names.split(",")]
 
-        data = await self._call_worker(
-            "generate",
-            json={
-                "input": text,
-                "speaker_names": speaker_names,
-            },
-        )
+        output = self.pipeline.run(text=text, speaker_names=speaker_names)
 
-        return Response(content=data, media_type="audio/wav")
+        buf = io.BytesIO()
+        import soundfile as sf
+        sf.write(buf, output["audio"], output["sample_rate"], format="WAV")
+        buf.seek(0)
+
+        return Response(content=buf.read(), media_type="audio/wav")
