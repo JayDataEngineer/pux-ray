@@ -36,7 +36,6 @@ async def generate(data: dict):
         return JSONResponse({"error": "prompt is required"}, status_code=400)
 
     duration = data.get("duration", 5.0)
-    seed = data.get("seed", 42)
     fmt = data.get("format", "glb")
     if fmt not in ("glb", "fbx", "npz"):
         return JSONResponse({"error": f"unsupported format: {fmt}"}, status_code=400)
@@ -60,11 +59,10 @@ async def generate(data: dict):
                 "--input_text_dir", str(input_dir),
                 "--output_dir", str(output_dir),
                 "--num_seeds", "1",
-                "--seed", str(seed),
                 "--disable_duration_est",
                 "--disable_rewrite",
             ],
-            capture_output=True, text=True, timeout=300,
+            capture_output=True, text=True, timeout=600,
             cwd="/opt/hymotion",
         )
         if result.returncode != 0:
