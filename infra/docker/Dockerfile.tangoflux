@@ -1,0 +1,11 @@
+# TangoFlux — Text-to-audio generation with flow matching + CRPO
+# Inherits from shared base (Python + torch + ray + flash-attn)
+# Build:
+#   podman build -f infra/docker/Dockerfile.tangoflux -t tech-noir/tangoflux:latest .
+FROM tech-noir/ray-base:latest
+
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv pip install "tangoflux @ git+https://github.com/declare-lab/TangoFlux"
+
+ENV TANGOFLUX_MODEL_PATH=/models/audio/tangoflux \
+    HF_HOME=/models/.cache

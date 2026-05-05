@@ -176,6 +176,32 @@ class APIIngress:
         handle = serve.get_deployment_handle("ace_step", "ace_step")
         return await handle.remote(request)
 
+    # --- Multimodal Routes ---
+
+    async def multimodal_chat(self, request: Request) -> Response:
+        await self._use_gpu("phi4mm")
+        handle = serve.get_deployment_handle("phi4mm", "phi4mm")
+        return await handle.remote(request)
+
+    # --- Vision Routes ---
+
+    async def vision_analyze(self, request: Request) -> Response:
+        await self._use_gpu("florence2")
+        handle = serve.get_deployment_handle("florence2", "florence2")
+        return await handle.remote(request)
+
+    # --- Audio Generation Routes ---
+
+    async def audio_sfx_generate(self, request: Request) -> Response:
+        await self._use_gpu("moss_soundeffect")
+        handle = serve.get_deployment_handle("moss_soundeffect", "moss_soundeffect")
+        return await handle.remote(request)
+
+    async def audio_tangoflux_generate(self, request: Request) -> Response:
+        await self._use_gpu("tangoflux")
+        handle = serve.get_deployment_handle("tangoflux", "tangoflux")
+        return await handle.remote(request)
+
     # --- Creative Routes ---
 
     async def decompose(self, request: Request) -> Response:
@@ -251,6 +277,13 @@ def create_app() -> Starlette:
         Route("/3d/hy-motion", ingress.hymotion_generate, methods=["POST"]),
         # Music
         Route("/music/generate", ingress.music_generate, methods=["POST"]),
+        # Multimodal
+        Route("/multimodal/chat", ingress.multimodal_chat, methods=["POST"]),
+        # Vision
+        Route("/vision/florence2", ingress.vision_analyze, methods=["POST"]),
+        # Audio generation
+        Route("/audio/soundeffect", ingress.audio_sfx_generate, methods=["POST"]),
+        Route("/audio/tangoflux", ingress.audio_tangoflux_generate, methods=["POST"]),
         # Creative
         Route("/creative/decompose", ingress.decompose, methods=["POST"]),
         # Admin

@@ -38,6 +38,10 @@ GPU_SERVICES = {
     "qwen_tts":       {"model": "qwen-tts",    "desc": "Qwen3-TTS (GPU TTS)"},
     "vibevoice_asr":  {"model": "vibevoice-asr","desc": "VibeVoice ASR (GPU)"},
     "qwen_asr":       {"model": "qwen-asr",    "desc": "Qwen ASR (GPU)"},
+    "phi4mm":         {"model": "phi4-multimodal","desc": "Phi-4 Multimodal (omni)"},
+    "florence2":      {"model": "florence2",   "desc": "Florence-2 (vision)"},
+    "moss_soundeffect": {"model": "moss-soundeffect","desc": "MOSS SoundEffect (text→sound)"},
+    "tangoflux":      {"model": "tangoflux",   "desc": "TangoFlux (text→audio)"},
 }
 
 

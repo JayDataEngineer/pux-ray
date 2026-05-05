@@ -19,6 +19,10 @@
 #   tech-noir/acestep     — ACE-STEP text-to-music
 #   tech-noir/hymotion    — HY-Motion 1.0 text-to-3D human motion
 #   tech-noir/gptsovits   — GPT-SoVITS voice cloning TTS
+#   tech-noir/phi4mm      — Phi-4-multimodal omni model
+#   tech-noir/florence2   — Florence-2 vision foundation model
+#   tech-noir/moss-sfx    — MOSS SoundEffect text-to-sound
+#   tech-noir/tangoflux   — TangoFlux text-to-audio
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -85,6 +89,18 @@ case "$TARGET" in
     hymotion)
         build_image hymotion latest Dockerfile.hymotion
         ;;
+    phi4mm)
+        build_image phi4mm latest Dockerfile.phi4mm
+        ;;
+    florence2)
+        build_image florence2 latest Dockerfile.florence2
+        ;;
+    moss-sfx)
+        build_image moss-sfx latest Dockerfile.moss-sfx
+        ;;
+    tangoflux)
+        build_image tangoflux latest Dockerfile.tangoflux
+        ;;
     all)
         log "Building all Docker images..."
         build_image comfyui latest Dockerfile.comfyui &
@@ -95,6 +111,10 @@ case "$TARGET" in
         build_image acestep latest Dockerfile.acestep &
         build_image gptsovits latest Dockerfile.gptsovits &
         build_image hymotion latest Dockerfile.hymotion &
+        build_image phi4mm latest Dockerfile.phi4mm &
+        build_image florence2 latest Dockerfile.florence2 &
+        build_image moss-sfx latest Dockerfile.moss-sfx &
+        build_image tangoflux latest Dockerfile.tangoflux &
         wait
         log "All images built."
         if $PUSH; then
@@ -102,7 +122,7 @@ case "$TARGET" in
         fi
         ;;
     *)
-        echo "Usage: $0 [--push] {comfyui|trellis|trellis-spz|anigen|vibevoice|seethrough|acestep|gptsovits|hymotion|all}"
+        echo "Usage: $0 [--push] {comfyui|trellis|trellis-spz|anigen|vibevoice|seethrough|acestep|gptsovits|hymotion|phi4mm|florence2|moss-sfx|tangoflux|all}"
         exit 1
         ;;
 esac
