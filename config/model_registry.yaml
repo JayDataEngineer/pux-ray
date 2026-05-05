@@ -31,7 +31,7 @@ llm:
     description: Gemma 4 31B IT UD-Q4_K_XL.
   qwen3.6-27b-q4_k_m:
     path: llm/Qwen3.6-27B-Q4_K_M.gguf
-    source: hf://unsloth/Qwen3.6-27B-GGUF/Qwen3.6-27B-UD-Q4_K_M.gguf
+    source: hf://unsloth/Qwen3.6-27B-GGUF/Qwen3.6-27B-Q4_K_M.gguf
     download: file
     sha256: null
     size_gb: 16.0
@@ -78,13 +78,13 @@ tts:
     description: GPT-SoVITS voice cloning. Full repo with pretrained models.
   index-tts:
     path: tts/index-tts/
-    source: hf://IndexTeam/IndexTTS-1
+    source: hf://IndexTeam/IndexTTS-2
     download: snapshot
     sha256: null
     size_gb: 12.0
     vram_estimate_gb: 13.0
     device: gpu
-    description: Index-TTS neural TTS. 12GB high-quality model.
+    description: IndexTTS v2 neural TTS. High-quality model.
   kokoro:
     path: tts/kokoro/
     source: hf://hexgrad/Kokoro-82M
@@ -170,7 +170,7 @@ vision:
     description: Qwen 3.6 27B mmproj (BF16).
   gemma-4-26b-a4b-mmproj-f16:
     path: vision/gemma-4-26B-A4B-it-mmproj-F16.gguf
-    source: hf://unsloth/gemma-4-26B-A4B-it-GGUF/gemma-4-26B-A4B-it-mmproj-F16.gguf
+    source: hf://unsloth/gemma-4-26B-A4B-it-GGUF/mmproj-F16.gguf
     download: file
     sha256: null
     size_gb: 1.2
@@ -179,7 +179,7 @@ vision:
     description: Gemma 4 26B A4B mmproj (F16).
   gemma-4-31b-mmproj-f16:
     path: vision/gemma-4-31B-it-mmproj-F16.gguf
-    source: hf://unsloth/gemma-4-31B-it-GGUF/gemma-4-31B-it-mmproj-F16.gguf
+    source: hf://unsloth/gemma-4-31B-it-GGUF/mmproj-F16.gguf
     download: file
     sha256: null
     size_gb: 1.2
@@ -751,6 +751,30 @@ comfyui:
     vram_estimate_gb: 2.0
     device: gpu
     description: AniGen checkpoints. SLAT DAE, SS DAE, dinov2, dsine, vgg, flow models.
+multimodal:
+  phi4-multimodal:
+    path: multimodal/phi4-multimodal-instruct/
+    source: hf://microsoft/Phi-4-multimodal-instruct
+    download: snapshot
+    sha256: null
+    size_gb: 24.0
+    vram_estimate_gb: 16.0
+    device: gpu
+    description: Phi-4-multimodal-instruct 5.6B omni model. Text+vision+speech input,
+      text output. ASR, speech translation, image understanding, OCR, multimodal QA.
+
+vision_models:
+  florence2-large-ft:
+    path: vision/florence-2-large-ft/
+    source: hf://microsoft/Florence-2-large-ft
+    download: snapshot
+    sha256: null
+    size_gb: 1.5
+    vram_estimate_gb: 2.0
+    device: gpu
+    description: Florence-2-large-ft 0.77B vision foundation model. Captioning, object
+      detection, segmentation, OCR, region grounding, visual QA.
+
 audio:
   ace-step:
     path: audio/acestep/
@@ -761,6 +785,27 @@ audio:
     vram_estimate_gb: 8.0
     device: gpu
     description: ACE-STEP 1.5 music generation. v15-turbo, 5Hz-lm-1.7B, Qwen3-Embedding.
+  moss-soundeffect:
+    path: audio/moss-soundeffect/
+    source: hf://OpenMOSS-Team/MOSS-SoundEffect
+    download: snapshot
+    sha256: null
+    size_gb: 33.5
+    vram_estimate_gb: 22.0
+    device: gpu
+    description: MOSS-SoundEffect 8B text-to-sound model. Environmental sounds, urban
+      scenes, creatures, human actions, music-like clips. Part of MOSS-TTS family.
+  tangoflux:
+    path: audio/tangoflux/
+    source: hf://declare-lab/TangoFlux
+    download: snapshot
+    sha256: null
+    size_gb: 8.1
+    vram_estimate_gb: 6.0
+    device: gpu
+    description: TangoFlux text-to-audio generation. Flow matching with DiT/MMDiT,
+      CRPO-aligned. Generates 44.1kHz audio up to 30s.
+
 voices:
   emma:
     path: voices/Emma.wav
@@ -773,8 +818,8 @@ voices:
     description: Emma voice preset. Reference audio for voice cloning.
 embeddings:
   jina-v5-nano-clustering-q5_k_m:
-    path: embeddings/jina-v5-nano-clustering-Q5_K_M.gguf
-    source: hf://jinaai/jina-embeddings-v5-text-nano-clustering-GGUF/jina-embeddings-v5-text-nano-clustering-Q5_K_M.gguf
+    path: embeddings/v5-nano-clustering-Q5_K_M.gguf
+    source: hf://jinaai/jina-embeddings-v5-text-nano-clustering-GGUF/v5-nano-clustering-Q5_K_M.gguf
     download: file
     sha256: null
     size_gb: 0.16
@@ -782,8 +827,8 @@ embeddings:
     device: gpu
     description: Jina v5 nano clustering (Q5_K_M GGUF).
   jina-v5-nano-retrieval-iq4_nl:
-    path: embeddings/jina-v5-nano-retrieval-IQ4_NL.gguf
-    source: hf://jinaai/jina-embeddings-v5-text-nano-retrieval-GGUF/jina-embeddings-v5-text-nano-retrieval-IQ4_NL.gguf
+    path: embeddings/v5-nano-retrieval-IQ4_NL.gguf
+    source: hf://jinaai/jina-embeddings-v5-text-nano-retrieval-GGUF/v5-nano-retrieval-IQ4_NL.gguf
     download: file
     sha256: null
     size_gb: 0.14
