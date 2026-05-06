@@ -194,6 +194,16 @@ register(Service(
     label="VibeVoice TTS Worker",
 ))
 
+register(Service(
+    name="qwen-tts-worker",
+    type=ServiceType.DOCKER,
+    working_dir=_DOCKER_WORKERS_DIR,
+    compose_file=_DOCKER_WORKERS_COMPOSE,
+    compose_profile="qwen-tts",
+    port=18405,
+    label="Qwen3-TTS Worker",
+))
+
 
 # ---------------------------------------------------------------------------
 # Lifecycle operations
@@ -355,6 +365,7 @@ def _start_ray(svc: Service) -> bool:
                     **os.environ,
                     "RAY_memory_usage_threshold": "0.98",
                     "RAY_prestart_python_workers": "4",
+                    "RAY_RUNTIME_ENV_IMAGE_WORKER_PULLER": "docker",
                 },
             )
         except subprocess.TimeoutExpired:

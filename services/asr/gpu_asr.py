@@ -22,7 +22,7 @@ logger = logging.getLogger(__name__)
     num_replicas=1,
     max_ongoing_requests=2,
     ray_actor_options={
-        "num_gpus": 1.0,
+        "num_gpus": 0,
         "num_cpus": 0.5,
     },
 )
@@ -66,7 +66,7 @@ class VibeVoiceASRDeployment(BaseGPUDeployment):
     ) -> dict:
         """Transcribe with optional diarization."""
         if not self.is_loaded():
-            raise RuntimeError("No model loaded")
+            self.load_model("vibevoice-asr")
 
         with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
             tmp.write(audio)
@@ -110,7 +110,7 @@ class VibeVoiceASRDeployment(BaseGPUDeployment):
     num_replicas=1,
     max_ongoing_requests=2,
     ray_actor_options={
-        "num_gpus": 1.0,
+        "num_gpus": 0,
         "num_cpus": 0.5,
     },
 )
@@ -147,7 +147,7 @@ class QwenASRDeployment(BaseGPUDeployment):
 
     async def transcribe(self, audio: bytes, language: str | None = None) -> dict:
         if not self.is_loaded():
-            raise RuntimeError("No model loaded")
+            self.load_model("qwen-asr")
 
         with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
             tmp.write(audio)

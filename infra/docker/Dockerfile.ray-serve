@@ -1,0 +1,49 @@
+# Tech Noir Ray Serve — all-in-one AI service image.
+# Contains ALL service code + dependencies for KubeRay deployment.
+#
+# Build:
+#   podman build -f infra/docker/Dockerfile.ray-serve -t tech-noir/ray-serve:latest .
+
+FROM tech-noir/ray-base:latest
+
+ENV DEBIAN_FRONTEND=noninteractive PYTHONUNBUFFERED=1
+
+# System packages for eSpeak TTS
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends espeak-ng && \
+    rm -rf /var/lib/apt/lists/*
+
+# Copy llama-server binary from ghcr image
+COPY --from=ghcr.io/ggml-org/llama.cpp:server-cuda /app/llama-server /usr/local/bin/llama-server
+
+# Install Python service dependencies (on top of base image deps)
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv pip install \
+        httpx pyyaml pydantic starlette python-multipart uvicorn huggingface-hub rich \
+        kokoro faster-whisper phonemizer "misaki[en]" \
+        opencv-python timm transparent-background kornia aiohttp requests
+
+# IndexTTS has llvmlite/numba build issues with Python 3.12.
+# Deploy as separate container with its own compatible environment.
+# RUN --mount=type=cache,target=/root/.cache/uv \
+#     uv pip install git+https://github.com/index-tts/index-tts.git
+
+# Copy project code
+COPY services/ /app/services/
+COPY gateway/ /app/gateway/
+COPY registry/ /app/registry/
+COPY sdk/ /app/sdk/
+COPY scripts/ /app/scripts/
+COPY pyproject.toml /app/
+
+# Install the project itself (so internal imports work)
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv pip install /app/
+
+WORKDIR /app
+
+# Verify key packages
+RUN python3 -c "import kokoro; print('kokoro ok')" && \
+    python3 -c "import faster_whisper; print('faster-whisper ok')" && \
+    python3 -c "import torchaudio; print('torchaudio ok')" && \
+    which espeak-ng && which llama-server

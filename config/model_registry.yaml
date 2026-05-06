@@ -1,4 +1,16 @@
 llm:
+  qwen3.6-27b-ud-q4_k_xl:
+    path: llm/Qwen3.6-27B-UD-Q4_K_XL.gguf
+    source: hf://unsloth/Qwen3.6-27B-GGUF/Qwen3.6-27B-UD-Q4_K_XL.gguf
+    download: file
+    sha256: null
+    size_gb: 18.0
+    vram_estimate_gb: 18.0
+    device: gpu
+    ctx_size: 262144
+    mmproj_path: vision/mmproj-Qwen_Qwen3.6-27B-bf16.gguf
+    description: Qwen 3.6 27B Dynamic 4-bit UD-Q4_K_XL. Hybrid thinking, 256K context.
+      Recommended quant for 24GB VRAM (18GB file).
   qwen3.6-27b-iq4_nl:
     path: llm/Qwen3.6-27B-IQ4_NL.gguf
     source: hf://unsloth/Qwen3.6-27B-GGUF/Qwen3.6-27B-UD-IQ4_NL.gguf
@@ -7,8 +19,9 @@ llm:
     size_gb: 15.0
     vram_estimate_gb: 17.0
     device: gpu
+    ctx_size: 262144
     mmproj_path: vision/mmproj-Qwen_Qwen3.6-27B-bf16.gguf
-    description: Qwen 3.6 27B UD-IQ4_NL. Chat/reasoning LLM with vision.
+    description: Qwen 3.6 27B UD-IQ4_NL. Chat/reasoning LLM with vision. 256K context.
   gemma-4-26b-a4b-it-ud-iq4_nl:
     path: llm/gemma-4-26B-A4B-it-UD-IQ4_NL.gguf
     source: hf://unsloth/gemma-4-26B-A4B-it-GGUF/gemma-4-26B-A4B-it-UD-IQ4_NL.gguf
@@ -37,7 +50,8 @@ llm:
     size_gb: 16.0
     vram_estimate_gb: 18.0
     device: gpu
-    description: Qwen 3.6 27B Q4_K_M.
+    ctx_size: 262144
+    description: Qwen 3.6 27B Q4_K_M. 256K context.
   qwen3.6-35b-a3b-ud-iq4_nl:
     path: llm/Qwen3.6-35B-A3B-UD-IQ4_NL.gguf
     source: hf://unsloth/Qwen3.6-35B-A3B-GGUF/Qwen3.6-35B-A3B-UD-IQ4_NL.gguf
@@ -46,8 +60,9 @@ llm:
     size_gb: 17.0
     vram_estimate_gb: 19.0
     device: gpu
+    ctx_size: 262144
     mmproj_path: vision/Qwen3.6-35B-A3B-mmproj-BF16.gguf
-    description: Qwen 3.6 35B A3B MoE UD-IQ4_NL.
+    description: Qwen 3.6 35B A3B MoE UD-IQ4_NL. 256K context.
   qwen3.5-2b-ud-q4_k_xl:
     path: llm/Qwen3.5-2B-UD-Q4_K_XL.gguf
     source: hf://unsloth/Qwen3.5-2B-GGUF/Qwen3.5-2B-UD-Q4_K_XL.gguf

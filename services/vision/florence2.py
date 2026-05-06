@@ -1,8 +1,7 @@
 """Florence-2-large-ft - Vision foundation model.
 
 0.77B parameter vision model. Captioning, object detection, segmentation,
-OCR, region grounding. Runs inside Ray-managed container (tech-noir/florence2:latest).
-
+OCR, region grounding.
 Requires ~2GB VRAM.
 """
 from __future__ import annotations
@@ -15,7 +14,7 @@ import torch
 from ray import serve
 from starlette.responses import JSONResponse
 
-from services.base import BaseGPUDeployment, _free_cuda_cache, container_runtime
+from services.base import BaseGPUDeployment, _free_cuda_cache
 
 logger = logging.getLogger(__name__)
 
@@ -39,14 +38,10 @@ TASK_PROMPTS = {
     name="florence2",
     num_replicas=1,
     max_ongoing_requests=2,
-    ray_actor_options={
-        "num_gpus": 0,
-        "num_cpus": 0.5,
-        "runtime_env": container_runtime("tech-noir/florence2:latest"),
-    },
+    ray_actor_options={"num_gpus": 0, "num_cpus": 0.5},
 )
 class Florence2Deployment(BaseGPUDeployment):
-    """Florence-2 vision model via Ray native container."""
+    """Florence-2 vision model."""
 
     def _load(self, model_name: str = "florence2-large-ft") -> None:
         if not os.path.isdir(MODEL_PATH):
@@ -75,6 +70,9 @@ class Florence2Deployment(BaseGPUDeployment):
         _free_cuda_cache()
 
     async def __call__(self, request):
+        if not self.is_loaded():
+            self.load_model("florence2-large-ft")
+
         import base64
         from PIL import Image
 

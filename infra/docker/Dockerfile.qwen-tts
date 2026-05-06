@@ -1,0 +1,30 @@
+# Qwen3-TTS — Multi-speaker TTS with CustomVoice Docker image for Ray Serve
+# Inherits from ray-base (torch + ray + flash-attn + common libs)
+# Build:
+#   podman build -f infra/docker/Dockerfile.qwen-tts -t tech-noir/qwen-tts:latest .
+FROM tech-noir/ray-base:latest
+
+ENV DEBIAN_FRONTEND=noninteractive PYTHONUNBUFFERED=1
+
+RUN apt-get update && apt-get install -y --no-install-recommends libsndfile1 && rm -rf /var/lib/apt/lists/*
+
+# soundfile/scipy already in base
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv pip install qwen-tts
+
+COPY infra/docker/api_qwen_tts.py /opt/api.py
+
+ENV MODEL_PATH=/models/tts/qwen3-tts-12hz-1.7b-customvoice \
+    TOKENIZER_PATH=/models/tts/qwen3-tts-tokenizer-12hz \
+    HF_HOME=/models/.cache
+
+# Ray Serve project code
+COPY services/ /app/services/
+COPY gateway/ /app/gateway/
+COPY registry/ /app/registry/
+COPY infra/k8s/serve_config.py /app/serve_config.py
+WORKDIR /app
+ENV PYTHONPATH=/app
+
+EXPOSE 8000
+CMD ["python", "/opt/api.py"]

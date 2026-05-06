@@ -1,89 +1,59 @@
 # TRELLIS.2 StableProjectorz — VRAM-optimized Image-to-3D Docker image
-# =============================================================================
-# Repo:  https://github.com/IgorAherne/TRELLIS.2-stableprojectorz
-# Optimizations: float16, RTX 20xx+ compatible
-#
+# Inherits from shared base (Python 3.12 + torch + ray + flash-attn + nvdiffrast)
 # Build:
-#   docker build -f infra/docker/Dockerfile.trellis-spz -t tech-noir/trellis-spz:latest .
-#
-# Models auto-downloaded from HuggingFace on first container start (~20GB).
-FROM nvidia/cuda:12.8.0-devel-ubuntu22.04
+#   podman build -f infra/docker/Dockerfile.trellis-spz -t tech-noir/trellis-spz:latest .
+FROM tech-noir/ray-base:latest
 
 ENV DEBIAN_FRONTEND=noninteractive \
     LANG=C.UTF-8 \
-    PYTHONUNBUFFERED=1 \
     CUDA_HOME=/usr/local/cuda \
-    TORCH_CUDA_ARCH_LIST="8.9"
+    TORCH_CUDA_ARCH_LIST="8.9" \
+    MAX_JOBS=2
 
-# System deps: python3.11 + build toolchain
+# Build deps for compiled extensions
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    python3.11 python3.11-dev python3.11-venv python3-pip \
-    build-essential git cmake ninja-build \
-    libgl1-mesa-glx libglib2.0-0 libsm6 libxext6 libxrender-dev \
+    git cmake ninja-build \
+    libgl1 libglib2.0-0 libsm6 libxext6 libxrender-dev \
     libjpeg-dev libspatialindex-dev \
-    && rm -rf /var/lib/apt/lists/* \
-    && ln -sf /usr/bin/python3.11 /usr/bin/python \
-    && ln -sf /usr/bin/python3.11 /usr/bin/python3 \
-    && ln -sf /usr/bin/pip3 /usr/bin/pip
+    && rm -rf /var/lib/apt/lists/*
 
 # Clone repo with submodules (flexicubes, eigen for o-voxel)
 RUN git clone --recurse-submodules --depth 1 \
     https://github.com/IgorAherne/TRELLIS.2-stableprojectorz.git /opt/trellis
 WORKDIR /opt/trellis
 
-# PyTorch 2.11.0 + CUDA 12.8
-RUN pip install --no-cache-dir \
-    torch==2.11.0 torchvision torchaudio \
-    --index-url https://download.pytorch.org/whl/cu128
-
 # Core Python deps
-RUN pip install --no-cache-dir \
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv pip install \
     imageio imageio-ffmpeg tqdm easydict opencv-python-headless \
-    ninja trimesh transformers numpy scipy \
+    ninja trimesh numpy scipy \
     tensorboard pandas lpips zstandard \
     pillow-simd kornia timm \
-    huggingface-hub plyfile \
-    fastapi "uvicorn[standard]" python-multipart httpx
-
-# xformers (pre-built, much faster than compiling flash-attn)
-RUN pip install --no-cache-dir xformers --index-url https://download.pytorch.org/whl/cu128
+    huggingface-hub plyfile
 
 # utils3d — pinned commit for trellis2 compatibility
 RUN git clone https://github.com/EasternJournalist/utils3d.git /opt/utils3d && \
     cd /opt/utils3d && \
     git checkout 9a4eb15e4021b67b12c460c7057d642626897ec8
 
-# nvdiffrast — compiled from source (setup.py patched for proper package name)
-RUN git clone -b v0.4.0 --depth 1 \
-        https://github.com/NVlabs/nvdiffrast.git /tmp/build/nvdiffrast && \
-    cd /tmp/build/nvdiffrast && \
-    sed -i '/setuptools.setup(/a\    name="nvdiffrast",' setup.py && \
-    sed -i '/name="nvdiffrast"/a\    packages=["nvdiffrast", "nvdiffrast.torch"],' setup.py && \
-    pip install . --no-build-isolation && \
-    rm -rf /tmp/build/nvdiffrast
-
 # nvdiffrec (PBR rendering)
 RUN git clone -b renderutils --depth 1 \
         https://github.com/JeffreyXiang/nvdiffrec.git /tmp/extensions/nvdiffrec && \
     env TORCH_CUDA_ARCH_LIST="8.9" \
-        pip install /tmp/extensions/nvdiffrec --no-build-isolation && \
+        uv pip install /tmp/extensions/nvdiffrec --no-build-isolation && \
     rm -rf /tmp/extensions/nvdiffrec
 
 # flex_gemm — download source, patch triton 3.x incompatibilities, install patched.
-# Two issues with stock flex_gemm on this image:
-#   1. config.py calls torch.cuda.get_device_name() at import → crashes in build (no GPU)
-#   2. Kernel files use @triton.jit which crashes with triton 3.x's new source-parsing
-# EXPLICIT_GEMM algorithm bypasses triton entirely, so we stub the broken kernels.
 COPY infra/docker/patch_flex_gemm.py /tmp/patch_flex_gemm.py
 RUN git clone --depth 1 https://github.com/JeffreyXiang/FlexGEMM.git /tmp/flex_gemm && \
     python /tmp/patch_flex_gemm.py /tmp/flex_gemm && \
-    pip install --no-cache-dir /tmp/flex_gemm --no-build-isolation && \
+    uv pip install /tmp/flex_gemm --no-build-isolation && \
     rm -rf /tmp/flex_gemm /tmp/patch_flex_gemm.py
 
 # CuMesh — compiled from source (CUDA mesh operations: BVH, remeshing, simplification)
 RUN git clone --recursive https://github.com/JeffreyXiang/CuMesh.git /tmp/CuMesh && \
     env TORCH_CUDA_ARCH_LIST="8.9" \
-        pip install /tmp/CuMesh --no-build-isolation && \
+        uv pip install /tmp/CuMesh --no-build-isolation && \
     rm -rf /tmp/CuMesh
 
 # o-voxel — built from source with lazy flex_gemm/cumesh imports
@@ -91,7 +61,7 @@ COPY infra/docker/patch_ovoxel.py /tmp/patch_ovoxel.py
 RUN cd /opt/trellis && \
     git submodule update --init --recursive o-voxel/third_party/eigen && \
     python /tmp/patch_ovoxel.py && \
-    pip install o-voxel/ --no-build-isolation && \
+    uv pip install o-voxel/ --no-build-isolation && \
     rm /tmp/patch_ovoxel.py
 
 # Patch trellis2 base.py — lazy cumesh/flex_gemm imports
@@ -109,6 +79,14 @@ COPY infra/docker/patch_dinov3_runtime.py /opt/patch_dinov3_runtime.py
 COPY infra/docker/patch_conv_flex_gemm.py /opt/patch_conv_flex_gemm.py
 COPY infra/docker/patch_cumesh_fallback.py /opt/patch_cumesh_fallback.py
 RUN chmod +x /opt/start.sh
+
+# Ray Serve project code
+COPY services/ /app/services/
+COPY gateway/ /app/gateway/
+COPY registry/ /app/registry/
+COPY infra/k8s/serve_config.py /app/serve_config.py
+WORKDIR /app
+ENV PYTHONPATH=/app:/opt/trellis:/opt/utils3d
 
 EXPOSE 8000
 CMD ["/opt/start.sh"]

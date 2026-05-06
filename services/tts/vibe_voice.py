@@ -2,13 +2,7 @@
 
 Generates expressive, long-form audio (podcasts, conversations) from text
 using the VibeVoice 7B model. Supports up to 4 speakers, up to 45 min output.
-
-Runs inside Ray-managed container (tech-noir/vibevoice:latest).
 Pipeline imports directly — no subprocess or HTTP layer needed.
-
-Code repo: https://github.com/microsoft/VibeVoice
-Model weights: vibevoice/VibeVoice-7B on HuggingFace (18.7GB)
-ASR is separate: services.asr.gpu_asr.VibeVoiceASRDeployment
 """
 from __future__ import annotations
 
@@ -32,15 +26,23 @@ MODEL_PATH = os.environ.get("MODEL_PATH", "/models/audio/vibevoice/VibeVoice-7B"
     name="vibevoice",
     num_replicas=1,
     max_ongoing_requests=1,
-    ray_actor_options={"num_gpus": 1.0, "num_cpus": 0.5},
+    ray_actor_options={"num_gpus": 0, "num_cpus": 0.5},
 )
 class VibeVoiceDeployment(BaseGPUDeployment):
-    """VibeVoice long-form multi-speaker TTS via Ray native container."""
+    """VibeVoice long-form multi-speaker TTS."""
 
     def _load(self, model_name: str = "vibevoice-tts-7b") -> None:
-        sys.path.insert(0, "/app/repo")
+        sys.path.insert(0, "/app/infra/repos/VibeVoice")
 
-        from vibevoice.model import VibeVoicePipeline
+        import transformers
+        _orig = transformers.AutoModel.register
+        transformers.AutoModel.register = lambda *a, **kw: None
+        transformers.AutoModelForCausalLM.register = lambda *a, **kw: None
+        try:
+            from vibevoice.model import VibeVoicePipeline
+        finally:
+            transformers.AutoModel.register = _orig
+            transformers.AutoModelForCausalLM.register = _orig
 
         self.pipeline = VibeVoicePipeline.from_pretrained(
             MODEL_PATH,
@@ -58,6 +60,9 @@ class VibeVoiceDeployment(BaseGPUDeployment):
         _free_cuda_cache()
 
     async def __call__(self, request):
+        if not self.is_loaded():
+            self.load_model("vibevoice-tts-7b")
+
         body = await request.json()
         text = body.get("input", "")
         if not text:

@@ -1,75 +1,48 @@
-# TRELLIS.2 — Image-to-3D Docker image for Ray Serve runtime_env["container"]
-# =============================================================================
+# TRELLIS.2 — Image-to-3D Docker image for Ray Serve
+# Inherits from ray-base (torch + ray + flash-attn + nvdiffrast + common libs)
 # Build:
-#   docker build -f infra/docker/Dockerfile.trellis -t tech-noir/trellis:latest .
-#   docker push tech-noir/trellis:latest   # to registry
-#
-# Ray Serve deployment:
-#   @serve.deployment(
-#       ray_actor_options={"runtime_env": {"container": {"image": "tech-noir/trellis:latest"}}}
-#   )
-#
-# Base: CUDA 12.4 + Ubuntu 22.04 (matches TRELLIS.2 requirements)
-FROM nvidia/cuda:12.4.0-devel-ubuntu22.04
+#   podman build -f infra/docker/Dockerfile.trellis -t tech-noir/trellis:latest .
+FROM tech-noir/ray-base:latest
 
 ENV DEBIAN_FRONTEND=noninteractive \
     LANG=C.UTF-8 \
     PYTHONUNBUFFERED=1 \
-    CUDA_HOME=/usr/local/cuda
-
-# System deps (Python 3.10 is native on Ubuntu 22.04)
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    python3.10 python3.10-dev python3.10-venv python3-pip \
-    curl git wget build-essential cmake \
-    libgl1-mesa-glx libglib2.0-0 libsm6 libxext6 libxrender-dev \
-    libsndfile1 libsndfile1-dev \
-    && rm -rf /var/lib/apt/lists/* \
-    && ln -sf /usr/bin/python3.10 /usr/bin/python \
-    && ln -sf /usr/bin/python3.10 /usr/bin/python3 \
-    && ln -sf /usr/bin/pip3 /usr/bin/pip
-
-# uv for fast Python package management
-RUN curl -LsSf https://astral.sh/uv/install.sh | sh
-ENV PATH="/root/.local/bin:$PATH"
-
-# PyTorch 2.6.0 + CUDA 12.4 (matches TRELLIS.2 setup.sh)
-RUN uv pip install --system --no-cache \
-    torch==2.6.0 torchvision==0.21.0 torchaudio==2.6.0 \
-    --index-url https://download.pytorch.org/whl/cu124
+    TORCH_CUDA_ARCH_LIST="8.9"
 
 # Clone and install TRELLIS.2 from upstream
 WORKDIR /opt
 RUN git clone --recursive --depth 1 https://github.com/microsoft/TRELLIS.2.git trellis2
-
 WORKDIR /opt/trellis2
 
-# Install compiled CUDA extensions (o-voxel from source with GCC 12 for CUDA compat)
-RUN apt-get update && apt-get install -y --no-install-recommends gcc-12 g++-12 && rm -rf /var/lib/apt/lists/* && \
-    CC=gcc-12 CXX=g++-12 pip install -e o-voxel --no-build-isolation && \
-    pip install nvdiffrast --no-build-isolation \
-    && pip install flexgemm --no-build-isolation
+# flexgemm — build from source
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv pip install flexgemm --no-build-isolation || \
+    git clone --depth 1 https://github.com/JeffreyXiang/FlexGEMM.git /tmp/flexgemm && \
+    cd /tmp/flexgemm && \
+    uv pip install --no-build-isolation . && \
+    rm -rf /tmp/flexgemm
 
-# Python deps (matched from setup.sh --basic)
-RUN uv pip install --system --no-cache \
-    transformers accelerate safetensors diffusers \
-    einops matplotlib scipy opencv-python-headless \
-    trimesh imageio[ffmpeg] pyglet pyrr \
-    huggingface-hub omegaconf rich \
-    fastapi uvicorn[standard] python-multipart
+# o-voxel — build from source (from TRELLIS.2 submodule)
+RUN --mount=type=cache,target=/root/.cache/uv \
+    cd /opt/trellis2 && \
+    git submodule update --init --recursive o-voxel/third_party/eigen && \
+    uv pip install --no-build-isolation -e o-voxel
 
-# TRELLIS.2 package itself
-RUN pip install -e . --no-build-isolation --no-deps || \
-    pip install -e . --no-deps
+# Unique deps (transformers/accelerate/fastapi already in base)
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv pip install \
+    safetensors diffusers \
+    matplotlib opencv-python-headless \
+    trimesh "imageio[ffmpeg]" pyglet pyrr \
+    omegaconf rich
 
 # FastAPI wrapper — receives image, returns GLB
 COPY infra/docker/api_trellis.py /opt/api.py
 
-# Models root (mount from host or download to volume)
 RUN mkdir -p /models/3d/trellis
 ENV TRELLIS_MODEL_DIR=/models/3d/trellis \
-    HF_HOME=/models/.cache
+    HF_HOME=/models/.cache \
+    PYTHONPATH=/opt/trellis2
 
 EXPOSE 8000
-
-# Start API server
 CMD ["python", "/opt/api.py"]

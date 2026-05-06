@@ -19,7 +19,7 @@ import uvicorn
 app = FastAPI(title="HY-Motion API")
 MODEL_PATH = os.environ.get(
     "HYMOTION_MODEL_PATH",
-    "/models/image-gen/comfyui/HY-Motion/ckpts/tencent/HY-Motion-1.0",
+    "/models/image-gen/comfyui/HY-Motion/ckpts/tencent/HY-Motion-1.0-Lite",
 )
 
 

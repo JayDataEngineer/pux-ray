@@ -4,5 +4,13 @@
 #   podman build -f infra/docker/Dockerfile.moss-sfx -t tech-noir/moss-sfx:latest .
 FROM tech-noir/ray-base:latest
 
+# Ray Serve project code
+COPY services/ /app/services/
+COPY gateway/ /app/gateway/
+COPY registry/ /app/registry/
+COPY infra/k8s/serve_config.py /app/serve_config.py
+WORKDIR /app
+ENV PYTHONPATH=/app
+
 ENV MOSS_SFX_MODEL_PATH=/models/audio/moss-soundeffect \
     HF_HOME=/models/.cache

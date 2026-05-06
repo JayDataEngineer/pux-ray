@@ -1,0 +1,57 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: trellis
+  namespace: ai-services
+  labels:
+    app: trellis
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: trellis
+  template:
+    metadata:
+      labels:
+        app: trellis
+    spec:
+      runtimeClassName: nvidia
+      containers:
+        - name: trellis
+          image: docker.io/tech-noir/trellis-spz:latest
+          imagePullPolicy: Never
+          ports:
+            - containerPort: 8000
+          resources:
+            limits:
+              nvidia.com/gpu: 1
+            requests:
+              nvidia.com/gpu: 1
+          volumeMounts:
+            - name: model-cache
+              mountPath: /root/.cache/huggingface
+          env:
+            - name: TRELLIS_MODEL_ID
+              value: microsoft/TRELLIS.2-4B
+            - name: HF_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: ai-secrets
+                  key: hf-token
+                  optional: true
+      volumes:
+        - name: model-cache
+          persistentVolumeClaim:
+            claimName: trellis-cache
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: trellis
+  namespace: ai-services
+spec:
+  selector:
+    app: trellis
+  ports:
+    - port: 8000
+      targetPort: 8000

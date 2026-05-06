@@ -1,0 +1,71 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: llm
+  namespace: ai-services
+  labels:
+    app: llm
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: llm
+  template:
+    metadata:
+      labels:
+        app: llm
+    spec:
+      runtimeClassName: nvidia
+      containers:
+        - name: llama-server
+          image: ghcr.io/ggml-org/llama.cpp:server-cuda
+          imagePullPolicy: Never
+          args:
+            - --host
+            - "0.0.0.0"
+            - --port
+            - "8080"
+            - --model
+            - /models/llm/Qwen3.6-27B-IQ4_NL.gguf
+            - --n-gpu-layers
+            - "99"
+            - --ctx-size
+            - "32768"
+          ports:
+            - containerPort: 8080
+              name: http
+          resources:
+            limits:
+              nvidia.com/gpu: 1
+              memory: 22Gi
+            requests:
+              nvidia.com/gpu: 1
+              memory: 4Gi
+          volumeMounts:
+            - name: models
+              mountPath: /models
+              readOnly: true
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 10
+      volumes:
+        - name: models
+          persistentVolumeClaim:
+            claimName: models-pvc
+            readOnly: true
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: llm
+  namespace: ai-services
+spec:
+  selector:
+    app: llm
+  ports:
+    - port: 8080
+      targetPort: 8080
+      name: http

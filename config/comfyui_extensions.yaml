@@ -31,6 +31,8 @@ extensions:
     url: https://github.com/AHEKOT/ComfyUI_VNCCS.git
     desc: VNCCS node definitions
     required: true
+    pip:
+      - opencv-python-headless
 
   - name: vnccs_utils
     url: https://github.com/AHEKOT/ComfyUI_VNCCS_Utils.git
@@ -65,8 +67,12 @@ extensions:
 
   - name: comfyui-impact-pack
     url: https://github.com/ltdrdata/ComfyUI-Impact-Pack
-    desc: Image processing and workflow nodes
-    required: false
+    desc: FaceDetailer, UltralyticsDetectorProvider, image processing
+    required: true
+    pip:
+      - piexif
+      - segment-anything
+      - ultralytics
 
   - name: comfyui-impact-subpack
     url: https://github.com/ltdrdata/ComfyUI-Impact-Subpack
@@ -118,4 +124,23 @@ extensions:
   - name: ComfyUI-seamless-tiling
     url: https://github.com/spinagon/ComfyUI-seamless-tiling
     desc: Seamless tiling for textures
+    required: false
+
+  # ── VNCCS Workflow Dependencies ──────────────────────────
+  - name: ComfyUI-Easy-Use
+    url: https://github.com/yolain/ComfyUI-Easy-Use
+    desc: easy cleanGpuUsed and workflow utility nodes (required by VNCCS workflows)
+    required: true
+
+  - name: ComfyUI-SeedVR2_VideoUpscaler
+    url: https://github.com/Night1099/ComfyUI-SeedVR2_VideoUpscaler.git
+    desc: SeedVR2 upscaler nodes (required by VNCCS sheet workflow)
+    required: true
+    pip:
+      - diffusers>=0.32.0
+      - rotary_embedding_torch
+
+  - name: rgthree-comfy
+    url: https://github.com/rgthree/rgthree-comfy
+    desc: Image Comparer, Fast Groups Bypasser (used by VNCCS workflows)
     required: false

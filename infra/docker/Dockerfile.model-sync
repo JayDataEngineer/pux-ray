@@ -1,0 +1,20 @@
+# Model Sync — lightweight init container for KubeRay worker pods.
+# Verifies required models exist, downloads missing ones from HF/ModelScope.
+#
+# Locally (PVC): instant check, no downloads (~0 seconds).
+# Cloud burst (empty disk): downloads only the models this worker needs.
+#
+# Build:
+#   podman build -f infra/docker/Dockerfile.model-sync -t tech-noir/model-sync:latest .
+FROM python:3.12-slim-bookworm
+
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
+ENV UV_SYSTEM_PYTHON=1 UV_BREAK_SYSTEM_PACKAGES=1
+
+RUN uv pip install pyyaml huggingface_hub modelscope
+
+COPY config/model_registry.yaml /app/config/model_registry.yaml
+COPY infra/k8s/model_sync.py /app/model_sync.py
+
+WORKDIR /app
+ENTRYPOINT ["python3", "/app/model_sync.py"]

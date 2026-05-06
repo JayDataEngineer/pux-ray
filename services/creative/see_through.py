@@ -2,22 +2,16 @@
 
 Decomposes a single character illustration into body part layers
 (body, arms, head, hair, etc.) for sprite animation.
-Runs inside Ray-managed container (tech-noir/seethrough:latest).
-
+Runs as a subprocess within the KubeRay worker pod.
 Requires ~4GB VRAM.
 """
 from __future__ import annotations
 
-import asyncio
 import logging
-import shutil
-import tempfile
-from pathlib import Path
 
 from ray import serve
-from starlette.responses import JSONResponse
 
-from services.base import BaseGPUDeployment
+from services.base import BaseGPUDeployment, SubprocessProxyMixin
 
 logger = logging.getLogger(__name__)
 
@@ -26,66 +20,34 @@ logger = logging.getLogger(__name__)
     name="see_through",
     num_replicas=1,
     max_ongoing_requests=1,
-    ray_actor_options={"num_gpus": 1.0, "num_cpus": 0.5},
+    ray_actor_options={"num_gpus": 0, "num_cpus": 0.5},
 )
-class SeeThroughDeployment(BaseGPUDeployment):
-    """See-Through layer decomposition via Ray native container."""
+class SeeThroughDeployment(BaseGPUDeployment, SubprocessProxyMixin):
+    """See-Through layer decomposition via subprocess proxy."""
+
+    SUBPROCESS_PORT = 9000
 
     def _load(self, model_name: str = "see-through") -> None:
-        self.model_name = model_name
+        self._start_proxy(
+            cmd=["python", "-m", "uvicorn", "api:app",
+                 "--host", "0.0.0.0", "--port", str(self.SUBPROCESS_PORT)],
+            port=self.SUBPROCESS_PORT,
+            health_path="/health",
+            timeout=300,
+            cwd="/opt",
+            env={
+                "SEETHROUGH_MODEL_DIR": "/models/vision/see-through",
+                "HF_HOME": "/root/.cache/huggingface",
+                "PYTHONPATH": "/app:/opt/seethrough:/opt",
+            },
+        )
         self.model = True
-        logger.info("See-Through ready")
+        self.model_name = model_name
 
     def _unload(self) -> None:
+        self._stop_proxy()
         self.model = None
 
     async def __call__(self, request):
-        form = await request.form()
-        image_file = form["image"]
-        image_bytes = await image_file.read()
-        resolution = int(form.get("resolution", "1280"))
-        inference_steps = int(form.get("inference_steps", "30"))
-
-        result = await asyncio.to_thread(
-            self._decompose,
-            image_bytes=image_bytes,
-            resolution=resolution,
-            inference_steps=inference_steps,
-        )
-
-        return JSONResponse(result)
-
-    def _decompose(self, image_bytes: bytes, resolution: int, inference_steps: int) -> dict:
-        import subprocess
-
-        with tempfile.TemporaryDirectory() as tmpdir:
-            input_path = Path(tmpdir) / "input.png"
-            output_dir = Path(tmpdir) / "output"
-            output_dir.mkdir()
-            input_path.write_bytes(image_bytes)
-
-            result = subprocess.run([
-                "python", "/opt/seethrough/inference/scripts/inference_psd.py",
-                "--srcp", str(input_path),
-                "--save_dir", str(output_dir),
-                "--resolution", str(resolution),
-                "--inference_steps", str(inference_steps),
-                "--save_to_psd",
-            ], capture_output=True, text=True, timeout=600, cwd="/opt/seethrough")
-
-            if result.returncode != 0:
-                raise RuntimeError(f"See-Through failed: {result.stderr}")
-
-            layers = []
-            psd_data = None
-            for png in sorted(output_dir.rglob("*.png")):
-                if "layer" in png.name.lower() or "part" in png.name.lower():
-                    layers.append({"name": png.stem})
-            for psd in output_dir.rglob("*.psd"):
-                psd_data = psd.read_bytes()
-                break
-
-            return {
-                "layers": layers,
-                "has_psd": psd_data is not None,
-            }
+        await self._ensure_loaded("see-through")
+        return await self._proxy_request(request)

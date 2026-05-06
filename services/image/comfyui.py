@@ -1,23 +1,16 @@
-"""ComfyUI Ray deployment — runs inside Ray-managed container.
+"""ComfyUI Ray deployment — subprocess proxy within KubeRay worker pod.
 
-Ray manages the container (tech-noir/comfyui:latest). The actor starts
-ComfyUI as a subprocess and proxies HTTP requests to it.
-
-GPU managed by Ray: num_gpus=1.0 ensures only one GPU service runs at a time.
-GPUScheduler coordinates load/unload across all GPU services.
+Ray actor starts ComfyUI as a subprocess and proxies HTTP requests.
+The ComfyUI image has /opt/ComfyUI pre-installed — we just launch it.
 """
 from __future__ import annotations
 
 import logging
-import os
-from pathlib import Path
+import subprocess
 
-import httpx
 from ray import serve
-from starlette.requests import Request
-from starlette.responses import Response
 
-from services.base import BaseGPUDeployment, SubprocessMixin
+from services.base import BaseGPUDeployment, SubprocessProxyMixin
 
 logger = logging.getLogger(__name__)
 
@@ -26,96 +19,39 @@ logger = logging.getLogger(__name__)
     name="comfyui",
     num_replicas=1,
     max_ongoing_requests=8,
-    ray_actor_options={"num_gpus": 1.0, "num_cpus": 0.5},
+    ray_actor_options={"num_gpus": 0, "num_cpus": 0.5},
 )
-class ComfyUIDeployment(BaseGPUDeployment, SubprocessMixin):
-    """ComfyUI with flash-attn inside Ray-managed container."""
+class ComfyUIDeployment(BaseGPUDeployment, SubprocessProxyMixin):
+    """ComfyUI via subprocess proxy within KubeRay worker pod."""
 
-    COMFYUI_PORT = 18465
+    PORT = 18465
 
     def _load(self, model_name: str = "comfyui") -> None:
-        self._setup_model_links()
-        self.start_process(
-            [
-                "python3", "main.py",
-                "--port", str(self.COMFYUI_PORT),
-                "--listen", "0.0.0.0",
-                "--preview-method", "auto",
-                "--use-split-cross-attention",
-            ],
+        # Symlink model dirs from mounted /models volume
+        subprocess.run(["bash", "-c", """
+            mkdir -p /opt/ComfyUI/models
+            for d in HY-Motion RMBG sams ultralytics; do
+              [ -d /models/image-gen/comfyui/$d ] && [ ! -e /opt/ComfyUI/models/$d ] &&
+                ln -s /models/image-gen/comfyui/$d /opt/ComfyUI/models/$d
+            done
+        """], check=False)
+
+        self._start_proxy(
+            cmd=["python3", "main.py", "--port", str(self.PORT),
+                 "--listen", "0.0.0.0", "--preview-method", "auto",
+                 "--use-split-cross-attention"],
+            port=self.PORT,
+            health_path="/",
+            timeout=600,
             cwd="/opt/ComfyUI",
         )
-        self.wait_for_health(
-            f"http://localhost:{self.COMFYUI_PORT}/",
-            timeout=120,
-        )
-        self.model_name = model_name
         self.model = True
-        logger.info("ComfyUI ready (port=%d)", self.COMFYUI_PORT)
+        self.model_name = model_name
 
     def _unload(self) -> None:
-        self.stop_process()
+        self._stop_proxy()
+        self.model = None
 
-    def is_loaded(self) -> bool:
-        return self.process is not None and self.process.poll() is None
-
-    def _setup_model_links(self) -> None:
-        models_dir = "/opt/ComfyUI/models"
-        os.makedirs(models_dir, exist_ok=True)
-        for d in ["HY-Motion", "RMBG", "sams", "ultralytics"]:
-            src = f"/models/image-gen/comfyui/{d}"
-            dst = f"{models_dir}/{d}"
-            if os.path.isdir(src) and not os.path.exists(dst):
-                os.symlink(src, dst)
-
-    async def submit_workflow(self, workflow: dict) -> dict:
-        self._ensure_loaded()
-        async with httpx.AsyncClient(timeout=300) as client:
-            resp = await client.post(
-                f"http://localhost:{self.COMFYUI_PORT}/prompt",
-                json={"prompt": workflow},
-            )
-            resp.raise_for_status()
-            return resp.json()
-
-    async def get_history(self, prompt_id: str = "") -> dict:
-        self._ensure_loaded()
-        async with httpx.AsyncClient(timeout=30) as client:
-            url = f"http://localhost:{self.COMFYUI_PORT}/history"
-            if prompt_id:
-                url += f"/{prompt_id}"
-            resp = await client.get(url)
-            resp.raise_for_status()
-            return resp.json()
-
-    def _ensure_loaded(self) -> None:
-        if self.process is None or self.process.poll() is not None:
-            self._load()
-
-    async def __call__(self, request: Request) -> Response:
-        self._ensure_loaded()
-
-        async with httpx.AsyncClient(timeout=300) as client:
-            path = request.url.path
-            if path.startswith("/comfyui"):
-                path = path[len("/comfyui"):] or "/"
-
-            target_url = f"http://localhost:{self.COMFYUI_PORT}{path}"
-            if request.url.query:
-                target_url += f"?{request.url.query}"
-
-            body = await request.body()
-            resp = await client.request(
-                method=request.method,
-                url=target_url,
-                headers={k: v for k, v in request.headers.items()
-                         if k.lower() not in ("host",)},
-                content=body,
-            )
-
-            content_type = resp.headers.get("content-type", "application/json")
-            return Response(
-                content=resp.content,
-                status_code=resp.status_code,
-                media_type=content_type,
-            )
+    async def __call__(self, request):
+        await self._ensure_loaded("comfyui")
+        return await self._proxy_request(request)

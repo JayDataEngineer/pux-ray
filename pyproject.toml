@@ -24,7 +24,6 @@ dependencies = [
     "torchaudio>=2.1",
     "transformers>=4.40",
     "accelerate>=0.30",
-    "qwen-tts>=0.2",
     # ComfyUI VNCCS extension runtime dependencies
     "opencv-python>=4.8",
     "timm>=0.9",

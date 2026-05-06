@@ -1,37 +1,32 @@
 # ACE-STEP 1.5 — Text-to-Music Docker image for Ray Serve
-# =============================================================================
+# Inherits from ray-base (torch + ray + flash-attn + common libs)
 # Build:
-#   docker build -f infra/docker/Dockerfile.acestep -t tech-noir/acestep:latest .
-#
-# Base: CUDA 12.6 runtime (matches upstream ACE-Step Dockerfile)
-# Models mounted at /models/audio/acestep (host models_root/audio/acestep)
-FROM nvidia/cuda:12.6.0-runtime-ubuntu22.04
+#   podman build -f infra/docker/Dockerfile.acestep -t tech-noir/acestep:latest .
+FROM tech-noir/ray-base:latest
 
-ENV DEBIAN_FRONTEND=noninteractive \
-    LANG=C.UTF-8 \
-    PYTHONUNBUFFERED=1 \
-    ACESTEP_CHECKPOINTS_DIR=/models/audio/acestep \
-    HF_HOME=/models/.cache
-
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    python3.10 python3.10-dev python3.10-venv python3-pip \
-    build-essential git curl \
-    libsndfile1 libsndfile1-dev \
-    && rm -rf /var/lib/apt/lists/* \
-    && ln -sf /usr/bin/python3.10 /usr/bin/python \
-    && ln -sf /usr/bin/python3.10 /usr/bin/python3 \
-    && ln -sf /usr/bin/pip3 /usr/bin/pip
+ENV DEBIAN_FRONTEND=noninteractive PYTHONUNBUFFERED=1
 
 WORKDIR /opt
 RUN git clone --depth 1 https://github.com/ace-step/ACE-Step-1.5.git acestep
 WORKDIR /opt/acestep
 
-RUN pip install --no-cache-dir --upgrade pip && \
-    pip install --no-cache-dir torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu124 && \
-    pip install --no-cache-dir -r requirements.txt || true && \
-    pip install --no-cache-dir fastapi uvicorn python-multipart
+# Install deps — torch/fastapi/uvicorn already in base
+RUN --mount=type=cache,target=/root/.cache/uv \
+    grep -v -i -E '^(torch|torchvision|torchaudio|xformers|flash-attn)' requirements.txt > /tmp/reqs_filtered.txt && \
+    uv pip install -r /tmp/reqs_filtered.txt || true
 
 COPY infra/docker/api_acestep.py /opt/api.py
+
+ENV ACESTEP_CHECKPOINTS_DIR=/models/audio/acestep \
+    HF_HOME=/models/.cache
+
+# Ray Serve project code
+COPY services/ /app/services/
+COPY gateway/ /app/gateway/
+COPY registry/ /app/registry/
+COPY infra/k8s/serve_config.py /app/serve_config.py
+WORKDIR /app
+ENV PYTHONPATH=/app
 
 EXPOSE 8000
 CMD ["python", "/opt/api.py"]

@@ -1,66 +1,19 @@
 # VibeVoice — Long-form Multi-speaker TTS Docker image for Ray Serve
-# =============================================================================
+# Inherits from ray-base (torch + ray + flash-attn + common libs)
 # Build:
-#   docker build -f infra/docker/Dockerfile.vibevoice -t tech-noir/vibevoice:latest .
-#
-# Multi-stage: compile flash-attn in devel image, copy to runtime.
-# Models mounted at /models/audio/vibevoice/VibeVoice-7B
-FROM python:3.12-slim-bookworm AS python-base
+#   podman build -f infra/docker/Dockerfile.vibevoice -t tech-noir/vibevoice:latest .
+FROM tech-noir/ray-base:latest
 
-# ---- Build Stage ----
-FROM nvidia/cuda:12.4.0-devel-ubuntu22.04 AS builder
+# soundfile/scipy/transformers/accelerate already in base
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv pip install diffusers
 
-ENV DEBIAN_FRONTEND=noninteractive PYTHONUNBUFFERED=1
-
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    git build-essential ninja-build \
-    libgl1-mesa-glx libglib2.0-0 \
-    && rm -rf /var/lib/apt/lists/*
-
-COPY --from=python-base /usr/local /usr/local
-RUN ln -sf /usr/local/bin/python3.12 /usr/bin/python
-
-COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
-
-WORKDIR /build
-
-ENV TORCH_CUDA_ARCH_LIST="8.9"
-ENV TORCH_NVCC_FLAGS="-Xfatbin -compress-all"
-ENV MAX_JOBS=2
-
-RUN uv pip install --system --no-cache \
-    torch==2.6.0 torchvision==0.21.0 torchaudio==2.6.0 \
-    --index-url https://download.pytorch.org/whl/cu124
-
-RUN uv pip install --system --no-cache \
-    transformers==4.51.3 pillow einops accelerate \
-    numpy soundfile scipy wheel setuptools packaging
-
-RUN uv pip install --system --no-cache flash-attn==2.7.3 --no-build-isolation
-
-RUN git clone --depth 1 https://github.com/microsoft/VibeVoice.git /build/vibevoice
-
-# ---- Runtime Stage ----
-FROM nvidia/cuda:12.4.0-runtime-ubuntu22.04 AS runtime
-
-ENV DEBIAN_FRONTEND=noninteractive PYTHONUNBUFFERED=1
-
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    libgl1-mesa-glx libglib2.0-0 libgomp1 \
-    && rm -rf /var/lib/apt/lists/*
-
-COPY --from=builder /usr/local /usr/local
-RUN ln -sf /usr/local/bin/python3.12 /usr/bin/python && ldconfig
-
-COPY --from=builder /build/vibevoice /app/repo
-
-COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
-RUN uv pip install --system --no-cache fastapi uvicorn[standard] python-multipart soundfile httpx
-
-COPY infra/docker/api_vibevoice.py /app/api.py
+# Ray Serve project code
+COPY services/ /app/services/
+COPY gateway/ /app/gateway/
+COPY registry/ /app/registry/
+COPY infra/k8s/serve_config.py /app/serve_config.py
+WORKDIR /app
+ENV PYTHONPATH=/app
 
 ENV MODEL_PATH=/models/audio/vibevoice/VibeVoice-7B
-ENV PYTHONPATH=/app:/app/repo
-
-EXPOSE 8000
-CMD ["python", "/app/api.py"]

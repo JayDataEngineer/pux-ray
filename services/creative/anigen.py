@@ -1,83 +1,60 @@
 """AniGen — Animated 3D asset generation from images.
 
 Generates rigged, skinned 3D meshes (GLB) from single character images.
-Runs inside Ray-managed container (tech-noir/anigen:latest).
-
-Pipeline imports directly — no subprocess or HTTP layer needed.
+Runs as a subprocess within the KubeRay worker pod.
 """
 from __future__ import annotations
 
-import io
 import logging
-import os
-import sys
-import tempfile
-from pathlib import Path
 
-import torch
 from ray import serve
-from starlette.responses import Response
 
-from services.base import BaseGPUDeployment, _free_cuda_cache
+from services.base import BaseGPUDeployment, SubprocessProxyMixin
 
 logger = logging.getLogger(__name__)
-
-SS_MODEL = os.environ.get("ANIGEN_SS_MODEL", "ckpts/anigen/ss_flow_duet")
-SLAT_MODEL = os.environ.get("ANIGEN_SLAT_MODEL", "ckpts/anigen/slat_flow_auto")
 
 
 @serve.deployment(
     name="anigen",
     num_replicas=1,
     max_ongoing_requests=1,
-    ray_actor_options={"num_gpus": 1.0, "num_cpus": 0.5},
+    ray_actor_options={"num_gpus": 0, "num_cpus": 0.5},
 )
-class AniGenDeployment(BaseGPUDeployment):
-    """AniGen animated 3D asset generation via Ray native container."""
+class AniGenDeployment(BaseGPUDeployment, SubprocessProxyMixin):
+    """AniGen animated 3D asset generation via subprocess proxy."""
+
+    SUBPROCESS_PORT = 9000
 
     def _load(self, model_name: str = "anigen") -> None:
-        os.environ.setdefault("FORCE_CUDA", "1")
-        sys.path.insert(0, "/opt/anigen")
+        import subprocess as sp
 
-        from anigen.pipelines import AnigenImageTo3DPipeline
+        # Link models (same as entrypoint_anigen.sh)
+        if not sp.run(["bash", "-c",
+                "[ -d /models/ckpts/ckpts ] && [ ! -e /opt/anigen/ckpts ] && "
+                "ln -s /models/ckpts/ckpts /opt/anigen/ckpts || true"],
+               check=False).returncode:
+            pass
 
-        self.pipeline = AnigenImageTo3DPipeline.from_pretrained(
-            ss_model=SS_MODEL,
-            slat_model=SLAT_MODEL,
+        self._start_proxy(
+            cmd=["python", "-m", "uvicorn", "api:app",
+                 "--host", "0.0.0.0", "--port", str(self.SUBPROCESS_PORT)],
+            port=self.SUBPROCESS_PORT,
+            health_path="/health",
+            timeout=600,
+            cwd="/opt",
+            env={
+                "ANIGEN_MODEL_DIR": "/models/3d/anigen/ckpts",
+                "HF_HOME": "/root/.cache/huggingface",
+                "PYTHONPATH": "/app:/opt/anigen:/opt/utils3d-src:/opt",
+            },
         )
-        self.pipeline.cuda()
-        self.model_name = model_name
         self.model = True
-        logger.info("AniGen loaded: ss=%s, slat=%s", SS_MODEL, SLAT_MODEL)
+        self.model_name = model_name
 
     def _unload(self) -> None:
-        self.pipeline = None
+        self._stop_proxy()
         self.model = None
-        _free_cuda_cache()
 
     async def __call__(self, request):
-        from PIL import Image
-
-        form = await request.form()
-        image_file = form["image"]
-        image_bytes = await image_file.read()
-        seed = int(form.get("seed", "42"))
-
-        img = Image.open(io.BytesIO(image_bytes))
-
-        torch.manual_seed(seed)
-        if torch.cuda.is_available():
-            torch.cuda.manual_seed_all(seed)
-
-        result = self.pipeline.run(img)
-
-        for name, data in result.items():
-            if hasattr(data, "export"):
-                with tempfile.NamedTemporaryFile(suffix=".glb", delete=False) as tmp:
-                    data.export(tmp.name)
-                    glb_bytes = Path(tmp.name).read_bytes()
-                    Path(tmp.name).unlink(missing_ok=True)
-                return Response(content=glb_bytes, media_type="model/gltf-binary")
-
-        from starlette.responses import JSONResponse
-        return JSONResponse({"error": "No mesh in output"}, status_code=500)
+        await self._ensure_loaded("anigen")
+        return await self._proxy_request(request)
