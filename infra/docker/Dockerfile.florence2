@@ -4,5 +4,13 @@
 #   podman build -f infra/docker/Dockerfile.florence2 -t tech-noir/florence2:latest .
 FROM tech-noir/ray-base:latest
 
+# Ray Serve project code
+COPY services/ /app/services/
+COPY gateway/ /app/gateway/
+COPY registry/ /app/registry/
+COPY infra/k8s/serve_config.py /app/serve_config.py
+WORKDIR /app
+ENV PYTHONPATH=/app
+
 ENV FLORENCE2_MODEL_PATH=/models/vision/florence-2-large-ft \
     HF_HOME=/models/.cache

@@ -2,8 +2,6 @@
 
 8B parameter model from the MOSS-TTS family. Generates environmental sounds,
 urban scenes, creatures, human actions, and music-like clips from text prompts.
-Runs inside Ray-managed container (tech-noir/moss-sfx:latest).
-
 Requires ~22GB VRAM.
 """
 from __future__ import annotations
@@ -11,14 +9,12 @@ from __future__ import annotations
 import io
 import logging
 import os
-import tempfile
-from pathlib import Path
 
 import torch
 from ray import serve
 from starlette.responses import JSONResponse, Response
 
-from services.base import BaseGPUDeployment, _free_cuda_cache, container_runtime
+from services.base import BaseGPUDeployment, _free_cuda_cache
 
 logger = logging.getLogger(__name__)
 
@@ -29,14 +25,10 @@ MODEL_PATH = os.environ.get("MOSS_SFX_MODEL_PATH", "/models/audio/moss-soundeffe
     name="moss_soundeffect",
     num_replicas=1,
     max_ongoing_requests=1,
-    ray_actor_options={
-        "num_gpus": 0,
-        "num_cpus": 0.5,
-        "runtime_env": container_runtime("tech-noir/moss-sfx:latest"),
-    },
+    ray_actor_options={"num_gpus": 0, "num_cpus": 0.5},
 )
 class MossSoundEffectDeployment(BaseGPUDeployment):
-    """MOSS-SoundEffect text-to-sound via Ray native container."""
+    """MOSS-SoundEffect text-to-sound."""
 
     def _load(self, model_name: str = "moss-soundeffect") -> None:
         import importlib.util
@@ -88,6 +80,9 @@ class MossSoundEffectDeployment(BaseGPUDeployment):
         _free_cuda_cache()
 
     async def __call__(self, request):
+        if not self.is_loaded():
+            self.load_model("moss-soundeffect")
+
         import torchaudio
 
         body = await request.json()

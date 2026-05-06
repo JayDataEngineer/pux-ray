@@ -95,7 +95,7 @@ class APIIngress:
 
     async def chat_completions(self, request: Request) -> Response:
         body = await request.json()
-        model = body.get("model", "qwen3.5-27b")
+        model = body.get("model", "qwen3.6-27b-ud-q4_k_xl")
 
         if not model.endswith("-cpu"):
             await self._use_gpu("llm", model)

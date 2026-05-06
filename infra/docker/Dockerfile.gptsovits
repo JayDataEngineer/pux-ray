@@ -1,35 +1,31 @@
 # GPT-SoVITS — Voice Cloning TTS Docker image for Ray Serve
-# =============================================================================
+# Inherits from ray-base (torch + ray + flash-attn + common libs)
 # Build:
-#   docker build -f infra/docker/Dockerfile.gptsovits -t tech-noir/gptsovits:latest .
-#
-# Base: CUDA 12.6 runtime
-# Models mounted at /models/audio/gpt-sovits (host models_root/audio/gpt-sovits)
-FROM nvidia/cuda:12.6.0-runtime-ubuntu22.04
+#   podman build -f infra/docker/Dockerfile.gptsovits -t tech-noir/gptsovits:latest .
+FROM tech-noir/ray-base:latest
 
-ENV DEBIAN_FRONTEND=noninteractive \
-    LANG=C.UTF-8 \
-    PYTHONUNBUFFERED=1
+ENV DEBIAN_FRONTEND=noninteractive PYTHONUNBUFFERED=1
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    python3.10 python3.10-dev python3.10-venv python3-pip \
-    build-essential git curl \
-    libsndfile1 libsndfile1-dev ffmpeg \
-    && rm -rf /var/lib/apt/lists/* \
-    && ln -sf /usr/bin/python3.10 /usr/bin/python \
-    && ln -sf /usr/bin/python3.10 /usr/bin/python3 \
-    && ln -sf /usr/bin/pip3 /usr/bin/pip
+RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /opt
 RUN git clone --depth 1 https://github.com/RVC-Boss/GPT-SoVITS.git gpt-sovits
 WORKDIR /opt/gpt-sovits
 
-RUN pip install --no-cache-dir --upgrade pip && \
-    pip install --no-cache-dir torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu126 && \
-    pip install --no-cache-dir -r requirements.txt && \
-    pip install --no-cache-dir fastapi uvicorn python-multipart
+# Install deps — torch/fastapi/uvicorn already in base
+RUN --mount=type=cache,target=/root/.cache/uv \
+    grep -v -i -E '^(torch|torchvision|torchaudio|xformers|flash-attn)' requirements.txt > /tmp/reqs_filtered.txt && \
+    uv pip install -r /tmp/reqs_filtered.txt
 
 COPY infra/docker/api_gptsovits.py /opt/api.py
+
+# Ray Serve project code
+COPY services/ /app/services/
+COPY gateway/ /app/gateway/
+COPY registry/ /app/registry/
+COPY infra/k8s/serve_config.py /app/serve_config.py
+WORKDIR /app
+ENV PYTHONPATH=/app
 
 EXPOSE 8000
 CMD ["python", "/opt/api.py"]

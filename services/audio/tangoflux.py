@@ -2,8 +2,6 @@
 
 Flow matching with DiT/MMDiT and CRPO alignment. Generates 44.1kHz audio
 up to 30 seconds from text descriptions.
-Runs inside Ray-managed container (tech-noir/tangoflux:latest).
-
 Requires ~6GB VRAM.
 """
 from __future__ import annotations
@@ -15,7 +13,7 @@ import os
 from ray import serve
 from starlette.responses import JSONResponse, Response
 
-from services.base import BaseGPUDeployment, _free_cuda_cache, container_runtime
+from services.base import BaseGPUDeployment, _free_cuda_cache
 
 logger = logging.getLogger(__name__)
 
@@ -26,14 +24,10 @@ MODEL_PATH = os.environ.get("TANGOFLUX_MODEL_PATH", "/models/audio/tangoflux")
     name="tangoflux",
     num_replicas=1,
     max_ongoing_requests=2,
-    ray_actor_options={
-        "num_gpus": 0,
-        "num_cpus": 0.5,
-        "runtime_env": container_runtime("tech-noir/tangoflux:latest"),
-    },
+    ray_actor_options={"num_gpus": 0, "num_cpus": 0.5},
 )
 class TangoFluxDeployment(BaseGPUDeployment):
-    """TangoFlux text-to-audio via Ray native container."""
+    """TangoFlux text-to-audio."""
 
     def _load(self, model_name: str = "tangoflux") -> None:
         from tangoflux import TangoFluxInference
@@ -47,6 +41,9 @@ class TangoFluxDeployment(BaseGPUDeployment):
         _free_cuda_cache()
 
     async def __call__(self, request):
+        if not self.is_loaded():
+            self.load_model("tangoflux")
+
         body = await request.json()
         prompt = body.get("prompt", body.get("caption", ""))
         if not prompt:

@@ -1,17 +1,15 @@
-"""TRELLIS.2 - Image-to-3D mesh generation.
+"""TRELLIS StableProjectorz — Image-to-3D mesh generation.
 
 Generates high-quality 3D meshes (GLB) from single images.
-Runs in a Docker container (CUDA 12.4) accessed via HTTPToolMixin.
+Runs as a subprocess within the KubeRay worker pod.
 """
-
 from __future__ import annotations
 
 import logging
 
 from ray import serve
-from starlette.responses import Response
 
-from services.base import BaseGPUDeployment, HTTPToolMixin
+from services.base import BaseGPUDeployment, SubprocessProxyMixin
 
 logger = logging.getLogger(__name__)
 
@@ -20,43 +18,49 @@ logger = logging.getLogger(__name__)
     name="trellis",
     num_replicas=1,
     max_ongoing_requests=1,
-    ray_actor_options={"num_gpus": 0.5, "num_cpus": 0.5},
+    ray_actor_options={"num_gpus": 0, "num_cpus": 0.5},
 )
-class TRELLISDeployment(BaseGPUDeployment, HTTPToolMixin):
-    """TRELLIS.2 image-to-3D generation via Docker worker."""
+class TRELLISDeployment(BaseGPUDeployment, SubprocessProxyMixin):
+    """TRELLIS image-to-3D via subprocess proxy."""
 
-    def _load(self, model_name: str = "trellis") -> None:
-        self._init_http(port=18401, service_name="trellis-spz", timeout=600)
-        self.model = True
-        self.model_name = model_name
-        logger.info("TRELLIS HTTP ready (port=18401, VRAM-optimized spz)")
+    SUBPROCESS_PORT = 9000
 
-    def _unload(self) -> None:
-        self.model = None
+    def _load(self, model_name: str = "trellis-spz") -> None:
+        import subprocess as sp
 
-    def _ensure_loaded(self) -> None:
-        self._ensure_healthy(port=18401, service_name="trellis-spz", timeout=600)
+        # Apply runtime patches (same as start_trellis.sh)
+        sp.run(["bash", "-c",
+                "cd /opt/trellis && "
+                "git checkout HEAD -- trellis2/pipelines/rembg/BiRefNet.py "
+                "trellis2/modules/image_feature_extractor.py "
+                "trellis2/modules/sparse/conv/conv_flex_gemm.py "
+                "trellis2/representations/mesh/base.py 2>/dev/null || true"],
+               check=False)
+        for patch in ["/opt/patch_birefnet_runtime.py", "/opt/patch_dinov3_runtime.py",
+                      "/opt/patch_conv_flex_gemm.py", "/opt/patch_cumesh_fallback.py"]:
+            sp.run(["python3", patch], check=False)
 
-    async def __call__(self, request):
-        self._ensure_loaded()
-        form = await request.form()
-        image_file = form["image"]
-        image_bytes = await image_file.read()
-        output_format = form.get("output_format", "glb")
-        resolution = form.get("resolution", "512")
-        decimation = form.get("decimation", "1000000")
-
-        data = await self._call_worker(
-            "generate",
-            files={"image": ("image.png", image_bytes, "image/png")},
-            data={
-                "output_format": output_format,
-                "resolution": resolution,
-                "decimation": decimation,
+        self._start_proxy(
+            cmd=["python3", "api_spz/main_api.py",
+                 "--host", "0.0.0.0", "--port", str(self.SUBPROCESS_PORT)],
+            port=self.SUBPROCESS_PORT,
+            health_path="/health",
+            timeout=600,
+            cwd="/opt/trellis",
+            env={
+                "TRELLIS_MODEL_ID": "/models/3d/trellis/TRELLIS.2-4B",
+                "HF_HOME": "/root/.cache/huggingface",
+                "ATTN_BACKEND": "xformers",
+                "PYTHONPATH": "/app:/opt/trellis:/opt/utils3d",
             },
         )
+        self.model = True
+        self.model_name = model_name
 
-        return Response(
-            content=data,
-            media_type="model/gltf-binary" if output_format == "glb" else "application/octet-stream",
-        )
+    def _unload(self) -> None:
+        self._stop_proxy()
+        self.model = None
+
+    async def __call__(self, request):
+        await self._ensure_loaded("trellis-spz")
+        return await self._proxy_request(request)

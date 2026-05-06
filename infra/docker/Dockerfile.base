@@ -1,0 +1,72 @@
+# Tech Noir Ray Base — golden GPU service base image.
+# CUDA 12.4.1 toolkit + PyTorch 2.6.0 (PyPI, ships CUDA 12.4) + ray + compiled kernels.
+#
+# Why not NGC PyTorch:
+#   NGC images require accepting NVIDIA's container license (not open source).
+#   Default PyPI torch 2.6.0 ships with CUDA 12.4 — no special index needed.
+#
+# Flash attention: vllm-flash-attn (open source, compiled against PyPI torch ABI).
+#   The official flash-attn wheels have CXX11 ABI mismatch with PyPI torch.
+#   vllm-flash-attn solves this and provides the same API.
+#   Services that do `import flash_attn` fall back to PyTorch SDPA automatically.
+#
+# All GPU service Dockerfiles inherit from this via:
+#   FROM tech-noir/ray-base:latest
+#
+# Build:
+#   podman build -f infra/docker/Dockerfile.base -t tech-noir/ray-base:latest .
+FROM nvidia/cuda:12.4.1-devel-ubuntu22.04
+
+ENV DEBIAN_FRONTEND=noninteractive PYTHONUNBUFFERED=1 \
+    TORCH_CUDA_ARCH_LIST="8.9"
+
+# Python 3.12 via deadsnakes PPA (Ubuntu 22.04 ships 3.10)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    software-properties-common && \
+    add-apt-repository -y ppa:deadsnakes/ppa && \
+    apt-get update && apt-get install -y --no-install-recommends \
+    python3.12 python3.12-dev python3.12-venv \
+    git build-essential ninja-build pkg-config \
+    && rm -rf /var/lib/apt/lists/* \
+    && ln -sf /usr/bin/python3.12 /usr/bin/python3 \
+    && ln -sf /usr/bin/python3.12 /usr/bin/python
+
+# uv for fast package management
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
+ENV UV_SYSTEM_PYTHON=1 UV_BREAK_SYSTEM_PACKAGES=1
+
+# PyTorch — default PyPI (CUDA 12.4, matches vllm-flash-attn ABI)
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv pip install torch==2.6.0 torchvision==0.21.0 torchaudio==2.6.0
+
+# Core: ray[serve]
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv pip install "ray[serve]==2.55.1"
+
+# Build tools
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv pip install wheel ninja packaging
+
+# Flash attention — vllm-flash-attn (open source, ABI-compatible with PyPI torch)
+# --no-deps prevents torch downgrade; vllm-flash-attn works with torch 2.6.0
+RUN uv pip install --no-deps vllm-flash-attn
+
+# nvdiffrast — CUDA rasterizer (~10min)
+RUN git clone --depth 1 https://github.com/NVlabs/nvdiffrast.git /tmp/nvdiffrast && \
+    cd /tmp/nvdiffrast && \
+    uv pip install . --no-build-isolation && \
+    rm -rf /tmp/nvdiffrast
+
+# Common ML utilities across all services
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv pip install transformers accelerate pillow einops numpy soundfile scipy \
+    fastapi "uvicorn[standard]" python-multipart httpx
+
+# Verify
+RUN python3 -c "\
+import torch; print(f'torch {torch.__version__}, CUDA {torch.cuda.is_available()}'); \
+import torchaudio; print(f'torchaudio {torchaudio.__version__}'); \
+import torchvision; print(f'torchvision {torchvision.__version__}'); \
+import vllm_flash_attn; print(f'vllm_flash_attn {vllm_flash_attn.__version__}'); \
+import nvdiffrast; print('nvdiffrast OK'); \
+import ray; print(f'ray {ray.__version__}')"

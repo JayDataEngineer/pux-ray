@@ -1,8 +1,6 @@
-"""Phi-4-multimodal-instruct - Omni model (text + vision + speech → text).
+"""Phi-4-multimodal-instruct - Omni model (text + vision + speech -> text).
 
 5.6B parameter multimodal model. Processes text, image, and audio inputs.
-Runs inside Ray-managed container (tech-noir/phi4mm:latest).
-
 Requires ~16GB VRAM.
 """
 from __future__ import annotations
@@ -10,13 +8,12 @@ from __future__ import annotations
 import io
 import logging
 import os
-from typing import Optional
 
 import torch
 from ray import serve
 from starlette.responses import JSONResponse, Response
 
-from services.base import BaseGPUDeployment, _free_cuda_cache, container_runtime
+from services.base import BaseGPUDeployment, _free_cuda_cache
 
 logger = logging.getLogger(__name__)
 
@@ -27,14 +24,10 @@ MODEL_PATH = os.environ.get("PHI4MM_MODEL_PATH", "/models/multimodal/phi4-multim
     name="phi4mm",
     num_replicas=1,
     max_ongoing_requests=1,
-    ray_actor_options={
-        "num_gpus": 0,
-        "num_cpus": 0.5,
-        "runtime_env": container_runtime("tech-noir/phi4mm:latest"),
-    },
+    ray_actor_options={"num_gpus": 0, "num_cpus": 0.5},
 )
 class Phi4MMDeployment(BaseGPUDeployment):
-    """Phi-4-multimodal via Ray native container. Text + image + audio → text."""
+    """Phi-4-multimodal. Text + image + audio -> text."""
 
     def _load(self, model_name: str = "phi4-multimodal") -> None:
         if not os.path.isdir(MODEL_PATH):
@@ -64,6 +57,9 @@ class Phi4MMDeployment(BaseGPUDeployment):
         _free_cuda_cache()
 
     async def __call__(self, request):
+        if not self.is_loaded():
+            self.load_model("phi4-multimodal")
+
         body = await request.json()
         mode = body.get("mode", "text")
 
@@ -127,7 +123,7 @@ class Phi4MMDeployment(BaseGPUDeployment):
 
         image = Image.open(io.BytesIO(image_bytes)).convert("RGB")
 
-        prompt = f"<|user|><|image_1|>{prompt_text}<|end|><|assistant|>"
+        prompt = f"<|image_1|>{prompt_text}<|end|><|assistant|"
         inputs = self.processor(text=prompt, images=image, return_tensors="pt").to("cuda")
 
         generate_ids = self.model.generate(
@@ -152,22 +148,12 @@ class Phi4MMDeployment(BaseGPUDeployment):
             return JSONResponse({"error": "audio is required for audio mode"}, status_code=400)
 
         import base64
-        import tempfile
         import soundfile as sf
 
         raw_audio = base64.b64decode(audio_data)
+        audio, sr = sf.read(io.BytesIO(raw_audio))
 
-        if audio_sr is not None:
-            with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
-                tmp.write(raw_audio)
-                tmp_path = tmp.name
-            audio, sr = sf.read(tmp_path)
-            os.unlink(tmp_path)
-        else:
-            import io as _io
-            audio, sr = sf.read(_io.BytesIO(raw_audio))
-
-        prompt = f"<|user|><|audio_1|>{prompt_text}<|end|><|assistant|>"
+        prompt = f"<|audio_1|>{prompt_text}<|end|><|assistant|"
         inputs = self.processor(text=prompt, audios=[(audio, sr)], return_tensors="pt").to("cuda")
 
         generate_ids = self.model.generate(
@@ -185,12 +171,10 @@ class Phi4MMDeployment(BaseGPUDeployment):
     async def _handle_vision_audio(self, body: dict) -> Response:
         import base64
         from PIL import Image
-        import tempfile
         import soundfile as sf
 
         image_data = body.get("image")
         audio_data = body.get("audio")
-        audio_sr = body.get("audio_sample_rate")
         prompt_text = body.get("prompt", "")
         max_tokens = body.get("max_tokens", 1000)
 
@@ -207,19 +191,10 @@ class Phi4MMDeployment(BaseGPUDeployment):
             image_bytes = base64.b64decode(image_data)
 
         image = Image.open(io.BytesIO(image_bytes)).convert("RGB")
-
         raw_audio = base64.b64decode(audio_data)
-        if audio_sr is not None:
-            with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
-                tmp.write(raw_audio)
-                tmp_path = tmp.name
-            audio, sr = sf.read(tmp_path)
-            os.unlink(tmp_path)
-        else:
-            import io as _io
-            audio, sr = sf.read(_io.BytesIO(raw_audio))
+        audio, sr = sf.read(io.BytesIO(raw_audio))
 
-        prompt = f"<|user|><|image_1|><|audio_1|>{prompt_text}<|end|><|assistant|>"
+        prompt = f"<|image_1|><|audio_1|>{prompt_text}<|end|><|assistant|"
         inputs = self.processor(text=prompt, images=image, audios=[(audio, sr)], return_tensors="pt").to("cuda")
 
         generate_ids = self.model.generate(
@@ -241,5 +216,5 @@ class Phi4MMDeployment(BaseGPUDeployment):
             role = msg.get("role", "user")
             content = msg.get("content", "")
             parts.append(f"<|{role}|>{content}<|end|>")
-        parts.append("<|assistant|>")
+        parts.append("<|assistant|")
         return "".join(parts)

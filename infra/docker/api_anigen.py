@@ -32,8 +32,8 @@ def load_model():
     sys.path.insert(0, "/opt/anigen")
     from anigen.pipelines import AnigenImageTo3DPipeline
     _pipeline = AnigenImageTo3DPipeline.from_pretrained(
-        ss_model=SS_MODEL,
-        slat_model=SLAT_MODEL,
+        ss_flow_path=SS_MODEL,
+        slat_flow_path=SLAT_MODEL,
     )
     _pipeline.cuda()
     print(f"AniGen loaded: ss={SS_MODEL}, slat={SLAT_MODEL}")

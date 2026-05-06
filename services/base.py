@@ -30,6 +30,48 @@ import ray
 logger = logging.getLogger(__name__)
 
 
+# ─── Ray-native container config ──────────────────────────────────────────────
+
+PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+MODELS_ROOT = os.environ.get("TECH_NOIR_MODELS_ROOT", "/home/user/Documents/models")
+
+
+def container_runtime(image: str, extra_mounts: dict[str, str] | None = None) -> dict:
+    """Build runtime_env container config with model + project volume mounts.
+
+    Mounts the project root at /app (read-only) so Ray workers inside the
+    container can import from services.* without triggering Ray's auto-packaging
+    (which conflicts with runtime_env["container"]).
+
+    Usage in deployment decorator::
+
+        @serve.deployment(
+            ray_actor_options={
+                "num_gpus": 0,
+                "runtime_env": container_runtime("tech-noir/vibevoice:latest"),
+            }
+        )
+    """
+    run_options = [
+        "--gpus", "all",
+        f"--volume={MODELS_ROOT}:/models:ro",
+        f"--volume={PROJECT_ROOT}:/app:ro",
+        "--workdir=/app",
+        "--env=PYTHONPATH=/app",
+        "--shm-size=16g",
+    ]
+    if extra_mounts:
+        for host, container in extra_mounts.items():
+            run_options.append(f"--volume={host}:{container}")
+    return {
+        "container": {
+            "image": image,
+            "run_options": run_options,
+        },
+        "working_dir": None,
+    }
+
+
 # ─── GPU Memory (Ray-native: torch.cuda, not nvidia-smi) ──────────────────────
 
 def gpu_memory_info() -> dict:
@@ -212,16 +254,94 @@ class SubprocessMixin:
         return False
 
 
-# ─── HTTPToolMixin — Docker-based GPU services ────────────────────────────────
+# ─── SubprocessProxyMixin — in-pod API server proxy (KubeRay) ─────────────────
+
+class SubprocessProxyMixin(SubprocessMixin):
+    """Start an API server as a subprocess within the Ray worker pod.
+
+    Used by ComfyUI, TRELLIS, HY-Motion — each runs its own FastAPI/ComfyUI
+    server inside the pod, and the Ray Serve __call__ proxies requests to it.
+    Replaces HTTPToolMixin (which used Podman containers).
+    """
+
+    _proxy_base_url: str = ""
+
+    def _start_proxy(
+        self,
+        cmd: list[str],
+        port: int,
+        health_path: str = "/health",
+        timeout: int = 300,
+        cwd: str | None = None,
+        env: dict | None = None,
+    ) -> None:
+        self.start_process(cmd, cwd=cwd, env=env)
+        self._proxy_base_url = f"http://127.0.0.1:{port}"
+        if not self.wait_for_health(f"{self._proxy_base_url}{health_path}", timeout=timeout):
+            self.stop_process()
+            raise TimeoutError(f"Subprocess not healthy after {timeout}s")
+
+    def _stop_proxy(self) -> None:
+        self.stop_process()
+        self._proxy_base_url = ""
+
+    async def _ensure_loaded(self, model_name: str) -> None:
+        """Load model in a background thread to avoid blocking the async event loop.
+
+        Subprocess startup + health polling is synchronous (time.sleep, httpx.get).
+        Running it in a thread keeps the event loop responsive for Ray Serve health
+        checks and other requests.
+        """
+        if self.is_loaded():
+            return
+        import asyncio
+        await asyncio.to_thread(self.load_model, model_name)
+
+    async def _proxy_request(self, request) -> "Response":
+        import httpx
+        from starlette.responses import Response
+
+        path = request.url.path
+        for prefix in ["/comfyui", "/3d/trellis", "/3d/hy-motion",
+                        "/3d/anigen", "/creative/see-through", "/music/ace-step",
+                        "/tts/gpt-sovits"]:
+            if path.startswith(prefix):
+                path = path[len(prefix):] or "/"
+                break
+
+        target = f"{self._proxy_base_url}{path}"
+        if request.url.query:
+            target += f"?{request.url.query}"
+
+        body = await request.body()
+        async with httpx.AsyncClient(timeout=600) as client:
+            resp = await client.request(
+                method=request.method,
+                url=target,
+                headers={k: v for k, v in request.headers.items()
+                         if k.lower() not in ("host",)},
+                content=body,
+            )
+        return Response(
+            content=resp.content,
+            status_code=resp.status_code,
+            media_type=resp.headers.get("content-type", "application/json"),
+        )
+
+
+# ─── HTTPToolMixin — Podman-based GPU services (legacy) ───────────────────────
+
+_CONTAINER_RUNTIME = os.environ.get("TECH_NOIR_CONTAINER_RUNTIME", "podman")
+
 
 class HTTPToolMixin:
-    """Mixin for services running inside Docker containers.
+    """Mixin for services running inside Podman containers.
 
-    Manages Docker container lifecycle (start, health check, stop)
+    Manages Podman container lifecycle (start, health check, stop)
     and provides async HTTP calls to the container's internal API.
 
-    Used by TRELLIS, AniGen, VibeVoice, and ComfyUI (Docker workers).
-    Each service has a Docker image built from infra/docker/Dockerfile.*.
+    Used by TRELLIS, ComfyUI, and other GPU workers.
+    Each service has an image built from infra/docker/Dockerfile.*.
     The container runs a FastAPI or ComfyUI server internally.
     Health check confirms container readiness before accepting requests.
 
@@ -240,6 +360,7 @@ class HTTPToolMixin:
 
     _base_url: str = ""
     _container_name: str = ""
+    _health_path: str = "/health"
 
     def _init_http(
         self,
@@ -252,26 +373,27 @@ class HTTPToolMixin:
         docker_args: list[str] | None = None,
         mounts: dict[str, str] | None = None,
     ) -> None:
-        """Start Docker container and wait for health check.
+        """Start Podman container and wait for health check.
 
         Args:
             port: Host port to map.
-            service_name: Docker image name (tech-noir/{service_name}:latest).
+            service_name: Image name suffix (tech-noir/{service_name}:latest).
             timeout: Seconds to wait for health check.
             container_port: Internal container port (8000 for FastAPI, 18465 for ComfyUI).
             health_path: URL path for health check (e.g. "/health", "/").
-            image_name: Override the default image (e.g. "ghcr.io/ggml-org/llama.cpp:server-cuda").
-            docker_args: Extra args appended after image (e.g. ["-m", "/models/llm/foo.gguf"]).
+            image_name: Override the default image.
+            docker_args: Extra args appended after image.
             mounts: Additional volume mounts (host_path: container_path).
         """
         import time as _time
 
-        image = image_name or f"tech-noir/{service_name}:latest"
+        self._health_path = health_path
+        image = image_name or f"docker.io/tech-noir/{service_name}:latest"
         self._container_name = f"tech-noir-{service_name}"
 
         # Check if container already running
         result = subprocess.run(
-            ["docker", "ps", "-q", "-f", f"name={self._container_name}"],
+            [_CONTAINER_RUNTIME, "ps", "-q", "-f", f"name={self._container_name}"],
             capture_output=True, text=True,
         )
         if result.stdout.strip():
@@ -281,23 +403,31 @@ class HTTPToolMixin:
 
         # Remove any stopped container with same name
         subprocess.run(
-            ["docker", "rm", "-f", self._container_name],
+            [_CONTAINER_RUNTIME, "rm", "-f", self._container_name],
             capture_output=True,
         )
 
         from registry.config import Config
         config = Config()
-        models_root = config.models_root
+        # Use absolute host path, not Config().models_root which may resolve
+        # to a Ray session temp dir when the actor runs inside Ray's working_dir copy
+        models_root = MODELS_ROOT
 
-        # Build docker run command
+        # Build podman run command
         cmd = [
-            "docker", "run", "-d",
+            _CONTAINER_RUNTIME, "run", "-d",
             "--name", self._container_name,
-            "--gpus", "all",
+            "--security-opt=label=disable",
+            "--device=nvidia.com/gpu=all",
             "-p", f"{port}:{container_port}",
             "-v", f"{models_root}:/models:ro",
             "--shm-size", "16g",
         ]
+
+        # Pass HF_TOKEN if available (needed for gated models like DINOv2)
+        hf_token = os.environ.get("HF_TOKEN", "")
+        if hf_token:
+            cmd.extend(["-e", f"HF_TOKEN={hf_token}"])
 
         if mounts:
             for host_path, container_path in mounts.items():
@@ -310,16 +440,16 @@ class HTTPToolMixin:
 
         logger.info("Starting %s container (port %d → %d)...", service_name, port, container_port)
 
-        # Check if Docker image exists locally
+        # Check if image exists locally
         inspect = subprocess.run(
-            ["docker", "image", "inspect", image],
+            [_CONTAINER_RUNTIME, "image", "inspect", image],
             capture_output=True, text=True,
         )
         if inspect.returncode != 0:
             raise RuntimeError(
-                f"Docker image '{image}' not found on this machine. "
+                f"Image '{image}' not found. "
                 f"Build or pull it first:\n"
-                f"  docker build -f infra/docker/Dockerfile.{service_name} -t {image} ."
+                f"  podman build -f infra/docker/Dockerfile.{service_name} -t {image} ."
             )
 
         result = subprocess.run(cmd, capture_output=True, text=True)
@@ -365,13 +495,28 @@ class HTTPToolMixin:
             resp.raise_for_status()
             return resp.content
 
+    async def _call_worker_json(
+        self,
+        endpoint: str,
+        method: str = "POST",
+        timeout: int = 300,
+        **kwargs,
+    ) -> dict:
+        """Call the container's API and return parsed JSON."""
+        import httpx
+        url = f"{self._base_url}/{endpoint}"
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            resp = await client.request(method, url, **kwargs)
+            resp.raise_for_status()
+            return resp.json()
+
     def _is_container_alive(self) -> bool:
-        """Check if the Docker container is running and healthy."""
+        """Check if the Podman container is running and healthy."""
         if not self._container_name or not self._base_url:
             return False
 
         result = subprocess.run(
-            ["docker", "ps", "-q", "-f", f"name={self._container_name}"],
+            [_CONTAINER_RUNTIME, "ps", "-q", "-f", f"name={self._container_name}"],
             capture_output=True, text=True,
         )
         if not result.stdout.strip():
@@ -394,8 +539,8 @@ class HTTPToolMixin:
         image_name: str = "",
         docker_args: list[str] | None = None,
     ) -> None:
-        """Ensure the Docker container is alive and healthy. Re-inits if dead.
-        
+        """Ensure the Podman container is alive and healthy. Re-inits if dead.
+
         Use this instead of custom _ensure_loaded patterns. Checks both
         that the container process is alive AND the health endpoint responds.
         If either fails, tears down and re-initializes the container.
@@ -418,16 +563,16 @@ class HTTPToolMixin:
         )
 
     def _stop_container(self) -> None:
-        """Stop and remove the Docker container."""
+        """Stop and remove the Podman container."""
         if not self._container_name:
             return
         name = self._container_name
         subprocess.run(
-            ["docker", "stop", "-t", "10", self._container_name],
+            [_CONTAINER_RUNTIME, "stop", "-t", "10", self._container_name],
             capture_output=True,
         )
         subprocess.run(
-            ["docker", "rm", "-f", self._container_name],
+            [_CONTAINER_RUNTIME, "rm", "-f", self._container_name],
             capture_output=True,
         )
         self._base_url = ""

@@ -1,0 +1,43 @@
+# Tech Noir GPU Services — VibeVoice, Qwen ASR, IndexTTS.
+# Uses ray-base (CUDA 12.4 + PyTorch cu124 + ray + flash-attn) as foundation.
+#
+# Build:
+#   podman build -f infra/docker/Dockerfile.gpu-services -t tech-noir/gpu-services:latest .
+
+FROM tech-noir/ray-base:latest
+
+ENV DEBIAN_FRONTEND=noninteractive PYTHONUNBUFFERED=1
+
+# System packages for eSpeak TTS
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends espeak-ng && \
+    rm -rf /var/lib/apt/lists/*
+
+# Additional Python deps for all services (CPU + GPU)
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv pip install \
+        httpx pyyaml pydantic starlette python-multipart uvicorn \
+        huggingface-hub rich \
+        aiohttp requests \
+        kokoro "misaki[en]>=0.7,<0.9" faster-whisper phonemizer soundfile
+
+# IndexTTS — copy package (skip heavy build deps like numba/llvmlite)
+RUN git clone --depth 1 https://github.com/index-tts/index-tts.git /tmp/index-tts && \
+    cp -r /tmp/index-tts/indextts $(python3 -c "import site; print(site.getsitepackages()[0])")/ && \
+    uv pip install cn2an g2p-en jieba librosa munch omegaconf sentencepiece && \
+    rm -rf /tmp/index-tts
+
+# Copy project code and serve config
+COPY services/ /app/services/
+COPY gateway/ /app/gateway/
+COPY registry/ /app/registry/
+COPY sdk/ /app/sdk/
+COPY pyproject.toml /app/
+COPY infra/k8s/serve_config.py /app/serve_config.py
+COPY infra/k8s/serve_build.py /app/serve_build.py
+
+WORKDIR /app
+
+# Verify
+RUN python3 -c "import torch; print(f'CUDA: {torch.cuda.is_available()}')" && \
+    python3 -c "import transformers; print('transformers ok')"

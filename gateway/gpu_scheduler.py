@@ -25,7 +25,7 @@ logger = logging.getLogger(__name__)
 # All GPU services that require exclusive GPU access.
 # Service name must match the Ray Serve deployment name.
 GPU_SERVICES = {
-    "llm":            {"model": "qwen3.5-27b", "desc": "LLM (llama.cpp)"},
+    "llm":            {"model": "qwen3.6-27b-ud-q4_k_xl", "desc": "LLM (llama.cpp)"},
     "comfyui":        {"model": "comfyui",     "desc": "ComfyUI (image gen)"},
     "trellis":        {"model": "trellis",     "desc": "TRELLIS.2 (image-to-3D)"},
     "anigen":         {"model": "anigen",      "desc": "AniGen (rigged 3D)"},

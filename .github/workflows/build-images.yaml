@@ -1,0 +1,155 @@
+name: Build Images
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - 'infra/docker/**'
+      - 'services/**'
+      - 'gateway/**'
+      - 'registry/**'
+      - 'sdk/**'
+      - 'pyproject.toml'
+
+# Only one build run at a time per branch
+concurrency:
+  group: build-images-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  REGISTRY: localhost/tech-noir
+
+jobs:
+  # ----------------------------------------------------------------
+  # Base image — everything else depends on this.
+  # ~10 min build (nvdiffrast compile, torch/torchaudio/torchvision download).
+  # ----------------------------------------------------------------
+  build-base:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Podman
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y podman
+          podman version
+
+      - name: Build ray-base image
+        run: |
+          podman build \
+            --storage-driver=vfs \
+            -f infra/docker/Dockerfile.base \
+            -t tech-noir/ray-base:latest \
+            .
+
+      - name: Save ray-base to cache
+        run: |
+          mkdir -p /tmp/image-cache
+          podman save tech-noir/ray-base:latest | gzip > /tmp/image-cache/ray-base.tar.gz
+
+      - name: Upload base image artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ray-base-image
+          path: /tmp/image-cache/ray-base.tar.gz
+          retention-days: 1
+
+  # ----------------------------------------------------------------
+  # CPU-only images — no GPU base needed, fully independent.
+  # ----------------------------------------------------------------
+  build-cpu-images:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - dockerfile: Dockerfile.cpu-services
+            tag: cpu-services
+          - dockerfile: Dockerfile.model-sync
+            tag: model-sync
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Podman
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y podman
+
+      - name: Build ${{ matrix.tag }}
+        run: |
+          podman build \
+            --storage-driver=vfs \
+            -f infra/docker/${{ matrix.dockerfile }} \
+            -t tech-noir/${{ matrix.tag }}:latest \
+            .
+
+  # ----------------------------------------------------------------
+  # GPU downstream images — all inherit from ray-base.
+  # These run in parallel after the base image is built.
+  # ----------------------------------------------------------------
+  build-gpu-images:
+    needs: build-base
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - dockerfile: Dockerfile.gpu-services
+            tag: gpu-services
+          - dockerfile: Dockerfile.ray-serve
+            tag: ray-serve
+          - dockerfile: Dockerfile.comfyui
+            tag: comfyui
+          - dockerfile: Dockerfile.trellis-spz
+            tag: trellis-spz
+          - dockerfile: Dockerfile.trellis
+            tag: trellis
+          - dockerfile: Dockerfile.anigen
+            tag: anigen
+          - dockerfile: Dockerfile.hymotion
+            tag: hymotion
+          - dockerfile: Dockerfile.vibevoice
+            tag: vibevoice
+          - dockerfile: Dockerfile.gptsovits
+            tag: gptsovits
+          - dockerfile: Dockerfile.acestep
+            tag: acestep
+          - dockerfile: Dockerfile.seethrough
+            tag: see-through
+          - dockerfile: Dockerfile.qwen-tts
+            tag: qwen-tts
+          - dockerfile: Dockerfile.florence2
+            tag: florence2
+          - dockerfile: Dockerfile.moss-sfx
+            tag: moss-sfx
+          - dockerfile: Dockerfile.phi4mm
+            tag: phi4mm
+          - dockerfile: Dockerfile.tangoflux
+            tag: tangoflux
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Podman
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y podman
+
+      - name: Download base image artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: ray-base-image
+          path: /tmp/image-cache
+
+      - name: Load base image
+        run: |
+          podman load --input /tmp/image-cache/ray-base.tar.gz
+          podman images
+
+      - name: Build ${{ matrix.tag }}
+        run: |
+          podman build \
+            --storage-driver=vfs \
+            -f infra/docker/${{ matrix.dockerfile }} \
+            -t tech-noir/${{ matrix.tag }}:latest \
+            .

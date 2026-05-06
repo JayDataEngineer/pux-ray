@@ -7,5 +7,13 @@ FROM tech-noir/ray-base:latest
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv pip install "tangoflux @ git+https://github.com/declare-lab/TangoFlux"
 
+# Ray Serve project code
+COPY services/ /app/services/
+COPY gateway/ /app/gateway/
+COPY registry/ /app/registry/
+COPY infra/k8s/serve_config.py /app/serve_config.py
+WORKDIR /app
+ENV PYTHONPATH=/app
+
 ENV TANGOFLUX_MODEL_PATH=/models/audio/tangoflux \
     HF_HOME=/models/.cache

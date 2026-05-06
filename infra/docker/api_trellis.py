@@ -24,12 +24,14 @@ import o_voxel
 
 app = FastAPI(title="TRELLIS.2 API")
 pipeline: Trellis2ImageTo3DPipeline | None = None
-MODEL_ID = os.environ.get("TRELLIS_MODEL_ID", "microsoft/TRELLIS.2-4B")
+MODEL_ID = os.environ.get("TRELLIS_MODEL_ID", "/models/TRELLIS.2-4B")
 
 
 @app.on_event("startup")
 def load_model():
     global pipeline
+    if not os.path.isdir(MODEL_ID):
+        raise FileNotFoundError(f"TRELLIS model not found at {MODEL_ID} — mount model volume")
     pipeline = Trellis2ImageTo3DPipeline.from_pretrained(MODEL_ID)
     pipeline.cuda()
     print(f"TRELLIS.2 loaded: {MODEL_ID}")

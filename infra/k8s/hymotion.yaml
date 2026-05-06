@@ -1,0 +1,55 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: hymotion
+  namespace: ai-services
+  labels:
+    app: hymotion
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: hymotion
+  template:
+    metadata:
+      labels:
+        app: hymotion
+    spec:
+      runtimeClassName: nvidia
+      containers:
+        - name: hymotion
+          image: docker.io/tech-noir/hymotion:latest
+          imagePullPolicy: Never
+          ports:
+            - containerPort: 8000
+          resources:
+            limits:
+              nvidia.com/gpu: 1
+          volumeMounts:
+            - name: model-data
+              mountPath: /models
+          env:
+            - name: HYMOTION_MODEL_PATH
+              value: /models/image-gen/comfyui/HY-Motion/ckpts/tencent/HY-Motion-1.0-Lite
+            - name: HF_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: ai-secrets
+                  key: hf-token
+                  optional: true
+      volumes:
+        - name: model-data
+          persistentVolumeClaim:
+            claimName: models-pvc
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: hymotion
+  namespace: ai-services
+spec:
+  selector:
+    app: hymotion
+  ports:
+    - port: 8000
+      targetPort: 8000

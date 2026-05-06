@@ -1,67 +1,71 @@
-# AniGen — Image-to-Rigged-3D Docker image for Ray Serve runtime_env["container"]
-# =============================================================================
+# AniGen — Image-to-Rigged-3D Docker image for Ray Serve
+# Inherits from ray-base (torch + ray + flash-attn + nvdiffrast)
 # Build:
-#   docker build -f infra/docker/Dockerfile.anigen -t tech-noir/anigen:latest .
-#
-# Base: CUDA 12.1 + Ubuntu 22.04 (matches AniGen requirements)
-FROM nvidia/cuda:12.1.0-devel-ubuntu22.04
+#   podman build -f infra/docker/Dockerfile.anigen -t tech-noir/anigen:latest .
+FROM tech-noir/ray-base:latest
 
 ENV DEBIAN_FRONTEND=noninteractive \
     LANG=C.UTF-8 \
     PYTHONUNBUFFERED=1 \
-    CUDA_HOME=/usr/local/cuda \
-    FORCE_CUDA=1
+    TORCH_CUDA_ARCH_LIST="8.9"
 
-# System deps (Python 3.10 is native on Ubuntu 22.04)
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    python3.10 python3.10-dev python3.10-venv python3-pip \
-    curl git wget build-essential cmake \
-    libgl1-mesa-glx libglib2.0-0 libsm6 libxext6 libxrender-dev \
     libspatialindex-dev \
-    && rm -rf /var/lib/apt/lists/* \
-    && ln -sf /usr/bin/python3.10 /usr/bin/python \
-    && ln -sf /usr/bin/python3.10 /usr/bin/python3 \
-    && ln -sf /usr/bin/pip3 /usr/bin/pip
-
-# uv
-RUN curl -LsSf https://astral.sh/uv/install.sh | sh
-ENV PATH="/root/.local/bin:$PATH"
-
-# PyTorch 2.5.1 + CUDA 12.1
-RUN uv pip install --system --no-cache \
-    torch==2.5.1 torchvision==0.20.1 torchaudio==2.5.1 \
-    --index-url https://download.pytorch.org/whl/cu121
+    && rm -rf /var/lib/apt/lists/*
 
 # Clone AniGen
 WORKDIR /opt
 RUN git clone --recurse-submodules --depth 1 https://github.com/VAST-AI-Research/AniGen.git anigen
-
 WORKDIR /opt/anigen
 
-# Compiled extensions: pytorch3d from source (no pre-built CUDA 12.1 wheel)
-RUN pip install "git+https://github.com/facebookresearch/pytorch3d.git@stable" \
-    || pip install pytorch3d --no-build-isolation \
-    || true && \
-    pip install spconv-cu121 --no-build-isolation \
-    && pip install nvdiffrast --no-build-isolation
+# pytorch3d — build from source (CUDA toolkit in base)
+RUN --mount=type=cache,target=/root/.cache/uv \
+    git clone --depth 1 https://github.com/facebookresearch/pytorch3d.git /tmp/pytorch3d && \
+    cd /tmp/pytorch3d && \
+    uv pip install --no-build-isolation . && \
+    rm -rf /tmp/pytorch3d
 
-# Core deps
-RUN uv pip install --system --no-cache \
+# spconv — build from source (no cu124 pre-built wheel)
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv pip install spconv --no-build-isolation
+
+# utils3d (git commit has utils3d.torch, PyPI 0.1.3 does not)
+RUN git clone https://github.com/EasternJournalist/utils3d.git /opt/utils3d-src && \
+    cd /opt/utils3d-src && git checkout 9a4eb15e4021b67b12c460c7057d642626897ec8 && \
+    uv pip install . || true
+
+# Core deps (torch/nvdiffrast already in base)
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv pip install \
     transformers accelerate safetensors diffusers \
     einops matplotlib scipy opencv-python-headless \
     trimesh scikit-learn pandas h5py \
     huggingface-hub omegaconf rich rembg onnxruntime \
-    fastapi uvicorn[standard] python-multipart easydict
+    easydict \
+    gradio==4.44.1 gradio_litmodel3d==0.0.1 \
+    pygltflib gguf geffnet igraph imageio imageio-ffmpeg \
+    pymeshfix pyvista xatlas tqdm psutil ninja plyfile lpips rtree
 
-# AniGen package
-RUN pip install -e . --no-build-isolation --no-deps || pip install -e . --no-deps
+ENV PYTHONPATH="/opt/anigen:/opt/utils3d-src"
 
 # FastAPI wrapper
 COPY infra/docker/api_anigen.py /opt/api.py
 
-RUN mkdir -p /models/3d/anigen/ckpts
+# Entrypoint: symlink models to expected location in AniGen working dir
+COPY infra/docker/entrypoint_anigen.sh /opt/entrypoint.sh
+RUN chmod +x /opt/entrypoint.sh
+
+RUN mkdir -p /models/3d/anigen/ckpts /models/.cache
 ENV ANIGEN_MODEL_DIR=/models/3d/anigen/ckpts \
     HF_HOME=/models/.cache
 
+# Ray Serve project code
+COPY services/ /app/services/
+COPY gateway/ /app/gateway/
+COPY registry/ /app/registry/
+COPY infra/k8s/serve_config.py /app/serve_config.py
+WORKDIR /app
+ENV PYTHONPATH=/app
+
 EXPOSE 8000
-CMD ["python", "/opt/api.py"]
+ENTRYPOINT ["/bin/bash", "/opt/entrypoint.sh"]

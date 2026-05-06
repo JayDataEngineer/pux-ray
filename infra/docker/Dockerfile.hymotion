@@ -1,42 +1,32 @@
 # HY-Motion 1.0 — Text-to-3D Human Motion Docker image for Ray Serve
-# =============================================================================
+# Inherits from shared base (Python 3.13 + torch + ray + flash-attn)
 # Build:
 #   docker build -f infra/docker/Dockerfile.hymotion -t tech-noir/hymotion:latest .
-#
-# Repo: https://github.com/Tencent-Hunyuan/HY-Motion-1.0
-# Models at /models/image-gen/comfyui/HY-Motion/ckpts/tencent/ (mounted from host)
-FROM nvidia/cuda:12.4.0-devel-ubuntu22.04
+FROM tech-noir/ray-base:latest
 
-ENV DEBIAN_FRONTEND=noninteractive \
-    LANG=C.UTF-8 \
-    PYTHONUNBUFFERED=1
-
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    python3.11 python3.11-dev python3.11-venv python3-pip \
-    build-essential git git-lfs cmake \
-    libgl1-mesa-glx libglib2.0-0 libsm6 libxext6 \
-    && rm -rf /var/lib/apt/lists/* \
-    && ln -sf /usr/bin/python3.11 /usr/bin/python \
-    && ln -sf /usr/bin/python3.11 /usr/bin/python3 \
-    && ln -sf /usr/bin/pip3 /usr/bin/pip
+RUN apt-get update && apt-get install -y --no-install-recommends git-lfs && rm -rf /var/lib/apt/lists/*
 
 RUN git clone --depth 1 https://github.com/Tencent-Hunyuan/HY-Motion-1.0.git /opt/hymotion
 WORKDIR /opt/hymotion
 
-# Pull git-lfs files (body model binaries, FBX skeleton assets)
 RUN git lfs pull
 
-RUN pip install --no-cache-dir \
-    torch==2.6.0 torchvision==0.21.0 torchaudio==2.6.0 \
-    --index-url https://download.pytorch.org/whl/cu124
-
-RUN pip install --no-cache-dir -r requirements.txt && \
-    pip install --no-cache-dir fastapi uvicorn[standard] python-multipart
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv pip install \
+    torchdiffeq accelerate diffusers einops safetensors \
+    scipy transforms3d PyYAML omegaconf click \
+    fastapi "uvicorn[standard]" python-multipart openai
 
 COPY infra/docker/api_hymotion.py /opt/api.py
 
-# USE_HF_MODELS=1 downloads CLIP/Qwen from HuggingFace (mounted HF cache at /root/.cache)
-ENV PYTHONPATH=/opt/hymotion \
+# Ray Serve project code
+COPY services/ /app/services/
+COPY gateway/ /app/gateway/
+COPY registry/ /app/registry/
+COPY infra/k8s/serve_config.py /app/serve_config.py
+WORKDIR /app
+
+ENV PYTHONPATH=/app:/opt/hymotion \
     HF_HOME=/root/.cache/huggingface \
     USE_HF_MODELS=1
 

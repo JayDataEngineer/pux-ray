@@ -1,6 +1,32 @@
 # Tech Noir Ray
 
-Ray-based AI infrastructure orchestrating 14+ services (LLM, TTS, ASR, image gen, 3D, music) on a home server with an RTX 4090. Uses Ray Serve for GPU scheduling, Docker for isolation, and Starlette for unified API ingress.
+Ray-based AI infrastructure orchestrating 14+ services (LLM, TTS, ASR, image gen, 3D, music) on a home server with an RTX 4090. **Architecture: k0s + KubeRay** — Ray-first, declarative, integration-first.
+
+## Architecture: Ray-First, k0s + KubeRay
+
+**Container runtime:** k0s (lightweight k8s, ~1GB RAM) with its own containerd. Docker/Podman NOT used at runtime.
+
+**GPU scheduling:** NVIDIA Device Plugin (lightweight, via Helm). NOT the heavy GPU Operator.
+
+**Ray orchestration:** KubeRay Operator manages Ray head + worker pods from declarative RayService YAML.
+
+**Image standard:** All GPU images inherit from `tech-noir/ray-base:latest` (CUDA 12.4.1 + Python 3.12 + PyTorch 2.6.0 + ray 2.55.1 + vllm-flash-attn + nvdiffrast + torchaudio). CPU images use `python:3.12-slim-bookworm`. Host Python (3.13) is only for `kubectl`.
+
+**Golden Base Image:** `tech-noir/ray-base:latest` contains the expensive-to-compile dependencies (nvdiffrast ~10min) so downstream service images are thin layers that build in 2-5 minutes. All GPU Dockerfiles use `FROM tech-noir/ray-base:latest`. Flash attention via `vllm-flash-attn` (open source, ABI-compatible with PyPI torch). The official `flash-attn` wheels have CXX11 ABI mismatch with PyPI torch — do NOT use them.
+
+**Storage:** `local-path` provisioner (ships with k0s). Single PVC for models, shared across all pods.
+
+**No more:** HTTPToolMixin, subprocess container management, `runtime_env["container"]`, `compose.workers.yaml`, GPUScheduler, duplicate torch/flash-attn builds.
+
+### Conventions
+- Python 3.12 for all Ray worker images (CUDA 12.4 standard)
+- `tech-noir/ray-base:latest` is the golden base — all GPU images inherit from it
+- Downstream images MUST NOT reinstall torch/torchaudio/flash-attn (use `grep -v` to filter requirements)
+- Ray Service YAML is the source of truth (not Python scripts)
+- Autoscaling: idle GPU pods killed after 5min to free VRAM
+- Custom Ray resources pin deployments to specific worker groups
+- Services pass file paths between actors (not raw binary)
+- Images do NOT set ENTRYPOINT — Ray Serve starts the process
 
 ## Remote Access (Tailscale)
 

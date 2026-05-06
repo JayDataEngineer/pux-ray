@@ -1,36 +1,56 @@
-# ComfyUI — Docker image for Ray Serve (flash-attn, extensions IaC-baked)
-# ===========================================================================
+# ComfyUI — Docker image for Ray Serve (thin layer on ray-base)
 # Build:
-#   docker build -f infra/docker/Dockerfile.comfyui -t tech-noir/comfyui:latest .
+#   podman build -f infra/docker/Dockerfile.comfyui -t tech-noir/comfyui:latest .
 #
-# Base: ai-dock/ComfyUI (prebuilt: CUDA 12.x, torch, flash-attn, xformers, sageattention)
-# Extensions cloned from config/comfyui_extensions.yaml during build (pure IaC).
-# Models mounted at /models (read-only) from host at boot time.
-# ComfyUI runs directly on port 18465 — health check hits ComfyUI's own root.
-FROM ghcr.io/ai-dock/comfyui:latest-cuda
+# Inherits from ray-base: CUDA 12.4 + PyTorch cu124 + ray + flash-attn + nvdiffrast + torchaudio
+FROM tech-noir/ray-base:latest
 
 ENV DEBIAN_FRONTEND=noninteractive \
     LANG=C.UTF-8 \
     PYTHONUNBUFFERED=1
 
-# Clone ComfyUI extensions from our YAML config (IaC — baked into image)
+# System deps for ComfyUI
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    git libgl1 libglib2.0-0 libsm6 libxext6 libxrender-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# Clone ComfyUI
+RUN git clone --depth 1 https://github.com/comfyanonymous/ComfyUI.git /opt/ComfyUI
+
+# Install ComfyUI Python deps — filter out torch/torchvision/torchaudio/xformers/flash-attn (in base)
+RUN --mount=type=cache,target=/root/.cache/uv \
+    grep -v -E "^(torch==|torchvision==|torchaudio|xformers|flash-attn)" \
+        /opt/ComfyUI/requirements.txt > /tmp/req_filtered.txt && \
+    uv pip install -r /tmp/req_filtered.txt && \
+    rm /tmp/req_filtered.txt
+
+# Clone ComfyUI extensions from our YAML config
 COPY config/comfyui_extensions.yaml /tmp/extensions.yaml
 COPY infra/docker/setup_comfyui.py /tmp/setup_comfyui.py
 RUN python3 /tmp/setup_comfyui.py && rm /tmp/setup_comfyui.py /tmp/extensions.yaml
-RUN pip install --no-cache-dir -r /opt/ComfyUI/requirements.txt 2>&1 | tail -1
+
+# Missing deps that custom nodes need but don't declare in ComfyUI's own requirements
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv pip install \
+        opencv-python-headless \
+        gguf \
+        lark \
+        numba \
+        imageio-ffmpeg \
+        av \
+        scikit-image \
+        mediapipe \
+        onnxruntime \
+        sentencepiece \
+        peft \
+        accelerate
+
+# Ray Serve project code
+COPY services/ /app/services/
+COPY gateway/ /app/gateway/
+COPY registry/ /app/registry/
+COPY infra/k8s/serve_config.py /app/serve_config.py
+WORKDIR /app
+ENV PYTHONPATH=/app
 
 EXPOSE 18465
-
-# ComfyUI serves directly on 18465.
-# Flash-attn + split-cross-attention enabled by default.
-# Create model symlinks at runtime (models are host-mounted, not available during build)
-CMD mkdir -p /opt/ComfyUI/models && \
-    for d in HY-Motion RMBG sams ultralytics; do \
-      [ -d /models/image-gen/comfyui/$d ] && [ ! -e /opt/ComfyUI/models/$d ] && \
-        ln -s /models/image-gen/comfyui/$d /opt/ComfyUI/models/$d; \
-    done; \
-    cd /opt/ComfyUI && python3 main.py \
-    --port 18465 \
-    --listen 0.0.0.0 \
-    --preview-method auto \
-    --use-split-cross-attention

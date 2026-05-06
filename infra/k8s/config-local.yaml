@@ -1,0 +1,14 @@
+models_root: /models
+secrets:
+  hf_token: null
+binaries:
+  espeak_ng: espeak-ng
+services:
+  comfyui:
+    port: 18465
+creative:
+  trellis: {}
+  anigen:
+    docker_image: null
+  ace_step:
+    docker_image: null

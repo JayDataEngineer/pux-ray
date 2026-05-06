@@ -48,7 +48,7 @@ STUDIO_APPS: dict[str, dict] = {
         "category": "LLM",
         "gpu": True,
         "manage_type": "scheduler",
-        "default_model": "qwen3.5-27b",
+        "default_model": "qwen3.6-27b-ud-q4_k_xl",
     },
     "trellis": {
         "label": "TRELLIS.2",

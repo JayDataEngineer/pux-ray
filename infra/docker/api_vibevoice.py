@@ -21,6 +21,8 @@ MODEL_PATH = os.environ.get("MODEL_PATH", "/models/audio/vibevoice/VibeVoice-7B"
 @app.on_event("startup")
 def load_model():
     global _pipeline
+    if not os.path.isdir(MODEL_PATH):
+        raise FileNotFoundError(f"VibeVoice model not found at {MODEL_PATH} — mount model volume")
     from vibevoice.model import VibeVoicePipeline
     _pipeline = VibeVoicePipeline.from_pretrained(
         MODEL_PATH,
