@@ -2,11 +2,11 @@
 #
 # Apply: kubectl apply -f infra/k8s/traefik-ingress.yaml
 #
-# Routing (port 80 via Tailscale):
-#   /mcp/media-analysis/* → Media Analysis MCP (mcp namespace)
-#   /mcp/web-research/*   → Web Research MCP (mcp namespace)
-#   /ray-dashboard/*      → Ray Dashboard (ai-services namespace)
-#   /*                    → Ray Serve (catch-all, ai-services namespace)
+# Routing (port 30080 via Tailscale):
+#   /mcp/media   → Media Analysis MCP (mcp namespace)
+#   /mcp/research → Web Research MCP (mcp namespace)
+#   /ray-dashboard/* → Ray Dashboard (ai-services namespace)
+#   /*               → Ray Serve (catch-all, ai-services namespace)
 #
 # Direct access (bypass Traefik):
 #   18080 → Ray Serve     18265 → Ray Dashboard
@@ -60,6 +60,7 @@ spec:
 ---
 # ─── MCP Services (mcp namespace) ────────────────────────────────────
 # More specific prefixes match before the catch-all Ray route above.
+# Paths are rewritten: /mcp/<service> → /mcp (MCP endpoint for FastMCP)
 
 apiVersion: traefik.io/v1alpha1
 kind: IngressRoute
@@ -70,39 +71,39 @@ spec:
   entryPoints:
     - web
   routes:
-    - match: PathPrefix(`/mcp/media-analysis`)
+    - match: PathPrefix(`/mcp/media`)
       kind: Rule
       middlewares:
-        - name: strip-mcp-media
+        - name: mcp-media-rewrite
       services:
         - name: media-analysis-mcp
           port: 8001
-    - match: PathPrefix(`/mcp/web-research`)
+    - match: PathPrefix(`/mcp/research`)
       kind: Rule
       middlewares:
-        - name: strip-mcp-web
+        - name: mcp-research-rewrite
       services:
         - name: web-research-mcp
-          port: 8000
+          port: 8327
 
 ---
 apiVersion: traefik.io/v1alpha1
 kind: Middleware
 metadata:
-  name: strip-mcp-media
+  name: mcp-media-rewrite
   namespace: mcp
 spec:
-  stripPrefix:
-    prefixes:
-      - /mcp/media-analysis
+  replacePathRegex:
+    regex: ^/mcp/media(/.*)?$
+    replacement: /mcp
 
 ---
 apiVersion: traefik.io/v1alpha1
 kind: Middleware
 metadata:
-  name: strip-mcp-web
+  name: mcp-research-rewrite
   namespace: mcp
 spec:
-  stripPrefix:
-    prefixes:
-      - /mcp/web-research
+  replacePathRegex:
+    regex: ^/mcp/research(/.*)?$
+    replacement: /mcp
