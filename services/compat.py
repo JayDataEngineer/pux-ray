@@ -76,3 +76,30 @@ def apply() -> None:
             lambda self: None,
             lambda self, val: None,
         )
+
+    # PreTrainedConfig renamed to PretrainedConfig in transformers 5.x
+    import transformers.configuration_utils as _cfu
+    if not hasattr(_cfu, 'PreTrainedConfig'):
+        _cfu.PreTrainedConfig = _cfu.PretrainedConfig
+
+    # MODALITY_TO_BASE_CLASS_MAPPING renamed to AUTO_TO_BASE_CLASS_MAPPING in transformers 5.x
+    # MOSS processor writes to this dict at module import time
+    import transformers.processing_utils as _pu
+    if not hasattr(_pu, 'MODALITY_TO_BASE_CLASS_MAPPING'):
+        _pu.MODALITY_TO_BASE_CLASS_MAPPING = getattr(
+            _pu, 'AUTO_TO_BASE_CLASS_MAPPING', {}
+        )
+
+    # ProcessorMixin.check_argument_for_proper_class rejects custom model classes
+    # (e.g. MossAudioTokenizerModel) that don't match the registered AutoModel base.
+    # Wrap it to skip the TypeError for these cases.
+    import types
+    _orig_check = _pu.ProcessorMixin.check_argument_for_proper_class
+    if not getattr(_orig_check, '_compat_patched', False):
+        def _permissive_check(self, attribute, arg):
+            try:
+                return _orig_check(self, attribute, arg)
+            except TypeError:
+                return type(arg).__name__
+        _permissive_check._compat_patched = True
+        _pu.ProcessorMixin.check_argument_for_proper_class = _permissive_check

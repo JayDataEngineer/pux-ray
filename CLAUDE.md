@@ -28,8 +28,9 @@ Reliable, tested, deployed by default. Registered in `infra/k8s/serve_config.py`
 | ace_step | GPU Music | ACE-Step 1.5 text-to-music |
 | comfyui | GPU Image | ComfyUI 0.20.1, subprocess proxy |
 | hy_motion | GPU Motion | HY-Motion 1.0 text-to-3D motion |
+| moss_soundeffect | GPU Audio | MOSS-SoundEffect 8B text-to-sound |
 
-The **Master Router** (`services/creative/master_router.py`) is infrastructure, not a service — it claims `num_gpus: 1.0` and explicitly `_load()`/`_unload()` heavy GPU models to prevent VRAM collisions on a single RTX 4090. Accessed via route `/forge` with `{"service": "trellis|ace_step|comfyui|hy_motion", ...}`.
+The **Master Router** (`services/creative/master_router.py`) is infrastructure, not a service — it claims `num_gpus: 1.0` and explicitly `_load()`/`_unload()` heavy GPU models to prevent VRAM collisions on a single RTX 4090. Accessed via route `/forge` with `{"service": "trellis|ace_step|comfyui|hy_motion|moss_soundeffect", ...}`.
 
 ### Tier 2 — Second-Class Citizens (standalone, scale-to-zero)
 Working but not Ray-native. Standalone K8s Deployments, not in RayService.
@@ -44,7 +45,6 @@ Not auto-deployed. Commented out in `serve_config.py`. Uncomment for debugging.
 | Service | Issue |
 |---------|-------|
 | gpt_sovits | Complex sys.path hacks, NLTK issues |
-| moss_sfx | get_input_embeddings incompat, 22GB VRAM |
 | qwen_asr | Old Qwen model, broken auto_map (replaced by vibevoice.cpp ASR) |
 | vibevoice_asr | Microsoft VibeVoice ASR (replaced by vibevoice.cpp) |
 | vibevoice (community) | 7B TTS, huge, times out |
@@ -223,6 +223,7 @@ Heavy GPU services share a single RTX 4090 via explicit model swapping. Send `{"
 | `ace_step` | ACE-Step 1.5 text-to-music |
 | `comfyui` | ComfyUI 0.20.1 image generation |
 | `hy_motion` | HY-Motion 1.0 text-to-3D motion |
+| `moss_soundeffect` | MOSS-SoundEffect 8B text-to-sound |
 
 ### Tier 2/3 (commented out in serve_config.py)
 | Route | Service |
