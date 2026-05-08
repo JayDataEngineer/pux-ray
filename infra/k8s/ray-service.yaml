@@ -5,6 +5,8 @@ metadata:
   namespace: ai-services
 spec:
   serveConfigV2: |
+    http_options:
+      port: 18800
     applications:
       # ─── Tier 1: CPU services (head node, always running) ─────────────
       - name: kokoro_tts
@@ -186,6 +188,8 @@ spec:
                   periodSeconds: 10
                   failureThreshold: 30
                 env:
+                  - name: RAY_memory_usage_threshold
+                    value: "0.95"
                   - name: HF_HOME
                     value: /tmp/huggingface
                   - name: HF_HUB_CACHE
@@ -196,7 +200,7 @@ spec:
                   limits:
                     nvidia.com/gpu: 1
                     cpu: '4'
-                    memory: 24Gi
+                    memory: 32Gi
                   requests:
                     nvidia.com/gpu: 1
                     cpu: '2'
