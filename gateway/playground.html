@@ -1,0 +1,837 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Tech Noir — Playground</title>
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+    --bg-primary: #09090b;
+    --bg-card: #18181b;
+    --bg-card-alt: #1c1c20;
+    --bg-hover: #27272a;
+    --bg-active: rgba(99,102,241,0.12);
+    --border: #27272a;
+    --border-focus: #3f3f46;
+    --text-primary: #fafafa;
+    --text-secondary: #a1a1aa;
+    --text-muted: #71717a;
+    --accent: #818cf8;
+    --accent-dim: #6366f1;
+    --accent-bg: rgba(99,102,241,0.15);
+    --green: #4ade80;
+    --green-bg: rgba(74,222,128,0.15);
+    --yellow: #facc15;
+    --yellow-bg: rgba(250,204,21,0.15);
+    --red: #f87171;
+    --red-bg: rgba(248,113,113,0.15);
+    --blue: #60a5fa;
+    --blue-bg: rgba(96,165,250,0.15);
+    --orange: #fb923c;
+    --purple: #a78bfa;
+    --font-mono: 'SF Mono', 'Cascadia Code', 'Fira Code', ui-monospace, monospace;
+    --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+    --radius: 12px;
+    --radius-sm: 8px;
+}
+
+html { font-size: 14px; }
+body {
+    font-family: var(--font-sans);
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    height: 100vh;
+    display: flex;
+    overflow: hidden;
+}
+
+/* ---- Layout ---- */
+#sidebar {
+    width: 240px;
+    min-width: 240px;
+    height: 100vh;
+    background: var(--bg-card);
+    border-right: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    overflow-y: auto;
+}
+#workspace {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+/* ---- Sidebar header ---- */
+.sidebar-header {
+    padding: 16px 14px 12px;
+    border-bottom: 1px solid var(--border);
+}
+.sidebar-header h1 {
+    font-size: 1.05rem;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+.sidebar-header h1 svg { width: 18px; height: 18px; color: var(--accent); }
+.sidebar-header .subtitle {
+    font-size: 0.6rem;
+    color: var(--text-muted);
+    font-family: var(--font-mono);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    margin-top: 4px;
+}
+
+/* ---- Service list ---- */
+#service-list { flex: 1; overflow-y: auto; padding-bottom: 16px; }
+.category-group { padding: 10px 0; border-bottom: 1px solid var(--border); }
+.category-label {
+    font-size: 0.58rem;
+    font-family: var(--font-mono);
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    padding: 0 14px;
+    margin-bottom: 4px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+.category-label svg { width: 11px; height: 11px; opacity: 0.5; }
+.service-tile {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 14px;
+    cursor: pointer;
+    transition: all 0.12s;
+    border-left: 3px solid transparent;
+    user-select: none;
+}
+.service-tile:hover { background: var(--bg-hover); }
+.service-tile.active {
+    background: var(--bg-active);
+    border-left-color: var(--accent);
+}
+.service-tile.active .service-name { color: var(--accent); }
+.service-tile .dot {
+    width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0;
+}
+.service-tile .dot.online { background: var(--green); box-shadow: 0 0 4px var(--green); }
+.service-tile .dot.offline { background: var(--text-muted); opacity: 0.3; }
+.service-tile .service-name {
+    font-size: 0.78rem;
+    font-weight: 500;
+    color: var(--text-secondary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.service-tile .badge {
+    margin-left: auto;
+    font-size: 0.5rem;
+    font-family: var(--font-mono);
+    padding: 1px 5px;
+    border-radius: 3px;
+    font-weight: 500;
+    flex-shrink: 0;
+}
+.service-tile .badge.gpu { background: var(--accent-bg); color: var(--accent); }
+.service-tile .badge.cpu { background: rgba(161,161,170,0.1); color: var(--text-muted); }
+
+/* ---- Workspace ---- */
+.workspace-scroll {
+    flex: 1;
+    overflow-y: auto;
+    padding: 24px 32px;
+}
+.workspace-scroll.idle {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    color: var(--text-muted);
+    gap: 16px;
+}
+.workspace-scroll.idle svg { width: 64px; height: 64px; opacity: 0.15; }
+.workspace-scroll.idle h2 { font-size: 1.2rem; font-weight: 600; color: var(--text-secondary); }
+.workspace-scroll.idle p { font-size: 0.8rem; max-width: 400px; text-align: center; line-height: 1.5; }
+
+/* ---- Service header ---- */
+.service-header {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    margin-bottom: 24px;
+    padding-bottom: 20px;
+    border-bottom: 1px solid var(--border);
+}
+.service-header .dot-large {
+    width: 14px; height: 14px; border-radius: 50%; flex-shrink: 0; margin-top: 2px;
+}
+.service-header .dot-large.online { background: var(--green); box-shadow: 0 0 6px var(--green); }
+.service-header .dot-large.offline { background: var(--text-muted); opacity: 0.3; }
+.service-header h2 { font-size: 1.15rem; font-weight: 600; }
+.service-header .desc { font-size: 0.78rem; color: var(--text-muted); margin-top: 2px; }
+
+/* ---- Form ---- */
+.form-section { margin-bottom: 20px; }
+.form-row { margin-bottom: 14px; }
+.form-label {
+    display: flex; align-items: center; gap: 6px;
+    font-size: 0.72rem; font-weight: 500; color: var(--text-secondary);
+    margin-bottom: 5px; font-family: var(--font-mono); text-transform: uppercase; letter-spacing: 0.04em;
+}
+.form-label .required { color: var(--red); }
+.form-label .help-icon {
+    cursor: help; color: var(--text-muted); font-size: 0.65rem;
+    border: 1px solid var(--border); border-radius: 50%; width: 14px; height: 14px;
+    display: inline-flex; align-items: center; justify-content: center;
+}
+.form-help { font-size: 0.65rem; color: var(--text-muted); margin-top: 4px; line-height: 1.4; }
+
+input, textarea, select {
+    width: 100%; padding: 8px 12px;
+    background: var(--bg-card-alt); border: 1px solid var(--border);
+    border-radius: var(--radius-sm); color: var(--text-primary);
+    font-size: 0.82rem; font-family: var(--font-sans);
+    outline: none; transition: border 0.15s;
+}
+input:focus, textarea:focus, select:focus { border-color: var(--accent); }
+textarea { resize: vertical; min-height: 80px; font-family: var(--font-sans); line-height: 1.5; }
+
+input[type="range"] {
+    -webkit-appearance: none; appearance: none;
+    height: 6px; background: var(--border); border: none;
+    border-radius: 3px; padding: 0; cursor: pointer;
+}
+input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none; appearance: none;
+    width: 16px; height: 16px; border-radius: 50%;
+    background: var(--accent); cursor: pointer; border: 2px solid var(--bg-primary);
+}
+.range-row { display: flex; align-items: center; gap: 12px; }
+.range-row input[type="range"] { flex: 1; }
+.range-value {
+    font-family: var(--font-mono); font-size: 0.75rem;
+    color: var(--accent); min-width: 32px; text-align: right;
+}
+
+input[type="checkbox"] {
+    -webkit-appearance: none; appearance: none;
+    width: 36px; height: 20px; background: var(--border);
+    border-radius: 10px; border: none; cursor: pointer;
+    position: relative; transition: background 0.2s; padding: 0;
+    flex-shrink: 0;
+}
+input[type="checkbox"]::after {
+    content: ''; position: absolute; top: 2px; left: 2px;
+    width: 16px; height: 16px; border-radius: 50%;
+    background: var(--text-muted); transition: all 0.2s;
+}
+input[type="checkbox"]:checked { background: var(--accent); }
+input[type="checkbox"]:checked::after { left: 18px; background: white; }
+.checkbox-row { display: flex; align-items: center; gap: 10px; }
+.checkbox-row label { cursor: pointer; font-size: 0.82rem; color: var(--text-secondary); }
+
+input[type="file"] {
+    padding: 6px; border: 1px dashed var(--border);
+    background: transparent; cursor: pointer; font-size: 0.78rem;
+}
+input[type="file"]:hover { border-color: var(--border-focus); }
+.file-preview {
+    margin-top: 8px; max-width: 200px; max-height: 150px;
+    border-radius: 6px; overflow: hidden; border: 1px solid var(--border);
+}
+.file-preview img, .file-preview audio { width: 100%; display: block; }
+
+/* ---- Actions ---- */
+.actions { display: flex; gap: 10px; margin-top: 24px; }
+.btn {
+    display: inline-flex; align-items: center; gap: 8px;
+    padding: 10px 24px; border-radius: var(--radius-sm);
+    font-size: 0.85rem; font-weight: 600; cursor: pointer;
+    border: none; transition: all 0.15s; font-family: var(--font-sans);
+}
+.btn:disabled { opacity: 0.4; cursor: not-allowed; }
+.btn-primary { background: var(--accent); color: white; }
+.btn-primary:hover:not(:disabled) { background: var(--accent-dim); }
+.btn-secondary { background: var(--bg-hover); color: var(--text-secondary); border: 1px solid var(--border); }
+.btn-secondary:hover:not(:disabled) { background: var(--border); }
+.btn .spinner {
+    width: 14px; height: 14px; border: 2px solid rgba(255,255,255,0.3);
+    border-top-color: white; border-radius: 50%; animation: spin 0.7s linear infinite;
+    display: none;
+}
+.btn.loading .spinner { display: inline-block; }
+.btn.loading .btn-text { opacity: 0.7; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ---- Output ---- */
+.output-section { margin-top: 28px; }
+.output-section.hidden { display: none; }
+.output-header {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: 12px;
+}
+.output-header h3 { font-size: 0.9rem; font-weight: 600; }
+.output-metrics {
+    display: flex; gap: 12px;
+    font-family: var(--font-mono); font-size: 0.62rem; color: var(--text-muted);
+}
+.output-metrics span { padding: 3px 8px; background: var(--bg-card-alt); border-radius: 4px; }
+.output-error {
+    background: var(--red-bg); color: var(--red);
+    border: 1px solid rgba(248,113,113,0.2);
+    padding: 12px 16px; border-radius: var(--radius-sm);
+    font-size: 0.82rem; font-family: var(--font-mono); line-height: 1.5;
+    white-space: pre-wrap;
+}
+
+/* Audio player */
+.output-audio { margin-top: 8px; }
+.output-audio audio { width: 100%; }
+.output-audio .download-link {
+    display: inline-block; margin-top: 8px;
+    color: var(--accent); font-size: 0.75rem; font-family: var(--font-mono);
+    text-decoration: none;
+}
+.output-audio .download-link:hover { text-decoration: underline; }
+
+/* Image output */
+.output-image { margin-top: 8px; }
+.output-image img {
+    max-width: 100%; max-height: 600px;
+    border-radius: var(--radius-sm); border: 1px solid var(--border);
+}
+.output-image .download-link {
+    display: inline-block; margin-top: 8px;
+    color: var(--accent); font-size: 0.75rem; font-family: var(--font-mono);
+    text-decoration: none;
+}
+
+/* 3D output */
+.output-3d { margin-top: 8px; text-align: center; }
+.output-3d .btn { margin-top: 8px; }
+
+/* Text / JSON output */
+.output-text {
+    background: var(--bg-card); border: 1px solid var(--border);
+    border-radius: var(--radius-sm); padding: 16px;
+    font-family: var(--font-mono); font-size: 0.78rem; line-height: 1.6;
+    white-space: pre-wrap; overflow-x: auto; max-height: 500px; overflow-y: auto;
+    color: var(--text-primary);
+}
+
+/* Transcription output */
+.output-transcription {
+    background: var(--bg-card); border: 1px solid var(--border);
+    border-radius: var(--radius-sm); padding: 16px;
+}
+.output-transcription .segments { margin-top: 8px; }
+.output-transcription .segment {
+    display: flex; gap: 12px; padding: 4px 0;
+    border-bottom: 1px solid var(--border); font-size: 0.78rem;
+}
+.output-transcription .segment:last-child { border-bottom: none; }
+.output-transcription .segment .time {
+    font-family: var(--font-mono); color: var(--text-muted);
+    white-space: nowrap; min-width: 80px;
+}
+.output-transcription .segment .text { color: var(--text-primary); }
+.output-transcription .full-text {
+    font-size: 0.9rem; line-height: 1.6; margin-bottom: 12px;
+}
+
+/* ---- Responsive ---- */
+@media (max-width: 800px) {
+    #sidebar { width: 50px; min-width: 50px; }
+    .sidebar-header h1, .sidebar-header .subtitle, .category-label,
+    .service-tile .service-name, .service-tile .badge { display: none; }
+    .service-tile { justify-content: center; padding: 8px; }
+    .workspace-scroll { padding: 16px; }
+}
+</style>
+</head>
+<body>
+
+<!-- Sidebar -->
+<aside id="sidebar">
+    <div class="sidebar-header">
+        <h1>
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M10.5 1.5H8.25A2.25 2.25 0 0 0 6 3.75v16.5a2.25 2.25 0 0 0 2.25 2.25h7.5A2.25 2.25 0 0 0 18 20.25V3.75a2.25 2.25 0 0 0-2.25-2.25H13.5m-3 0V3h3V1.5m-3 0h3m-3 18.75h3"/></svg>
+            Playground
+        </h1>
+        <div class="subtitle">Tech Noir — Service Playground</div>
+    </div>
+    <div id="service-list"></div>
+</aside>
+
+<!-- Workspace -->
+<div id="workspace">
+    <div class="workspace-scroll idle" id="workspace-body">
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M9.53 16.122a3 3 0 0 0-5.78 1.128 2.25 2.25 0 0 1-2.4 2.245 4.5 4.5 0 0 0 8.4-2.245c0-.399-.078-.78-.22-1.128Zm0 0a15.998 15.998 0 0 0 3.388-1.62m-5.043-.025a15.994 15.994 0 0 1 1.622-3.395m3.42 3.42a15.995 15.995 0 0 0 4.764-4.648l3.876-5.814a1.151 1.151 0 0 0-1.597-1.597L14.146 6.32a15.996 15.996 0 0 0-4.649 4.763m3.42 3.42a6.776 6.776 0 0 0-3.42-3.42"/></svg>
+        <h2>Select a service</h2>
+        <p>Choose a service from the sidebar to start interacting with it via the TNAP API.</p>
+
+        <div id="output-area"></div>
+    </div>
+</div>
+
+<script>
+const API_BASE = '/playground/api';
+const CAT_ICONS = {
+    'TTS': '<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M19.114 5.636a9 9 0 0 1 0 12.728M16.463 8.288a5.25 5.25 0 0 1 0 7.424M6.75 8.25l4.72-4.72a.75.75 0 0 1 1.28.53v15.88a.75.75 0 0 1-1.28.53l-4.72-4.72H4.51c-.88 0-1.704-.507-1.938-1.354A9.009 9.009 0 0 1 2.25 12c0-.83.112-1.633.322-2.396C2.806 8.756 3.63 8.25 4.51 8.25H6.75Z"/></svg>',
+    'ASR': '<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 18.75a6 6 0 0 0 6-6v-1.5m-6 7.5a6 6 0 0 1-6-6v-1.5m6 7.5v3.75m-3.75 0h7.5M12 15.75a3 3 0 0 1-3-3V4.5a3 3 0 1 1 6 0v8.25a3 3 0 0 1-3 3Z"/></svg>',
+    'LLM': '<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M7.5 8.25h9m-9 3H12m-9.75 1.51c0 1.6 1.123 2.994 2.707 3.227 1.087.16 2.185.283 3.293.369V21l4.076-4.076a1.526 1.526 0 0 1 1.037-.443 48.282 48.282 0 0 0 5.68-.494c1.584-.233 2.707-1.626 2.707-3.228V6.741c0-1.602-1.123-2.995-2.707-3.228A48.394 48.394 0 0 0 12 3c-2.392 0-4.744.175-7.043.513C3.373 3.746 2.25 5.14 2.25 6.741v6.018Z"/></svg>',
+    '3D': '<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m21 7.5-9-5.25L3 7.5m18 0-9 5.25m9-5.25v9l-9 5.25M3 7.5l9 5.25M3 7.5v9l9 5.25m0-9v9"/></svg>',
+    'Music': '<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m9 9 10.5-3m0 6.553v3.75a2.25 2.25 0 0 1-1.632 2.163l-1.32.377a1.803 1.803 0 1 1-.99-3.467l2.31-.66a2.25 2.25 0 0 0 1.632-2.163Zm0 0V2.25L9 5.25v10.303m0 0v3.75a2.25 2.25 0 0 1-1.632 2.163l-1.32.377a1.803 1.803 0 1 1-.99-3.467l2.31-.66A2.25 2.25 0 0 0 9 15.553Z"/></svg>',
+    'Audio': '<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m9 9 10.5-3m0 6.553v3.75a2.25 2.25 0 0 1-1.632 2.163l-1.32.377a1.803 1.803 0 1 1-.99-3.467l2.31-.66A2.25 2.25 0 0 0 9 15.553Zm0 0v3.75a2.25 2.25 0 0 1-1.632 2.163l-1.32.377a1.803 1.803 0 1 1-.99-3.467l2.31-.66A2.25 2.25 0 0 0 9 15.553Z"/></svg>',
+    'Creative': '<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m2.25 15.75 5.159-5.159a2.25 2.25 0 0 1 3.182 0l5.159 5.159m-1.5-1.5 1.409-1.409a2.25 2.25 0 0 1 3.182 0l2.909 2.909M3.75 21h16.5A2.25 2.25 0 0 0 22.5 18.75V5.25A2.25 2.25 0 0 0 20.25 3H3.75A2.25 2.25 0 0 0 1.5 5.25v13.5A2.25 2.25 0 0 0 3.75 21Z"/></svg>',
+    'Vision': '<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m15.75 10.5 4.72-4.72a.75.75 0 0 1 1.28.53v11.38a.75.75 0 0 1-1.28.53l-4.72-4.72M4.5 18.75h9a2.25 2.25 0 0 0 2.25-2.25v-9a2.25 2.25 0 0 0-2.25-2.25h-9A2.25 2.25 0 0 0 2.25 7.5v9a2.25 2.25 0 0 0 2.25 2.25Z"/></svg>',
+};
+
+let servicesData = [];
+let currentService = null;
+let currentFileData = {};
+
+// ---- Render sidebar ----
+function renderSidebar(services, activeName) {
+    const container = document.getElementById('service-list');
+    const groups = {};
+    services.forEach(s => {
+        (groups[s.category] = groups[s.category] || []).push(s);
+    });
+
+    const CAT_ORDER = ['TTS', 'ASR', 'LLM', '3D', 'Music', 'Audio', 'Creative', 'Vision'];
+    let html = '';
+    for (const cat of CAT_ORDER) {
+        if (!groups[cat]) continue;
+        const icon = CAT_ICONS[cat] || '';
+        html += `<div class="category-group">`;
+        html += `<div class="category-label">${icon} ${cat}</div>`;
+        groups[cat].forEach(s => {
+            const isActive = s.name === activeName;
+            const dot = isActive || s.status === 'RUNNING' || s.status === 'HEALTHY'
+                ? 'online' : 'offline';
+            const badge = s.gpu ? 'GPU' : 'CPU';
+            const badgeCls = s.gpu ? 'gpu' : 'cpu';
+            html += `<div class="service-tile${isActive ? ' active' : ''}"
+                         onclick="selectService('${s.name}')">
+                <div class="dot ${dot}"></div>
+                <span class="service-name">${s.label}</span>
+                <span class="badge ${badgeCls}">${badge}</span>
+            </div>`;
+        });
+        html += `</div>`;
+    }
+    container.innerHTML = html;
+}
+
+// ---- Select service ----
+function selectService(name) {
+    currentService = servicesData.find(s => s.name === name);
+    if (!currentService) return;
+    renderSidebar(servicesData, name);
+    renderWorkspace(currentService);
+}
+
+// ---- Render workspace ----
+function renderWorkspace(svc) {
+    const body = document.getElementById('workspace-body');
+    body.className = 'workspace-scroll';
+    body.innerHTML = '';
+
+    // Service header
+    const dot = svc.status === 'RUNNING' || svc.status === 'HEALTHY' ? 'online' : 'offline';
+    body.innerHTML += `
+        <div class="service-header">
+            <div class="dot-large ${dot}"></div>
+            <div>
+                <h2>${svc.label}</h2>
+                <div class="desc">${svc.description || 'No description'}</div>
+            </div>
+        </div>`;
+
+    // Form
+    body.innerHTML += `<div class="form-section" id="form-section"></div>`;
+    const form = document.getElementById('form-section');
+    currentFileData = {};
+
+    svc.input_fields.forEach(f => {
+        const required = f.required ? '<span class="required">*</span>' : '';
+        const helpIcon = f.help ? `<span class="help-icon" title="${f.help}">?</span>` : '';
+        const id = `field-${f.key}`;
+
+        let inputHtml = '';
+        const val = f.default !== undefined ? f.default : '';
+
+        switch (f.type) {
+            case 'textarea':
+                inputHtml = `<textarea id="${id}" ${f.required ? 'required' : ''}
+                    placeholder="${f.placeholder || ''}">${val}</textarea>`;
+                break;
+            case 'text':
+                inputHtml = `<input type="text" id="${id}" value="${val}"
+                    ${f.required ? 'required' : ''} placeholder="${f.placeholder || ''}">`;
+                break;
+            case 'number':
+                inputHtml = `<input type="number" id="${id}" value="${val}"
+                    min="${f.min ?? ''}" max="${f.max ?? ''}" step="${f.step ?? ''}">`;
+                break;
+            case 'range':
+                inputHtml = `<div class="range-row">
+                    <input type="range" id="${id}" value="${val}"
+                        min="${f.min ?? 0}" max="${f.max ?? 1}" step="${f.step ?? 0.1}"
+                        oninput="document.getElementById('${id}-val').textContent=this.value">
+                    <span class="range-value" id="${id}-val">${val}</span>
+                </div>`;
+                break;
+            case 'checkbox':
+                inputHtml = `<div class="checkbox-row">
+                    <input type="checkbox" id="${id}" ${val ? 'checked' : ''}>
+                    <label for="${id}">${f.label}</label>
+                </div>`;
+                break;
+            case 'image':
+                inputHtml = `<input type="file" id="${id}" accept="image/*"
+                    onchange="handleFileUpload('${f.key}', this)">
+                    <div class="file-preview" id="preview-${f.key}"></div>`;
+                break;
+            case 'audio':
+                inputHtml = `<input type="file" id="${id}" accept="audio/*"
+                    onchange="handleFileUpload('${f.key}', this)">
+                    <div class="file-preview" id="preview-${f.key}"></div>`;
+                break;
+            default:
+                inputHtml = `<input type="text" id="${id}" value="${val}"
+                    placeholder="${f.placeholder || ''}">`;
+        }
+
+        let labelHtml = '';
+        if (f.type !== 'checkbox') {
+            labelHtml = `<div class="form-label">${required}${f.label} ${helpIcon}</div>`;
+        }
+
+        const helpHtml = f.help && f.type !== 'image' && f.type !== 'audio'
+            ? `<div class="form-help">${f.help}</div>` : '';
+
+        form.innerHTML += `<div class="form-row">${labelHtml}${inputHtml}${helpHtml}</div>`;
+    });
+
+    // Generate button
+    form.innerHTML += `
+        <div class="actions">
+            <button class="btn btn-primary" id="generate-btn" onclick="generate()">
+                <span class="spinner"></span>
+                <span class="btn-text">Generate</span>
+            </button>
+        </div>`;
+
+    // Output area
+    body.innerHTML += `<div class="output-section hidden" id="output-section">
+        <div class="output-header">
+            <h3>Output</h3>
+            <div class="output-metrics" id="output-metrics"></div>
+        </div>
+        <div id="output-content"></div>
+    </div>`;
+}
+
+// ---- File upload handler ----
+function handleFileUpload(key, input) {
+    const file = input.files[0];
+    if (!file) return;
+    const preview = document.getElementById(`preview-${key}`);
+
+    const reader = new FileReader();
+    reader.onload = function(e) {
+        const b64 = e.target.result.split(',')[1];
+        currentFileData[key] = b64;
+
+        if (file.type.startsWith('image/')) {
+            preview.innerHTML = `<img src="${e.target.result}">`;
+        } else {
+            preview.innerHTML = `<audio controls src="${e.target.result}"></audio>`;
+        }
+    };
+    reader.readAsDataURL(file);
+}
+
+// ---- Generate ----
+async function generate() {
+    const btn = document.getElementById('generate-btn');
+    if (btn.classList.contains('loading')) return;
+    btn.classList.add('loading');
+
+    const fields = {};
+    const svc = currentService;
+
+    svc.input_fields.forEach(f => {
+        const el = document.getElementById(`field-${f.key}`);
+        if (!el) return;
+
+        switch (f.type) {
+            case 'checkbox':
+                fields[f.key] = el.checked;
+                break;
+            case 'range':
+            case 'number':
+                fields[f.key] = parseFloat(el.value) || 0;
+                break;
+            case 'image':
+            case 'audio':
+                if (currentFileData[f.key]) {
+                    fields[f.key] = currentFileData[f.key];
+                }
+                break;
+            default:
+                fields[f.key] = el.value;
+        }
+    });
+
+    // Build request body based on format
+    let body;
+    const fileFields = new Set(['image', 'audio']);
+
+    function mapFiledata() {
+        const inputData = {};
+        for (const [key, val] of Object.entries(fields)) {
+            const fieldDef = svc.input_fields.find(f => f.key === key);
+            if (fieldDef && (fieldDef.type === 'image' || fieldDef.type === 'audio') && currentFileData[key]) {
+                const b64Key = fieldDef.type === 'image' ? 'image_b64' : 'audio_b64';
+                inputData[b64Key] = currentFileData[key];
+            } else if (val !== null && val !== undefined && val !== '') {
+                if (key === 'system') {
+                    inputData['system_prompt'] = val;
+                } else {
+                    inputData[key] = val;
+                }
+            }
+        }
+        return inputData;
+    }
+
+    if (svc.format === 'forge') {
+        body = {
+            service: svc.name,
+            input: mapFiledata(),
+        };
+    } else if (svc.format === 'openai') {
+        const messages = [];
+        if (fields.system) {
+            messages.push({role: 'system', content: fields.system});
+        }
+        messages.push({role: 'user', content: fields.messages});
+        body = {
+            model: 'qwen3.6-27b-ud-q4_k_xl',
+            messages: messages,
+            temperature: fields.temperature ?? 0.7,
+            max_tokens: fields.max_tokens ?? 2048,
+        };
+    } else {
+        body = {
+            action: 'generate',
+            input: mapFiledata(),
+            config: {},
+        };
+    }
+
+    const endpoint = svc.route;
+    if (!endpoint) {
+        outputContent.innerHTML = '<div class="output-error">No route configured for this service</div>';
+        outputMetrics.innerHTML = '';
+        btn.classList.remove('loading');
+        return;
+    }
+
+    const outputSection = document.getElementById('output-section');
+    const outputContent = document.getElementById('output-content');
+    const outputMetrics = document.getElementById('output-metrics');
+    outputSection.classList.remove('hidden');
+    outputContent.innerHTML = '<div style="color:var(--text-muted);padding:16px;">Waiting for response...</div>';
+
+    try {
+        const resp = await fetch(endpoint, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(tnapBody),
+        });
+
+        if (!resp.ok) {
+            const err = await resp.json().catch(() => ({error: resp.statusText}));
+            outputContent.innerHTML = `<div class="output-error">${err.error || err.message || resp.statusText}</div>`;
+            outputMetrics.innerHTML = '';
+            return;
+        }
+
+        const data = await resp.json();
+
+        // Handle TNAP envelope
+        if (data.status === 'error') {
+            outputContent.innerHTML = `<div class="output-error">${data.error || 'Unknown error'}</div>`;
+            outputMetrics.innerHTML = '';
+            return;
+        }
+
+        // Metrics
+        if (data.metrics) {
+            const m = data.metrics;
+            let metricsHtml = '';
+            if (m.latency_ms) metricsHtml += `<span>${(m.latency_ms / 1000).toFixed(1)}s</span>`;
+            if (m.vram_used_mb) metricsHtml += `<span>${(m.vram_used_mb / 1024).toFixed(1)}GB VRAM</span>`;
+            if (m.model_version) metricsHtml += `<span>${m.model_version}</span>`;
+            outputMetrics.innerHTML = metricsHtml;
+        }
+
+        // Handle OpenAI format response
+        if (svc.format === 'openai') {
+            const text = data.choices?.[0]?.message?.content || JSON.stringify(data, null, 2);
+            outputContent.innerHTML = `<div class="output-text">${escapeHtml(text)}</div>`;
+            return;
+        }
+
+        // Render output based on type
+        const output = data.output || {};
+        const type = output.type || '';
+        const content = output.content || '';
+        const text = output.text || '';
+
+        if (type === 'audio/wav' || type === 'audio/mpeg' || type === 'audio/flac') {
+            renderAudioOutput(content, type);
+        } else if (type === 'image/png' || type === 'image/jpeg' || type === 'image/webp') {
+            renderImageOutput(content, type);
+        } else if (type === 'model/gltf-binary' || type === 'model/gltf+json') {
+            render3dOutput(content, type);
+        } else if (type === 'application/json' || type === 'json') {
+            // Try to parse - could be transcription (has text + segments) or other JSON
+            try {
+                const jsonData = JSON.parse(
+                    type === 'application/json' ? atob(content) : (content || text)
+                );
+                if (jsonData.text && jsonData.segments) {
+                    renderTranscription(jsonData);
+                } else {
+                    outputContent.innerHTML = `<div class="output-text">${escapeHtml(JSON.stringify(jsonData, null, 2))}</div>`;
+                }
+            } catch {
+                outputContent.innerHTML = `<div class="output-text">${escapeHtml(text || content || JSON.stringify(data, null, 2))}</div>`;
+            }
+        } else if (text) {
+            outputContent.innerHTML = `<div class="output-text">${escapeHtml(text)}</div>`;
+        } else {
+            outputContent.innerHTML = `<div class="output-text">${escapeHtml(JSON.stringify(data, null, 2))}</div>`;
+        }
+
+    } catch (e) {
+        outputContent.innerHTML = `<div class="output-error">${escapeHtml(e.message)}</div>`;
+        outputMetrics.innerHTML = '';
+    } finally {
+        btn.classList.remove('loading');
+    }
+}
+
+// ---- Output renderers ----
+function renderAudioOutput(b64, mime) {
+    const ext = { 'audio/wav': 'wav', 'audio/mpeg': 'mp3', 'audio/flac': 'flac' }[mime] || 'wav';
+    const blob = b64ToBlob(b64, mime);
+    const url = URL.createObjectURL(blob);
+    const section = document.getElementById('output-content');
+    section.innerHTML = `
+        <div class="output-audio">
+            <audio controls src="${url}"></audio>
+            <br><a class="download-link" href="${url}" download="output.${ext}">Download .${ext}</a>
+        </div>`;
+}
+
+function renderImageOutput(b64, mime) {
+    const ext = { 'image/png': 'png', 'image/jpeg': 'jpg', 'image/webp': 'webp' }[mime] || 'png';
+    const blob = b64ToBlob(b64, mime);
+    const url = URL.createObjectURL(blob);
+    const section = document.getElementById('output-content');
+    section.innerHTML = `
+        <div class="output-image">
+            <img src="${url}">
+            <br><a class="download-link" href="${url}" download="output.${ext}">Download .${ext}</a>
+        </div>`;
+}
+
+function render3dOutput(b64, mime) {
+    const blob = b64ToBlob(b64, 'model/gltf-binary');
+    const url = URL.createObjectURL(blob);
+    const section = document.getElementById('output-content');
+    section.innerHTML = `
+        <div class="output-3d">
+            <p style="color:var(--text-muted);font-size:0.78rem;margin-bottom:12px;">
+                3D model generated. Download the GLB file to view.
+            </p>
+            <a class="btn btn-primary" href="${url}" download="output.glb">
+                Download .glb
+            </a>
+        </div>`;
+}
+
+function renderTranscription(data) {
+    const section = document.getElementById('output-content');
+    let segHtml = data.segments.map(s =>
+        `<div class="segment">
+            <span class="time">${fmtTime(s.start)} → ${fmtTime(s.end)}</span>
+            <span class="text">${escapeHtml(s.text)}</span>
+        </div>`
+    ).join('');
+    section.innerHTML = `
+        <div class="output-transcription">
+            <div class="full-text">${escapeHtml(data.text)}</div>
+            <div class="segments">${segHtml}</div>
+        </div>`;
+}
+
+// ---- Helpers ----
+function b64ToBlob(b64, mime) {
+    const byteChars = atob(b64);
+    const ab = new ArrayBuffer(byteChars.length);
+    const ia = new Uint8Array(ab);
+    for (let i = 0; i < byteChars.length; i++) {
+        ia[i] = byteChars.charCodeAt(i);
+    }
+    return new Blob([ab], {type: mime});
+}
+
+function escapeHtml(str) {
+    const div = document.createElement('div');
+    div.textContent = str || '';
+    return div.innerHTML;
+}
+
+function fmtTime(sec) {
+    const m = Math.floor(sec / 60);
+    const s = (sec % 60).toFixed(1);
+    return `${m}:${s.padStart(4, '0')}`;
+}
+
+// ---- Init ----
+let visible = true;
+document.addEventListener('visibilitychange', () => { visible = !document.hidden; });
+
+async function init() {
+    try {
+        const resp = await fetch(`${API_BASE}/services`);
+        if (!resp.ok) throw new Error(await resp.text());
+        servicesData = await resp.json();
+        renderSidebar(servicesData, null);
+    } catch (e) {
+        document.getElementById('service-list').innerHTML =
+            `<div style="padding:20px;color:var(--red);font-size:0.8rem;">Failed to load services: ${escapeHtml(e.message)}</div>`;
+    }
+}
+
+init();
+</script>
+</body>
+</html>
