@@ -1,27 +1,16 @@
 #!/usr/bin/env bash
-# Rebuild all Ray worker images with updated code and import into k0s.
+# Rebuild all Ray worker images with updated code and import into k3s.
 # Run on the server: bash infra/k8s/build_and_import.sh
 set -euo pipefail
 
 REGISTRY="localhost/tech-noir"
 BUILDER="buildkit"
 
-# All GPU service images that need rebuilding (code baked in via COPY services/)
+# Unified architecture: ONE golden image for ALL GPU services
 IMAGES=(
-    gpu-services
-    comfyui
-    trellis-spz
-    hymotion
-    anigen
-    acestep
-    seethrough
-    gptsovits
-    qwen-tts
-    vibevoice
-    moss-sfx
-    tangoflux
-    florence2
-    phi4mm
+    ray-base
+    gpu-all
+    model-sync
 )
 
 echo "=== Building ${#IMAGES[@]} images ==="
@@ -37,7 +26,7 @@ for img in "${IMAGES[@]}"; do
     echo "--- Building ${img} ---"
     docker build -f "$dockerfile" -t "$tag" . 2>&1 | tail -5
     echo "Saving ${img}..."
-    docker save "$tag" | sudo k0s ctr images import -
+    docker save "$tag" | sudo k3s ctr images import -
     echo "OK: ${img}"
 done
 

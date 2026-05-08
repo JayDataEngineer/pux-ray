@@ -1,7 +1,11 @@
-"""Tech Noir Ray SDK - async HTTP client for the Ray AI infrastructure."""
+"""Tech Noir Ray SDK - async HTTP client for the Ray AI infrastructure.
 
+All services use the unified TNAP protocol via /v1/{service}/generate.
+Legacy methods (chat, synthesize, transcribe) remain for convenience.
+"""
 from __future__ import annotations
 
+import base64
 import io
 from pathlib import Path
 from typing import Any, Union
@@ -16,12 +20,80 @@ class RayClient:
         client = RayClient()
         reply = await client.chat("What is 2+2?")
         audio = await client.synthesize("Hello world")
-        result = await client.transcribe("meeting.wav")
+        result = await client.generate("kokoro", input={"text": "hello"})
     """
 
     def __init__(self, base_url: str = "http://localhost:18080", timeout: float = 300):
         self.base_url = base_url.rstrip("/")
         self.client = httpx.AsyncClient(base_url=self.base_url, timeout=timeout)
+
+    # ── Generic TNAP generate ──────────────────────────────────────────────────
+
+    async def generate(
+        self,
+        service: str,
+        input: dict[str, Any] | None = None,
+        config: dict[str, Any] | None = None,
+        **params: Any,
+    ) -> dict[str, Any]:
+        """Generate via any service using the TNAP protocol.
+
+        Args:
+            service: Service name from the registry (e.g. "kokoro", "trellis").
+            input: TNAP input dict with text, prompt, image_b64, audio_b64, etc.
+            config: InferenceConfig overrides (precision, quantization, low_resource).
+            **params: Additional top-level params.
+
+        Returns:
+            TNAPResponse dict with status, output, metrics.
+        """
+        payload: dict[str, Any] = {
+            "action": "generate",
+            "input": input or {},
+        }
+        if config:
+            payload["config"] = config
+        payload.update(params)
+
+        resp = await self.client.post(
+            f"/v1/{service}/generate",
+            json=payload,
+        )
+        resp.raise_for_status()
+        return resp.json()
+
+    async def generate_binary(
+        self,
+        service: str,
+        input: dict[str, Any] | None = None,
+        **kwargs: Any,
+    ) -> bytes:
+        """Generate and return the decoded binary output from a TNAP service.
+
+        Decodes the base64 content from the TNAP response output.
+        """
+        result = await self.generate(service, input=input, **kwargs)
+        output = result.get("output", {})
+        content_b64 = output.get("content", "")
+        if not content_b64:
+            raise ValueError(f"No binary output from {service}")
+        return base64.b64decode(content_b64)
+
+    # ── Service discovery ──────────────────────────────────────────────────────
+
+    async def services(self) -> list[dict[str, Any]]:
+        """List all registered services."""
+        resp = await self.client.get("/v1/services")
+        resp.raise_for_status()
+        return resp.json()
+
+    async def service_info(self, service: str) -> dict[str, Any]:
+        """Get info about a specific service."""
+        resp = await self.client.get(f"/v1/services/{service}")
+        resp.raise_for_status()
+        return resp.json()
+
+    # ── Convenience wrappers ───────────────────────────────────────────────────
 
     async def chat(
         self,
@@ -94,75 +166,7 @@ class RayClient:
         path.write_bytes(audio)
         return path
 
-    async def generate_3d(
-        self,
-        image: Union[str, Path, bytes],
-        model: str = "trellis",
-        **kwargs,
-    ) -> bytes:
-        """Generate 3D mesh from image. Returns GLB bytes."""
-        if isinstance(image, (str, Path)):
-            with open(image, "rb") as f:
-                image_bytes = f.read()
-            filename = Path(image).name
-        elif isinstance(image, bytes):
-            image_bytes = image
-            filename = "image.png"
-        else:
-            raise TypeError(f"image must be str, Path, or bytes, got {type(image)}")
-
-        resp = await self.client.post(
-            "/v1/3d/generate",
-            files={"image": (filename, io.BytesIO(image_bytes))},
-            data={"model": model, **{k: str(v) for k, v in kwargs.items()}},
-        )
-        resp.raise_for_status()
-        return resp.content
-
-    # -- Job Queue -----------------------------------------------------------
-
-    async def submit_job(self, job_type: str, **kwargs) -> str:
-        """Submit a generation job. Returns job_id immediately.
-
-        Supported types: ace_step, trellis, anigen, comfyui.
-        For trellis/anigen, pass image=bytes.
-        For ace_step, pass prompt=str (text2music) or audio=bytes (other modes).
-        """
-        files = {}
-        data = {k: v for k, v in kwargs.items() if not isinstance(v, bytes)}
-        if "image" in kwargs and isinstance(kwargs["image"], bytes):
-            files["image"] = ("image.png", io.BytesIO(kwargs["image"]))
-        if "audio" in kwargs and isinstance(kwargs["audio"], bytes):
-            files["audio"] = ("audio.wav", io.BytesIO(kwargs["audio"]))
-
-        if files:
-            resp = await self.client.post(
-                f"/jobs/{job_type}", data=data, files=files,
-            )
-        else:
-            resp = await self.client.post(f"/jobs/{job_type}", json=kwargs)
-        resp.raise_for_status()
-        return resp.json()["job_id"]
-
-    async def job_status(self, job_id: str) -> dict[str, Any]:
-        """Get job status (queued, running, completed, error)."""
-        resp = await self.client.get(f"/jobs/{job_id}")
-        resp.raise_for_status()
-        return resp.json()
-
-    async def job_result(self, job_id: str) -> bytes:
-        """Get job result bytes. Blocks until complete."""
-        resp = await self.client.get(f"/jobs/{job_id}/result")
-        resp.raise_for_status()
-        return resp.content
-
-    async def job_list(self) -> list[dict[str, Any]]:
-        """List all jobs with status."""
-        resp = await self.client.get("/jobs")
-        resp.raise_for_status()
-        return resp.json()
-
-    # -- Infrastructure -------------------------------------------------------
+    # ── Infrastructure ─────────────────────────────────────────────────────────
 
     async def status(self) -> dict[str, Any]:
         """Get infrastructure status (GPU, loaded models, VRAM)."""

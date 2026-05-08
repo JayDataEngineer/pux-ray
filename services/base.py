@@ -1,5 +1,41 @@
 """Base deployment classes for GPU and CPU AI services.
 
+Tech-Noir AI Protocol (TNAP):
+- All services accept the same POST body structure: {action, input, config}
+- All services return the same response structure: {status, output, metrics}
+- Frontend sees one language regardless of backend quirks
+
+TNAP Request Schema:
+    {
+        "action": "generate",           # generate | classify | transcribe | ...
+        "input": {
+            "prompt": "...",
+            "image_b64": "...",
+            "audio_b64": "...",
+            "text": "...",
+        },
+        "config": {
+            "precision": "bf16",
+            "quantization": null,
+            "low_resource": false,
+        }
+    }
+
+TNAP Response Schema:
+    {
+        "status": "success" | "error",
+        "output": {
+            "type": "image/png | audio/wav | model/gltf-binary | text/plain | ...",
+            "content": "base64_encoded_data...",
+            "url": "/shared/models/output/..."       # optional path
+        },
+        "metrics": {
+            "vram_used_mb": 14200,
+            "latency_ms": 1205,
+            "model_version": "trellis-2.4b"
+        }
+    }
+
 Ray-Native Design:
 - GPU memory tracked via torch.cuda (not nvidia-smi subprocess)
 - Ray Serve handles port allocation (no manual port scanning)
@@ -15,7 +51,10 @@ Ghost VRAM prevention:
 
 from __future__ import annotations
 
+import base64
 import gc
+import io
+import json
 import logging
 import os
 import signal
@@ -23,11 +62,102 @@ import subprocess
 import time
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 import ray
+from pydantic import BaseModel
 
 logger = logging.getLogger(__name__)
+
+
+# ─── TNAP Models ──────────────────────────────────────────────────────────────
+
+class TNAPInput(BaseModel):
+    prompt: Optional[str] = None
+    text: Optional[str] = None
+    image_b64: Optional[str] = None
+    audio_b64: Optional[str] = None
+    video_b64: Optional[str] = None
+    model: Optional[str] = None
+    voice: Optional[str] = None
+    seed: Optional[int] = None
+    steps: Optional[int] = None
+    guidance: Optional[float] = None
+
+
+class TNAPConfig(BaseModel):
+    precision: str = "bf16"
+    quantization: Optional[str] = None
+    low_resource: bool = False
+
+
+class TNAPRequest(BaseModel):
+    action: str = "generate"
+    input: TNAPInput = TNAPInput()
+    config: Optional[TNAPConfig] = None
+
+
+class TNAPMetrics(BaseModel):
+    vram_used_mb: int = 0
+    latency_ms: int = 0
+    model_version: str = ""
+    extra: dict[str, Any] = {}
+
+
+class TNAPOutput(BaseModel):
+    type: str = "text/plain"
+    content: str = ""
+    url: Optional[str] = None
+    text: Optional[str] = None
+
+
+class TNAPResponse(BaseModel):
+    status: str = "success"
+    output: TNAPOutput = TNAPOutput()
+    metrics: TNAPMetrics = TNAPMetrics()
+    error: Optional[str] = None
+
+
+def _b64_encode(data: bytes) -> str:
+    return base64.b64encode(data).decode("utf-8")
+
+
+def _b64_decode(data: str) -> bytes:
+    return base64.b64decode(data)
+
+
+# ─── InferenceConfig — runtime precision/quantization knobs ──────────────────
+
+class InferenceConfig(BaseModel):
+    """Standardized knobs for every model in the platform.
+
+    Passed in the request body under the ``config`` key::
+
+        {"config": {"precision": "fp16", "quantization": null}, "text": "..."}
+
+    Services check ``self.config`` in ``_load()`` and apply the dtype/quant
+    after model loading, so precision can change per-request without redeploy.
+    """
+
+    precision: str = "bf16"
+    """torch dtype: ``fp32``, ``fp16``, ``bf16`` (default)"""
+
+    quantization: Optional[str] = None
+    """Quantization mode: ``"8bit"``, ``"4bit"``, or ``None`` (disabled)"""
+
+    low_resource: bool = False
+    """Dev/test mode: use lite model variant, fp16, skip prompt engineering.
+    Loads in seconds instead of minutes. Not for production quality."""
+
+    def dtype(self) -> "torch.dtype":
+        """Translate precision string to torch dtype."""
+        import torch
+
+        return {
+            "bf16": torch.bfloat16,
+            "fp16": torch.float16,
+            "fp32": torch.float32,
+        }.get(self.precision, torch.bfloat16)
 
 
 # ─── Ray-native container config ──────────────────────────────────────────────
@@ -147,12 +277,16 @@ class BaseGPUDeployment(ABC):
     Subclasses must implement:
         _load(model_name) - load model into VRAM
         _unload() - release model from VRAM
+
+    Precision/quantization is controlled via ``self.config`` (InferenceConfig),
+    which can be updated per-request via the ``"config"`` key in the payload.
     """
 
     def __init__(self):
         self.model: Optional[object] = None
         self.model_name: Optional[str] = None
         self._vram_before_load_mb: int = 0
+        self.config = InferenceConfig()
 
     @abstractmethod
     def _load(self, model_name: str) -> None:
@@ -195,6 +329,103 @@ class BaseGPUDeployment(ABC):
     def current_model(self) -> Optional[str]:
         return self.model_name
 
+    # ─── TNAP helpers ──────────────────────────────────────────────────────────
+
+    def handle_request(self, request_body: dict) -> tuple[TNAPRequest, dict]:
+        """Parse and validate a TNAP request. Returns (tnap_req, raw_input).
+
+        Subclasses override _extract_input() to map TNAP input fields to
+        whatever format their model expects (numpy array, PIL Image, torch.Tensor).
+        """
+        tnap = TNAPRequest.model_validate(request_body)
+
+        if tnap.config:
+            self.config.precision = tnap.config.precision or self.config.precision
+            self.config.quantization = tnap.config.quantization
+            self.config.low_resource = tnap.config.low_resource
+
+        extracted = self._extract_input(tnap.input)
+        return tnap, extracted
+
+    def _extract_input(self, inp: TNAPInput) -> dict:
+        """Override in subclass to convert TNAPInput to model-specific format."""
+        result = {}
+        if inp.prompt:
+            result["prompt"] = inp.prompt
+        if inp.text:
+            result["text"] = inp.text
+        if inp.image_b64:
+            result["image"] = _b64_decode(inp.image_b64)
+        if inp.audio_b64:
+            result["audio"] = _b64_decode(inp.audio_b64)
+        if inp.video_b64:
+            result["video"] = _b64_decode(inp.video_b64)
+        if inp.model:
+            result["model"] = inp.model
+        if inp.voice:
+            result["voice"] = inp.voice
+        if inp.seed is not None:
+            result["seed"] = inp.seed
+        if inp.steps is not None:
+            result["steps"] = inp.steps
+        if inp.guidance is not None:
+            result["guidance"] = inp.guidance
+        return result
+
+    def handle_response(
+        self,
+        content: bytes | str,
+        output_type: str,
+        latency_ms: int,
+        extra_metrics: Optional[dict] = None,
+        url: Optional[str] = None,
+    ) -> dict:
+        """Wrap raw output in TNAP response structure."""
+        if isinstance(content, str):
+            content_bytes = content.encode("utf-8")
+        else:
+            content_bytes = content
+
+        vram_mb = 0
+        try:
+            import torch
+            if torch.cuda.is_available():
+                vram_mb = int(torch.cuda.memory_allocated(0) / (1024 * 1024))
+        except Exception:
+            pass
+
+        output = {
+            "type": output_type,
+            "content": _b64_encode(content_bytes),
+        }
+        if url:
+            output["url"] = url
+        if isinstance(content, str):
+            output["text"] = content
+
+        metrics = {
+            "vram_used_mb": vram_mb,
+            "latency_ms": latency_ms,
+            "model_version": self.model_name or "",
+        }
+        if extra_metrics:
+            metrics.update(extra_metrics)
+
+        return {
+            "status": "success",
+            "output": output,
+            "metrics": metrics,
+        }
+
+    def handle_error(self, error_msg: str, latency_ms: int = 0) -> dict:
+        """Return a TNAP error response."""
+        return {
+            "status": "error",
+            "output": {},
+            "metrics": {"latency_ms": latency_ms},
+            "error": error_msg,
+        }
+
 
 # ─── SubprocessMixin — llama.cpp / ComfyUI (→ Docker later) ──────────────────
 
@@ -212,14 +443,19 @@ class SubprocessMixin:
     def start_process(self, cmd: list[str], cwd: Optional[str] = None,
                       env: Optional[dict] = None) -> subprocess.Popen:
         proc_env = {**os.environ, **(env or {})}
+        log_dir = "/tmp/tech-noir"
+        os.makedirs(log_dir, exist_ok=True)
+        log_path = os.path.join(log_dir, "subprocess.log")
+        log_file = open(log_path, "a")
         self.process = subprocess.Popen(
             cmd,
             cwd=cwd,
             env=proc_env,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
+            stdout=log_file,
+            stderr=log_file,
             preexec_fn=os.setsid,
         )
+        logger.info("Subprocess PID %d started, logs at %s", self.process.pid, log_path)
         return self.process
 
     def stop_process(self) -> None:
@@ -265,6 +501,7 @@ class SubprocessProxyMixin(SubprocessMixin):
     """
 
     _proxy_base_url: str = ""
+    _proxy_default_endpoint: str = ""
 
     def _start_proxy(
         self,
@@ -274,7 +511,9 @@ class SubprocessProxyMixin(SubprocessMixin):
         timeout: int = 300,
         cwd: str | None = None,
         env: dict | None = None,
+        default_endpoint: str = "",
     ) -> None:
+        self._proxy_default_endpoint = default_endpoint
         self.start_process(cmd, cwd=cwd, env=env)
         self._proxy_base_url = f"http://127.0.0.1:{port}"
         if not self.wait_for_health(f"{self._proxy_base_url}{health_path}", timeout=timeout):
@@ -302,11 +541,13 @@ class SubprocessProxyMixin(SubprocessMixin):
         from starlette.responses import Response
 
         path = request.url.path
-        for prefix in ["/comfyui", "/3d/trellis", "/3d/hy-motion",
+        for prefix in ["/comfyui", "/image/comfyui", "/3d/trellis", "/3d/hy-motion",
                         "/3d/anigen", "/creative/see-through", "/music/ace-step",
                         "/tts/gpt-sovits"]:
             if path.startswith(prefix):
-                path = path[len(prefix):] or "/"
+                path = path[len(prefix):]
+                if path in ("", "/"):
+                    path = self._proxy_default_endpoint or "/"
                 break
 
         target = f"{self._proxy_base_url}{path}"

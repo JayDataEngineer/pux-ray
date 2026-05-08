@@ -150,28 +150,28 @@ class GPUMetricsCollector:
 
 
 # ---------------------------------------------------------------------------
-# Service status registry
+# Service status registry (powered by services.registry)
 # ---------------------------------------------------------------------------
 
-KNOWN_DEPLOYMENTS = {
-    "llm":             {"label": "LLM (llama.cpp)", "category": "LLM",      "gpu": True},
-    "kokoro_tts":      {"label": "Kokoro TTS",      "category": "TTS",      "gpu": False},
-    "espeak_tts":      {"label": "eSpeak TTS",      "category": "TTS",      "gpu": False},
-    "index_tts":       {"label": "IndexTTS",        "category": "TTS",      "gpu": True},
-    "qwen_tts":        {"label": "Qwen3-TTS",       "category": "TTS",      "gpu": True},
-    "vibevoice":       {"label": "VibeVoice TTS",   "category": "TTS",      "gpu": True},
-    "gpt_sovits":      {"label": "GPT-SoVITS",      "category": "TTS",      "gpu": True},
-    "faster_whisper":  {"label": "Faster-Whisper",  "category": "ASR",      "gpu": False},
-    "vibevoice_asr":   {"label": "VibeVoice ASR",   "category": "ASR",      "gpu": True},
-    "qwen_asr":        {"label": "Qwen ASR",        "category": "ASR",      "gpu": True},
-    "comfyui":         {"label": "ComfyUI",         "category": "Image",    "gpu": True},
-    "trellis":         {"label": "TRELLIS.2",       "category": "3D",       "gpu": True},
-    "anigen":          {"label": "AniGen",          "category": "3D",       "gpu": True},
-    "see_through":     {"label": "See-Through",     "category": "Creative", "gpu": True},
-    "ace_step":        {"label": "ACE-Step",        "category": "Music",    "gpu": True},
-    "local_web_mcp":   {"label": "Local Web MCP",   "category": "MCP",      "gpu": False, "external_port": 18327},
-    "media_analysis_mcp": {"label": "Media Analysis MCP", "category": "MCP", "gpu": False, "external_port": 18101},
-}
+def _build_dashboard_registry() -> dict:
+    """Build the dashboard's deployment lookup from the service registry."""
+    from services.registry import SERVICE_REGISTRY
+
+    entries = {}
+    for name, entry in SERVICE_REGISTRY.items():
+        entries[entry.deployment] = {
+            "label": entry.label,
+            "category": entry.category.capitalize(),
+            "gpu": entry.needs_gpu,
+        }
+
+    # External services (persistent processes, not Ray deployments)
+    entries["local_web_mcp"] = {"label": "Local Web MCP", "category": "MCP", "gpu": False, "external_port": 18327}
+    entries["media_analysis_mcp"] = {"label": "Media Analysis MCP", "category": "MCP", "gpu": False, "external_port": 18101}
+    return entries
+
+
+KNOWN_DEPLOYMENTS: dict = {}
 
 
 def _check_port(port: int) -> bool:
@@ -278,6 +278,13 @@ def query_gpu_processes() -> list[dict]:
 # ---------------------------------------------------------------------------
 
 _collector = GPUMetricsCollector()
+
+# Initialize deployment registry from services.registry
+try:
+    KNOWN_DEPLOYMENTS = _build_dashboard_registry()
+except Exception:
+    # Graceful fallback if registry import fails (e.g. during development)
+    KNOWN_DEPLOYMENTS = {}
 
 
 def start_collector() -> None:

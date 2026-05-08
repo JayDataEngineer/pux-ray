@@ -132,6 +132,10 @@ class Config:
         ``models_root`` in ``config/local.yaml``.
         Falls back to ``<project_root>/models`` if unconfigured.
         """
+        import os
+        env_val = os.environ.get("TECH_NOIR_MODELS_ROOT", "")
+        if env_val:
+            return env_val
         raw = self.get("models_root", "")
         if not raw or raw.startswith("${"):
             default = _PROJECT_ROOT / "models"

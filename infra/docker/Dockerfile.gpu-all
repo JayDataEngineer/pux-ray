@@ -1,0 +1,250 @@
+# Tech Noir Unified GPU Worker — ALL services in ONE image.
+# Golden base (Python 3.12 + CUDA 12.4 + torch 2.6.0 + ray + nvdiffrast + flash-attn).
+# Every GPU service (TTS, ASR, 3D, music, vision, creative, image) lives here.
+# Ray Serve handles fractional GPU scheduling within the same pod — no k8s delays.
+#
+# Build:
+#   docker build -f infra/docker/Dockerfile.gpu-all -t localhost/tech-noir/gpu-all:latest .
+FROM tech-noir/ray-base:latest
+
+ENV DEBIAN_FRONTEND=noninteractive PYTHONUNBUFFERED=1 \
+    LANG=C.UTF-8 \
+    CUDA_HOME=/usr/local/cuda \
+    TORCH_CUDA_ARCH_LIST="8.9" \
+    MAX_JOBS=2
+
+# ── System packages (union of all service needs) ────────────────────────
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    git git-lfs cmake ninja-build build-essential pkg-config \
+    libgl1 libglib2.0-0 libsm6 libxext6 libxrender-dev \
+    libjpeg-dev libspatialindex-dev libsndfile1 \
+    ffmpeg mecab libmecab-dev espeak-ng \
+    && rm -rf /var/lib/apt/lists/*
+
+# ── Clone git repos (for services that need full repo structure) ──────
+WORKDIR /opt
+
+# ComfyUI (must stay subprocess — node-based server)
+RUN git clone --depth 1 https://github.com/comfyanonymous/ComfyUI.git /opt/ComfyUI
+
+# IndexTTS — copy package to site-packages (no heavy build deps)
+RUN GIT_LFS_SKIP_SMUDGE=1 git clone --depth 1 https://github.com/index-tts/index-tts.git /tmp/index-tts && \
+    cp -r /tmp/index-tts/indextts $(python3 -c "import site; print(site.getsitepackages()[0])")/ && \
+    rm -rf /tmp/index-tts
+
+# GPT-SoVITS (needs full repo structure for internal imports)
+RUN git clone --depth 1 https://github.com/RVC-Boss/GPT-SoVITS.git /opt/gpt-sovits
+
+# HY-Motion (git-lfs for stats/)
+RUN git clone --depth 1 https://github.com/Tencent-Hunyuan/HY-Motion-1.0.git /opt/hymotion && \
+    cd /opt/hymotion && git lfs pull
+
+# See-Through (needs common/ + inference/ + annotators/ for internal imports)
+RUN git clone --depth 1 https://github.com/shitagaki-lab/see-through.git /opt/seethrough
+
+# vibevoice.cpp (C++ GGML inference for VibeVoice TTS + ASR — quantized GGUF models)
+# Build CPU-only; CUDA backend needs dev libs not in golden image
+RUN git clone --recursive --depth 1 https://github.com/localai-org/vibevoice.cpp.git /tmp/vv-cpp && \
+    cd /tmp/vv-cpp && cmake -B build && cmake --build build -j$(nproc) && \
+    cp build/bin/vibevoice-cli /usr/local/bin/ && \
+    (cp build/bin/vibevoice-quantize /usr/local/bin/ || true) && \
+    find build -name "*.so*" -exec cp {} /usr/local/lib/ \; && \
+    ldconfig && \
+    rm -rf /tmp/vv-cpp
+
+# ── Stripped vendor code (COPY from vendor/, no git clone) ─────────────
+
+# TRELLIS.2 — trellis2 Python code
+COPY vendor/trellis2/ /tmp/trellis2-src/
+RUN SITE_PACKAGES=$(python3 -c "import site; print(site.getsitepackages()[0])") && \
+    cp -r /tmp/trellis2-src "${SITE_PACKAGES}/trellis2" && \
+    rm -rf /tmp/trellis2-src
+
+# AniGen — stripped inference code (no training, no datasets)
+COPY vendor/anigen/ /opt/anigen/anigen/
+COPY vendor/anigen-configs/ /opt/anigen/configs/
+
+# ACE-Step — stripped music generation code (no auto-downloads, no UI)
+COPY vendor/acestep/ /opt/acestep/acestep/
+
+# utils3d — pinned commit for trellis2 + anigen compatibility
+RUN git clone https://github.com/EasternJournalist/utils3d.git /opt/utils3d && \
+    cd /opt/utils3d && \
+    git checkout 9a4eb15e4021b67b12c460c7057d642626897ec8
+
+# ── Compiled extensions ─────────────────────────────────────────────────
+
+# nvdiffrec (PBR rendering for TRELLIS)
+RUN git clone -b renderutils --depth 1 \
+        https://github.com/JeffreyXiang/nvdiffrec.git /tmp/extensions/nvdiffrec && \
+    uv pip install /tmp/extensions/nvdiffrec --no-build-isolation && \
+    rm -rf /tmp/extensions/nvdiffrec
+
+# pytorch3d (for AniGen)
+RUN --mount=type=cache,target=/root/.cache/uv \
+    git clone --depth 1 https://github.com/facebookresearch/pytorch3d.git /tmp/pytorch3d && \
+    cd /tmp/pytorch3d && \
+    uv pip install --no-build-isolation . && \
+    rm -rf /tmp/pytorch3d
+
+# spconv (for AniGen)
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv pip install spconv --no-build-isolation
+
+# FlexGEMM (TRELLIS) — patch triton 3.x incompatibilities
+COPY infra/docker/patch_flex_gemm.py /tmp/patch_flex_gemm.py
+RUN git clone --depth 1 https://github.com/JeffreyXiang/FlexGEMM.git /tmp/flex_gemm && \
+    python3 /tmp/patch_flex_gemm.py /tmp/flex_gemm && \
+    uv pip install /tmp/flex_gemm --no-build-isolation && \
+    rm -rf /tmp/flex_gemm /tmp/patch_flex_gemm.py
+
+# CuMesh (TRELLIS) — CUDA mesh operations
+RUN git clone --recursive https://github.com/JeffreyXiang/CuMesh.git /tmp/CuMesh && \
+    uv pip install /tmp/CuMesh --no-build-isolation && \
+    rm -rf /tmp/CuMesh
+
+# o-voxel — CUDA voxel extension for TRELLIS
+COPY vendor/o-voxel/ /tmp/o-voxel/
+RUN cd /tmp/o-voxel && \
+    uv pip install . --no-build-isolation && \
+    rm -rf /tmp/o-voxel
+
+# ── Python packages — ALL services ──────────────────────────────────────
+
+# Core ML (overlap with base but pin versions)
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv pip install \
+    transformers==4.57.3 diffusers safetensors peft \
+    timm kornia onnxruntime mediapipe \
+    opencv-python-headless imageio imageio-ffmpeg \
+    scikit-image scikit-learn \
+    av gguf lark numba \
+    librosa phonemizer \
+    trimesh lpips plyfile pyglet pyrr \
+    pandas h5py tqdm psutil easydict \
+    openai huggingface-hub \
+    omegaconf click rich \
+    pyyaml pydantic starlette aiohttp requests \
+    pygltflib geffnet igraph pymeshfix pyvista xatlas rtree \
+    gradio==4.44.1 gradio_litmodel3d==0.0.1 \
+    matplotlib tensorboard
+
+# TTS/ASR specific (avoid tangoflux vs qwen-tts accelerate conflict)
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv pip install \
+    kokoro "misaki[en]>=0.7,<0.9" faster-whisper \
+    cn2an g2p-en jieba munch \
+    json5 modelscope textstat WeTextProcessing ffmpeg-python \
+    descript-audiotools \
+    torchdiffeq transforms3d \
+    diffusers backoff datasets sox
+
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv pip install --no-deps qwen-tts
+
+# faster-qwen3-tts (CUDA graph capture, 5x speedup over baseline qwen-tts)
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv pip install faster-qwen3-tts
+
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv pip install accelerate einops transformers soundfile scipy datasets
+
+# VibeVoice — community fork (multi-speaker TTS, voice cloning, ASR; package: vibevoice-community)
+COPY infra/repos/VibeVoice-Community/ /tmp/vibevoice-community-src/
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv pip install /tmp/vibevoice-community-src && rm -rf /tmp/vibevoice-community-src
+
+# Original vibevoice needed by community fork internals (schedule.dpm_solver)
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv pip install vibevoice --no-deps
+
+# GPT-SoVITS deps (needs full repo for requirements.txt)
+RUN --mount=type=cache,target=/root/.cache/uv \
+    cd /opt/gpt-sovits && \
+    uv pip install cmake && \
+    grep -v -i -E '^(torch|torchvision|torchaudio|xformers|flash-attn)' requirements.txt > /tmp/reqs_gptsovits.txt && \
+    uv pip install -r /tmp/reqs_gptsovits.txt && rm /tmp/reqs_gptsovits.txt
+
+# NLTK data for GPT-SoVITS text processing
+RUN python3 -c "import nltk; nltk.download('averaged_perceptron_tagger_eng', quiet=True); nltk.download('averaged_perceptron_tagger', quiet=True)"
+
+# ACE-Step requirements file (for deps install)
+COPY vendor/acestep-requirements.txt /tmp/acestep-reqs.txt
+
+# ACE-Step deps (from copied requirements)
+RUN --mount=type=cache,target=/root/.cache/uv \
+    grep -v -i -E '^(torch|torchvision|torchaudio|xformers|flash-attn)' \
+        /tmp/acestep-reqs.txt > /tmp/reqs_acestep.txt && \
+    uv pip install -r /tmp/reqs_acestep.txt || true && rm /tmp/reqs_acestep.txt
+
+# See-Through deps (filtered)
+RUN --mount=type=cache,target=/root/.cache/uv \
+    cd /opt/seethrough && \
+    grep -v -i -E '^(torch|torchvision|torchaudio|xformers|flash-attn|-e )' requirements.txt | \
+    grep -v -E 'PyQt|qtpy|natsort|py7zr|ipykernel|Cython|pytest' > /tmp/reqs_seethrough.txt && \
+    uv pip install -r /tmp/reqs_seethrough.txt || true && \
+    uv pip install ./common ./annotators || true && rm /tmp/reqs_seethrough.txt
+
+# ComfyUI deps (filtered)
+RUN --mount=type=cache,target=/root/.cache/uv \
+    grep -v -E "^(torch==|torchvision==|torchaudio|xformers|flash-attn)" \
+        /opt/ComfyUI/requirements.txt > /tmp/reqs_comfyui.txt && \
+    uv pip install -r /tmp/reqs_comfyui.txt && rm /tmp/reqs_comfyui.txt
+
+# ── ComfyUI extensions ──────────────────────────────────────────────────
+COPY config/comfyui_extensions.yaml /tmp/extensions.yaml
+COPY infra/docker/setup_comfyui.py /tmp/setup_comfyui.py
+RUN python3 /tmp/setup_comfyui.py && rm /tmp/setup_comfyui.py /tmp/extensions.yaml
+
+# ── TRELLIS runtime patches ──
+COPY infra/docker/patch_conv_flex_gemm.py /opt/patch_conv_flex_gemm.py
+COPY infra/docker/patch_cumesh_fallback.py /opt/patch_cumesh_fallback.py
+
+# ── VibeVoice voice presets ──────────────────────────────────────────────
+COPY infra/repos/VibeVoice-Community/demo/voices/ /opt/vibevoice-community/voices/
+
+# ── API wrappers (only for services still using subprocess) ────────────
+COPY infra/docker/api_hymotion.py /opt/hymotion/api.py
+COPY infra/docker/api_qwen_tts_vllm.py /opt/api_qwen_tts_vllm.py
+COPY infra/docker/api_vibevoice.py /opt/api_vibevoice.py
+COPY infra/docker/api_trellis_spz.py /opt/api_trellis_spz.py
+COPY infra/docker/api_gptsovits.py /opt/api_gptsovits.py
+
+# ── Project code ────────────────────────────────────────────────────────
+COPY vendor/ /opt/vendor/
+COPY services/ /app/services/
+COPY gateway/ /app/gateway/
+COPY registry/ /app/registry/
+COPY sdk/ /app/sdk/
+COPY pyproject.toml /app/
+COPY infra/k8s/serve_config.py /app/serve_config.py
+COPY infra/k8s/serve_build.py /app/serve_build.py
+
+WORKDIR /app
+
+# ── Final fixes ─────────────────────────────────────────────────────────
+# Pin transformers to 4.57.3 (ComfyUI deps may upgrade to 5.x, but
+# many services need 4.x APIs; qwen-tts needs >=4.53 for masking_utils).
+RUN uv pip install \
+    "protobuf>=6,<7" \
+    torch==2.6.0 torchvision==0.21.0 torchaudio==2.6.0 \
+    transformers==4.57.3 tokenizers==0.22.2
+
+# ── Env defaults (overridden per-deployment) ────────────────────────────
+ENV PYTHONPATH=/app:/opt/utils3d:/opt/hymotion:/opt/anigen:/opt/seethrough:/opt/vendor \
+    HF_HOME=/tmp/huggingface \
+    HF_HUB_CACHE=/tmp/huggingface \
+    ATTN_BACKEND=flash_attn
+
+# ── Verify ──────────────────────────────────────────────────────────────
+RUN python3 -c "import torch; print(f'torch {torch.__version__}, CUDA {torch.cuda.is_available()}')" && \
+    python3 -c "import torchaudio; print(f'torchaudio {torchaudio.__version__}')" && \
+    python3 -c "import ray; print(f'ray {ray.__version__}')" && \
+    python3 -c "import transformers; print(f'transformers {transformers.__version__}')" && \
+    python3 -c "import google.protobuf; print(f'protobuf {google.protobuf.__version__}')" && \
+    python3 -c "import nvdiffrast; print('nvdiffrast OK')" && \
+    python3 -c "import vllm_flash_attn; print('vllm_flash_attn OK')" && \
+    python3 -c "import pytorch3d; print('pytorch3d OK')" && \
+    python3 -c "import trellis2; print('trellis2 OK')" && \
+    echo "o_voxel/flex_gemm skipped (needs GPU at runtime)" && \
+    echo "gpu-all image verification passed"

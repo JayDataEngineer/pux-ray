@@ -136,6 +136,61 @@ tts:
     vram_estimate_gb: 20.0
     device: gpu
     description: VibeVoice 7B TTS. 18.7GB multi-speaker synthesis.
+vibevoice-cpp:
+  tts-0.5b-q8:
+    path: vibevoice-cpp/vibevoice-realtime-0.5B-q8_0.gguf
+    source: hf://mudler/vibevoice.cpp-models/vibevoice-realtime-0.5B-q8_0.gguf
+    download: file
+    sha256: null
+    size_gb: 1.6
+    vram_estimate_gb: 2.0
+    device: gpu
+    description: VibeVoice Realtime 0.5B TTS quantized Q8_0. Fast text-to-speech with voice presets.
+  asr-q8:
+    path: vibevoice-cpp/vibevoice-asr-q8_0.gguf
+    source: hf://mudler/vibevoice.cpp-models/vibevoice-asr-q8_0.gguf
+    download: file
+    sha256: null
+    size_gb: 13.0
+    vram_estimate_gb: 14.0
+    device: gpu
+    description: VibeVoice ASR 7B quantized Q8_0. Long-form transcription with native diarization.
+  asr-q4:
+    path: vibevoice-cpp/vibevoice-asr-q4_k.gguf
+    source: hf://mudler/vibevoice.cpp-models/vibevoice-asr-q4_k.gguf
+    download: file
+    sha256: null
+    size_gb: 9.7
+    vram_estimate_gb: 10.0
+    device: gpu
+    description: VibeVoice ASR 7B quantized Q4_K. Smaller/faster ASR with diarization.
+  tokenizer:
+    path: vibevoice-cpp/tokenizer.gguf
+    source: hf://mudler/vibevoice.cpp-models/tokenizer.gguf
+    download: file
+    sha256: null
+    size_gb: 0.006
+    vram_estimate_gb: 0.01
+    device: cpu
+    description: VibeVoice.cpp GGUF tokenizer. Shared between TTS and ASR.
+  voice-en-carter:
+    path: vibevoice-cpp/voice-en-Carter_man.gguf
+    source: hf://mudler/vibevoice.cpp-models/voice-en-Carter_man.gguf
+    download: file
+    sha256: null
+    size_gb: 0.008
+    vram_estimate_gb: 0.01
+    device: cpu
+    description: Pre-baked English male voice preset (Carter) for VibeVoice Realtime TTS.
+  voice-en-emma:
+    path: vibevoice-cpp/voice-en-Emma.gguf
+    source: hf://mudler/vibevoice.cpp-models/voice-en-Emma.gguf
+    download: file
+    sha256: null
+    size_gb: 0.006
+    vram_estimate_gb: 0.01
+    device: cpu
+    description: Pre-baked English female voice preset (Emma) for VibeVoice Realtime TTS.
 asr:
   faster-whisper:
     path: asr/faster-whisper/
@@ -820,6 +875,38 @@ audio:
     device: gpu
     description: TangoFlux text-to-audio generation. Flow matching with DiT/MMDiT,
       CRPO-aligned. Generates 44.1kHz audio up to 30s.
+
+motion:
+  hy-motion-1.0:
+    path: motion/hy-motion-1.0/
+    source: hf://tencent/HY-Motion-1.0
+    download: snapshot
+    sha256: null
+    size_gb: 28.0
+    vram_estimate_gb: 22.0
+    device: gpu
+    description: HY-Motion 1.0 text-to-3D motion generation. DiT-based Flow
+      Matching with dual text encoders (Qwen3-8B + CLIP-ViT-L/14). Includes
+      pipeline config.yml, ckpt, body model, and prompt engineering module.
+  hy-motion-1.0-lite:
+    path: motion/hy-motion-1.0-lite/
+    source: hf://tencent/HY-Motion-1.0-Lite
+    download: snapshot
+    sha256: null
+    size_gb: 2.5
+    vram_estimate_gb: 8.0
+    device: gpu
+    description: HY-Motion 1.0 Lite. Smaller/faster variant for real-time use.
+  text2motion-prompter:
+    path: motion/text2motion-prompter/
+    source: hf://tencent/Text2MotionPrompter
+    download: snapshot
+    sha256: null
+    size_gb: 0.5
+    vram_estimate_gb: 1.0
+    device: cpu
+    description: HY-Motion prompt engineering module. Rewrites user prompts and
+      estimates motion duration before generation.
 
 voices:
   emma:
