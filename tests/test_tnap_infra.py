@@ -42,7 +42,7 @@ class TestServiceRegistry:
             "kokoro", "espeak", "index_tts", "qwen_tts", "vibevoice",
             "gpt_sovits", "faster_whisper", "vibevoice_asr", "qwen_asr",
             "moss_soundeffect", "tangoflux", "ace_step", "trellis", "anigen",
-            "hy_motion", "see_through", "florence2", "phi4mm", "comfyui",
+                         "hy_motion", "see_through", "phi4mm", "comfyui",
             "llm",
         }
         assert set(SERVICE_REGISTRY.keys()) == expected, \
@@ -124,7 +124,7 @@ class TestServiceRegistry:
 
     def test_gpu_services_marked_correctly(self):
         from services.registry import SERVICE_REGISTRY
-        gpu_services = {"trellis", "anigen", "ace_step", "phi4mm", "florence2",
+        gpu_services = {"trellis", "anigen", "ace_step", "phi4mm",
                         "hy_motion", "see_through", "comfyui", "llm", "index_tts",
                         "qwen_tts", "vibevoice", "gpt_sovits", "moss_soundeffect"}
         for name in gpu_services:
@@ -174,7 +174,7 @@ class TestIngressRoutes:
         assert names == {"kokoro", "espeak", "index_tts", "qwen_tts", "vibevoice",
                          "gpt_sovits", "faster_whisper", "vibevoice_asr", "qwen_asr",
                          "moss_soundeffect", "tangoflux", "ace_step", "trellis", "anigen",
-                         "hy_motion", "see_through", "florence2", "phi4mm", "comfyui",
+            "hy_motion", "see_through", "phi4mm", "comfyui",
                          "llm"}
         for s in svcs:
             assert all(k in s for k in ("name", "label", "category", "needs_gpu",
@@ -350,7 +350,7 @@ class TestDashboardRegistry:
     def test_all_ray_deployments_present(self):
         from gateway.dashboard import KNOWN_DEPLOYMENTS
         for dep in ["kokoro_tts", "espeak_tts", "faster_whisper", "trellis", "anigen",
-                    "hy_motion", "ace_step", "see_through", "florence2", "phi4mm",
+                    "hy_motion", "ace_step", "see_through", "phi4mm",
                     "comfyui", "llm", "index_tts", "qwen_tts", "vibevoice",
                     "gpt_sovits", "vibevoice_asr", "qwen_asr", "moss_soundeffect",
                     "tangoflux"]:
@@ -363,7 +363,7 @@ class TestDashboardRegistry:
 
     def test_previously_missing_services_now_present(self):
         from gateway.dashboard import KNOWN_DEPLOYMENTS
-        for dep in ["phi4mm", "florence2", "hy_motion", "moss_soundeffect", "tangoflux"]:
+        for dep in ["phi4mm", "hy_motion", "moss_soundeffect", "tangoflux"]:
             assert dep in KNOWN_DEPLOYMENTS
 
     def test_entries_have_required_fields(self):

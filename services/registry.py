@@ -169,13 +169,7 @@ SERVICE_REGISTRY: dict[str, ServiceEntry] = {
         description="See-Through — anime layer decomposition into PSD.",
     ),
     # ── Vision / Multimodal ────────────────────────────────────────────────────
-    "florence2": ServiceEntry(
-        deployment="florence2", app="florence2",
-        label="Florence-2", category="vision",
-        needs_gpu=True, default_model="florence2-large-ft",
-        output_type="json",
-        description="Florence-2 — vision foundation (captioning, detection, OCR).",
-    ),
+
     "phi4mm": ServiceEntry(
         deployment="phi4mm", app="phi4mm",
         label="Phi-4-MM", category="multimodal",
