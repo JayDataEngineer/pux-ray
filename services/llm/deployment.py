@@ -24,12 +24,12 @@ logger = logging.getLogger(__name__)
     name="llm",
     num_replicas=1,
     max_ongoing_requests=8,
-    ray_actor_options={"num_cpus": 0.5},
 )
 class LLMDeployment(BaseGPUDeployment, SubprocessMixin):
     """Ray Serve deployment wrapping llama.cpp server."""
 
     PORT = 18399
+    DEFAULT_MODEL = "qwen3.6-27b-iq4_nl"
 
     def __init__(self):
         super().__init__()
@@ -112,7 +112,7 @@ class LLMDeployment(BaseGPUDeployment, SubprocessMixin):
             return resp.json()
 
     async def __call__(self, request):
-        """TNAP endpoint: {action, input: {messages, stream}, config}."""
+        """TNAP endpoint + OpenAI-compatible passthrough."""
         if request.method == "GET":
             return {"status": "ok", "model": self.model_name, "loaded": self.is_loaded()}
 
@@ -120,10 +120,31 @@ class LLMDeployment(BaseGPUDeployment, SubprocessMixin):
 
         try:
             body = await request.json()
+
+            # OpenAI-compatible: {"messages": [...], "model": "..."}
+            if "messages" in body and "action" not in body:
+                if not self.is_loaded():
+                    import asyncio
+                    model_name = body.get("model", self.DEFAULT_MODEL)
+                    # Model field in OpenAI format is a display name, not registry key
+                    await asyncio.to_thread(self.load_model, self.DEFAULT_MODEL)
+
+                result = await self.chat(
+                    messages=body["messages"],
+                    model=body.get("model", ""),
+                    stream=body.get("stream", False),
+                    **{k: v for k, v in body.items()
+                       if k not in ("messages", "model", "stream")},
+                )
+                return JSONResponse(result)
+
+            # TNAP format: {action, input: {messages, stream}, config}
             tnap_req, extracted = self.handle_request(body)
 
             if not self.is_loaded():
-                return JSONResponse(self.handle_error("No model loaded"), status_code=500)
+                model_name = extracted.get("model", self.DEFAULT_MODEL)
+                import asyncio
+                await asyncio.to_thread(self.load_model, model_name)
 
             messages = extracted.get("messages", [])
             stream = extracted.get("stream", False)
