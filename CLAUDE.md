@@ -1,6 +1,6 @@
 # Tech Noir Ray
 
-Ray-based AI infrastructure orchestrating services (LLM, TTS, ASR, image gen, 3D, music, vision) on a home server with an RTX 4090 (24GB VRAM) + 64GB RAM. **Architecture: k3s + KubeRay** — Ray-first, tiered citizenship.
+Ray-based AI infrastructure orchestrating services (LLM, TTS, ASR, image gen, 3D, music, vision) on a home server with an RTX 4090 (24GB VRAM) + 64GB RAM. **Architecture: k3s + KubeRay + MCP** — Ray handles GPU compute, MCP provides tooling, Traefik unifies routing.
 
 ## Tiered Service Architecture
 
@@ -53,7 +53,38 @@ Not auto-deployed. Commented out in `serve_config.py`. Uncomment for debugging.
 | vibevoice (community) | 7B TTS, huge, times out |
 | phi4mm | Model not on PVC |
 
-## Architecture: Ray-First, k3s + KubeRay
+## MCP Servers (Standalone k3s Deployments)
+
+MCP servers run as standard K8s Deployments in the `mcp` namespace — completely separate from Ray. They are lightweight (50-150MB RAM) and don't need Ray's actor overhead. Currently deployed on the GPU node; node selectors ready for migration to a dedicated k3s worker.
+
+| Service | Type | Description |
+|---------|------|-------------|
+| media-analysis-mcp | CPU Vision | YOLOv8, Florence-2, SAM2, InsightFace, transcription, OCR |
+| web-research-mcp | CPU Search | Web scraping, search, crawling, structured extraction |
+
+**Web Research dependencies** (all in `mcp` namespace):
+- PostgreSQL 16 (StatefulSet + PVC)
+- Redis 7 (Celery broker/cache)
+- SearXNG (metasearch engine)
+- Celery worker + beat (background scraping tasks)
+
+**Build & deploy:**
+```bash
+bash infra/k8s/build_mcp.sh                # Clone repos, build images, import to k3s, deploy
+kubectl get pods -n mcp                    # Check MCP pods
+kubectl apply -f infra/k8s/mcp/            # Re-apply manifests only
+```
+
+**Worker migration** (future): Uncomment `nodeSelector` in manifests, label the worker node with `node-role.kubernetes.io/mcp=true`, re-apply.
+
+### Adding a new MCP server
+
+1. Create Dockerfile in `mcp-servers/<name>/Dockerfile`
+2. Create K8s manifest in `infra/k8s/mcp/<name>.yaml` (Deployment + Service)
+3. Add Traefik route in `infra/k8s/traefik-ingress.yaml` with PathPrefix + stripPrefix middleware
+4. Add image config to `infra/k8s/build_mcp.sh`
+
+## Architecture: Ray + MCP, k3s + KubeRay
 
 **Container runtime:** k3s (lightweight k8s) with its own containerd. Images imported via `sudo k3s ctr images import -`. Docker used for builds only.
 
@@ -143,6 +174,12 @@ kubectl apply -f infra/k8s/ray-service.yaml  # Deploy/update RayService
 kubectl get pods -n ai-services          # Check pod status
 kubectl get rayservice tech-noir-ray -n ai-services  # Check serve status
 
+# MCP servers
+bash infra/k8s/build_mcp.sh             # Build MCP images + deploy
+kubectl get pods -n mcp                 # Check MCP pods
+kubectl logs -n mcp -l app=media-analysis-mcp  # Media analysis logs
+kubectl logs -n mcp -l app=web-research-mcp    # Web research logs
+
 # Model management
 task models:list     # Show all models and download status
 task models:pull     # Download missing models
@@ -163,11 +200,15 @@ services/       → AI service implementations (Ray Serve deployments)
   image/        → ComfyUI (subprocess proxy)
   creative/     → TRELLIS, ACE-Step, HY-Motion, MasterRouter
   vision/       → Florence-2 (Tier 2)
+mcp-servers/    → MCP server Dockerfiles (standalone K8s deployments)
+  media-analysis/ → Media Analysis MCP Dockerfile
+  web-research/   → Web Research MCP Dockerfile
 registry/       → Model registry CLI + config (pull from HF, ModelScope, Civitai)
 config/         → local.yaml (machine-specific, git-ignored), model_registry.yaml
 infra/
   docker/       → Dockerfile.base, Dockerfile.gpu-all, Dockerfile.model-sync
   k8s/          → ray-service.yaml, serve_config.py, build_and_import.sh
+  k8s/mcp/      → MCP K8s manifests (namespace, deployments, deps, PVCs)
 sdk/            → Client SDK utilities
 boot/           → Service lifecycle (CLI, registry, health checks)
 scripts/        → boot_services.sh, test_services_v2.py
@@ -229,6 +270,12 @@ Heavy GPU services share a single RTX 4090 via explicit model swapping. Send `{"
 | `anigen` | AniGen image-to-rigged-3D |
 | `see_through` | See-Through anime layer decomposition |
 
+### MCP Services (standalone K8s, `mcp` namespace)
+| Route | Service |
+|---|---|
+| `/mcp/media-analysis/*` | Media Analysis MCP (CPU, YOLOv8/Florence-2/SAM2) |
+| `/mcp/web-research/*` | Web Research MCP (CPU, search/scrape/extract) |
+
 ### Tier 2/3 (commented out in serve_config.py)
 | Route | Service |
 |---|---|
@@ -246,10 +293,10 @@ Auth: `X-API-Key` header or `?api_key=` query param. Unset = no auth (dev mode).
 
 | Port | Service |
 |---|---|
+| 80 | Traefik (unified routing: Ray + MCP) |
 | 10001 | Ray Client |
 | 18080 | API Ingress (Starlette) |
 | 18265 | Ray Dashboard |
-| 18327 | Web MCP (Docker) |
 | 18800 | Ray Serve HTTP |
 
 ## Boot Procedure

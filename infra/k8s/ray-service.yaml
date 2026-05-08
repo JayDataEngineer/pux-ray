@@ -6,7 +6,7 @@ metadata:
 spec:
   serveConfigV2: |
     http_options:
-      port: 18800
+      port: 8000
     applications:
       # ─── Tier 1: All services lazy-loaded (scale to zero when idle) ────
       - name: kokoro_tts

@@ -1,0 +1,76 @@
+# Web Research MCP Server — main FastAPI application
+# Accessible via Traefik: /mcp/web-research/*
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: web-research-mcp
+  namespace: mcp
+  labels:
+    app: web-research-mcp
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: web-research-mcp
+  template:
+    metadata:
+      labels:
+        app: web-research-mcp
+    spec:
+      # nodeSelector:
+      #   node-role.kubernetes.io/mcp: "true"
+      containers:
+        - name: server
+          image: localhost/tech-noir/mcp-web-research:latest
+          imagePullPolicy: Never
+          ports:
+            - containerPort: 8000
+          env:
+            - name: MCP_PORT
+              value: "8000"
+            - name: POSTGRES_HOST
+              value: postgres
+            - name: POSTGRES_DB
+              value: mcp_server
+            - name: POSTGRES_USER
+              value: postgres
+            - name: POSTGRES_PASSWORD
+              value: postgres
+            - name: CELERY_BROKER_URL
+              value: redis://redis:6379/0
+            - name: CELERY_RESULT_BACKEND
+              value: redis://redis:6379/0
+            - name: SEARXNG_URL
+              value: http://searxng:8080
+          resources:
+            limits:
+              memory: 8Gi
+              cpu: "2"
+            requests:
+              memory: 2Gi
+              cpu: "1"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 30
+            periodSeconds: 30
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 10
+            periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: web-research-mcp
+  namespace: mcp
+spec:
+  selector:
+    app: web-research-mcp
+  ports:
+    - port: 8000
+      targetPort: 8000

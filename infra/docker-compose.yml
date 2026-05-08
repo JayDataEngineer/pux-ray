@@ -1,19 +1,11 @@
 # Tech Noir Ray - Infrastructure Services
 #
-# Manages ALL external dependencies via git-sync sidecars:
-#   - MCP servers (Docker services: media-analysis, local-web)
-#   - Creative tools (host-side repos + venvs: TRELLIS, AniGen, etc.)
-#   - llama.cpp (host-side build from source)
-#
-# Git-sync sidecars clone/update code from GitHub automatically.
-# No manual cloning, no git submodules.
+# Manages creative tools and llama.cpp via git-sync sidecars.
+# MCP servers are now managed by k3s (infra/k8s/mcp/).
 #
 # Usage:
 #   docker compose run --rm tools-sync           # Clone all creative tools (first run)
 #   docker compose run --rm llama-sync     # Clone llama.cpp (first run)
-#   docker compose up -d media             # Start media-analysis-mcp
-#   docker compose up -d web               # Start local-web-mcp
-#   docker compose down                    # Stop MCP services
 #
 # After first clone, run: bash infra/setup_venvs.sh
 # to create Python venvs for each creative tool.
@@ -28,134 +20,14 @@ x-git-sync-common: &git-sync-common
   restart: "no"
   entrypoint: ["sh", "-c"]
   environment:
-    # Pass GitHub token from host (gh auth token) for private repo access
     - GH_TOKEN=${GITHUB_TOKEN:-}
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Media Analysis MCP Server
-# Source: https://github.com/JayDataEngineer/media-analysis-mcp
-# ─────────────────────────────────────────────────────────────────────────────
-services:
-  media-sync:
-    <<: *git-sync-common
-    container_name: media-sync
-    volumes:
-      - ./repos:/repos
-    command: >
-      "if [ -n \"$$GH_TOKEN\" ]; then
-        git config --global credential.helper store;
-        echo \"https://x-access-token:$$GH_TOKEN@github.com\" > ~/.git-credentials;
-      fi;
-      if [ ! -d /repos/media-analysis-mcp/.git ]; then
-        echo 'Cloning media-analysis-mcp...';
-        git clone --depth 1 https://github.com/JayDataEngineer/media-analysis-mcp.git /repos/media-analysis-mcp;
-      else
-        echo 'Updating media-analysis-mcp...';
-        cd /repos/media-analysis-mcp && git pull --ff-only;
-      fi"
-
-  media-analysis-mcp:
-    build:
-      context: ./repos/media-analysis-mcp
-      dockerfile: Dockerfile
-      args:
-        TORCH_VARIANT: ${TORCH_VARIANT:-cpu}
-    container_name: media-analysis-mcp
-    depends_on:
-      media-sync:
-        condition: service_completed_successfully
-    ports:
-      - "${MEDIA_PORT:-8101}:8001"
-    environment:
-      - MEDIA_HOST=0.0.0.0
-      - MEDIA_PORT=8001
-      - MEDIA_DEVICE=${MEDIA_DEVICE:-cpu}
-      - MEDIA_PROFILE=${MEDIA_PROFILE:-standard}
-      - MEDIA_IDLE_TIMEOUT=${MEDIA_IDLE_TIMEOUT:-1800}
-      - MEDIA_ROUTER_ENABLED=false
-    volumes:
-      - media-models:/app/models
-      - ${MEDIA_DATA_DIR:-/tmp}:/data:ro
-    restart: unless-stopped
-    deploy:
-      resources:
-        limits:
-          memory: 4G
-        reservations:
-          memory: 2G
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Local Web MCP (Research Server)
-# Source: https://github.com/JayDataEngineer/local-web-mcp
-# ─────────────────────────────────────────────────────────────────────────────
-  web-sync:
-    <<: *git-sync-common
-    container_name: web-sync
-    volumes:
-      - ./repos:/repos
-    command: >
-      "if [ -n \"$$GH_TOKEN\" ]; then
-        git config --global credential.helper store;
-        echo \"https://x-access-token:$$GH_TOKEN@github.com\" > ~/.git-credentials;
-      fi;
-      if [ ! -d /repos/local-web-mcp/.git ]; then
-        echo 'Cloning local-web-mcp...';
-        git clone --depth 1 https://github.com/JayDataEngineer/local-web-mcp.git /repos/local-web-mcp;
-      else
-        echo 'Updating local-web-mcp...';
-        cd /repos/local-web-mcp && git pull --ff-only;
-      fi"
-
-  web-mcp:
-    build:
-      context: ./repos/local-web-mcp
-      dockerfile: Dockerfile
-    container_name: mcp-server
-    depends_on:
-      web-sync:
-        condition: service_completed_successfully
-    ports:
-      - "${WEB_PORT:-8327}:8000"
-    env_file:
-      - path: ./web.env
-        required: false
-    environment:
-      - MCP_PORT=8000
-      - POSTGRES_HOST=postgres
-      - POSTGRES_DB=mcp_server
-      - POSTGRES_USER=postgres
-      - POSTGRES_PASSWORD=postgres
-      - CELERY_BROKER_URL=redis://redis:6379/0
-      - CELERY_RESULT_BACKEND=redis://redis:6379/0
-    networks:
-      - web-net
-    restart: unless-stopped
-
-  web-postgres:
-    image: postgres:16-alpine
-    container_name: mcp-postgres
-    environment:
-      POSTGRES_DB: mcp_server
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
-    volumes:
-      - web-pgdata:/var/lib/postgresql/data
-    networks:
-      - web-net
-    restart: unless-stopped
-
-  web-redis:
-    image: redis:7-alpine
-    container_name: mcp-redis
-    networks:
-      - web-net
-    restart: unless-stopped
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Creative Tool Repos (host-side — cloned for Ray subprocess access)
 # These are NOT Docker services. The git-sync clones code to ./repos/.
 # Ray services call them via venv Python subprocess.
 # ─────────────────────────────────────────────────────────────────────────────
+services:
   tools-sync:
     <<: *git-sync-common
     container_name: tools-sync
@@ -207,11 +79,3 @@ services:
         echo 'Updating llama.cpp...';
         cd /repos/llama.cpp && git pull --ff-only;
       fi"
-
-volumes:
-  media-models:
-  web-pgdata:
-
-networks:
-  web-net:
-    driver: bridge
