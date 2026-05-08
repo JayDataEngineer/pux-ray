@@ -8,18 +8,28 @@ spec:
     http_options:
       port: 18800
     applications:
-      # ─── Tier 1: CPU services (head node, always running) ─────────────
+      # ─── Tier 1: All services lazy-loaded (scale to zero when idle) ────
       - name: kokoro_tts
         import_path: serve_config:kokoro_tts
         route_prefix: /tts/kokoro
+        deployments:
+          - name: kokoro_tts
+            autoscaling_config: { min_replicas: 0, max_replicas: 1, downscale_delay_s: 60 }
+
       - name: espeak_tts
         import_path: serve_config:espeak_tts
         route_prefix: /tts/espeak
+        deployments:
+          - name: espeak_tts
+            autoscaling_config: { min_replicas: 0, max_replicas: 1, downscale_delay_s: 60 }
+
       - name: faster_whisper
         import_path: serve_config:faster_whisper
         route_prefix: /asr/whisper
+        deployments:
+          - name: faster_whisper
+            autoscaling_config: { min_replicas: 0, max_replicas: 1, downscale_delay_s: 60 }
 
-      # ─── Tier 1: GPU services (gpu-all worker, autoscaled) ────────────
       - name: faster_qwen3_tts
         import_path: serve_config:faster_qwen3_tts
         route_prefix: /tts/faster-qwen3-tts
@@ -200,11 +210,11 @@ spec:
                   limits:
                     nvidia.com/gpu: 1
                     cpu: '4'
-                    memory: 32Gi
+                    memory: 48Gi
                   requests:
                     nvidia.com/gpu: 1
                     cpu: '2'
-                    memory: 8Gi
+                    memory: 16Gi
                 volumeMounts:
                   - name: config
                     mountPath: /app/config
