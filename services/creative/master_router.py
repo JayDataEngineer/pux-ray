@@ -24,7 +24,7 @@ from starlette.responses import JSONResponse, Response
 
 logger = logging.getLogger(__name__)
 
-HEAVY_SERVICES = {"trellis", "ace_step", "comfyui", "hy_motion"}
+HEAVY_SERVICES = {"trellis", "ace_step", "comfyui", "hy_motion", "moss_soundeffect"}
 
 
 def _undecorate(deployment):
@@ -53,6 +53,7 @@ class MasterRouter:
             "ace_step": ("services.creative.ace_step", "ACEStepDeployment"),
             "comfyui": ("services.image.comfyui", "ComfyUIDeployment"),
             "hy_motion": ("services.creative.hy_motion", "HYMotionDeployment"),
+            "moss_soundeffect": ("services.audio.moss_soundeffect", "MossSoundEffectDeployment"),
         }
         if name not in imports:
             raise ValueError(f"Unknown heavy service: {name}")
