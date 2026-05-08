@@ -2,17 +2,18 @@
 
 Ray manages the container (ghcr.io/ggml-org/llama.cpp:server-cuda).
 The actor starts llama-server as a subprocess and proxies requests.
-
-Model swaps: kill current subprocess, start new one with different model.
+Conforms to TNAP: unified request/response protocol.
 """
 from __future__ import annotations
 
+import json
 import logging
 import time
 from pathlib import Path
 
 import httpx
 from ray import serve
+from starlette.responses import JSONResponse
 
 from services.base import BaseGPUDeployment, SubprocessMixin
 
@@ -35,7 +36,6 @@ class LLMDeployment(BaseGPUDeployment, SubprocessMixin):
         self.base_url = f"http://localhost:{self.PORT}"
 
     def _load(self, model_name: str) -> None:
-        """Start llama-server inside the container with the specified model."""
         from registry.config import Config
         from registry.models import ModelRegistry
 
@@ -111,6 +111,34 @@ class LLMDeployment(BaseGPUDeployment, SubprocessMixin):
             resp.raise_for_status()
             return resp.json()
 
-    async def __call__(self, request) -> dict:
-        body = await request.json()
-        return await self.chat(**body)
+    async def __call__(self, request):
+        """TNAP endpoint: {action, input: {messages, stream}, config}."""
+        if request.method == "GET":
+            return {"status": "ok", "model": self.model_name, "loaded": self.is_loaded()}
+
+        start = time.perf_counter()
+
+        try:
+            body = await request.json()
+            tnap_req, extracted = self.handle_request(body)
+
+            if not self.is_loaded():
+                return JSONResponse(self.handle_error("No model loaded"), status_code=500)
+
+            messages = extracted.get("messages", [])
+            stream = extracted.get("stream", False)
+
+            result = await self.chat(messages=messages, stream=stream)
+
+            latency_ms = int((time.perf_counter() - start) * 1000)
+            return JSONResponse(
+                self.handle_response(
+                    json.dumps(result).encode("utf-8"),
+                    "application/json",
+                    latency_ms,
+                    extra_metrics={"model": self.model_name, "stream": stream},
+                )
+            )
+        except Exception as e:
+            logger.error("llm error: %s", e)
+            return JSONResponse(self.handle_error(str(e)), status_code=500)
