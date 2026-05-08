@@ -5,6 +5,20 @@
 #
 # Build:
 #   docker build -f infra/docker/Dockerfile.gpu-all -t localhost/tech-noir/gpu-all:latest .
+
+# ── Stage 1: Build llama.cpp with CUDA (needs nvidia/cuda:devel for driver API) ──
+FROM nvidia/cuda:12.4.1-devel-ubuntu22.04 AS llama-builder
+RUN apt-get update && apt-get install -y --no-install-recommends git cmake build-essential && rm -rf /var/lib/apt/lists/*
+RUN git clone --depth 1 https://github.com/ggml-org/llama.cpp.git /tmp/llama.cpp && \
+    cd /tmp/llama.cpp && \
+    cmake -B build -DGGML_CUDA=ON -DLLAMA_CURL=OFF -DLLAMA_BUILD_EXAMPLES=OFF \
+        -DCMAKE_CUDA_ARCHITECTURES=89 \
+        -DCMAKE_CXX_STANDARD_LIBRARIES="-lcuda" \
+        -DCMAKE_EXE_LINKER_FLAGS="-L/usr/local/cuda-12.4/targets/x86_64-linux/lib/stubs -lcuda" \
+        -DCMAKE_SHARED_LINKER_FLAGS="-L/usr/local/cuda-12.4/targets/x86_64-linux/lib/stubs -lcuda" && \
+    cmake --build build -j$(nproc) --target llama-server llama-cli
+
+# ── Stage 2: Main image ─────────────────────────────────────────────────────────
 FROM tech-noir/ray-base:latest
 
 ENV DEBIAN_FRONTEND=noninteractive PYTHONUNBUFFERED=1 \
@@ -52,17 +66,11 @@ RUN git clone --recursive --depth 1 https://github.com/localai-org/vibevoice.cpp
     ldconfig && \
     rm -rf /tmp/vv-cpp
 
-# llama.cpp (C/C++ inference engine for GGUF models — LLM serving via llama-server)
-RUN git clone --depth 1 https://github.com/ggml-org/llama.cpp.git /tmp/llama.cpp && \
-    cd /tmp/llama.cpp && \
-    cmake -B build -DGGML_CUDA=ON -DLLAMA_CURL=OFF && \
-    cmake --build build -j$(nproc) && \
-    cp build/bin/llama-server /usr/local/bin/ && \
-    cp build/bin/llama-cli /usr/local/bin/ && \
-    (cp build/bin/llama-quantize /usr/local/bin/ || true) && \
-    find build -name "*.so*" -exec cp {} /usr/local/lib/ \; && \
-    ldconfig && \
-    rm -rf /tmp/llama.cpp
+# llama.cpp — copy from builder stage (compiled with CUDA in nvidia/cuda:devel)
+COPY --from=llama-builder /tmp/llama.cpp/build/bin/llama-server /usr/local/bin/
+COPY --from=llama-builder /tmp/llama.cpp/build/bin/llama-cli /usr/local/bin/
+COPY --from=llama-builder /tmp/llama.cpp/build/bin/lib* /usr/local/lib/
+RUN ldconfig
 
 # ── Stripped vendor code (COPY from vendor/, no git clone) ─────────────
 

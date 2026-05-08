@@ -19,7 +19,8 @@ llm:
     size_gb: 15.0
     vram_estimate_gb: 17.0
     device: gpu
-    ctx_size: 262144
+    ctx_size: 16384
+    parallel: 1
     mmproj_path: vision/mmproj-Qwen_Qwen3.6-27B-bf16.gguf
     description: Qwen 3.6 27B UD-IQ4_NL. Chat/reasoning LLM with vision. 256K context.
   gemma-4-26b-a4b-it-ud-iq4_nl:
