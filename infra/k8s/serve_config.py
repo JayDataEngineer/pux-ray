@@ -41,6 +41,11 @@ from services.llm.deployment import LLMDeployment
 
 llm = LLMDeployment.bind()
 
+# Playground UI (serves interactive HTML page + service metadata API)
+from gateway.playground_deployment import PlaygroundDeployment
+
+playground = PlaygroundDeployment.bind()
+
 # ─── Tier 3: Third-Class Citizens — not auto-deployed ──────────
 # moss_soundeffect handled by Master Router via /forge (not standalone).
 # Uncomment below to deploy individually for debugging.

@@ -21,6 +21,9 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 from starlette.routing import Route
 
+from gateway.dashboard import dashboard_page, dashboard_gpu_current, dashboard_gpu_history, dashboard_services
+from gateway.playground import playground_page, playground_services
+from gateway.studio import studio_page, studio_apps, studio_switch, studio_release
 from registry.config import Config
 from services.registry import SERVICE_REGISTRY, get_service, resolve_model
 
@@ -250,6 +253,19 @@ def create_app() -> Starlette:
         # Admin
         Route("/admin/load", ingress.load_model, methods=["POST"]),
         Route("/admin/unload", ingress.unload_all, methods=["POST"]),
+        # Dashboard (GPU metrics)
+        Route("/dashboard", dashboard_page),
+        Route("/dashboard/api/gpu", dashboard_gpu_current),
+        Route("/dashboard/api/gpu/history", dashboard_gpu_history),
+        Route("/dashboard/api/services", dashboard_services),
+        # Studio (GPU switching)
+        Route("/studio", studio_page),
+        Route("/studio/api/apps", studio_apps),
+        Route("/studio/api/switch", studio_switch, methods=["POST"]),
+        Route("/studio/api/release", studio_release, methods=["POST"]),
+        # Playground (interactive service UI)
+        Route("/playground", playground_page),
+        Route("/playground/api/services", playground_services),
     ]
 
     middleware = []
