@@ -7,25 +7,25 @@ Single entry point for all MCP services on the Tech Noir server.
 | MCP Server | Hub URL | Transport |
 |---|---|---|
 | Media Analysis | `https://cloud.tailb1e597.ts.net/mcp/media` | Streamable HTTP |
-| Web Research | `https://cloud.tailb1e597.ts.net/mcp/research` | Streamable HTTP |
+| Web Research | `https://cloud.tailb1e597.ts.net/mcp/web` | Streamable HTTP |
 
 LAN / Tailnet direct (same machine):
 
 | MCP Server | URL |
 |---|---|
 | Media Analysis | `http://192.168.1.184:30080/mcp/media` or `http://100.86.69.57:30080/mcp/media` |
-| Web Research | `http://192.168.1.184:30080/mcp/research` or `http://100.86.69.57:30080/mcp/research` |
+| Web Research | `http://192.168.1.184:30080/mcp/web` or `http://100.86.69.57:30080/mcp/web` |
 
 ## Connecting from Claude Code
 
 ```bash
 # Via Funnel (works from anywhere on the internet)
 claude mcp add media --transport http https://cloud.tailb1e597.ts.net/mcp/media
-claude mcp add research --transport http https://cloud.tailb1e597.ts.net/mcp/research
+claude mcp add web --transport http https://cloud.tailb1e597.ts.net/mcp/web
 
 # Via Tailnet (other machines on your tailscale network)
 claude mcp add media --transport http http://100.86.69.57:30080/mcp/media
-claude mcp add research --transport http http://100.86.69.57:30080/mcp/research
+claude mcp add web --transport http http://100.86.69.57:30080/mcp/web
 ```
 
 ## Connecting from Claude Desktop
@@ -38,9 +38,9 @@ In `claude_desktop_config.json`:
       "type": "http",
       "url": "https://cloud.tailb1e597.ts.net/mcp/media"
     },
-    "research": {
+    "web": {
       "type": "http",
-      "url": "https://cloud.tailb1e597.ts.net/mcp/research"
+      "url": "https://cloud.tailb1e597.ts.net/mcp/web"
     }
   }
 }
@@ -62,8 +62,8 @@ Client → https://cloud.tailb1e597.ts.net/mcp/media
 ```
 
 Routes:
-- `/mcp/media/*`    → Media Analysis MCP (image/audio/video analysis)
-- `/mcp/research/*` → Web Research MCP (web scraping, search)
+- `/mcp/media/*` → Media Analysis MCP (image/audio/video analysis)
+- `/mcp/web/*`   → Web Research MCP (web scraping, search)
 - `/llm/*`          → LLM (chat, vision)
 - `/tts/*`          → Text-to-speech services
 - `/forge/*`        → Master router (3D, music, image gen)

@@ -4,7 +4,7 @@
 #
 # Routing (port 30080 via Tailscale):
 #   /mcp/media   → Media Analysis MCP (mcp namespace)
-#   /mcp/research → Web Research MCP (mcp namespace)
+#   /mcp/web   → Web Research MCP (mcp namespace)
 #   /ray-dashboard/* → Ray Dashboard (ai-services namespace)
 #   /*               → Ray Serve (catch-all, ai-services namespace)
 #
@@ -78,10 +78,10 @@ spec:
       services:
         - name: media-analysis-mcp
           port: 8001
-    - match: PathPrefix(`/mcp/research`)
+    - match: PathPrefix(`/mcp/web`)
       kind: Rule
       middlewares:
-        - name: mcp-research-rewrite
+        - name: mcp-web-rewrite
       services:
         - name: web-research-mcp
           port: 8327
@@ -101,9 +101,9 @@ spec:
 apiVersion: traefik.io/v1alpha1
 kind: Middleware
 metadata:
-  name: mcp-research-rewrite
+  name: mcp-web-rewrite
   namespace: mcp
 spec:
   replacePathRegex:
-    regex: ^/mcp/research(/.*)?$
+    regex: ^/mcp/web(/.*)?$
     replacement: /mcp
