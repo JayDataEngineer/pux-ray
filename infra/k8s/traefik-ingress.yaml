@@ -1,14 +1,15 @@
-# NodePort services for external access to Ray Serve and Dashboard.
-# KubeRay manages the ClusterIP services; these patch them to NodePort
-# so external clients (Tailscale, local network) can reach them directly.
+# Traefik IngressRoutes — unified routing for Ray + MCP services
 #
-# Apply after RayService is running:
-#   kubectl apply -f infra/k8s/traefik-ingress.yaml
+# Apply: kubectl apply -f infra/k8s/traefik-ingress.yaml
 #
-# Ports:
-#   80     → Traefik → Ray Serve (all AI routes via PathPrefix)
-#   18080  → Ray Serve directly (bypass Traefik)
-#   18265  → Ray Dashboard
+# Routing (port 80 via Tailscale):
+#   /mcp/media-analysis/* → Media Analysis MCP (mcp namespace)
+#   /mcp/web-research/*   → Web Research MCP (mcp namespace)
+#   /ray-dashboard/*      → Ray Dashboard (ai-services namespace)
+#   /*                    → Ray Serve (catch-all, ai-services namespace)
+#
+# Direct access (bypass Traefik):
+#   18080 → Ray Serve     18265 → Ray Dashboard
 
 # Traefik IngressRoute — clean URLs on port 80
 apiVersion: traefik.io/v1alpha1
@@ -23,7 +24,7 @@ spec:
     - match: PathPrefix(`/`)
       kind: Rule
       services:
-        - name: tech-noir-ray-serve-svc
+        - name: ray-serve
           port: 8000
 
 ---
@@ -44,7 +45,6 @@ spec:
       services:
         - name: tech-noir-ray-head-svc
           port: 8265
-          scheme: http
 
 ---
 apiVersion: traefik.io/v1alpha1
@@ -56,3 +56,53 @@ spec:
   stripPrefix:
     prefixes:
       - /ray-dashboard
+
+---
+# ─── MCP Services (mcp namespace) ────────────────────────────────────
+# More specific prefixes match before the catch-all Ray route above.
+
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: mcp-ingress
+  namespace: mcp
+spec:
+  entryPoints:
+    - web
+  routes:
+    - match: PathPrefix(`/mcp/media-analysis`)
+      kind: Rule
+      middlewares:
+        - name: strip-mcp-media
+      services:
+        - name: media-analysis-mcp
+          port: 8001
+    - match: PathPrefix(`/mcp/web-research`)
+      kind: Rule
+      middlewares:
+        - name: strip-mcp-web
+      services:
+        - name: web-research-mcp
+          port: 8000
+
+---
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: strip-mcp-media
+  namespace: mcp
+spec:
+  stripPrefix:
+    prefixes:
+      - /mcp/media-analysis
+
+---
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: strip-mcp-web
+  namespace: mcp
+spec:
+  stripPrefix:
+    prefixes:
+      - /mcp/web-research
