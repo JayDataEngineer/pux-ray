@@ -36,6 +36,7 @@ logger = logging.getLogger(__name__)
             "env_vars": {
                 "HF_HUB_OFFLINE": "1",
                 "HF_HOME": "/models/hf_cache",
+                "HF_HUB_CACHE": "/models/hf_cache/hub",
                 "PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True",
             },
         },
@@ -65,18 +66,12 @@ class SeeThroughDeployment(BaseGPUDeployment):
                 f"See-Through code not found at /opt/seethrough or vendor/seethrough"
             )
 
-        # inference/scripts/ contains utils.inference_utils etc
-        inf_scripts = str(model_path / "inference" / "scripts")
-        if inf_scripts not in sys.path:
-            sys.path.insert(0, inf_scripts)
-
-        # Also keep vendor paths for local dev
-        vendor = str(Path(cfg.project_root) / "vendor")
-        if vendor not in sys.path:
-            sys.path.insert(0, vendor)
-        st_vendor = str(Path(cfg.project_root) / "vendor" / "seethrough")
-        if st_vendor not in sys.path:
-            sys.path.insert(0, st_vendor)
+        # The inference code lives under common/ — modules/ and utils/ are packages
+        # there. Both must be on sys.path for `from utils.inference_utils import ...`
+        # and `from modules.layerdiffuse...` to work.
+        common_dir = str(model_path / "common")
+        if common_dir not in sys.path:
+            sys.path.insert(0, common_dir)
 
         if self.config.low_resource:
             logger.info("See-Through LOW_RESOURCE mode — reduced steps, lower resolution")
