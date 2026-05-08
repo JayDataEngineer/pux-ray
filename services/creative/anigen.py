@@ -16,7 +16,6 @@ import time
 from pathlib import Path
 
 import torch
-from ray import serve
 from starlette.responses import JSONResponse
 
 from PIL import Image
@@ -26,23 +25,6 @@ from services.base import BaseGPUDeployment, InferenceConfig, _b64_decode
 logger = logging.getLogger(__name__)
 
 
-@serve.deployment(
-    name="anigen",
-    num_replicas=1,
-    max_ongoing_requests=1,
-    ray_actor_options={
-        "num_gpus": 0,
-        "num_cpus": 1,
-        "runtime_env": {
-            "env_vars": {
-                "FORCE_CUDA": "1",
-                "HF_HUB_OFFLINE": "1",
-                "HF_HOME": "/models/hf_cache",
-                "PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True",
-            },
-        },
-    },
-)
 class AniGenDeployment(BaseGPUDeployment):
     """AniGen image-to-3D via native PyTorch inference."""
 

@@ -54,6 +54,15 @@ spec:
             autoscaling_config: { min_replicas: 0, max_replicas: 1, downscale_delay_s: 30 }
             ray_actor_options: { num_gpus: 0.10 }
 
+      # LLM via llama.cpp (subprocess GGUF inference — loads model on first request)
+      - name: llm
+        import_path: serve_config:llm
+        route_prefix: /llm
+        deployments:
+          - name: llm
+            autoscaling_config: { min_replicas: 0, max_replicas: 1, downscale_delay_s: 60 }
+            ray_actor_options: { num_gpus: 0.25 }
+
       # Master Router: exclusive GPU for heavy services (trellis, ace_step, comfyui, hy_motion)
       # Swaps models explicitly in VRAM to prevent OOM on single 4090
       - name: master_router
