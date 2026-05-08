@@ -19,6 +19,7 @@ Reliable, tested, deployed by default. Registered in `infra/k8s/serve_config.py`
 | faster_qwen3_tts | GPU TTS | CUDA graph accelerated Qwen3-TTS 1.7B (5x faster than baseline) |
 | index_tts | GPU TTS | IndexTTS v2 neural voice cloning |
 | vibevoice_cpp | GPU TTS+ASR | vibevoice.cpp (C++/GGML) quantized TTS + ASR via subprocess |
+| llm | GPU LLM | llama.cpp server (GGUF models via subprocess) |
 
 **Master Router services** (exclusive GPU, explicit model swapping via `/forge`):
 
@@ -213,6 +214,7 @@ All proxied through the ingress at port 18080:
 | `/tts/index-tts/*` | IndexTTS (GPU) |
 | `/tts/vibevoice-cpp/*` | vibevoice.cpp TTS+ASR (GPU/CPU, quantized GGUF) |
 | `/asr/whisper/*` | Faster-Whisper (CPU) |
+| `/llm/*` | llama.cpp LLM (GPU, GGUF models) |
 
 ### Master Router (exclusive GPU, route `/forge`)
 Heavy GPU services share a single RTX 4090 via explicit model swapping. Send `{"service": "<name>", ...}` to `/forge`.

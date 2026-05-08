@@ -52,6 +52,18 @@ RUN git clone --recursive --depth 1 https://github.com/localai-org/vibevoice.cpp
     ldconfig && \
     rm -rf /tmp/vv-cpp
 
+# llama.cpp (C/C++ inference engine for GGUF models — LLM serving via llama-server)
+RUN git clone --depth 1 https://github.com/ggml-org/llama.cpp.git /tmp/llama.cpp && \
+    cd /tmp/llama.cpp && \
+    cmake -B build -DGGML_CUDA=ON -DLLAMA_CURL=OFF && \
+    cmake --build build -j$(nproc) && \
+    cp build/bin/llama-server /usr/local/bin/ && \
+    cp build/bin/llama-cli /usr/local/bin/ && \
+    (cp build/bin/llama-quantize /usr/local/bin/ || true) && \
+    find build -name "*.so*" -exec cp {} /usr/local/lib/ \; && \
+    ldconfig && \
+    rm -rf /tmp/llama.cpp
+
 # ── Stripped vendor code (COPY from vendor/, no git clone) ─────────────
 
 # TRELLIS.2 — trellis2 Python code
@@ -124,7 +136,7 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     pandas h5py tqdm psutil easydict \
     openai huggingface-hub \
     omegaconf click rich \
-    pyyaml pydantic starlette aiohttp requests \
+    pyyaml pydantic starlette aiohttp httpx requests \
     pygltflib geffnet igraph pymeshfix pyvista xatlas rtree \
     gradio==4.44.1 gradio_litmodel3d==0.0.1 \
     matplotlib tensorboard

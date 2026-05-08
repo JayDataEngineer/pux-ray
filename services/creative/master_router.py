@@ -29,11 +29,6 @@ HEAVY_SERVICES = {"trellis", "ace_step", "comfyui", "hy_motion", "moss_soundeffe
                    "anigen", "see_through"}
 
 
-def _undecorate(deployment):
-    """Extract the original class from a Ray Serve Deployment wrapper."""
-    return deployment.func_or_class
-
-
 @serve.deployment(
     name="master_router",
     num_replicas=1,
@@ -66,7 +61,7 @@ class MasterRouter:
         import importlib
         mod = importlib.import_module(module_path)
         deployment_obj = getattr(mod, class_name)
-        cls = _undecorate(deployment_obj)
+        cls = deployment_obj.func_or_class if hasattr(deployment_obj, 'func_or_class') else deployment_obj
         self._services[name] = cls()
         self._loaded[name] = False
         return self._services[name]

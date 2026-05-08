@@ -17,7 +17,6 @@ import time
 from pathlib import Path
 
 import torch
-from ray import serve
 from starlette.responses import JSONResponse
 
 from services.base import BaseGPUDeployment
@@ -25,23 +24,6 @@ from services.base import BaseGPUDeployment
 logger = logging.getLogger(__name__)
 
 
-@serve.deployment(
-    name="see_through",
-    num_replicas=1,
-    max_ongoing_requests=1,
-    ray_actor_options={
-        "num_gpus": 0,
-        "num_cpus": 1,
-        "runtime_env": {
-            "env_vars": {
-                "HF_HUB_OFFLINE": "1",
-                "HF_HOME": "/models/hf_cache",
-                "HF_HUB_CACHE": "/models/hf_cache/hub",
-                "PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True",
-            },
-        },
-    },
-)
 class SeeThroughDeployment(BaseGPUDeployment):
     """See-Through layer decomposition via native PyTorch inference."""
 

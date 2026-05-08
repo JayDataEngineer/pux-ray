@@ -36,6 +36,11 @@ vibevoice_cpp = VibeVoiceCppDeployment.bind()
 # trellis, ace_step, comfyui, hy_motion all go through this single deployment
 from services.creative.master_router import master_router
 
+# LLM via llama.cpp (subprocess — GGUF inference on GPU)
+from services.llm.deployment import LLMDeployment
+
+llm = LLMDeployment.bind()
+
 # ─── Tier 2: Second-Class Citizens (standalone, not auto-deployed) ──────────
 # florence2 — works but needs compat patches
 
