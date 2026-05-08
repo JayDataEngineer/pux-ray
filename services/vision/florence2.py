@@ -3,18 +3,23 @@
 0.77B parameter vision model. Captioning, object detection, segmentation,
 OCR, region grounding.
 Requires ~2GB VRAM.
+Conforms to TNAP: unified request/response protocol.
 """
 from __future__ import annotations
 
+import asyncio
+import base64
 import io
 import logging
 import os
+import time
 
 import torch
+from PIL import Image
 from ray import serve
 from starlette.responses import JSONResponse
 
-from services.base import BaseGPUDeployment, _free_cuda_cache
+from services.base import BaseGPUDeployment
 
 logger = logging.getLogger(__name__)
 
@@ -38,7 +43,16 @@ TASK_PROMPTS = {
     name="florence2",
     num_replicas=1,
     max_ongoing_requests=2,
-    ray_actor_options={"num_gpus": 0, "num_cpus": 0.5},
+    ray_actor_options={
+        "num_gpus": 0,
+        "num_cpus": 0.5,
+        "runtime_env": {
+            "env_vars": {
+                "HF_HUB_OFFLINE": "1",
+                "HF_HOME": "/models/hf_cache",
+            },
+        },
+    },
 )
 class Florence2Deployment(BaseGPUDeployment):
     """Florence-2 vision model."""
@@ -49,6 +63,11 @@ class Florence2Deployment(BaseGPUDeployment):
 
         from transformers import AutoProcessor, AutoModelForCausalLM
 
+        # Patch _supports_sdpa on all model classes to avoid attr errors
+        # with newer transformers that removed this attribute
+        import transformers.modeling_utils as _mu
+        _mu.PreTrainedModel._supports_sdpa = False
+
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
         self.torch_dtype = torch.float16 if torch.cuda.is_available() else torch.float32
 
@@ -57,7 +76,18 @@ class Florence2Deployment(BaseGPUDeployment):
             torch_dtype=self.torch_dtype,
             trust_remote_code=True,
             local_files_only=True,
+            attn_implementation="eager",
         ).to(self.device)
+
+        # Patch: model code accesses past_key_values[0][0].shape without None check
+        _orig_prep = type(self.model).prepare_inputs_for_generation
+        def _safe_prep(self_inner, *args, past_key_values=None, **kwargs):
+            kwargs["past_key_values"] = past_key_values
+            # If past_key_values is None, inject empty tuple to avoid AttributeError
+            if past_key_values is None:
+                kwargs["past_key_values"] = ()
+            return _orig_prep(self_inner, *args, **kwargs)
+        type(self.model).prepare_inputs_for_generation = _safe_prep
         self.processor = AutoProcessor.from_pretrained(
             MODEL_PATH, trust_remote_code=True, local_files_only=True,
         )
@@ -67,39 +97,12 @@ class Florence2Deployment(BaseGPUDeployment):
     def _unload(self) -> None:
         self.model = None
         self.processor = None
-        _free_cuda_cache()
+        super()._unload()
 
-    async def __call__(self, request):
-        if not self.is_loaded():
-            self.load_model("florence2-large-ft")
-
-        import base64
-        from PIL import Image
-
-        body = await request.json()
-        task = body.get("task", "caption")
-        task_prompt = TASK_PROMPTS.get(task, "<CAPTION>")
-
-        image_data = body.get("image")
-        if not image_data:
-            return JSONResponse({"error": "image is required"}, status_code=400)
-
-        text_input = body.get("text_input")
-
-        if image_data.startswith("http"):
-            import httpx
-            async with httpx.AsyncClient(timeout=60) as client:
-                resp = await client.get(image_data)
-                resp.raise_for_status()
-                image_bytes = resp.content
-        else:
-            image_bytes = base64.b64decode(image_data)
-
-        image = Image.open(io.BytesIO(image_bytes)).convert("RGB")
-
+    def _run_inference(self, image: "Image.Image", task_prompt: str, text_input: str | None) -> dict:
         prompt = task_prompt if text_input is None else task_prompt + text_input
         inputs = self.processor(text=prompt, images=image, return_tensors="pt").to(
-            self.device, self.torch_dtype
+            self.device, self.torch_dtype,
         )
 
         generated_ids = self.model.generate(
@@ -114,8 +117,56 @@ class Florence2Deployment(BaseGPUDeployment):
             generated_ids, skip_special_tokens=False,
         )[0]
 
-        parsed_answer = self.processor.post_process_generation(
+        return self.processor.post_process_generation(
             generated_text, task=task_prompt, image_size=(image.width, image.height),
         )
 
-        return JSONResponse(parsed_answer)
+    def _extract_input(self, inp) -> dict:
+        result = super()._extract_input(inp)
+        if inp.image_b64:
+            from services.base import _b64_decode
+            result["image"] = _b64_decode(inp.image_b64)
+        return result
+
+    async def __call__(self, request):
+        """TNAP endpoint: {action, input: {image_b64, task, text}, config}."""
+        if request.method == "GET":
+            return {"status": "ok", "model": self.model_name, "loaded": self.is_loaded()}
+
+        start = time.perf_counter()
+
+        try:
+            body = await request.json()
+            tnap_req, extracted = self.handle_request(body)
+
+            if not self.is_loaded():
+                await asyncio.to_thread(self.load_model, "florence2-large-ft")
+
+            image_bytes = extracted.get("image")
+            if not image_bytes:
+                return JSONResponse(self.handle_error("image_b64 required"), status_code=400)
+
+            task = extracted.get("task", "caption")
+            task_prompt = TASK_PROMPTS.get(task, "<CAPTION>")
+            text_input = extracted.get("text")
+
+            image = Image.open(io.BytesIO(image_bytes)).convert("RGB")
+            if image.width < 64 or image.height < 64:
+                image = image.resize((64, 64), Image.BILINEAR)
+
+            parsed_answer = await asyncio.to_thread(
+                self._run_inference, image, task_prompt, text_input
+            )
+
+            latency_ms = int((time.perf_counter() - start) * 1000)
+            return JSONResponse(
+                self.handle_response(
+                    str(parsed_answer).encode("utf-8"),
+                    "application/json",
+                    latency_ms,
+                    extra_metrics={"task": task},
+                )
+            )
+        except Exception as e:
+            logger.error("florence2 error: %s", e)
+            return JSONResponse(self.handle_error(str(e)), status_code=500)
