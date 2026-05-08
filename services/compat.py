@@ -103,3 +103,18 @@ def apply() -> None:
                 return type(arg).__name__
         _permissive_check._compat_patched = True
         _pu.ProcessorMixin.check_argument_for_proper_class = _permissive_check
+
+    # flash_attn → vllm_flash_attn alias (identical API, different wheel name)
+    # vllm-flash-attn provides the same flash_attn_func etc but as vllm_flash_attn module
+    if 'flash_attn' not in sys.modules:
+        try:
+            import importlib.machinery as _im
+            import vllm_flash_attn as _vfa
+            _fa = types.ModuleType('flash_attn')
+            for _attr in dir(_vfa):
+                if not _attr.startswith('_'):
+                    setattr(_fa, _attr, getattr(_vfa, _attr))
+            _fa.__spec__ = _im.ModuleSpec('flash_attn', None, origin='vllm_flash_attn')
+            sys.modules['flash_attn'] = _fa
+        except ImportError:
+            pass

@@ -61,11 +61,6 @@ from services.creative.master_router import master_router
 # from services.multimodal.phi4mm import Phi4MMDeployment
 # phi4mm = Phi4MMDeployment.bind()
 
-# from services.creative.anigen import AniGenDeployment
-# anigen = AniGenDeployment.bind()
-
-# from services.creative.see_through import SeeThroughDeployment
-# see_through = SeeThroughDeployment.bind()
 
 # from services.tts.qwen_tts_legacy import QwenTTSDeployment
 # qwen_tts = QwenTTSDeployment.bind()

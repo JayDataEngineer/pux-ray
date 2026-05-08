@@ -49,6 +49,9 @@ class SeeThroughDeployment(BaseGPUDeployment):
         self._pipelines_loaded = False
 
     def _load(self, model_name: str = "see-through") -> None:
+        from services.compat import apply as _apply_compat
+        _apply_compat()
+
         from registry.config import Config
 
         cfg = Config()
@@ -62,17 +65,18 @@ class SeeThroughDeployment(BaseGPUDeployment):
                 f"See-Through code not found at /opt/seethrough or vendor/seethrough"
             )
 
+        # inference/scripts/ contains utils.inference_utils etc
+        inf_scripts = str(model_path / "inference" / "scripts")
+        if inf_scripts not in sys.path:
+            sys.path.insert(0, inf_scripts)
+
+        # Also keep vendor paths for local dev
         vendor = str(Path(cfg.project_root) / "vendor")
         if vendor not in sys.path:
             sys.path.insert(0, vendor)
-
         st_vendor = str(Path(cfg.project_root) / "vendor" / "seethrough")
         if st_vendor not in sys.path:
             sys.path.insert(0, st_vendor)
-
-        inf_scripts = str(Path(cfg.project_root) / "vendor" / "seethrough" / "inference" / "scripts")
-        if inf_scripts not in sys.path:
-            sys.path.insert(0, inf_scripts)
 
         if self.config.low_resource:
             logger.info("See-Through LOW_RESOURCE mode — reduced steps, lower resolution")

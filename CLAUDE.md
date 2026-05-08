@@ -29,8 +29,10 @@ Reliable, tested, deployed by default. Registered in `infra/k8s/serve_config.py`
 | comfyui | GPU Image | ComfyUI 0.20.1, subprocess proxy |
 | hy_motion | GPU Motion | HY-Motion 1.0 text-to-3D motion |
 | moss_soundeffect | GPU Audio | MOSS-SoundEffect 8B text-to-sound |
+| anigen | GPU 3D | AniGen image-to-rigged-3D |
+| see_through | GPU Image | See-Through anime layer decomposition |
 
-The **Master Router** (`services/creative/master_router.py`) is infrastructure, not a service — it claims `num_gpus: 1.0` and explicitly `_load()`/`_unload()` heavy GPU models to prevent VRAM collisions on a single RTX 4090. Accessed via route `/forge` with `{"service": "trellis|ace_step|comfyui|hy_motion|moss_soundeffect", ...}`.
+The **Master Router** (`services/creative/master_router.py`) is infrastructure, not a service — it claims `num_gpus: 1.0` and explicitly `_load()`/`_unload()` heavy GPU models to prevent VRAM collisions on a single RTX 4090. Accessed via route `/forge` with `{"service": "trellis|ace_step|comfyui|hy_motion|moss_soundeffect|anigen|see_through", ...}`.
 
 ### Tier 2 — Second-Class Citizens (standalone, scale-to-zero)
 Working but not Ray-native. Standalone K8s Deployments, not in RayService.
@@ -48,8 +50,6 @@ Not auto-deployed. Commented out in `serve_config.py`. Uncomment for debugging.
 | qwen_asr | Old Qwen model, broken auto_map (replaced by vibevoice.cpp ASR) |
 | vibevoice_asr | Microsoft VibeVoice ASR (replaced by vibevoice.cpp) |
 | vibevoice (community) | 7B TTS, huge, times out |
-| anigen | Times out, model architecture issues |
-| see_through | Times out, complex pipeline |
 | phi4mm | Model not on PVC |
 
 ## Architecture: Ray-First, k3s + KubeRay
@@ -175,7 +175,7 @@ vendor/         → Upstream git clones (NEVER EDIT — adapt in services/)
 
 ### GPU Scheduling
 
-Only one heavy GPU model runs at a time (24GB VRAM). The **Master Router** (`services/creative/master_router.py`) claims `num_gpus: 1.0` and explicitly swaps heavy models (trellis, ace_step, comfyui, hy_motion) with `_load()`/`_unload()` + `torch.cuda.empty_cache()`. Lightweight GPU services (faster_qwen3_tts, index_tts, vibevoice_cpp) coexist with small VRAM footprints.
+Only one heavy GPU model runs at a time (24GB VRAM). The **Master Router** (`services/creative/master_router.py`) claims `num_gpus: 1.0` and explicitly swaps heavy models (trellis, ace_step, comfyui, hy_motion, moss_soundeffect, anigen, see_through) with `_load()`/`_unload()` + `torch.cuda.empty_cache()`. Lightweight GPU services (faster_qwen3_tts, index_tts, vibevoice_cpp) coexist with small VRAM footprints.
 
 ## Service Development
 
@@ -218,12 +218,14 @@ All proxied through the ingress at port 18080:
 Heavy GPU services share a single RTX 4090 via explicit model swapping. Send `{"service": "<name>", ...}` to `/forge`.
 
 | Service key | Description |
-|---|---|
+|---|---|---|
 | `trellis` | TRELLIS.2 image-to-3D mesh |
 | `ace_step` | ACE-Step 1.5 text-to-music |
 | `comfyui` | ComfyUI 0.20.1 image generation |
 | `hy_motion` | HY-Motion 1.0 text-to-3D motion |
 | `moss_soundeffect` | MOSS-SoundEffect 8B text-to-sound |
+| `anigen` | AniGen image-to-rigged-3D |
+| `see_through` | See-Through anime layer decomposition |
 
 ### Tier 2/3 (commented out in serve_config.py)
 | Route | Service |
@@ -234,9 +236,7 @@ Heavy GPU services share a single RTX 4090 via explicit model swapping. Send `{"
 | `/asr/vibevoice/*` | VibeVoice ASR (Tier 3, replaced by vibevoice.cpp) |
 | `/asr/qwen/*` | Qwen ASR (Tier 3) |
 | `/vision/florence2/*` | Florence-2 vision (Tier 2) |
-| `/3d/anigen/*` | AniGen (Tier 3) |
 | `/3d/hy-motion/*` | HY-Motion (Tier 3, now via master router) |
-| `/creative/see-through/*` | See-Through (Tier 3) |
 
 Auth: `X-API-Key` header or `?api_key=` query param. Unset = no auth (dev mode).
 

@@ -51,6 +51,9 @@ class AniGenDeployment(BaseGPUDeployment):
         self.pipeline = None
 
     def _load(self, model_name: str = "anigen") -> None:
+        from services.compat import apply as _apply_compat
+        _apply_compat()
+
         from registry.config import Config
         from registry.models import ModelRegistry
 
@@ -72,17 +75,43 @@ class AniGenDeployment(BaseGPUDeployment):
             logger.info("AniGen LOW_RESOURCE mode — fp16, reduced steps")
             self.config.precision = "fp16"
 
-        logger.info("Loading AniGen pipeline from %s", model_path)
+        os.environ.setdefault("SPCONV_DISABLE_JIT", "1")
+        os.environ.setdefault("ATTN_BACKEND", "sdpa")
+        os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+
+        # torch.hub.load in the pipeline uses ./ckpts/ relative to CWD.
+        # model_path already includes ckpts/ (from registry path). The actual
+        # ckpts dir with submodels is at model_path/ckpts/, so set CWD to
+        # model_path itself so that ./ckpts/ resolves to model_path/ckpts/.
+        old_cwd = os.getcwd()
+        os.chdir(str(model_path))
+
+        logger.info("Loading AniGen pipeline from %s (CWD=%s)", model_path, model_path)
+
+        # anigen/modules/sparse's backend detection calls
+        # importlib.util.find_spec('xformers.ops') which raises ModuleNotFoundError
+        # in Python 3.12+ when xformers itself is absent. Patch to return None.
+        import importlib.util as _iu
+        _orig_find_spec = _iu.find_spec
+        def _safe_find_spec(name, *args, **kwargs):
+            try:
+                return _orig_find_spec(name, *args, **kwargs)
+            except (ModuleNotFoundError, ValueError):
+                return None
+        _iu.find_spec = _safe_find_spec
 
         from anigen.pipelines import AnigenImageTo3DPipeline
 
-        ss_flow_path = str(model_path / "ckpts" / "anigen" / "ss_flow_duet")
-        slat_flow_path = str(model_path / "ckpts" / "anigen" / "slat_flow_auto")
+        ckpts_dir = str(model_path / "ckpts" / "anigen")
+        ss_flow_path = str(Path(ckpts_dir) / "ss_flow_duet")
+        slat_flow_path = str(Path(ckpts_dir) / "slat_flow_auto")
 
         self.pipeline = AnigenImageTo3DPipeline.from_pretrained(
             ss_flow_path=ss_flow_path,
             slat_flow_path=slat_flow_path,
         )
+
+        os.chdir(old_cwd)
 
         device = "cuda" if torch.cuda.is_available() else "cpu"
         self.pipeline.to(device)
