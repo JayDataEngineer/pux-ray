@@ -24,7 +24,7 @@ spec:
     - match: PathPrefix(`/`)
       kind: Rule
       services:
-        - name: ray-serve
+        - name: tech-noir-ray-serve-svc
           port: 8000
 
 ---

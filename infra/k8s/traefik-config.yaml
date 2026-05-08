@@ -16,7 +16,8 @@ spec:
     ports:
       web:
         port: 80
-        nodePort: 80
+        nodePort: 30080
+        http2: true
       websecure:
         port: 443
-        nodePort: 443
+        nodePort: 30443
