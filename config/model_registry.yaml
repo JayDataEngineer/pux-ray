@@ -861,10 +861,21 @@ audio:
     download: snapshot
     sha256: null
     size_gb: 33.5
-    vram_estimate_gb: 22.0
+    vram_estimate_gb: 18.0
     device: gpu
     description: MOSS-SoundEffect 8B text-to-sound model. Environmental sounds, urban
       scenes, creatures, human actions, music-like clips. Part of MOSS-TTS family.
+      Requires MOSS-Audio-Tokenizer (3.5B, loaded to CPU).
+  moss-audio-tokenizer:
+    path: audio/moss-audio-tokenizer/
+    source: hf://OpenMOSS-Team/MOSS-Audio-Tokenizer
+    download: snapshot
+    sha256: null
+    size_gb: 7.1
+    vram_estimate_gb: 0.0
+    device: cpu
+    description: MOSS Audio Tokenizer (3.5B). Audio codec for MOSS-SoundEffect.
+      Loaded to CPU to conserve VRAM.
   tangoflux:
     path: audio/tangoflux/
     source: hf://declare-lab/TangoFlux

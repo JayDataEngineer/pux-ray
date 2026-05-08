@@ -30,10 +30,6 @@ def _patch_transformers():
     from services.compat import apply
     apply()
 
-    import transformers.processing_utils as _pu
-    if not hasattr(_pu, "MODALITY_TO_BASE_CLASS_MAPPING"):
-        _pu.MODALITY_TO_BASE_CLASS_MAPPING = {}
-
 
 def _get_moss_model_class():
     """Import and return the MOSS model class with get_input_embeddings patched.
@@ -102,24 +98,95 @@ class MossSoundEffectDeployment(BaseGPUDeployment):
         # Pre-patch the model class before from_pretrained instantiates it
         _get_moss_model_class()
 
-        from transformers import AutoModel, AutoProcessor
+        from transformers import AutoConfig, AutoModel, AutoTokenizer
+        from transformers.dynamic_module_utils import get_class_from_dynamic_module
 
-        logger.info("Loading MOSS processor from %s", MODEL_PATH)
-        self.processor = AutoProcessor.from_pretrained(
-            MODEL_PATH,
-            trust_remote_code=True,
-            local_files_only=True,
-            codec_path=MODEL_PATH,
+        # Load processor manually to avoid transformers 5.x type-checking
+        # the audio_tokenizer against AutoModel (MossTTSDelayModel != AutoModel)
+        logger.info("Loading MOSS processor components from %s", MODEL_PATH)
+        config = AutoConfig.from_pretrained(
+            MODEL_PATH, trust_remote_code=True, local_files_only=True,
         )
-        self.processor.audio_tokenizer = self.processor.audio_tokenizer.to(self.device)
+        tokenizer = AutoTokenizer.from_pretrained(
+            MODEL_PATH, trust_remote_code=True, local_files_only=True,
+        )
+
+        # Audio tokenizer is a separate 3.5B model. Keep on CPU to save VRAM
+        # for the 8B main model (~16GB on 24GB card).
+        codec_path = os.environ.get(
+            "MOSS_AUDIO_TOKENIZER_PATH",
+            "/models/audio/moss-audio-tokenizer",
+        )
+        logger.info("Loading MOSS audio tokenizer from %s (CPU)", codec_path)
+        audio_tokenizer = AutoModel.from_pretrained(
+            codec_path, trust_remote_code=True, local_files_only=True,
+            device_map="cpu", torch_dtype=torch.float32,
+        )
+
+        # Get the processor class from the model's custom code.
+        # Construct manually — bypass super().__init__() because transformers 5.x
+        # ProcessorMixin insists on feature_extractor + type-checks audio_tokenizer
+        # against AutoModel (MossAudioTokenizerModel doesn't match).
+        proc_cls = get_class_from_dynamic_module(
+            "processing_moss_tts.MossTTSDelayProcessor",
+            MODEL_PATH, trust_remote_code=True,
+        )
+        processor = proc_cls.__new__(proc_cls)
+        processor.tokenizer = tokenizer
+        processor.audio_tokenizer = audio_tokenizer
+        if config is None:
+            from importlib import import_module
+            cfg_mod = import_module(
+                "transformers_modules.moss_hyphen_soundeffect.configuration_moss_tts"
+            )
+            config = cfg_mod.MossTTSDelayConfig()
+        processor.model_config = config
+
+        # Model config has pad_token_id=None — set it from the tokenizer
+        # so the processor's _pad can assign it during batching
+        if config.pad_token_id is None:
+            config.pad_token_id = tokenizer.pad_token_id
+
+        processor.imstart_token_id = tokenizer.convert_tokens_to_ids("<|im_start|>")
+        processor.imend_token_id = tokenizer.convert_tokens_to_ids("<|im_end|>")
+        processor.newline_token_id = 198
+
+        def _id_to_token(token_id):
+            tok = tokenizer.convert_ids_to_tokens(int(token_id))
+            if isinstance(tok, list):
+                return tok[0] if len(tok) > 0 else ""
+            return tok
+
+        processor.audio_user_slot_token = _id_to_token(
+            config.audio_user_slot_token_id
+        )
+        processor.audio_assistant_gen_slot_token = _id_to_token(
+            config.audio_assistant_gen_slot_token_id
+        )
+        processor.audio_assistant_delay_slot_token = _id_to_token(
+            config.audio_assistant_delay_slot_token_id
+        )
+        processor.audio_start_token = _id_to_token(config.audio_start_token_id)
+        processor.audio_end_token = _id_to_token(config.audio_end_token_id)
+        self.processor = processor
+
+        # MOSS's get_input_embeddings(input_ids) requires a positional arg,
+        # but transformers 5.x tie_weights() calls it without args during loading.
+        # Skip weight tying — MOSS has multi-head output so tying doesn't apply.
+        config.tie_word_embeddings = False
 
         logger.info("Loading MOSS model (%s) from %s", dtype, MODEL_PATH)
+        gc.collect()
+        torch.cuda.empty_cache()
+
         model = AutoModel.from_pretrained(
             MODEL_PATH,
+            config=config,
             trust_remote_code=True,
             torch_dtype=dtype,
             local_files_only=True,
-            device_map=self.device,
+            low_cpu_mem_usage=True,
+            device_map={"": 0} if self.device == "cuda" else None,
         )
         model.eval()
 
