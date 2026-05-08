@@ -6,7 +6,7 @@ metadata:
 spec:
   serveConfigV2: |
     applications:
-      # ─── CPU services (head node, always running) ─────────────────────
+      # ─── Tier 1: CPU services (head node, always running) ─────────────
       - name: kokoro_tts
         import_path: serve_config:kokoro_tts
         route_prefix: /tts/kokoro
@@ -17,145 +17,56 @@ spec:
         import_path: serve_config:faster_whisper
         route_prefix: /asr/whisper
 
-      # ─── GPU — gpu-services image ─────────────────────────────────────
-      - name: vibevoice_asr
-        import_path: serve_config:vibevoice_asr
-        route_prefix: /asr/vibevoice
+      # ─── Tier 1: GPU services (gpu-all worker, autoscaled) ────────────
+      - name: faster_qwen3_tts
+        import_path: serve_config:faster_qwen3_tts
+        route_prefix: /tts/faster-qwen3-tts
         deployments:
-          - name: vibevoice_asr
-            autoscaling_config: { min_replicas: 0, max_replicas: 1 }
-            ray_actor_options: { num_gpus: 0, resources: { "GPU_services": 0.01 } }
-      - name: qwen_asr
-        import_path: serve_config:qwen_asr
-        route_prefix: /asr/qwen
-        deployments:
-          - name: qwen_asr
-            autoscaling_config: { min_replicas: 0, max_replicas: 1 }
-            ray_actor_options: { num_gpus: 0, resources: { "GPU_services": 0.01 } }
+          - name: faster_qwen3_tts
+            autoscaling_config: { min_replicas: 0, max_replicas: 1, downscale_delay_s: 30 }
+            ray_actor_options: { num_gpus: 0.20 }
+
       - name: index_tts
         import_path: serve_config:index_tts
         route_prefix: /tts/index-tts
         deployments:
           - name: index_tts
-            autoscaling_config: { min_replicas: 0, max_replicas: 1 }
-            ray_actor_options: { num_gpus: 0, resources: { "GPU_services": 0.01 } }
+            autoscaling_config: { min_replicas: 0, max_replicas: 1, downscale_delay_s: 30 }
+            ray_actor_options: { num_gpus: 0.10 }
 
-      # ─── GPU — ComfyUI image ──────────────────────────────────────────
-      - name: comfyui
-        import_path: serve_config:comfyui
-        route_prefix: /comfyui
+      - name: vibevoice_cpp
+        import_path: serve_config:vibevoice_cpp
+        route_prefix: /tts/vibevoice-cpp
         deployments:
-          - name: comfyui
-            autoscaling_config: { min_replicas: 0, max_replicas: 1 }
-            ray_actor_options: { num_gpus: 0, resources: { "ComfyUI_worker": 0.01 } }
+          - name: vibevoice_cpp
+            autoscaling_config: { min_replicas: 0, max_replicas: 1, downscale_delay_s: 30 }
+            ray_actor_options: { num_gpus: 0.10 }
 
-      # ─── GPU — TRELLIS image ──────────────────────────────────────────
-      - name: trellis
-        import_path: serve_config:trellis
-        route_prefix: /3d/trellis
+      # Master Router: exclusive GPU for heavy services (trellis, ace_step, comfyui, hy_motion)
+      # Swaps models explicitly in VRAM to prevent OOM on single 4090
+      - name: master_router
+        import_path: serve_config:master_router
+        route_prefix: /forge
         deployments:
-          - name: trellis
-            autoscaling_config: { min_replicas: 0, max_replicas: 1 }
-            ray_actor_options: { num_gpus: 0, resources: { "TRELLIS_worker": 0.01 } }
+          - name: master_router
+            autoscaling_config: { min_replicas: 0, max_replicas: 1, downscale_delay_s: 30 }
+            ray_actor_options: { num_gpus: 1.0 }
 
-      # ─── GPU — HY-Motion image ────────────────────────────────────────
-      - name: hy_motion
-        import_path: serve_config:hy_motion
-        route_prefix: /3d/hy-motion
-        deployments:
-          - name: hy_motion
-            autoscaling_config: { min_replicas: 0, max_replicas: 1 }
-            ray_actor_options: { num_gpus: 0, resources: { "HYMotion_worker": 0.01 } }
+      # ─── Tier 2: Standalone (uncomment to enable individually) ──────
+      # - name: florence2
+      #   import_path: serve_config:florence2
+      #   route_prefix: /vision/florence2
 
-      # ─── GPU — AniGen image ───────────────────────────────────────────
-      - name: anigen
-        import_path: serve_config:anigen
-        route_prefix: /3d/anigen
-        deployments:
-          - name: anigen
-            autoscaling_config: { min_replicas: 0, max_replicas: 1 }
-            ray_actor_options: { num_gpus: 0, resources: { "AniGen_worker": 0.01 } }
-
-      # ─── GPU — ACE-Step image ─────────────────────────────────────────
-      - name: ace_step
-        import_path: serve_config:ace_step
-        route_prefix: /music/ace-step
-        deployments:
-          - name: ace_step
-            autoscaling_config: { min_replicas: 0, max_replicas: 1 }
-            ray_actor_options: { num_gpus: 0, resources: { "ACEStep_worker": 0.01 } }
-
-      # ─── GPU — See-Through image ──────────────────────────────────────
-      - name: see_through
-        import_path: serve_config:see_through
-        route_prefix: /creative/see-through
-        deployments:
-          - name: see_through
-            autoscaling_config: { min_replicas: 0, max_replicas: 1 }
-            ray_actor_options: { num_gpus: 0, resources: { "SeeThrough_worker": 0.01 } }
-
-      # ─── GPU — GPT-SoVITS image ───────────────────────────────────────
-      - name: gpt_sovits
-        import_path: serve_config:gpt_sovits
-        route_prefix: /tts/gpt-sovits
-        deployments:
-          - name: gpt_sovits
-            autoscaling_config: { min_replicas: 0, max_replicas: 1 }
-            ray_actor_options: { num_gpus: 0, resources: { "GPTSoVITS_worker": 0.01 } }
-
-      # ─── GPU — Qwen-TTS image ─────────────────────────────────────────
-      - name: qwen_tts
-        import_path: serve_config:qwen_tts
-        route_prefix: /tts/qwen-tts
-        deployments:
-          - name: qwen_tts
-            autoscaling_config: { min_replicas: 0, max_replicas: 1 }
-            ray_actor_options: { num_gpus: 0, resources: { "QwenTTS_worker": 0.01 } }
-
-      # ─── GPU — VibeVoice TTS image ────────────────────────────────────
-      - name: vibevoice
-        import_path: serve_config:vibevoice
-        route_prefix: /tts/vibevoice
-        deployments:
-          - name: vibevoice
-            autoscaling_config: { min_replicas: 0, max_replicas: 1 }
-            ray_actor_options: { num_gpus: 0, resources: { "VibeVoice_worker": 0.01 } }
-
-      # ─── GPU — MOSS-SFX image ─────────────────────────────────────────
-      - name: moss_sfx
-        import_path: serve_config:moss_sfx
-        route_prefix: /audio/moss-sfx
-        deployments:
-          - name: moss_soundeffect
-            autoscaling_config: { min_replicas: 0, max_replicas: 1 }
-            ray_actor_options: { num_gpus: 0, resources: { "MOSS_SFX_worker": 0.01 } }
-
-      # ─── GPU — TangoFlux image ────────────────────────────────────────
-      - name: tangoflux
-        import_path: serve_config:tangoflux
-        route_prefix: /audio/tangoflux
-        deployments:
-          - name: tangoflux
-            autoscaling_config: { min_replicas: 0, max_replicas: 1 }
-            ray_actor_options: { num_gpus: 0, resources: { "TangoFlux_worker": 0.01 } }
-
-      # ─── GPU — Florence-2 image ───────────────────────────────────────
-      - name: florence2
-        import_path: serve_config:florence2
-        route_prefix: /vision/florence2
-        deployments:
-          - name: florence2
-            autoscaling_config: { min_replicas: 0, max_replicas: 1 }
-            ray_actor_options: { num_gpus: 0, resources: { "Florence2_worker": 0.01 } }
-
-      # ─── GPU — Phi-4-MM image ─────────────────────────────────────────
-      - name: phi4mm
-        import_path: serve_config:phi4mm
-        route_prefix: /multimodal/phi4mm
-        deployments:
-          - name: phi4mm
-            autoscaling_config: { min_replicas: 0, max_replicas: 1 }
-            ray_actor_options: { num_gpus: 0, resources: { "Phi4MM_worker": 0.01 } }
+      # ─── Tier 3: Experimental (uncomment to enable individually) ──────
+      # - name: gpt_sovits
+      #   import_path: serve_config:gpt_sovits
+      #   route_prefix: /tts/gpt-sovits
+      # - name: moss_sfx
+      #   import_path: serve_config:moss_sfx
+      #   route_prefix: /audio/moss-sfx
+      # - name: vibevoice
+      #   import_path: serve_config:vibevoice
+      #   route_prefix: /tts/vibevoice
 
   rayClusterConfig:
     rayVersion: '2.55.1'
@@ -170,7 +81,7 @@ spec:
         spec:
           containers:
             - name: ray-head
-              image: localhost/tech-noir/gpu-services:latest
+              image: localhost/tech-noir/gpu-all:latest
               imagePullPolicy: Never
               ports:
                 - containerPort: 6379
@@ -179,6 +90,13 @@ spec:
                   name: dashboard
                 - containerPort: 8000
                   name: serve
+              env:
+                - name: HF_HOME
+                  value: /tmp/huggingface
+                - name: HF_HUB_CACHE
+                  value: /tmp/huggingface
+                - name: TECH_NOIR_MODELS_ROOT
+                  value: /models
               resources:
                 limits:
                   cpu: '4'
@@ -192,6 +110,21 @@ spec:
                 - name: models
                   mountPath: /models
                   readOnly: true
+                - name: src
+                  mountPath: /app/services
+                  subPath: services
+                - name: src
+                  mountPath: /app/gateway
+                  subPath: gateway
+                - name: src
+                  mountPath: /app/registry
+                  subPath: registry
+                - name: src
+                  mountPath: /app/sdk
+                  subPath: sdk
+                - name: src
+                  mountPath: /app/serve_config.py
+                  subPath: infra/k8s/serve_config.py
           volumes:
             - name: config
               configMap:
@@ -200,16 +133,19 @@ spec:
               persistentVolumeClaim:
                 claimName: models-pvc
                 readOnly: true
+            - name: src
+              hostPath:
+                path: /home/user/Documents/programs/ray
+                type: Directory
 
     workerGroupSpecs:
-      - groupName: gpu-services
-        replicas: 0
-        minReplicas: 0
+      - groupName: gpu-workers
+        replicas: 1
+        minReplicas: 1
         maxReplicas: 1
         idleTimeoutSeconds: 300
         rayStartParams:
           num-gpus: '1'
-          resources: '"{\"GPU_services\": 1}"'
         template:
           spec:
             initContainers:
@@ -217,17 +153,17 @@ spec:
                 image: localhost/tech-noir/model-sync:latest
                 imagePullPolicy: Never
                 env:
-                  - name: MODELS
-                    value: "asr.faster-whisper,asr.vibevoice-asr,tts.index-tts,tts.kokoro"
                   - name: MODELS_ROOT
                     value: /models
+                  - name: MODELS
+                    value: "audio.moss-soundeffect,vision_models.florence2-large-ft,tts.vibevoice-tts,tts.qwen3-tts,asr.vibevoice-asr"
                 volumeMounts:
                   - name: models
                     mountPath: /models
             runtimeClassName: nvidia
             containers:
               - name: ray-worker
-                image: localhost/tech-noir/gpu-services:latest
+                image: localhost/tech-noir/gpu-all:latest
                 imagePullPolicy: Never
                 readinessProbe:
                   exec:
@@ -235,10 +171,27 @@ spec:
                       - python3
                       - -c
                       - "import urllib.request; urllib.request.urlopen('http://localhost:52365/api/local_raylet_healthz')"
-                  initialDelaySeconds: 10
+                  initialDelaySeconds: 30
                   timeoutSeconds: 5
                   periodSeconds: 5
                   failureThreshold: 30
+                livenessProbe:
+                  exec:
+                    command:
+                      - python3
+                      - -c
+                      - "import urllib.request; urllib.request.urlopen('http://localhost:52365/api/local_raylet_healthz')"
+                  initialDelaySeconds: 120
+                  timeoutSeconds: 5
+                  periodSeconds: 10
+                  failureThreshold: 30
+                env:
+                  - name: HF_HOME
+                    value: /tmp/huggingface
+                  - name: HF_HUB_CACHE
+                    value: /tmp/huggingface
+                  - name: TECH_NOIR_MODELS_ROOT
+                    value: /models
                 resources:
                   limits:
                     nvidia.com/gpu: 1
@@ -254,6 +207,21 @@ spec:
                   - name: models
                     mountPath: /models
                     readOnly: true
+                  - name: src
+                    mountPath: /app/services
+                    subPath: services
+                  - name: src
+                    mountPath: /app/gateway
+                    subPath: gateway
+                  - name: src
+                    mountPath: /app/registry
+                    subPath: registry
+                  - name: src
+                    mountPath: /app/sdk
+                    subPath: sdk
+                  - name: src
+                    mountPath: /app/serve_config.py
+                    subPath: infra/k8s/serve_config.py
             volumes:
               - name: config
                 configMap:
@@ -261,720 +229,7 @@ spec:
               - name: models
                 persistentVolumeClaim:
                   claimName: models-pvc
-                  readOnly: true
-
-      - groupName: comfyui-workers
-        replicas: 0
-        minReplicas: 0
-        maxReplicas: 1
-        idleTimeoutSeconds: 300
-        rayStartParams:
-          num-gpus: '1'
-          resources: '"{\"ComfyUI_worker\": 1}"'
-        template:
-          spec:
-            initContainers:
-              - name: model-sync
-                image: localhost/tech-noir/model-sync:latest
-                imagePullPolicy: Never
-                env:
-                  - name: MODELS_CATEGORY
-                    value: "comfyui"
-                  - name: MODELS_ROOT
-                    value: /models
-                volumeMounts:
-                  - name: models
-                    mountPath: /models
-            runtimeClassName: nvidia
-            containers:
-              - name: ray-worker
-                image: localhost/tech-noir/comfyui:latest
-                imagePullPolicy: Never
-                readinessProbe:
-                  exec:
-                    command:
-                      - python3
-                      - -c
-                      - "import urllib.request; urllib.request.urlopen('http://localhost:52365/api/local_raylet_healthz')"
-                  initialDelaySeconds: 10
-                  timeoutSeconds: 5
-                  periodSeconds: 5
-                  failureThreshold: 30
-                resources:
-                  limits:
-                    nvidia.com/gpu: 1
-                    cpu: '4'
-                    memory: 24Gi
-                  requests:
-                    nvidia.com/gpu: 1
-                    cpu: '2'
-                    memory: 8Gi
-                volumeMounts:
-                  - name: models
-                    mountPath: /models
-                    readOnly: true
-            volumes:
-              - name: models
-                persistentVolumeClaim:
-                  claimName: models-pvc
-                  readOnly: true
-
-      - groupName: trellis-workers
-        replicas: 0
-        minReplicas: 0
-        maxReplicas: 1
-        idleTimeoutSeconds: 300
-        rayStartParams:
-          num-gpus: '1'
-          resources: '"{\"TRELLIS_worker\": 1}"'
-        template:
-          spec:
-            initContainers:
-              - name: model-sync
-                image: localhost/tech-noir/model-sync:latest
-                imagePullPolicy: Never
-                env:
-                  - name: MODELS
-                    value: "3d.trellis,3d.trellis_dinov3,3d.trellis_rmbg"
-                  - name: MODELS_ROOT
-                    value: /models
-                volumeMounts:
-                  - name: models
-                    mountPath: /models
-            runtimeClassName: nvidia
-            containers:
-              - name: ray-worker
-                image: localhost/tech-noir/trellis-spz:latest
-                imagePullPolicy: Never
-                readinessProbe:
-                  exec:
-                    command:
-                      - python3
-                      - -c
-                      - "import urllib.request; urllib.request.urlopen('http://localhost:52365/api/local_raylet_healthz')"
-                  initialDelaySeconds: 10
-                  timeoutSeconds: 5
-                  periodSeconds: 5
-                  failureThreshold: 30
-                resources:
-                  limits:
-                    nvidia.com/gpu: 1
-                    cpu: '4'
-                    memory: 24Gi
-                  requests:
-                    nvidia.com/gpu: 1
-                    cpu: '2'
-                    memory: 8Gi
-                volumeMounts:
-                  - name: models
-                    mountPath: /models
-                    readOnly: true
-            volumes:
-              - name: models
-                persistentVolumeClaim:
-                  claimName: models-pvc
-                  readOnly: true
-
-      - groupName: hymotion-workers
-        replicas: 0
-        minReplicas: 0
-        maxReplicas: 1
-        idleTimeoutSeconds: 300
-        rayStartParams:
-          num-gpus: '1'
-          resources: '"{\"HYMotion_worker\": 1}"'
-        template:
-          spec:
-            initContainers:
-              - name: model-sync
-                image: localhost/tech-noir/model-sync:latest
-                imagePullPolicy: Never
-                env:
-                  - name: MODELS
-                    value: "comfyui.hy-motion-1.0-lite,comfyui.hy-motion-clip"
-                  - name: MODELS_ROOT
-                    value: /models
-                volumeMounts:
-                  - name: models
-                    mountPath: /models
-            runtimeClassName: nvidia
-            containers:
-              - name: ray-worker
-                image: localhost/tech-noir/hymotion:latest
-                imagePullPolicy: Never
-                readinessProbe:
-                  exec:
-                    command:
-                      - python3
-                      - -c
-                      - "import urllib.request; urllib.request.urlopen('http://localhost:52365/api/local_raylet_healthz')"
-                  initialDelaySeconds: 10
-                  timeoutSeconds: 5
-                  periodSeconds: 5
-                  failureThreshold: 30
-                resources:
-                  limits:
-                    nvidia.com/gpu: 1
-                    cpu: '4'
-                    memory: 24Gi
-                  requests:
-                    nvidia.com/gpu: 1
-                    cpu: '2'
-                    memory: 8Gi
-                volumeMounts:
-                  - name: models
-                    mountPath: /models
-                    readOnly: true
-            volumes:
-              - name: models
-                persistentVolumeClaim:
-                  claimName: models-pvc
-                  readOnly: true
-
-      - groupName: anigen-workers
-        replicas: 0
-        minReplicas: 0
-        maxReplicas: 1
-        idleTimeoutSeconds: 300
-        rayStartParams:
-          num-gpus: '1'
-          resources: '"{\"AniGen_worker\": 1}"'
-        template:
-          spec:
-            initContainers:
-              - name: model-sync
-                image: localhost/tech-noir/model-sync:latest
-                imagePullPolicy: Never
-                env:
-                  - name: MODELS
-                    value: "3d.anigen"
-                  - name: MODELS_ROOT
-                    value: /models
-                volumeMounts:
-                  - name: models
-                    mountPath: /models
-            runtimeClassName: nvidia
-            containers:
-              - name: ray-worker
-                image: localhost/tech-noir/anigen:latest
-                imagePullPolicy: Never
-                readinessProbe:
-                  exec:
-                    command:
-                      - python3
-                      - -c
-                      - "import urllib.request; urllib.request.urlopen('http://localhost:52365/api/local_raylet_healthz')"
-                  initialDelaySeconds: 10
-                  timeoutSeconds: 5
-                  periodSeconds: 5
-                  failureThreshold: 30
-                resources:
-                  limits:
-                    nvidia.com/gpu: 1
-                    cpu: '4'
-                    memory: 24Gi
-                  requests:
-                    nvidia.com/gpu: 1
-                    cpu: '2'
-                    memory: 8Gi
-                volumeMounts:
-                  - name: models
-                    mountPath: /models
-                    readOnly: true
-            volumes:
-              - name: models
-                persistentVolumeClaim:
-                  claimName: models-pvc
-                  readOnly: true
-
-      - groupName: acestep-workers
-        replicas: 0
-        minReplicas: 0
-        maxReplicas: 1
-        idleTimeoutSeconds: 300
-        rayStartParams:
-          num-gpus: '1'
-          resources: '"{\"ACEStep_worker\": 1}"'
-        template:
-          spec:
-            initContainers:
-              - name: model-sync
-                image: localhost/tech-noir/model-sync:latest
-                imagePullPolicy: Never
-                env:
-                  - name: MODELS
-                    value: "audio.ace-step"
-                  - name: MODELS_ROOT
-                    value: /models
-                volumeMounts:
-                  - name: models
-                    mountPath: /models
-            runtimeClassName: nvidia
-            containers:
-              - name: ray-worker
-                image: localhost/tech-noir/acestep:latest
-                imagePullPolicy: Never
-                readinessProbe:
-                  exec:
-                    command:
-                      - python3
-                      - -c
-                      - "import urllib.request; urllib.request.urlopen('http://localhost:52365/api/local_raylet_healthz')"
-                  initialDelaySeconds: 10
-                  timeoutSeconds: 5
-                  periodSeconds: 5
-                  failureThreshold: 30
-                resources:
-                  limits:
-                    nvidia.com/gpu: 1
-                    cpu: '4'
-                    memory: 24Gi
-                  requests:
-                    nvidia.com/gpu: 1
-                    cpu: '2'
-                    memory: 8Gi
-                volumeMounts:
-                  - name: models
-                    mountPath: /models
-                    readOnly: true
-            volumes:
-              - name: models
-                persistentVolumeClaim:
-                  claimName: models-pvc
-                  readOnly: true
-
-      - groupName: seethrough-workers
-        replicas: 0
-        minReplicas: 0
-        maxReplicas: 1
-        idleTimeoutSeconds: 300
-        rayStartParams:
-          num-gpus: '1'
-          resources: '"{\"SeeThrough_worker\": 1}"'
-        template:
-          spec:
-            runtimeClassName: nvidia
-            containers:
-              - name: ray-worker
-                image: localhost/tech-noir/seethrough:latest
-                imagePullPolicy: Never
-                readinessProbe:
-                  exec:
-                    command:
-                      - python3
-                      - -c
-                      - "import urllib.request; urllib.request.urlopen('http://localhost:52365/api/local_raylet_healthz')"
-                  initialDelaySeconds: 10
-                  timeoutSeconds: 5
-                  periodSeconds: 5
-                  failureThreshold: 30
-                resources:
-                  limits:
-                    nvidia.com/gpu: 1
-                    cpu: '4'
-                    memory: 24Gi
-                  requests:
-                    nvidia.com/gpu: 1
-                    cpu: '2'
-                    memory: 8Gi
-                volumeMounts:
-                  - name: models
-                    mountPath: /models
-                    readOnly: true
-            volumes:
-              - name: models
-                persistentVolumeClaim:
-                  claimName: models-pvc
-                  readOnly: true
-
-      - groupName: gptsovits-workers
-        replicas: 0
-        minReplicas: 0
-        maxReplicas: 1
-        idleTimeoutSeconds: 300
-        rayStartParams:
-          num-gpus: '1'
-          resources: '"{\"GPTSoVITS_worker\": 1}"'
-        template:
-          spec:
-            initContainers:
-              - name: model-sync
-                image: localhost/tech-noir/model-sync:latest
-                imagePullPolicy: Never
-                env:
-                  - name: MODELS
-                    value: "tts.gpt-sovits"
-                  - name: MODELS_ROOT
-                    value: /models
-                volumeMounts:
-                  - name: models
-                    mountPath: /models
-            runtimeClassName: nvidia
-            containers:
-              - name: ray-worker
-                image: localhost/tech-noir/gptsovits:latest
-                imagePullPolicy: Never
-                readinessProbe:
-                  exec:
-                    command:
-                      - python3
-                      - -c
-                      - "import urllib.request; urllib.request.urlopen('http://localhost:52365/api/local_raylet_healthz')"
-                  initialDelaySeconds: 10
-                  timeoutSeconds: 5
-                  periodSeconds: 5
-                  failureThreshold: 30
-                resources:
-                  limits:
-                    nvidia.com/gpu: 1
-                    cpu: '4'
-                    memory: 24Gi
-                  requests:
-                    nvidia.com/gpu: 1
-                    cpu: '2'
-                    memory: 8Gi
-                volumeMounts:
-                  - name: models
-                    mountPath: /models
-                    readOnly: true
-            volumes:
-              - name: models
-                persistentVolumeClaim:
-                  claimName: models-pvc
-                  readOnly: true
-
-      - groupName: qwen-tts-workers
-        replicas: 0
-        minReplicas: 0
-        maxReplicas: 1
-        idleTimeoutSeconds: 300
-        rayStartParams:
-          num-gpus: '1'
-          resources: '"{\"QwenTTS_worker\": 1}"'
-        template:
-          spec:
-            initContainers:
-              - name: model-sync
-                image: localhost/tech-noir/model-sync:latest
-                imagePullPolicy: Never
-                env:
-                  - name: MODELS
-                    value: "tts.qwen3-tts"
-                  - name: MODELS_ROOT
-                    value: /models
-                volumeMounts:
-                  - name: models
-                    mountPath: /models
-            runtimeClassName: nvidia
-            containers:
-              - name: ray-worker
-                image: localhost/tech-noir/qwen-tts:latest
-                imagePullPolicy: Never
-                readinessProbe:
-                  exec:
-                    command:
-                      - python3
-                      - -c
-                      - "import urllib.request; urllib.request.urlopen('http://localhost:52365/api/local_raylet_healthz')"
-                  initialDelaySeconds: 10
-                  timeoutSeconds: 5
-                  periodSeconds: 5
-                  failureThreshold: 30
-                resources:
-                  limits:
-                    nvidia.com/gpu: 1
-                    cpu: '4'
-                    memory: 24Gi
-                  requests:
-                    nvidia.com/gpu: 1
-                    cpu: '2'
-                    memory: 8Gi
-                volumeMounts:
-                  - name: models
-                    mountPath: /models
-                    readOnly: true
-            volumes:
-              - name: models
-                persistentVolumeClaim:
-                  claimName: models-pvc
-                  readOnly: true
-
-      - groupName: vibevoice-workers
-        replicas: 0
-        minReplicas: 0
-        maxReplicas: 1
-        idleTimeoutSeconds: 300
-        rayStartParams:
-          num-gpus: '1'
-          resources: '"{\"VibeVoice_worker\": 1}"'
-        template:
-          spec:
-            initContainers:
-              - name: model-sync
-                image: localhost/tech-noir/model-sync:latest
-                imagePullPolicy: Never
-                env:
-                  - name: MODELS
-                    value: "tts.vibevoice-tts"
-                  - name: MODELS_ROOT
-                    value: /models
-                volumeMounts:
-                  - name: models
-                    mountPath: /models
-            runtimeClassName: nvidia
-            containers:
-              - name: ray-worker
-                image: localhost/tech-noir/vibevoice:latest
-                imagePullPolicy: Never
-                readinessProbe:
-                  exec:
-                    command:
-                      - python3
-                      - -c
-                      - "import urllib.request; urllib.request.urlopen('http://localhost:52365/api/local_raylet_healthz')"
-                  initialDelaySeconds: 10
-                  timeoutSeconds: 5
-                  periodSeconds: 5
-                  failureThreshold: 30
-                resources:
-                  limits:
-                    nvidia.com/gpu: 1
-                    cpu: '4'
-                    memory: 24Gi
-                  requests:
-                    nvidia.com/gpu: 1
-                    cpu: '2'
-                    memory: 8Gi
-                volumeMounts:
-                  - name: models
-                    mountPath: /models
-                    readOnly: true
-            volumes:
-              - name: models
-                persistentVolumeClaim:
-                  claimName: models-pvc
-                  readOnly: true
-
-      - groupName: moss-sfx-workers
-        replicas: 0
-        minReplicas: 0
-        maxReplicas: 1
-        idleTimeoutSeconds: 300
-        rayStartParams:
-          num-gpus: '1'
-          resources: '"{\"MOSS_SFX_worker\": 1}"'
-        template:
-          spec:
-            initContainers:
-              - name: model-sync
-                image: localhost/tech-noir/model-sync:latest
-                imagePullPolicy: Never
-                env:
-                  - name: MODELS
-                    value: "audio.moss-soundeffect"
-                  - name: MODELS_ROOT
-                    value: /models
-                volumeMounts:
-                  - name: models
-                    mountPath: /models
-            runtimeClassName: nvidia
-            containers:
-              - name: ray-worker
-                image: localhost/tech-noir/moss-sfx:latest
-                imagePullPolicy: Never
-                readinessProbe:
-                  exec:
-                    command:
-                      - python3
-                      - -c
-                      - "import urllib.request; urllib.request.urlopen('http://localhost:52365/api/local_raylet_healthz')"
-                  initialDelaySeconds: 10
-                  timeoutSeconds: 5
-                  periodSeconds: 5
-                  failureThreshold: 30
-                resources:
-                  limits:
-                    nvidia.com/gpu: 1
-                    cpu: '4'
-                    memory: 24Gi
-                  requests:
-                    nvidia.com/gpu: 1
-                    cpu: '2'
-                    memory: 8Gi
-                volumeMounts:
-                  - name: models
-                    mountPath: /models
-                    readOnly: true
-            volumes:
-              - name: models
-                persistentVolumeClaim:
-                  claimName: models-pvc
-                  readOnly: true
-
-      - groupName: tangoflux-workers
-        replicas: 0
-        minReplicas: 0
-        maxReplicas: 1
-        idleTimeoutSeconds: 300
-        rayStartParams:
-          num-gpus: '1'
-          resources: '"{\"TangoFlux_worker\": 1}"'
-        template:
-          spec:
-            initContainers:
-              - name: model-sync
-                image: localhost/tech-noir/model-sync:latest
-                imagePullPolicy: Never
-                env:
-                  - name: MODELS
-                    value: "audio.tangoflux"
-                  - name: MODELS_ROOT
-                    value: /models
-                volumeMounts:
-                  - name: models
-                    mountPath: /models
-            runtimeClassName: nvidia
-            containers:
-              - name: ray-worker
-                image: localhost/tech-noir/tangoflux:latest
-                imagePullPolicy: Never
-                readinessProbe:
-                  exec:
-                    command:
-                      - python3
-                      - -c
-                      - "import urllib.request; urllib.request.urlopen('http://localhost:52365/api/local_raylet_healthz')"
-                  initialDelaySeconds: 10
-                  timeoutSeconds: 5
-                  periodSeconds: 5
-                  failureThreshold: 30
-                resources:
-                  limits:
-                    nvidia.com/gpu: 1
-                    cpu: '4'
-                    memory: 24Gi
-                  requests:
-                    nvidia.com/gpu: 1
-                    cpu: '2'
-                    memory: 8Gi
-                volumeMounts:
-                  - name: models
-                    mountPath: /models
-                    readOnly: true
-            volumes:
-              - name: models
-                persistentVolumeClaim:
-                  claimName: models-pvc
-                  readOnly: true
-
-      - groupName: florence2-workers
-        replicas: 0
-        minReplicas: 0
-        maxReplicas: 1
-        idleTimeoutSeconds: 300
-        rayStartParams:
-          num-gpus: '1'
-          resources: '"{\"Florence2_worker\": 1}"'
-        template:
-          spec:
-            initContainers:
-              - name: model-sync
-                image: localhost/tech-noir/model-sync:latest
-                imagePullPolicy: Never
-                env:
-                  - name: MODELS
-                    value: "vision_models.florence2-large-ft"
-                  - name: MODELS_ROOT
-                    value: /models
-                volumeMounts:
-                  - name: models
-                    mountPath: /models
-            runtimeClassName: nvidia
-            containers:
-              - name: ray-worker
-                image: localhost/tech-noir/florence2:latest
-                imagePullPolicy: Never
-                readinessProbe:
-                  exec:
-                    command:
-                      - python3
-                      - -c
-                      - "import urllib.request; urllib.request.urlopen('http://localhost:52365/api/local_raylet_healthz')"
-                  initialDelaySeconds: 10
-                  timeoutSeconds: 5
-                  periodSeconds: 5
-                  failureThreshold: 30
-                resources:
-                  limits:
-                    nvidia.com/gpu: 1
-                    cpu: '4'
-                    memory: 24Gi
-                  requests:
-                    nvidia.com/gpu: 1
-                    cpu: '2'
-                    memory: 8Gi
-                volumeMounts:
-                  - name: models
-                    mountPath: /models
-                    readOnly: true
-            volumes:
-              - name: models
-                persistentVolumeClaim:
-                  claimName: models-pvc
-                  readOnly: true
-
-      - groupName: phi4mm-workers
-        replicas: 0
-        minReplicas: 0
-        maxReplicas: 1
-        idleTimeoutSeconds: 300
-        rayStartParams:
-          num-gpus: '1'
-          resources: '"{\"Phi4MM_worker\": 1}"'
-        template:
-          spec:
-            initContainers:
-              - name: model-sync
-                image: localhost/tech-noir/model-sync:latest
-                imagePullPolicy: Never
-                env:
-                  - name: MODELS
-                    value: "multimodal.phi4-multimodal"
-                  - name: MODELS_ROOT
-                    value: /models
-                volumeMounts:
-                  - name: models
-                    mountPath: /models
-            runtimeClassName: nvidia
-            containers:
-              - name: ray-worker
-                image: localhost/tech-noir/phi4mm:latest
-                imagePullPolicy: Never
-                readinessProbe:
-                  exec:
-                    command:
-                      - python3
-                      - -c
-                      - "import urllib.request; urllib.request.urlopen('http://localhost:52365/api/local_raylet_healthz')"
-                  initialDelaySeconds: 10
-                  timeoutSeconds: 5
-                  periodSeconds: 5
-                  failureThreshold: 30
-                resources:
-                  limits:
-                    nvidia.com/gpu: 1
-                    cpu: '4'
-                    memory: 24Gi
-                  requests:
-                    nvidia.com/gpu: 1
-                    cpu: '2'
-                    memory: 8Gi
-                volumeMounts:
-                  - name: models
-                    mountPath: /models
-                    readOnly: true
-            volumes:
-              - name: models
-                persistentVolumeClaim:
-                  claimName: models-pvc
-                  readOnly: true
+              - name: src
+                hostPath:
+                  path: /home/user/Documents/programs/ray
+                  type: Directory

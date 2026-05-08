@@ -24,6 +24,13 @@ config/local.yaml
 infra/*.env
 !infra/*.env.example
 
+# Cloned vendor repos (upstream code, never edited)
+vendor/
+stats
+
+# Build artifacts (compiled extensions, cached builds)
+infra/build/
+
 # Cloned repos (managed by git-sync in docker compose)
 infra/repos/
 

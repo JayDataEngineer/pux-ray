@@ -134,7 +134,7 @@ register(Service(
     port=18265,
     health_url="http://127.0.0.1:18265",
     relative_to_root=True,
-    label="Ray Cluster",
+    label="Ray Cluster (KubeRay)",
 ))
 
 register(Service(
@@ -156,52 +156,6 @@ register(Service(
     depends_on=["ray-serve"],
     relative_to_root=True,
     label="API Ingress",
-))
-
-
-# --- Docker worker containers (CUDA-heavy creative tools) ---
-
-_DOCKER_WORKERS_DIR = str(get_project_root() / "infra" / "docker")
-_DOCKER_WORKERS_COMPOSE = "compose.workers.yaml"
-
-register(Service(
-    name="trellis-worker",
-    type=ServiceType.DOCKER,
-    working_dir=_DOCKER_WORKERS_DIR,
-    compose_file=_DOCKER_WORKERS_COMPOSE,
-    compose_profile="trellis",
-    port=18401,
-    label="TRELLIS.2 Worker",
-))
-
-register(Service(
-    name="anigen-worker",
-    type=ServiceType.DOCKER,
-    working_dir=_DOCKER_WORKERS_DIR,
-    compose_file=_DOCKER_WORKERS_COMPOSE,
-    compose_profile="anigen",
-    port=18402,
-    label="AniGen Worker",
-))
-
-register(Service(
-    name="vibevoice-worker",
-    type=ServiceType.DOCKER,
-    working_dir=_DOCKER_WORKERS_DIR,
-    compose_file=_DOCKER_WORKERS_COMPOSE,
-    compose_profile="vibevoice",
-    port=18403,
-    label="VibeVoice TTS Worker",
-))
-
-register(Service(
-    name="qwen-tts-worker",
-    type=ServiceType.DOCKER,
-    working_dir=_DOCKER_WORKERS_DIR,
-    compose_file=_DOCKER_WORKERS_COMPOSE,
-    compose_profile="qwen-tts",
-    port=18405,
-    label="Qwen3-TTS Worker",
 ))
 
 

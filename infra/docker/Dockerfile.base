@@ -1,20 +1,19 @@
 # Tech Noir Ray Base — golden GPU service base image.
-# CUDA 12.4.1 toolkit + PyTorch 2.6.0 (PyPI, ships CUDA 12.4) + ray + compiled kernels.
+# CUDA 12.4.1 toolkit + Python 3.12 + PyTorch 2.6.0 (PyPI, ships CUDA 12.4) + ray + compiled kernels.
 #
 # Why not NGC PyTorch:
-#   NGC images require accepting NVIDIA's container license (not open source).
-#   Default PyPI torch 2.6.0 ships with CUDA 12.4 — no special index needed.
+#   NGC PyTorch 25.02 has broken torchaudio (ABI mismatch: torch_library_impl undefined).
+#   Custom build from PyPI guarantees matching torch/torchaudio/torchvision versions.
 #
 # Flash attention: vllm-flash-attn (open source, compiled against PyPI torch ABI).
 #   The official flash-attn wheels have CXX11 ABI mismatch with PyPI torch.
 #   vllm-flash-attn solves this and provides the same API.
-#   Services that do `import flash_attn` fall back to PyTorch SDPA automatically.
 #
 # All GPU service Dockerfiles inherit from this via:
 #   FROM tech-noir/ray-base:latest
 #
 # Build:
-#   podman build -f infra/docker/Dockerfile.base -t tech-noir/ray-base:latest .
+#   docker build -f infra/docker/Dockerfile.base -t tech-noir/ray-base:latest .
 FROM nvidia/cuda:12.4.1-devel-ubuntu22.04
 
 ENV DEBIAN_FRONTEND=noninteractive PYTHONUNBUFFERED=1 \
@@ -60,7 +59,25 @@ RUN git clone --depth 1 https://github.com/NVlabs/nvdiffrast.git /tmp/nvdiffrast
 # Common ML utilities across all services
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv pip install transformers accelerate pillow einops numpy soundfile scipy \
-    fastapi "uvicorn[standard]" python-multipart httpx
+    fastapi "uvicorn[standard]" python-multipart httpx \
+    imageio trimesh plyfile easydict kornia timm safetensors
+
+# TRELLIS.2 CUDA dependencies — cumesh, flex_gemm, o_voxel
+# Built from source to match torch ABI
+RUN git clone --depth 1 --recursive https://github.com/JeffreyXiang/CuMesh.git /tmp/cumesh && \
+    cd /tmp/cumesh && \
+    uv pip install . --no-build-isolation && \
+    rm -rf /tmp/cumesh
+
+RUN git clone --depth 1 --recursive https://github.com/JeffreyXiang/FlexGEMM.git /tmp/flexgemm && \
+    cd /tmp/flexgemm && \
+    uv pip install . --no-build-isolation && \
+    rm -rf /tmp/flexgemm
+
+RUN git clone --depth 1 https://github.com/JayDataEngineer/trellis2-inference.git /tmp/trellis2 && \
+    cd /tmp/trellis2/o-voxel && \
+    uv pip install . --no-build-isolation && \
+    rm -rf /tmp/trellis2
 
 # Verify
 RUN python3 -c "\
@@ -69,4 +86,7 @@ import torchaudio; print(f'torchaudio {torchaudio.__version__}'); \
 import torchvision; print(f'torchvision {torchvision.__version__}'); \
 import vllm_flash_attn; print(f'vllm_flash_attn {vllm_flash_attn.__version__}'); \
 import nvdiffrast; print('nvdiffrast OK'); \
+import o_voxel; print('o_voxel OK'); \
+import cumesh; print('cumesh OK'); \
+import flex_gemm; print('flex_gemm OK'); \
 import ray; print(f'ray {ray.__version__}')"

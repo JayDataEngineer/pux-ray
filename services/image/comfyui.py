@@ -42,7 +42,7 @@ class ComfyUIDeployment(BaseGPUDeployment, SubprocessProxyMixin):
                  "--use-split-cross-attention"],
             port=self.PORT,
             health_path="/",
-            timeout=600,
+            timeout=900,
             cwd="/opt/ComfyUI",
         )
         self.model = True
