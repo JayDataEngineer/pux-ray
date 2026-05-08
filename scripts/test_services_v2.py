@@ -87,7 +87,6 @@ def main():
 
     if args.tier2 or args.all:
         print("\n--- Tier 2: Second-Class Citizens ---")
-        test("florence2", f"{BASE}/vision/florence2/", {"action": "generate", "input": {"image_b64": IMG}}, T)
 
     if args.all:
         print("\n--- Tier 3: Experimental ---")

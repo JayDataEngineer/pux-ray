@@ -41,17 +41,12 @@ from services.llm.deployment import LLMDeployment
 
 llm = LLMDeployment.bind()
 
-# ─── Tier 2: Second-Class Citizens (standalone, not auto-deployed) ──────────
-# florence2 — works but needs compat patches
-
-# ─── Tier 3: Third-Class Citizens (broken / experimental / reference only) ──
-# Uncomment to deploy individually for debugging.
+# ─── Tier 3: Third-Class Citizens — not auto-deployed ──────────
+# moss_soundeffect handled by Master Router via /forge (not standalone).
+# Uncomment below to deploy individually for debugging.
 
 # from services.tts.gpt_sovits import GPTSoVITSDeployment
 # gpt_sovits = GPTSoVITSDeployment.bind()
-
-# from services.audio.moss_soundeffect import MossSoundEffectDeployment
-# moss_sfx = MossSoundEffectDeployment.bind()
 
 # from services.asr.gpu_asr import VibeVoiceASRDeployment, QwenASRDeployment
 # vibevoice_asr = VibeVoiceASRDeployment.bind()
@@ -60,8 +55,6 @@ llm = LLMDeployment.bind()
 # from services.tts.vibe_voice import VibeVoiceDeployment
 # vibevoice = VibeVoiceDeployment.bind()
 
-# from services.vision.florence2 import Florence2Deployment
-# florence2 = Florence2Deployment.bind()
 
 # from services.multimodal.phi4mm import Phi4MMDeployment
 # phi4mm = Phi4MMDeployment.bind()

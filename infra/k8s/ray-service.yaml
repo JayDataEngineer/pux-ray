@@ -73,12 +73,8 @@ spec:
             autoscaling_config: { min_replicas: 0, max_replicas: 1, downscale_delay_s: 30 }
             ray_actor_options: { num_gpus: 1.0 }
 
-      # ─── Tier 2: Standalone (uncomment to enable individually) ──────
-      # - name: florence2
-      #   import_path: serve_config:florence2
-      #   route_prefix: /vision/florence2
-
       # ─── Tier 3: Experimental (uncomment to enable individually) ──────
+      # moss_soundeffect is served through master_router at /forge (not standalone).
       # - name: gpt_sovits
       #   import_path: serve_config:gpt_sovits
       #   route_prefix: /tts/gpt-sovits
@@ -177,7 +173,7 @@ spec:
                   - name: MODELS_ROOT
                     value: /models
                   - name: MODELS
-                    value: "audio.moss-soundeffect,vision_models.florence2-large-ft,tts.vibevoice-tts,tts.qwen3-tts,asr.vibevoice-asr"
+                    value: "audio.moss-soundeffect,tts.vibevoice-tts,tts.qwen3-tts,asr.vibevoice-asr"
                 volumeMounts:
                   - name: models
                     mountPath: /models

@@ -22,7 +22,8 @@ from services.base import BaseGPUDeployment
 
 logger = logging.getLogger(__name__)
 
-MODEL_PATH = os.environ.get("MOSS_SFX_MODEL_PATH", "/models/audio/moss-soundeffect")
+MODELS_ROOT = os.environ.get("TECH_NOIR_MODELS_ROOT", "/home/user/Documents/models")
+MODEL_PATH = os.environ.get("MOSS_SFX_MODEL_PATH", os.path.join(MODELS_ROOT, "audio/moss-soundeffect"))
 
 
 def _patch_transformers():
@@ -115,7 +116,7 @@ class MossSoundEffectDeployment(BaseGPUDeployment):
         # for the 8B main model (~16GB on 24GB card).
         codec_path = os.environ.get(
             "MOSS_AUDIO_TOKENIZER_PATH",
-            "/models/audio/moss-audio-tokenizer",
+            os.path.join(MODELS_ROOT, "audio/moss-audio-tokenizer"),
         )
         logger.info("Loading MOSS audio tokenizer from %s (CPU)", codec_path)
         audio_tokenizer = AutoModel.from_pretrained(

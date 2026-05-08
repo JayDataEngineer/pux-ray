@@ -35,13 +35,6 @@ Reliable, tested, deployed by default. Registered in `infra/k8s/serve_config.py`
 
 The **Master Router** (`services/creative/master_router.py`) is infrastructure, not a service — it claims `num_gpus: 1.0` and explicitly `_load()`/`_unload()` heavy GPU models to prevent VRAM collisions on a single RTX 4090. Accessed via route `/forge` with `{"service": "trellis|ace_step|comfyui|hy_motion|moss_soundeffect|anigen|see_through", ...}`.
 
-### Tier 2 — Second-Class Citizens (standalone, scale-to-zero)
-Working but not Ray-native. Standalone K8s Deployments, not in RayService.
-
-| Service | Type | Notes |
-|---------|------|-------|
-| florence2 | GPU Vision | Needs transformers compat patches |
-
 ### Tier 3 — Third-Class Citizens (broken/experimental)
 Not auto-deployed. Commented out in `serve_config.py`. Uncomment for debugging.
 
@@ -199,21 +192,6 @@ services/       → AI service implementations (Ray Serve deployments)
   asr/          → Faster-Whisper
   image/        → ComfyUI (subprocess proxy)
   creative/     → TRELLIS, ACE-Step, HY-Motion, MasterRouter
-  vision/       → Florence-2 (Tier 2)
-mcp-servers/    → MCP server Dockerfiles (standalone K8s deployments)
-  media-analysis/ → Media Analysis MCP Dockerfile
-  web-research/   → Web Research MCP Dockerfile
-registry/       → Model registry CLI + config (pull from HF, ModelScope, Civitai)
-config/         → local.yaml (machine-specific, git-ignored), model_registry.yaml
-infra/
-  docker/       → Dockerfile.base, Dockerfile.gpu-all, Dockerfile.model-sync
-  k8s/          → ray-service.yaml, serve_config.py, build_and_import.sh
-  k8s/mcp/      → MCP K8s manifests (namespace, deployments, deps, PVCs)
-sdk/            → Client SDK utilities
-boot/           → Service lifecycle (CLI, registry, health checks)
-scripts/        → boot_services.sh, test_services_v2.py
-vendor/         → Upstream git clones (NEVER EDIT — adapt in services/)
-```
 
 ### GPU Scheduling
 
@@ -273,8 +251,8 @@ Heavy GPU services share a single RTX 4090 via explicit model swapping. Send `{"
 ### MCP Services (standalone K8s, `mcp` namespace)
 | Route | Service |
 |---|---|
-| `/mcp/media-analysis/*` | Media Analysis MCP (CPU, YOLOv8/Florence-2/SAM2) |
-| `/mcp/web-research/*` | Web Research MCP (CPU, search/scrape/extract) |
+| `/mcp/media/*` | Media Analysis MCP (CPU, YOLOv8/Florence-2/SAM2) |
+| `/mcp/web/*` | Web Research MCP (CPU, search/scrape/extract) |
 
 ### Tier 2/3 (commented out in serve_config.py)
 | Route | Service |
@@ -284,7 +262,6 @@ Heavy GPU services share a single RTX 4090 via explicit model swapping. Send `{"
 | `/tts/gpt-sovits/*` | GPT-SoVITS (Tier 3) |
 | `/asr/vibevoice/*` | VibeVoice ASR (Tier 3, replaced by vibevoice.cpp) |
 | `/asr/qwen/*` | Qwen ASR (Tier 3) |
-| `/vision/florence2/*` | Florence-2 vision (Tier 2) |
 | `/3d/hy-motion/*` | HY-Motion (Tier 3, now via master router) |
 
 Auth: `X-API-Key` header or `?api_key=` query param. Unset = no auth (dev mode).
