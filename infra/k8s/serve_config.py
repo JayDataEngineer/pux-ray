@@ -4,7 +4,19 @@ Each attribute is referenced by import_path in the RayService serveConfigV2.
 All imports are safe at module level (heavy deps loaded lazily in _load()).
 
 Tier 1 services are deployed by default. Tier 2/3 are commented out.
+
+GPUGovernor actor is created on import to ensure it's available before
+any service tries to acquire a lease.
 """
+
+# Ensure GPUGovernor actor exists before any deployment tries to use it
+import ray
+try:
+    ray.get_actor("gpu_governor")
+except ValueError:
+    from gateway.gpu_governor import GPUGovernor
+    GPUGovernor.options(name="gpu_governor", lifetime="detached").remote()
+    print("GPUGovernor actor created.")
 
 # ─── Tier 1: First-Class Citizens (Native Ray, auto-deployed) ───────────────
 
@@ -32,14 +44,40 @@ from services.tts.vibevoice_cpp import VibeVoiceCppDeployment
 
 vibevoice_cpp = VibeVoiceCppDeployment.bind()
 
-# Heavy GPU services via Master Router (exclusive GPU, explicit model swapping)
-# trellis, ace_step, comfyui, hy_motion all go through this single deployment
-from services.creative.master_router import master_router
-
 # LLM via llama.cpp (subprocess — GGUF inference on GPU)
 from services.llm.deployment import LLMDeployment
 
 llm = LLMDeployment.bind()
+
+# Heavy GPU services — each is an independent Ray deployment
+# GPUGovernor coordinates VRAM leases between them (only one at a time)
+from services.audio.moss_soundeffect import MossSoundEffectDeployment as _Moss
+from services.creative.trellis import TRELLISDeployment
+from services.creative.ace_step import ACEStepDeployment
+from services.creative.anigen import AniGenDeployment as _Anigen
+from services.creative.see_through import SeeThroughDeployment
+from services.creative.hy_motion import HYMotionDeployment
+from services.image.comfyui import ComfyUIDeployment
+
+from ray import serve
+
+# Wrappers needed because deploying these classes directly from their
+# module context triggers a Ray serialization bug (GenericModule / _Ops).
+@serve.deployment(num_replicas=1, max_ongoing_requests=1, ray_actor_options={"num_gpus": 0})
+class _MossWrap(_Moss):
+    pass
+
+@serve.deployment(num_replicas=1, max_ongoing_requests=1, ray_actor_options={"num_gpus": 0})
+class _AnigenWrap(_Anigen):
+    pass
+
+moss_soundeffect = _MossWrap.bind()
+trellis = TRELLISDeployment.bind()
+ace_step = ACEStepDeployment.bind()
+anigen = _AnigenWrap.bind()
+see_through = SeeThroughDeployment.bind()
+hy_motion = HYMotionDeployment.bind()
+comfyui = ComfyUIDeployment.bind()
 
 # Playground UI (serves interactive HTML page + service metadata API)
 from gateway.playground_deployment import PlaygroundDeployment

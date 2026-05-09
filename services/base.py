@@ -60,7 +60,6 @@ import os
 import signal
 import subprocess
 import time
-from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Any, Optional
 
@@ -271,16 +270,20 @@ def _free_cuda_cache():
 
 # ─── BaseGPUDeployment ────────────────────────────────────────────────────────
 
-class BaseGPUDeployment(ABC):
+class BaseGPUDeployment:
     """Base class for GPU model deployments with load/unload lifecycle.
 
     Subclasses must implement:
         _load(model_name) - load model into VRAM
         _unload() - release model from VRAM
 
-    Precision/quantization is controlled via ``self.config`` (InferenceConfig),
-    which can be updated per-request via the ``"config"`` key in the payload.
+    Governor integration: load_model() requests a VRAM lease before loading.
+    Heavy services (trellis, ace_step, etc.) coordinate through the GPUGovernor
+    to prevent OOM collisions. Lightweight services set vram_mb=0 to skip leasing.
     """
+
+    vram_mb: int = 0
+    """Estimated VRAM footprint in MB. 0 = lightweight (no Governor lease)."""
 
     def __init__(self):
         self.model: Optional[object] = None
@@ -288,21 +291,74 @@ class BaseGPUDeployment(ABC):
         self._vram_before_load_mb: int = 0
         self.config = InferenceConfig()
 
-    @abstractmethod
-    def _load(self, model_name: str) -> None:
-        ...
+    # ── Governor helpers ────────────────────────────────────────────────────
 
-    @abstractmethod
+    @staticmethod
+    def _governor():
+        try:
+            return ray.get_actor("gpu_governor")
+        except ValueError:
+            return None
+
+    @staticmethod
+    def _run_async(coro) -> None:
+        """Run a coroutine safely from both sync and async contexts."""
+        import asyncio
+        try:
+            loop = asyncio.get_running_loop()
+            if loop.is_running():
+                import concurrent.futures
+                thread_pool = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+                future = thread_pool.submit(asyncio.run, coro)
+                future.result()
+                thread_pool.shutdown(wait=False)
+            else:
+                loop.run_until_complete(coro)
+        except RuntimeError:
+            asyncio.run(coro)
+
+    def _request_lease(self, model_name: str) -> None:
+        """Request VRAM lease from Governor before loading (sync)."""
+        if self.vram_mb <= 0:
+            return
+        gov = self._governor()
+        if not gov:
+            return
+        async def _do():
+            result = await gov.acquire.remote(model_name)
+            if result.get("evicted"):
+                logger.info("Governor evicted %s for %s", result["evicted"], model_name)
+        self._run_async(_do())
+
+    def _release_lease(self) -> None:
+        """Release VRAM lease to Governor after unloading (sync)."""
+        if self.vram_mb <= 0:
+            return
+        gov = self._governor()
+        if not gov:
+            return
+        name = self.model_name or "unknown"
+        async def _do():
+            await gov.release.remote(name)
+        self._run_async(_do())
+
+    # ── Model lifecycle ─────────────────────────────────────────────────────
+
+    def _load(self, model_name: str) -> None:
+        raise NotImplementedError
+
     def _unload(self) -> None:
-        ...
+        pass
 
     def load_model(self, model_name: str) -> None:
-        """Public load with VRAM tracking (torch.cuda, not nvidia-smi)."""
+        """Public load with Governor lease + VRAM tracking."""
         if self.model_name == model_name and self.model is not None:
             return
 
         if self.model is not None:
             self.unload_model()
+
+        self._request_lease(model_name)
 
         self._vram_before_load_mb = free_vram_mb()
         logger.info("Loading %s (free VRAM: %dMB)", model_name, self._vram_before_load_mb)
@@ -310,7 +366,7 @@ class BaseGPUDeployment(ABC):
         logger.info("Loaded %s", model_name)
 
     def unload_model(self) -> None:
-        """Release GPU memory: empty CUDA cache + garbage collect."""
+        """Release GPU memory + Governor lease."""
         if self.model is None and self.model_name is None:
             return
 
@@ -322,6 +378,8 @@ class BaseGPUDeployment(ABC):
         _free_cuda_cache()
         gc.collect()
         logger.info("Unloaded %s", name)
+
+        self._release_lease()
 
     def is_loaded(self) -> bool:
         return self.model is not None

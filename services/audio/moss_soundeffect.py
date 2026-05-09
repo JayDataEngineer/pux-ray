@@ -15,7 +15,6 @@ import os
 import time
 
 import torch
-from ray import serve
 from starlette.responses import JSONResponse
 
 from services.base import BaseGPUDeployment
@@ -71,14 +70,9 @@ def _get_moss_model_class():
     return cls
 
 
-@serve.deployment(
-    name="moss_soundeffect",
-    num_replicas=1,
-    max_ongoing_requests=1,
-    ray_actor_options={"num_gpus": 1.0},
-)
 class MossSoundEffectDeployment(BaseGPUDeployment):
     """MOSS-SoundEffect text-to-sound via native PyTorch inference."""
+    vram_mb = 18_432
 
     def __init__(self):
         super().__init__()

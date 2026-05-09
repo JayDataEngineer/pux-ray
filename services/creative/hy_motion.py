@@ -33,10 +33,11 @@ STATS_VENDOR_PATH = "/opt/hymotion/stats"
     name="hy_motion",
     num_replicas=1,
     max_ongoing_requests=1,
-    ray_actor_options={"num_gpus": 1.0},
+    ray_actor_options={"num_gpus": 0},
 )
 class HYMotionDeployment(BaseGPUDeployment):
-    """HY-Motion text-to-3D motion via native PyTorch inference."""
+    """HY-Motion text-to-3D human motion via native PyTorch inference."""
+    vram_mb = 6_144
 
     def __init__(self):
         super().__init__()

@@ -23,6 +23,7 @@ logger = logging.getLogger(__name__)
 )
 class ComfyUIDeployment(BaseGPUDeployment, SubprocessProxyMixin):
     """ComfyUI via subprocess proxy within KubeRay worker pod."""
+    vram_mb = 14_336
 
     PORT = 18465
 
