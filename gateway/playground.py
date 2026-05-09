@@ -155,6 +155,36 @@ PLAYGROUND_META: dict[str, dict] = {
             {"key": "image", "label": "Anime image", "type": "image", "required": True, "help": "Upload an anime image for layer decomposition"},
         ],
     },
+    "faster_qwen3_tts": {
+        "category": "TTS",
+        "gpu": True,
+        "route": "/tts/faster-qwen3-tts",
+        "format": "tnap",
+        "input_fields": [
+            {"key": "text", "label": "Text to speak", "type": "textarea", "required": True, "placeholder": "Enter text to synthesize..."},
+            {"key": "voice", "label": "Voice", "type": "select", "options": ["default", "female_1", "female_2", "male_1", "male_2"], "default": "default"},
+        ],
+    },
+    "comfyui": {
+        "category": "Image",
+        "gpu": True,
+        "route": "/comfyui",
+        "format": "tnap",
+        "input_fields": [
+            {"key": "prompt", "label": "ComfyUI workflow JSON", "type": "textarea", "required": True, "placeholder": "Paste ComfyUI workflow JSON..."},
+        ],
+    },
+    "hy_motion": {
+        "category": "3D",
+        "gpu": True,
+        "route": "/3d/hy-motion",
+        "format": "tnap",
+        "input_fields": [
+            {"key": "text", "label": "Motion description", "type": "textarea", "required": True, "placeholder": "e.g., a person walking then waving..."},
+            {"key": "duration", "label": "Duration (seconds)", "type": "number", "default": 3.0, "min": 1.0, "max": 30.0, "step": 0.5},
+            {"key": "seed", "label": "Seed", "type": "number", "default": 42},
+        ],
+    },
 }
 
 

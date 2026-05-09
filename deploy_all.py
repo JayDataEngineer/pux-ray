@@ -39,11 +39,11 @@ from services.audio.moss_soundeffect import MossSoundEffectDeployment as _Moss
 from services.creative.anigen import AniGenDeployment as _Anigen
 
 # ── Wrappers for problematic classes ───────────────────────
-@serve.deployment(num_replicas=1, max_ongoing_requests=1, ray_actor_options={"num_gpus": 0})
+@serve.deployment(name="moss_soundeffect", num_replicas=1, max_ongoing_requests=1, ray_actor_options={"num_gpus": 0})
 class MossWrap(_Moss):
     pass
 
-@serve.deployment(num_replicas=1, max_ongoing_requests=1, ray_actor_options={"num_gpus": 0})
+@serve.deployment(name="anigen", num_replicas=1, max_ongoing_requests=1, ray_actor_options={"num_gpus": 0})
 class AnigenWrap(_Anigen):
     pass
 

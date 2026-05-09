@@ -63,11 +63,11 @@ from ray import serve
 
 # Wrappers needed because deploying these classes directly from their
 # module context triggers a Ray serialization bug (GenericModule / _Ops).
-@serve.deployment(num_replicas=1, max_ongoing_requests=1, ray_actor_options={"num_gpus": 0})
+@serve.deployment(name="moss_soundeffect", num_replicas=1, max_ongoing_requests=1, ray_actor_options={"num_gpus": 0})
 class _MossWrap(_Moss):
     pass
 
-@serve.deployment(num_replicas=1, max_ongoing_requests=1, ray_actor_options={"num_gpus": 0})
+@serve.deployment(name="anigen", num_replicas=1, max_ongoing_requests=1, ray_actor_options={"num_gpus": 0})
 class _AnigenWrap(_Anigen):
     pass
 

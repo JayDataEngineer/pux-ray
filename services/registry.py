@@ -60,6 +60,13 @@ SERVICE_REGISTRY: dict[str, ServiceEntry] = {
         model_aliases={"tts-01-espeak": "espeak-ng"},
         description="eSpeak-NG — lightweight phoneme TTS, many languages.",
     ),
+    "faster_qwen3_tts": ServiceEntry(
+        deployment="faster_qwen3_tts", app="faster_qwen3_tts",
+        label="Faster-Qwen3-TTS", category="tts",
+        needs_gpu=True, default_model="qwen3-tts",
+        output_type="audio",
+        description="Qwen3-TTS 1.7B — fast GPU-accelerated TTS.",
+    ),
     "index_tts": ServiceEntry(
         deployment="index_tts", app="index_tts",
         label="IndexTTS", category="tts",
@@ -77,7 +84,7 @@ SERVICE_REGISTRY: dict[str, ServiceEntry] = {
         description="Qwen3-TTS 1.7B — 9 premium voices with instruction control.",
     ),
     "vibevoice": ServiceEntry(
-        deployment="vibevoice", app="vibevoice",
+        deployment="vibevoice_cpp", app="vibevoice_cpp",
         label="VibeVoice TTS", category="tts",
         needs_gpu=True, default_model="vibevoice-tts",
         output_type="audio",
