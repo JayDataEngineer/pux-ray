@@ -63,7 +63,7 @@ spec:
         route_prefix: /forge
         deployments:
           - name: master_router
-            autoscaling_config: { min_replicas: 1, max_replicas: 1 }
+            autoscaling_config: { min_replicas: 0, max_replicas: 1, downscale_delay_s: 120 }
 
       # Playground UI (interactive service playground — TNAP-driven form for all services)
       - name: playground
@@ -80,9 +80,6 @@ spec:
 
   rayClusterConfig:
     rayVersion: '2.55.1'
-    enableInTreeAutoscaling: true
-    autoscalerOptions:
-      version: 'v2'
     headGroupSpec:
       rayStartParams:
         dashboard-host: '0.0.0.0'
@@ -157,7 +154,6 @@ spec:
         replicas: 1
         minReplicas: 1
         maxReplicas: 1
-        idleTimeoutSeconds: 300
         rayStartParams:
           num-gpus: '1'
         template:
