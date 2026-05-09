@@ -33,6 +33,12 @@ data:
     EXCEPTION WHEN duplicate_database THEN
       RAISE NOTICE 'database infisical already exists';
     END;
+    DO $$
+    BEGIN
+      CREATE DATABASE tech_noir;
+    EXCEPTION WHEN duplicate_database THEN
+      RAISE NOTICE 'database tech_noir already exists';
+    END;
 
     -- Install extensions in each database
     \c langfuse
@@ -48,6 +54,9 @@ data:
     CREATE EXTENSION IF NOT EXISTS vector;
 
     \c infisical
+    CREATE EXTENSION IF NOT EXISTS vector;
+
+    \c tech_noir
     CREATE EXTENSION IF NOT EXISTS vector;
 
   postgres-multi-db.sh: |
