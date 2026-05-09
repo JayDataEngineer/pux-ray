@@ -63,8 +63,12 @@ data:
     #   6336  — Kubernetes pod resources
     #   16110 — Ray Serve cluster
     #   9628  — PostgreSQL
+    #
+    # Custom Tech Noir dashboards (stored in dashboards/ dir):
+    #   tn-business.json — Revenue, margins, top users
+    #   tn-ops.json      — Latency, errors, queue depth
+    #   tn-cost.json     — GPU utilization, cost per model, margin trends
 
----
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
@@ -154,6 +158,15 @@ spec:
             - name: dashboard-9628
               mountPath: /var/lib/grafana/dashboards/9628.json
               subPath: 9628.json
+            - name: dashboard-tn-business
+              mountPath: /var/lib/grafana/dashboards/tn-business.json
+              subPath: tn-business.json
+            - name: dashboard-tn-ops
+              mountPath: /var/lib/grafana/dashboards/tn-ops.json
+              subPath: tn-ops.json
+            - name: dashboard-tn-cost
+              mountPath: /var/lib/grafana/dashboards/tn-cost.json
+              subPath: tn-cost.json
             - name: data
               mountPath: /var/lib/grafana
           livenessProbe:
@@ -190,13 +203,20 @@ spec:
         - name: dashboard-9628
           configMap:
             name: dashboard-9628
+        - name: dashboard-tn-business
+          configMap:
+            name: dashboard-tn-business
+        - name: dashboard-tn-ops
+          configMap:
+            name: dashboard-tn-ops
+        - name: dashboard-tn-cost
+          configMap:
+            name: dashboard-tn-cost
         - name: data
           persistentVolumeClaim:
             claimName: grafana-data
 
 ---
-apiVersion: v1
-kind: Service
 metadata:
   name: grafana
   namespace: infra
