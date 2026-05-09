@@ -1,0 +1,89 @@
+# Overflow Gateway — bridges local Ray Serve and SkyServe cloud endpoint
+#
+# When local Ray Serve returns 503 (overloaded) or times out, this proxy
+# forwards requests to the SkyServe cloud endpoint for processing.
+#
+# Env vars:
+#   LOCAL_RAY_URL   — local Ray Serve address (default: k8s service DNS)
+#   CLOUD_SERVE_URL — SkyServe endpoint (set after `task cloud:up`)
+#   LOCAL_TIMEOUT   — seconds before falling back to cloud (default: 10)
+#
+# Tailscale: http://100.86.69.57:30080/overflow/
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: overflow-gateway
+  namespace: infra
+  labels:
+    app: overflow-gateway
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: overflow-gateway
+  template:
+    metadata:
+      labels:
+        app: overflow-gateway
+    spec:
+      containers:
+        - name: gateway
+          image: python:3.12-slim-bookworm
+          workingDir: /app
+          command: ["python", "-m", "uvicorn", "gateway.overflow_proxy:app", "--host", "0.0.0.0", "--port", "8090", "--factory"]
+          ports:
+            - containerPort: 8090
+          env:
+            - name: LOCAL_RAY_URL
+              value: "http://tech-noir-ray-serve-svc.ai-services.svc.cluster.local:8000"
+            - name: CLOUD_SERVE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: shared-infra
+                  key: CLOUD_SERVE_URL
+                  optional: true
+            - name: LOCAL_TIMEOUT
+              value: "10"
+          volumeMounts:
+            - name: source
+              mountPath: /app
+              readOnly: true
+          resources:
+            limits:
+              memory: 128Mi
+              cpu: "250m"
+            requests:
+              memory: 64Mi
+              cpu: "50m"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8090
+            initialDelaySeconds: 5
+            periodSeconds: 15
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8090
+            initialDelaySeconds: 3
+            periodSeconds: 5
+      volumes:
+        - name: source
+          hostPath:
+            path: /home/user/Documents/programs/ray
+            type: Directory
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: overflow-gateway
+  namespace: infra
+spec:
+  selector:
+    app: overflow-gateway
+  ports:
+    - port: 8090
+      targetPort: 8090

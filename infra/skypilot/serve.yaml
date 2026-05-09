@@ -1,0 +1,39 @@
+# SkyServe — cloud burst endpoint for The Forge
+#
+# Auto-scales 0→N→0 based on request queue depth.
+# Uses cheapest available GPU from RunPod/Lambda/Vast.
+#
+# Launch:  task cloud:up
+# Status:  task cloud:status
+# Teardown: task cloud:down
+
+name: forge-cloud
+
+service:
+  readiness_probe:
+    path: /health
+    initial_delay_seconds: 120
+  replica_policy:
+    min_replicas: 0
+    max_replicas: 8
+    target_ongoing_requests_per_replica: 2
+    upscale_delay: 30
+    downscale_delay: 300
+
+resources:
+  accelerators: {RTX4090: 1, A10G: 1, L4: 1}
+  disk_size: 100
+  memory: 32+
+
+docker_image: ghcr.io/jaydataengineer/tech-noir/gpu-all:latest
+
+envs:
+  HF_TOKEN: $HF_TOKEN
+  MODELS_ROOT: /models
+
+setup: |
+  pip install ray[serve]
+
+run: |
+  ray start --head --port=6379 --dashboard-host=0.0.0.0
+  ray serve run --nonblocking infra.k8s.serve_config

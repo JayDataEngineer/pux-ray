@@ -282,3 +282,40 @@ tasks:
     desc: "Stop all Docker worker containers"
     cmds:
       - docker compose -f infra/docker/compose.workers.yaml down
+
+  # ── Cloud Burst (SkyPilot) ──────────────────────────────────────────────
+  cloud:setup:
+    desc: "Install SkyPilot and verify cloud provider access"
+    cmds:
+      - bash infra/skypilot/setup.sh
+
+  cloud:up:
+    desc: "Launch SkyServe cloud endpoint"
+    cmds:
+      - sky serve up infra/skypilot/serve.yaml --endpoint-name forge-cloud
+
+  cloud:down:
+    desc: "Terminate SkyServe cloud endpoint"
+    cmds:
+      - sky serve down forge-cloud
+
+  cloud:status:
+    desc: "Show SkyServe status + live GPU prices"
+    cmds:
+      - sky serve status
+      - sky show-gpus RTX4090 A10G L4 A100 --all-regions
+
+  cloud:prices:
+    desc: "Show live GPU prices across all providers"
+    cmds:
+      - sky show-gpus RTX4090 A100 L4 A10G
+
+  cloud:push:
+    desc: "Push Docker images to GHCR for cloud burst"
+    cmds:
+      - bash infra/docker/push-images.sh
+
+  cloud:logs:
+    desc: "Stream SkyServe cloud logs"
+    cmds:
+      - sky serve logs forge-cloud
