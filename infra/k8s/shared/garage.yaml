@@ -85,7 +85,7 @@ spec:
             - name: GARAGE_RPC_SECRET
               valueFrom:
                 secretKeyRef:
-                  name: infra-credentials
+                  name: shared-infra
                   key: GARAGE_RPC_SECRET
           resources:
             limits:

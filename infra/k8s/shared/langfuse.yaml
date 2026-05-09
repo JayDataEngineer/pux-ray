@@ -32,19 +32,19 @@ spec:
             - name: DATABASE_URL
               valueFrom:
                 secretKeyRef:
-                  name: infra-credentials
+                  name: shared-infra
                   key: LANGFUSE_DB_URL
             - name: NEXTAUTH_URL
               value: "http://100.86.69.57:30080/langfuse"
             - name: NEXTAUTH_SECRET
               valueFrom:
                 secretKeyRef:
-                  name: infra-credentials
+                  name: shared-infra
                   key: LANGFUSE_SECRET_KEY
             - name: SALT
               valueFrom:
                 secretKeyRef:
-                  name: infra-credentials
+                  name: shared-infra
                   key: LANGFUSE_SALT
           resources:
             limits:

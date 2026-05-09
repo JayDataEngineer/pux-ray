@@ -157,8 +157,9 @@ tasks:
       - docker save localhost/tech-noir/postgres-age-vector:latest | sudo k3s ctr images import -
 
   infra:deploy:
-    desc: "Deploy shared infra (Postgres + Garage + Langfuse)"
+    desc: "Deploy shared infra (secrets + Postgres + Garage + Langfuse)"
     cmds:
+      - task: secrets:sync
       - task: infra:build
       - kubectl apply -f infra/k8s/shared/
       - echo "Waiting for Postgres..."
@@ -212,39 +213,23 @@ tasks:
       - echo "=== Monitoring pods ===" && kubectl get pods -n infra -l 'app in (victoriametrics,grafana,loki,node-exporter,kube-state-metrics,vector)'
       - echo "=== Scrape targets ===" && kubectl exec -n infra deploy/victoriametrics -- wget -qO- http://localhost:8428/targets 2>/dev/null | head -5 || echo "Check VM UI for targets"
 
-  # ── Secrets Management (Infisical) ────────────────────────────────────
-  secrets:init:
-    desc: "Bootstrap secrets (one-time, prompts for values)"
+  # ── Secrets Management ──────────────────────────────────────────────────
+  secrets:sync:
+    desc: "Sync secrets from config/secrets.env to all k8s namespaces"
     cmds:
-      - echo "Creating K8s secrets for shared infra..."
-      - kubectl create namespace infra --dry-run=client -o yaml | kubectl apply -f -
-      - kubectl create secret generic infra-credentials --namespace=infra
-        --from-literal=POSTGRES_PASSWORD=""
-        --from-literal=GARAGE_RPC_SECRET=""
-        --from-literal=GARAGE_S3_ACCESS_KEY=""
-        --from-literal=GARAGE_S3_SECRET_KEY=""
-        --from-literal=LANGFUSE_SECRET_KEY=""
-        --from-literal=LANGFUSE_SALT=""
-        --from-literal=WEB_RESEARCH_DB_URL=""
-        --from-literal=LANGFUSE_DB_URL=""
-        --dry-run=client -o yaml | kubectl apply -f -
-      - kubectl create secret generic shared-db-url --namespace=mcp
-        --from-literal=WEB_RESEARCH_DB_URL=""
-        --from-literal=POSTGRES_PASSWORD=""
-        --dry-run=client -o yaml | kubectl apply -f -
-      - echo "Secrets created with empty values. Set real values via:"
-      - echo "  kubectl edit secret infra-credentials -n infra"
-      - echo "  kubectl edit secret shared-db-url -n mcp"
+      - "{{.VENV_PYTHON}} infra/secrets_sync.py"
 
-  secrets:set:
-    desc: "Set a secret in a namespace: task secrets:set NAMESPACE SECRET_NAME KEY=VALUE"
+  secrets:edit:
+    desc: "Open secrets.env in $EDITOR"
     cmds:
-      - kubectl create secret generic {{.CLI_ARGS}} --dry-run=client -o yaml | kubectl apply -f -
+      - ${EDITOR:-nano} config/secrets.env
 
   secrets:list:
-    desc: "List secrets in infra namespace"
+    desc: "List secrets in all namespaces"
     cmds:
       - kubectl get secrets -n infra
+      - kubectl get secrets -n mcp
+      - kubectl get secrets -n ai-services
 
   # ── Testing ──────────────────────────────────────────────────────────────
   test:

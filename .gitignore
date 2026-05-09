@@ -19,6 +19,8 @@ htmlcov/
 
 # Local config (contains machine-specific paths and secrets)
 config/local.yaml
+config/secrets.env
+!config/secrets.env.example
 
 # Infrastructure env files (contain secrets)
 infra/*.env
