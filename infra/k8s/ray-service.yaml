@@ -124,8 +124,12 @@ spec:
                   cpu: '2'
                   memory: 4Gi
               volumeMounts:
+                - name: src
+                  mountPath: /app/config/model_registry.yaml
+                  subPath: config/model_registry.yaml
                 - name: config
-                  mountPath: /app/config
+                  mountPath: /app/config/local.yaml
+                  subPath: local.yaml
                 - name: models
                   mountPath: /models
                   readOnly: true
@@ -223,8 +227,12 @@ spec:
                     cpu: '2'
                     memory: 16Gi
                 volumeMounts:
+                  - name: src
+                    mountPath: /app/config/model_registry.yaml
+                    subPath: config/model_registry.yaml
                   - name: config
-                    mountPath: /app/config
+                    mountPath: /app/config/local.yaml
+                    subPath: local.yaml
                   - name: models
                     mountPath: /models
                     readOnly: true
