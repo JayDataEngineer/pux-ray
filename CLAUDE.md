@@ -35,16 +35,21 @@ Reliable, tested, deployed by default. Registered in `infra/k8s/serve_config.py`
 
 The **Master Router** (`services/creative/master_router.py`) is infrastructure, not a service — it claims `num_gpus: 1.0` and explicitly `_load()`/`_unload()` heavy GPU models to prevent VRAM collisions on a single RTX 4090. Accessed via route `/forge` with `{"service": "trellis|ace_step|comfyui|hy_motion|moss_soundeffect|anigen|see_through|llm", ...}`.
 
-### Tier 3 — Third-Class Citizens (broken/experimental)
-Not auto-deployed. Commented out in `serve_config.py`. Uncomment for debugging.
+### Tier 2 — Available via Forge (not auto-deployed)
+Registered in master_router.py HEAVY_SERVICES. Available on demand through `/forge`. Models present on PVC.
+
+| Service | Type | Description | Note |
+|---------|------|-------------|------|
+| vibevoice_asr | GPU ASR | VibeVoice 7B ASR with diarization (16GB) | Replaced by vibevoice.cpp for Tier 1 |
+| vibevoice | GPU TTS | VibeVoice 7B multi-speaker TTS (18.7GB) | Long-form synthesis |
+| phi4mm | GPU Multi | Phi-4-multimodal 5.6B (text+vision+speech) | Needs model download (24GB) |
+
+### Tier 3 — Blocked (needs Docker image changes)
+Not auto-deployed. Commented out in `serve_config.py`.
 
 | Service | Issue |
 |---------|-------|
-| gpt_sovits | Complex sys.path hacks, NLTK issues |
-| qwen_asr | Old Qwen model, broken auto_map (replaced by vibevoice.cpp ASR) |
-| vibevoice_asr | Microsoft VibeVoice ASR (replaced by vibevoice.cpp) |
-| vibevoice (community) | 7B TTS, huge, times out |
-| phi4mm | Model not on PVC |
+| gpt_sovits | Needs GPT_SoVITS package in Docker image |
 
 ## Shared Infrastructure (infra namespace)
 
@@ -335,15 +340,17 @@ Heavy GPU services share a single RTX 4090 via explicit model swapping. Send `{"
 |---|---|
 | `/overflow/*` | Overflow proxy (local → cloud fallback) |
 
-### Tier 2/3 (commented out in serve_config.py)
+### Tier 2 (via forge master router)
+| Service key | Description |
+|---|---|
+| `vibevoice_asr` | VibeVoice 7B ASR with diarization |
+| `vibevoice` | VibeVoice 7B multi-speaker TTS |
+| `phi4mm` | Phi-4-multimodal (text+vision+speech) |
+
+### Tier 3 (blocked — needs Docker image changes)
 | Route | Service |
 |---|---|
-| `/tts/qwen-tts/*` | Qwen3-TTS legacy (Tier 3, replaced by faster-qwen3-tts) |
-| `/tts/vibevoice/*` | VibeVoice Community 7B TTS (Tier 3) |
-| `/tts/gpt-sovits/*` | GPT-SoVITS (Tier 3) |
-| `/asr/vibevoice/*` | VibeVoice ASR (Tier 3, replaced by vibevoice.cpp) |
-| `/asr/qwen/*` | Qwen ASR (Tier 3) |
-| `/3d/hy-motion/*` | HY-Motion (Tier 3, now via master router) |
+| `/tts/gpt-sovits/*` | GPT-SoVITS (needs GPT_SoVITS package) |
 
 Auth: `X-API-Key` header or `?api_key=` query param. Unset = no auth (dev mode).
 

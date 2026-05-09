@@ -57,7 +57,7 @@ class Phi4MMDeployment(BaseGPUDeployment):
             device_map="cuda",
             torch_dtype=torch.bfloat16,
             trust_remote_code=True,
-            _attn_implementation="flash_attention_2",
+            _attn_implementation="sdpa",
             local_files_only=True,
         )
         self.generation_config = GenerationConfig.from_pretrained(MODEL_PATH, local_files_only=True)

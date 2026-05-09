@@ -54,24 +54,26 @@ from gateway.playground_deployment import PlaygroundDeployment
 
 playground = PlaygroundDeployment.bind()
 
-# ─── Tier 3: Third-Class Citizens — not auto-deployed ──────────
-# moss_soundeffect handled by Master Router via /forge (not standalone).
-# Uncomment below to deploy individually for debugging.
+# ─── Tier 2: Available via forge master router (uncomment to enable) ──────
+# These services route through /forge with exclusive GPU access.
+# To enable, add the service name to HEAVY_SERVICES in master_router.py
+# and add LOAD_KWARGS if _load() needs arguments.
 
-# from services.tts.gpt_sovits import GPTSoVITSDeployment
-# gpt_sovits = GPTSoVITSDeployment.bind()
-
-# from services.asr.gpu_asr import VibeVoiceASRDeployment, QwenASRDeployment
+# VibeVoice ASR — 7B model with native diarization
+# from services.asr.gpu_asr import VibeVoiceASRDeployment
 # vibevoice_asr = VibeVoiceASRDeployment.bind()
-# qwen_asr = QwenASRDeployment.bind()
 
+# VibeVoice TTS — 7B long-form multi-speaker synthesis (18.7GB)
 # from services.tts.vibe_voice import VibeVoiceDeployment
 # vibevoice = VibeVoiceDeployment.bind()
 
-
+# Phi-4-multimodal — 5.6B omni model (text+vision+speech -> text, 24GB)
+# Needs model download: task models:pull multimodal.phi4-multimodal
 # from services.multimodal.phi4mm import Phi4MMDeployment
 # phi4mm = Phi4MMDeployment.bind()
 
+# ─── Tier 3: Blocked — needs Docker image changes ────────────────
 
-# from services.tts.qwen_tts_legacy import QwenTTSDeployment
-# qwen_tts = QwenTTSDeployment.bind()
+# GPT-SoVITS — needs GPT_SoVITS package in Docker image
+# from services.tts.gpt_sovits import GPTSoVITSDeployment
+# gpt_sovits = GPTSoVITSDeployment.bind()
