@@ -24,6 +24,10 @@ config/local.yaml
 infra/*.env
 !infra/*.env.example
 
+# Infisical secret values (managed via CLI, not files)
+# The infisical-secrets Secret in infisical.yaml should have empty values
+# Set real values via: task secrets:set KEY=VALUE
+
 # Cloned vendor repos (upstream code, never edited)
 vendor/
 stats

@@ -1,14 +1,14 @@
 # Dependencies for Web Research MCP: PostgreSQL, Redis, SearXNG
 ---
+# PostgreSQL — database for web research MCP
 apiVersion: apps/v1
-kind: StatefulSet
+kind: Deployment
 metadata:
   name: postgres
   namespace: mcp
   labels:
     app: postgres
 spec:
-  serviceName: postgres
   replicas: 1
   selector:
     matchLabels:
@@ -29,29 +29,29 @@ spec:
             - name: POSTGRES_USER
               value: postgres
             - name: POSTGRES_PASSWORD
-              value: postgres
+              value: mcp_local_dev
           resources:
             limits:
               memory: 512Mi
             requests:
               memory: 256Mi
-          volumeMounts:
-            - name: pgdata
-              mountPath: /var/lib/postgresql/data
           livenessProbe:
             exec:
               command: ["pg_isready", "-U", "postgres"]
-            initialDelaySeconds: 15
+            initialDelaySeconds: 10
             periodSeconds: 10
-  volumeClaimTemplates:
-    - metadata:
-        name: pgdata
-      spec:
-        accessModes: [ReadWriteOnce]
-        storageClassName: local-path
-        resources:
-          requests:
-            storage: 5Gi
+          readinessProbe:
+            exec:
+              command: ["pg_isready", "-U", "postgres"]
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          volumeMounts:
+            - name: pgdata
+              mountPath: /var/lib/postgresql/data
+      volumes:
+        - name: pgdata
+          persistentVolumeClaim:
+            claimName: web-pgdata
 ---
 apiVersion: v1
 kind: Service
@@ -134,6 +134,11 @@ spec:
           image: searxng/searxng:latest
           ports:
             - containerPort: 8080
+          env:
+            - name: SEARXNG_PORT
+              value: "8080"
+            - name: SEARXNG_BASE_URL
+              value: "http://searxng:8080/"
           resources:
             limits:
               memory: 512Mi

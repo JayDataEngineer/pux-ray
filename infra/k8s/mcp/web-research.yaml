@@ -1,5 +1,6 @@
 # Web Research MCP Server — main FastAPI application
-# Accessible via Traefik: /mcp/web-research/*
+# Accessible via Traefik: /mcp/web/*
+# Database: shared Postgres at postgres.infra.svc.cluster.local (integrated mode)
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -18,8 +19,6 @@ spec:
       labels:
         app: web-research-mcp
     spec:
-      # nodeSelector:
-      #   node-role.kubernetes.io/mcp: "true"
       containers:
         - name: server
           image: localhost/tech-noir/mcp-web-research:latest
@@ -31,11 +30,13 @@ spec:
               value: "8000"
             - name: POSTGRES_HOST
               value: postgres
+            - name: POSTGRES_PORT
+              value: "5432"
+            - name: POSTGRES_PASSWORD
+              value: mcp_local_dev
             - name: POSTGRES_DB
               value: mcp_server
             - name: POSTGRES_USER
-              value: postgres
-            - name: POSTGRES_PASSWORD
               value: postgres
             - name: CELERY_BROKER_URL
               value: redis://redis:6379/0
@@ -51,14 +52,12 @@ spec:
               memory: 2Gi
               cpu: "1"
           livenessProbe:
-            httpGet:
-              path: /health
+            tcpSocket:
               port: 8000
             initialDelaySeconds: 30
             periodSeconds: 30
           readinessProbe:
-            httpGet:
-              path: /health
+            tcpSocket:
               port: 8000
             initialDelaySeconds: 10
             periodSeconds: 10
