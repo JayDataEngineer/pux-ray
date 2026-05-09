@@ -63,58 +63,16 @@ spec:
           - name: llm
             autoscaling_config: { min_replicas: 0, max_replicas: 1, downscale_delay_s: 60 }
 
-      # Heavy GPU services — individual deployments coordinated by GPUGovernor
-      # Each is a separate Ray actor with lazy loading (min_replicas: 0).
-      # The Governor evicts the current holder before loading a new one,
-      # preventing OOM on the single 4090.
-      - name: moss_soundeffect
-        import_path: serve_config:moss_soundeffect
-        route_prefix: /audio/moss-sfx
+      # Heavy GPU services — Master Router with exclusive GPU access
+      # All heavy services (trellis, ace_step, comfyui, hy_motion,
+      # moss_soundeffect, anigen, see_through) route through /forge.
+      # The router claims num_gpus: 1.0 and swaps models to prevent VRAM OOM.
+      - name: forge
+        import_path: serve_config:forge
+        route_prefix: /forge
         deployments:
-          - name: moss_soundeffect
-            autoscaling_config: { min_replicas: 0, max_replicas: 1, downscale_delay_s: 30 }
-
-      - name: trellis
-        import_path: serve_config:trellis
-        route_prefix: /3d/trellis
-        deployments:
-          - name: trellis
-            autoscaling_config: { min_replicas: 0, max_replicas: 1, downscale_delay_s: 30 }
-
-      - name: ace_step
-        import_path: serve_config:ace_step
-        route_prefix: /music/ace-step
-        deployments:
-          - name: ace_step
-            autoscaling_config: { min_replicas: 0, max_replicas: 1, downscale_delay_s: 30 }
-
-      - name: anigen
-        import_path: serve_config:anigen
-        route_prefix: /3d/anigen
-        deployments:
-          - name: anigen
-            autoscaling_config: { min_replicas: 0, max_replicas: 1, downscale_delay_s: 30 }
-
-      - name: see_through
-        import_path: serve_config:see_through
-        route_prefix: /creative/see-through
-        deployments:
-          - name: see_through
-            autoscaling_config: { min_replicas: 0, max_replicas: 1, downscale_delay_s: 30 }
-
-      - name: hy_motion
-        import_path: serve_config:hy_motion
-        route_prefix: /3d/hy-motion
-        deployments:
-          - name: hy_motion
-            autoscaling_config: { min_replicas: 0, max_replicas: 1, downscale_delay_s: 30 }
-
-      - name: comfyui
-        import_path: serve_config:comfyui
-        route_prefix: /comfyui
-        deployments:
-          - name: comfyui
-            autoscaling_config: { min_replicas: 0, max_replicas: 1, downscale_delay_s: 30 }
+          - name: master_router
+            autoscaling_config: { min_replicas: 1, max_replicas: 1 }
 
       # Playground UI (interactive service playground — TNAP-driven form for all services)
       - name: playground

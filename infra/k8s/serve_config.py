@@ -49,35 +49,10 @@ from services.llm.deployment import LLMDeployment
 
 llm = LLMDeployment.bind()
 
-# Heavy GPU services — each is an independent Ray deployment
-# GPUGovernor coordinates VRAM leases between them (only one at a time)
-from services.audio.moss_soundeffect import MossSoundEffectDeployment as _Moss
-from services.creative.trellis import TRELLISDeployment
-from services.creative.ace_step import ACEStepDeployment
-from services.creative.anigen import AniGenDeployment as _Anigen
-from services.creative.see_through import SeeThroughDeployment
-from services.creative.hy_motion import HYMotionDeployment
-from services.image.comfyui import ComfyUIDeployment
-
-from ray import serve
-
-# Wrappers needed because deploying these classes directly from their
-# module context triggers a Ray serialization bug (GenericModule / _Ops).
-@serve.deployment(name="moss_soundeffect", num_replicas=1, max_ongoing_requests=1, ray_actor_options={"num_gpus": 0})
-class _MossWrap(_Moss):
-    pass
-
-@serve.deployment(name="anigen", num_replicas=1, max_ongoing_requests=1, ray_actor_options={"num_gpus": 0})
-class _AnigenWrap(_Anigen):
-    pass
-
-moss_soundeffect = _MossWrap.bind()
-trellis = TRELLISDeployment.bind()
-ace_step = ACEStepDeployment.bind()
-anigen = _AnigenWrap.bind()
-see_through = SeeThroughDeployment.bind()
-hy_motion = HYMotionDeployment.bind()
-comfyui = ComfyUIDeployment.bind()
+# Heavy GPU services — routed through Master Router (exclusive GPU access)
+# The master router claims num_gpus: 1.0 and swaps models explicitly,
+# preventing VRAM collisions on the single RTX 4090.
+from services.creative.master_router import master_router as forge
 
 # Playground UI (serves interactive HTML page + service metadata API)
 from gateway.playground_deployment import PlaygroundDeployment
