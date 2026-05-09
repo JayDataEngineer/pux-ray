@@ -196,19 +196,15 @@ tasks:
       - kubectl apply -f infra/k8s/shared/loki.yaml
       - kubectl apply -f infra/k8s/shared/vector.yaml
       - kubectl apply -f infra/k8s/shared/grafana.yaml
+      - kubectl apply -f infra/k8s/shared/grafana-dashboards.yaml
       - echo "Waiting for monitoring stack..."
       - kubectl wait --for=condition=ready pod -l app=victoriametrics -n infra --timeout=60s
       - kubectl wait --for=condition=ready pod -l app=grafana -n infra --timeout=60s
       - kubectl wait --for=condition=ready pod -l app=loki -n infra --timeout=60s
       - echo ""
       - echo "Grafana: http://100.86.69.57:30080/grafana"
-      - echo "VictoriaMetrics: http://100.86.69.57:30080/grafana (as datasource)"
       - echo ""
-      - echo "Import dashboards: Dashboards → Import → paste ID"
-      - echo "  7249  — Kubernetes cluster overview"
-      - echo "  1860  — Node exporter (per-machine)"
-      - echo "  6336  — Kubernetes pod resources"
-      - echo "  16110 — Ray Serve cluster"
+      - echo "Dashboards pre-loaded: Node Exporter, K8s Cluster, Pod Resources, Ray, PostgreSQL"
 
   infra:monitor:status:
     desc: "Show monitoring stack status"
@@ -234,6 +230,7 @@ tasks:
         --dry-run=client -o yaml | kubectl apply -f -
       - kubectl create secret generic shared-db-url --namespace=mcp
         --from-literal=WEB_RESEARCH_DB_URL=""
+        --from-literal=POSTGRES_PASSWORD=""
         --dry-run=client -o yaml | kubectl apply -f -
       - echo "Secrets created with empty values. Set real values via:"
       - echo "  kubectl edit secret infra-credentials -n infra"

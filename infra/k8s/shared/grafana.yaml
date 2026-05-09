@@ -139,6 +139,21 @@ spec:
               mountPath: /etc/grafana/provisioning/datasources
             - name: dashboard-provider
               mountPath: /etc/grafana/provisioning/dashboards
+            - name: dashboard-1860
+              mountPath: /var/lib/grafana/dashboards/1860.json
+              subPath: 1860.json
+            - name: dashboard-7249
+              mountPath: /var/lib/grafana/dashboards/7249.json
+              subPath: 7249.json
+            - name: dashboard-6336
+              mountPath: /var/lib/grafana/dashboards/6336.json
+              subPath: 6336.json
+            - name: dashboard-16110
+              mountPath: /var/lib/grafana/dashboards/16110.json
+              subPath: 16110.json
+            - name: dashboard-9628
+              mountPath: /var/lib/grafana/dashboards/9628.json
+              subPath: 9628.json
             - name: data
               mountPath: /var/lib/grafana
           livenessProbe:
@@ -160,6 +175,21 @@ spec:
         - name: dashboard-provider
           configMap:
             name: grafana-dashboards-provider
+        - name: dashboard-1860
+          configMap:
+            name: dashboard-1860
+        - name: dashboard-7249
+          configMap:
+            name: dashboard-7249
+        - name: dashboard-6336
+          configMap:
+            name: dashboard-6336
+        - name: dashboard-16110
+          configMap:
+            name: dashboard-16110
+        - name: dashboard-9628
+          configMap:
+            name: dashboard-9628
         - name: data
           persistentVolumeClaim:
             claimName: grafana-data
