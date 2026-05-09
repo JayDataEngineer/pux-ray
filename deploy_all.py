@@ -21,7 +21,7 @@ from services.asr.faster_whisper import FasterWhisperASR
 # Lightweight GPU (with @serve.deployment in their modules)
 from services.tts.faster_qwen3_tts import FasterQwen3TTSDeployment
 from services.tts.gpu_tts import IndexTTSDeployment
-from services.tts.vibevoice_cpp import VibeVoiceCppDeployment
+from services.tts.vibevoice_cpp import VibeVoiceCppGpuDeployment, VibeVoiceCppCpuDeployment
 
 # LLM (with @serve.deployment in its module)
 from services.llm.deployment import LLMDeployment
@@ -63,7 +63,8 @@ deploy(FasterWhisperASR.bind(), "faster_whisper", "/asr/whisper")
 # Phase 2: Lightweight GPU (share GPU)
 deploy(FasterQwen3TTSDeployment.bind(), "faster_qwen3_tts", "/tts/faster-qwen3-tts")
 deploy(IndexTTSDeployment.bind(), "index_tts", "/tts/index-tts")
-deploy(VibeVoiceCppDeployment.bind(), "vibevoice_cpp", "/tts/vibevoice-cpp")
+deploy(VibeVoiceCppGpuDeployment.bind(), "vibevoice_cpp_gpu", "/tts/vibevoice-cpp-gpu")
+deploy(VibeVoiceCppCpuDeployment.bind(), "vibevoice_cpp_cpu", "/tts/vibevoice-cpp-cpu")
 
 # Phase 3: Heavy GPU (Governor managed)
 deploy(LLMDeployment.bind(), "llm", "/llm")

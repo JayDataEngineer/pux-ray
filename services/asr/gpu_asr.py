@@ -1,5 +1,6 @@
-"""VibeVoice ASR — 7B model with native diarization (~16GB VRAM).
+"""VibeVoice Microsoft — Microsoft VibeVoice ASR with native diarization (~16GB VRAM).
 
+Uses microsoft/VibeVoice-ASR 7B model for speech recognition with speaker diarization.
 Conforms to TNAP: unified request/response protocol.
 """
 from __future__ import annotations
@@ -23,7 +24,7 @@ VIBEVOICE_ASR_PATH = os.environ.get("VIBEVOICE_ASR_MODEL_PATH", "/models/asr/vib
 
 
 @serve.deployment(
-    name="vibevoice_asr",
+    name="vibevoice_microsoft",
     num_replicas=1,
     max_ongoing_requests=2,
     ray_actor_options={
@@ -37,8 +38,8 @@ VIBEVOICE_ASR_PATH = os.environ.get("VIBEVOICE_ASR_MODEL_PATH", "/models/asr/vib
         },
     },
 )
-class VibeVoiceASRDeployment(BaseGPUDeployment):
-    """VibeVoice ASR with native speaker diarization."""
+class VibeVoiceMicrosoftDeployment(BaseGPUDeployment):
+    """VibeVoice Microsoft — microsoft/VibeVoice-ASR with native speaker diarization."""
 
     def _load(self, model_name: str = "vibevoice-asr") -> None:
         import torch

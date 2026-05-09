@@ -46,13 +46,20 @@ spec:
             autoscaling_config: { min_replicas: 0, max_replicas: 1, downscale_delay_s: 30 }
             ray_actor_options: { num_gpus: 0.10 }
 
-      - name: vibevoice_cpp
-        import_path: serve_config:vibevoice_cpp
-        route_prefix: /tts/vibevoice-cpp
+      - name: vibevoice_cpp_gpu
+        import_path: serve_config:vibevoice_cpp_gpu
+        route_prefix: /tts/vibevoice-cpp-gpu
         deployments:
-          - name: vibevoice_cpp
+          - name: vibevoice_cpp_gpu
             autoscaling_config: { min_replicas: 0, max_replicas: 1, downscale_delay_s: 30 }
             ray_actor_options: { num_gpus: 0.10 }
+
+      - name: vibevoice_cpp_cpu
+        import_path: serve_config:vibevoice_cpp_cpu
+        route_prefix: /tts/vibevoice-cpp-cpu
+        deployments:
+          - name: vibevoice_cpp_cpu
+            autoscaling_config: { min_replicas: 0, max_replicas: 1, downscale_delay_s: 60 }
 
       # Heavy GPU services — Master Router with exclusive GPU access
       # All heavy services (trellis, ace_step, comfyui, hy_motion,
@@ -85,6 +92,9 @@ spec:
         dashboard-host: '0.0.0.0'
         num-cpus: '4'
       template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: tech-noir-ray-head
         spec:
           containers:
             - name: ray-head
@@ -166,7 +176,7 @@ spec:
                   - name: MODELS_ROOT
                     value: /models
                   - name: MODELS
-                    value: "audio.moss-soundeffect,tts.vibevoice-tts,tts.qwen3-tts,asr.vibevoice-asr"
+                    value: "audio.moss-soundeffect,tts.vibevoice-tts,tts.qwen3-tts,asr.vibevoice-asr,vibevoice-cpp"
                 volumeMounts:
                   - name: models
                     mountPath: /models

@@ -5,7 +5,7 @@ model. Every heavy GPU service requests a lease before loading. If VRAM is
 tight, the Governor evicts the current holder BEFORE the new service loads,
 eliminating the OOM window.
 
-Lightweight services (faster_qwen3_tts, index_tts, vibevoice_cpp) coexist
+Lightweight services (faster_qwen3_tts, index_tts, vibevoice_cpp_gpu, vibevoice_cpp_cpu) coexist
 without leases — they're small enough to share. Only heavy hitters (trellis,
 ace_step, moss_soundeffect, anigen, see_through, comfyui, hy_motion, llm)
 coordinate through the Governor.

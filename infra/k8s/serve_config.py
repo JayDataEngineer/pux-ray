@@ -40,9 +40,10 @@ faster_qwen3_tts = FasterQwen3TTSDeployment.bind()
 index_tts = IndexTTSDeployment.bind()
 
 # vibevoice.cpp (subprocess — TTS + ASR via quantized GGUF)
-from services.tts.vibevoice_cpp import VibeVoiceCppDeployment
+from services.tts.vibevoice_cpp import VibeVoiceCppGpuDeployment, VibeVoiceCppCpuDeployment
 
-vibevoice_cpp = VibeVoiceCppDeployment.bind()
+vibevoice_cpp_gpu = VibeVoiceCppGpuDeployment.bind()
+vibevoice_cpp_cpu = VibeVoiceCppCpuDeployment.bind()
 
 # Heavy GPU services — routed through Master Router (exclusive GPU access)
 # The master router claims num_gpus: 1.0 and swaps models explicitly,
@@ -59,13 +60,13 @@ playground = PlaygroundDeployment.bind()
 # To enable, add the service name to HEAVY_SERVICES in master_router.py
 # and add LOAD_KWARGS if _load() needs arguments.
 
-# VibeVoice ASR — 7B model with native diarization
-# from services.asr.gpu_asr import VibeVoiceASRDeployment
-# vibevoice_asr = VibeVoiceASRDeployment.bind()
+# VibeVoice Microsoft — microsoft/VibeVoice-ASR 7B with native diarization
+# from services.asr.gpu_asr import VibeVoiceMicrosoftDeployment
+# vibevoice_microsoft = VibeVoiceMicrosoftDeployment.bind()
 
-# VibeVoice TTS — 7B long-form multi-speaker synthesis (18.7GB)
-# from services.tts.vibe_voice import VibeVoiceDeployment
-# vibevoice = VibeVoiceDeployment.bind()
+# VibeVoice Community TTS — vibevoice/VibeVoice-7B long-form multi-speaker synthesis (18.7GB)
+# from services.tts.vibe_voice import VibeVoiceCommunityTTSDeployment
+# vibevoice_community_tts = VibeVoiceCommunityTTSDeployment.bind()
 
 # Phi-4-multimodal — 5.6B omni model (text+vision+speech -> text, 24GB)
 # Needs model download: task models:pull multimodal.phi4-multimodal

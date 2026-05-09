@@ -18,7 +18,8 @@ Reliable, tested, deployed by default. Registered in `infra/k8s/serve_config.py`
 | faster_whisper | CPU ASR | Distil-Whisper large-v3 |
 | faster_qwen3_tts | GPU TTS | CUDA graph accelerated Qwen3-TTS 1.7B (5x faster than baseline) |
 | index_tts | GPU TTS | IndexTTS v2 neural voice cloning |
-| vibevoice_cpp | GPU TTS+ASR | vibevoice.cpp (C++/GGML) quantized TTS + ASR via subprocess |
+| vibevoice_cpp_gpu | GPU TTS+ASR | vibevoice.cpp GGML quantized TTS + ASR, CUDA backend |
+| vibevoice_cpp_cpu | CPU TTS+ASR | vibevoice.cpp GGML quantized TTS + ASR, CPU backend |
 
 **Master Router services** (exclusive GPU, explicit model swapping via `/forge`):
 
@@ -40,8 +41,8 @@ Registered in master_router.py HEAVY_SERVICES. Available on demand through `/for
 
 | Service | Type | Description | Note |
 |---------|------|-------------|------|
-| vibevoice_asr | GPU ASR | VibeVoice 7B ASR with diarization (16GB) | Replaced by vibevoice.cpp for Tier 1 |
-| vibevoice | GPU TTS | VibeVoice 7B multi-speaker TTS (18.7GB) | Long-form synthesis |
+| vibevoice_microsoft | GPU ASR | VibeVoice Microsoft — microsoft/VibeVoice-ASR 7B with diarization (16GB) | Replaced by vibevoice.cpp for Tier 1 |
+| vibevoice_community_tts | GPU TTS | VibeVoice Community — vibevoice/VibeVoice-7B multi-speaker TTS (18.7GB) | Long-form synthesis |
 | phi4mm | GPU Multi | Phi-4-multimodal 5.6B (text+vision+speech) | Needs model download (24GB) |
 
 ### Tier 3 — Blocked (needs Docker image changes)
@@ -277,7 +278,7 @@ services/       → AI service implementations (Ray Serve deployments)
 
 ### GPU Scheduling
 
-Only one heavy GPU model runs at a time (24GB VRAM). The **Master Router** (`services/creative/master_router.py`) claims `num_gpus: 1.0` and explicitly swaps heavy models (trellis, ace_step, comfyui, hy_motion, moss_soundeffect, anigen, see_through) with `_load()`/`_unload()` + `torch.cuda.empty_cache()`. Lightweight GPU services (faster_qwen3_tts, index_tts, vibevoice_cpp) coexist with small VRAM footprints.
+Only one heavy GPU model runs at a time (24GB VRAM). The **Master Router** (`services/creative/master_router.py`) claims `num_gpus: 1.0` and explicitly swaps heavy models (trellis, ace_step, comfyui, hy_motion, moss_soundeffect, anigen, see_through) with `_load()`/`_unload()` + `torch.cuda.empty_cache()`. Lightweight GPU services (faster_qwen3_tts, index_tts, vibevoice_cpp_gpu, vibevoice_cpp_cpu) coexist with small VRAM footprints.
 
 ## Service Development
 
@@ -313,7 +314,8 @@ All proxied through the ingress at port 18080:
 | `/tts/espeak/*` | eSpeak TTS (CPU) |
 | `/tts/faster-qwen3-tts/*` | Faster Qwen3-TTS (GPU, CUDA graphs) |
 | `/tts/index-tts/*` | IndexTTS (GPU) |
-| `/tts/vibevoice-cpp/*` | vibevoice.cpp TTS+ASR (GPU/CPU, quantized GGUF) |
+| `/tts/vibevoice-cpp-gpu/*` | vibevoice.cpp TTS+ASR (GGML quantized, CUDA backend) |
+| `/tts/vibevoice-cpp-cpu/*` | vibevoice.cpp TTS+ASR (GGML quantized, CPU backend) |
 | `/asr/whisper/*` | Faster-Whisper (CPU) |
 ### Master Router (exclusive GPU, route `/forge`)
 Heavy GPU services share a single RTX 4090 via explicit model swapping. Send `{"service": "<name>", ...}` to `/forge`.
@@ -322,7 +324,7 @@ Heavy GPU services share a single RTX 4090 via explicit model swapping. Send `{"
 |---|---|---|
 | `trellis` | TRELLIS.2 image-to-3D mesh |
 | `ace_step` | ACE-Step 1.5 text-to-music |
-| `comfyui` | ComfyUI 0.20.1 image generation |
+| `comfyui` | ComfyUI 0.20.1 image generation (workflow adapter + raw API proxy) |
 | `hy_motion` | HY-Motion 1.0 text-to-3D motion |
 | `moss_soundeffect` | MOSS-SoundEffect 8B text-to-sound |
 | `anigen` | AniGen image-to-rigged-3D |
@@ -343,8 +345,8 @@ Heavy GPU services share a single RTX 4090 via explicit model swapping. Send `{"
 ### Tier 2 (via forge master router)
 | Service key | Description |
 |---|---|
-| `vibevoice_asr` | VibeVoice 7B ASR with diarization |
-| `vibevoice` | VibeVoice 7B multi-speaker TTS |
+| `vibevoice_microsoft` | VibeVoice Microsoft — microsoft/VibeVoice-ASR 7B ASR with diarization |
+| `vibevoice_community_tts` | VibeVoice Community — vibevoice/VibeVoice-7B multi-speaker TTS |
 | `phi4mm` | Phi-4-multimodal (text+vision+speech) |
 
 ### Tier 3 (blocked — needs Docker image changes)

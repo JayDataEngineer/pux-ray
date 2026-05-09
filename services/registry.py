@@ -83,12 +83,12 @@ SERVICE_REGISTRY: dict[str, ServiceEntry] = {
         model_aliases={"tts-01-qwen": "qwen3-tts"},
         description="Qwen3-TTS 1.7B — 9 premium voices with instruction control.",
     ),
-    "vibevoice": ServiceEntry(
-        deployment="vibevoice_cpp", app="vibevoice_cpp",
-        label="VibeVoice TTS", category="tts",
-        needs_gpu=True, default_model="vibevoice-tts",
+    "vibevoice_cpp_gpu": ServiceEntry(
+        deployment="vibevoice_cpp_gpu", app="vibevoice_cpp_gpu",
+        label="VibeVoice CPP GPU", category="tts",
+        needs_gpu=False, default_model="vibevoice-cpp",
         output_type="audio",
-        model_aliases={"tts-01-vibevoice": "vibevoice-tts"},
+        model_aliases={"tts-01-vibevoice": "vibevoice-cpp"},
         description="VibeVoice 7B — multi-speaker synthesis with voice cloning.",
     ),
     "gpt_sovits": ServiceEntry(
@@ -108,13 +108,13 @@ SERVICE_REGISTRY: dict[str, ServiceEntry] = {
         model_aliases={"whisper-1": "faster-whisper"},
         description="Faster-Whisper distil-large-v3 — fast CPU ASR.",
     ),
-    "vibevoice_asr": ServiceEntry(
-        deployment="vibevoice_asr", app="vibevoice_asr",
-        label="VibeVoice ASR", category="asr",
+    "vibevoice_microsoft": ServiceEntry(
+        deployment="vibevoice_microsoft", app="vibevoice_microsoft",
+        label="VibeVoice Microsoft ASR", category="asr",
         needs_gpu=True, default_model="vibevoice-asr",
         output_type="json",
-        model_aliases={"vibevoice-asr": "vibevoice-asr"},
-        description="VibeVoice ASR — 16B speech recognition.",
+        model_aliases={"vibevoice-microsoft": "vibevoice-asr"},
+        description="VibeVoice Microsoft — microsoft/VibeVoice-ASR 7B speech recognition.",
     ),
     "qwen_asr": ServiceEntry(
         deployment="qwen_asr", app="qwen_asr",

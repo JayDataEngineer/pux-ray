@@ -78,8 +78,8 @@ def main():
         test("index_tts", f"{BASE}/tts/index-tts/", {"action": "generate", "input": {"text": "Hello"}}, T)
         test("trellis", f"{BASE}/3d/trellis/", {"action": "generate", "input": {"image_b64": IMG}, "config": {"low_resource": True}}, T)
         test("ace_step", f"{BASE}/music/ace-step/", {"action": "generate", "input": {"prompt": "ambient pad"}}, T)
-        test("vibevoice_cpp_tts", f"{BASE}/tts/vibevoice-cpp/", {"action": "generate", "input": {"text": "Hello from vibevoice cpp."}}, T)
-        test("vibevoice_cpp_asr", f"{BASE}/tts/vibevoice-cpp/", {"action": "generate", "input": {"audio_b64": WAV}}, T)
+        test("vibevoice_cpp_gpu_tts", f"{BASE}/tts/vibevoice-cpp-gpu/", {"action": "generate", "input": {"text": "Hello from vibevoice cpp."}}, T)
+        test("vibevoice_cpp_gpu_asr", f"{BASE}/tts/vibevoice-cpp-gpu/", {"action": "generate", "input": {"audio_b64": WAV}}, T)
 
         print("\n--- Tier 1: GPU-Exclusive (needs own GPU) ---")
         # ComfyUI has its own API; just verify the server is up

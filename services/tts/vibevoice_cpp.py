@@ -27,24 +27,8 @@ VV_MODELS_DIR = os.environ.get("VIBEVOICE_CPP_MODELS", "/models/vibevoice-cpp")
 VV_BIN = os.environ.get("VIBEVOICE_CPP_BIN", "vibevoice-cli")
 
 
-@serve.deployment(
-    name="vibevoice_cpp",
-    num_replicas=1,
-    max_ongoing_requests=2,
-    ray_actor_options={
-        "num_gpus": 0,
-        "num_cpus": 0.5,
-        "runtime_env": {
-            "env_vars": {
-                "HF_HUB_OFFLINE": "1",
-                "HF_HOME": "/models/hf_cache",
-                "VIBEVOICE_BACKEND": os.environ.get("VIBEVOICE_BACKEND", "cuda"),
-            },
-        },
-    },
-)
-class VibeVoiceCppDeployment(BaseGPUDeployment):
-    """vibevoice.cpp TTS + ASR via subprocess calls to vibevoice-cli."""
+class _VibeVoiceCppBase(BaseGPUDeployment):
+    """Shared logic for vibevoice.cpp TTS + ASR via subprocess calls to vibevoice-cli."""
 
     def _load(self, model_name: str = "vibevoice-cpp") -> None:
         self.tts_model = os.path.join(VV_MODELS_DIR, "vibevoice-realtime-0.5B-q8_0.gguf")
@@ -239,3 +223,43 @@ class VibeVoiceCppDeployment(BaseGPUDeployment):
         except Exception as e:
             logger.error("vibevoice_cpp error: %s", e)
             return JSONResponse(self.handle_error(str(e)), status_code=500)
+
+
+@serve.deployment(
+    name="vibevoice_cpp_gpu",
+    num_replicas=1,
+    max_ongoing_requests=2,
+    ray_actor_options={
+        "num_gpus": 0,
+        "num_cpus": 0.5,
+        "runtime_env": {
+            "env_vars": {
+                "HF_HUB_OFFLINE": "1",
+                "HF_HOME": "/models/hf_cache",
+                "VIBEVOICE_BACKEND": "cuda",
+            },
+        },
+    },
+)
+class VibeVoiceCppGpuDeployment(_VibeVoiceCppBase):
+    """vibevoice.cpp GPU — GGML quantized TTS + ASR via CUDA backend."""
+
+
+@serve.deployment(
+    name="vibevoice_cpp_cpu",
+    num_replicas=1,
+    max_ongoing_requests=2,
+    ray_actor_options={
+        "num_gpus": 0,
+        "num_cpus": 1.0,
+        "runtime_env": {
+            "env_vars": {
+                "HF_HUB_OFFLINE": "1",
+                "HF_HOME": "/models/hf_cache",
+                "VIBEVOICE_BACKEND": "cpu",
+            },
+        },
+    },
+)
+class VibeVoiceCppCpuDeployment(_VibeVoiceCppBase):
+    """vibevoice.cpp CPU — GGML quantized TTS + ASR via CPU backend."""

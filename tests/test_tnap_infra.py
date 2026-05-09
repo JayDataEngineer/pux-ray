@@ -39,8 +39,8 @@ class TestServiceRegistry:
     def test_all_services_present(self):
         from services.registry import SERVICE_REGISTRY
         expected = {
-            "kokoro", "espeak", "index_tts", "qwen_tts", "vibevoice",
-            "gpt_sovits", "faster_whisper", "vibevoice_asr", "qwen_asr",
+            "kokoro", "espeak", "index_tts", "qwen_tts", "vibevoice_cpp_gpu",
+            "gpt_sovits", "faster_whisper", "vibevoice_microsoft", "qwen_asr",
             "moss_soundeffect", "tangoflux", "ace_step", "trellis", "anigen",
                          "hy_motion", "see_through", "phi4mm", "comfyui",
             "llm",
@@ -126,18 +126,18 @@ class TestServiceRegistry:
         from services.registry import SERVICE_REGISTRY
         gpu_services = {"trellis", "anigen", "ace_step", "phi4mm",
                         "hy_motion", "see_through", "comfyui", "llm", "index_tts",
-                        "qwen_tts", "vibevoice", "gpt_sovits", "moss_soundeffect"}
+                        "qwen_tts", "vibevoice_cpp_gpu", "gpt_sovits", "moss_soundeffect"}
         for name in gpu_services:
             assert SERVICE_REGISTRY[name].needs_gpu is True, f"{name} should be GPU"
 
     def test_tts_services_have_aliases(self):
         from services.registry import SERVICE_REGISTRY
-        for name in ["kokoro", "espeak", "index_tts", "qwen_tts", "vibevoice", "gpt_sovits"]:
+        for name in ["kokoro", "espeak", "index_tts", "qwen_tts", "vibevoice_cpp_gpu", "gpt_sovits"]:
             assert SERVICE_REGISTRY[name].model_aliases, f"{name} needs model_aliases"
 
     def test_asr_services_have_aliases(self):
         from services.registry import SERVICE_REGISTRY
-        for name in ["faster_whisper", "vibevoice_asr", "qwen_asr"]:
+        for name in ["faster_whisper", "vibevoice_microsoft", "qwen_asr"]:
             assert SERVICE_REGISTRY[name].model_aliases, f"{name} needs model_aliases"
 
     def test_model_aliases_unique(self):
@@ -171,8 +171,8 @@ class TestIngressRoutes:
         svcs = r.json()
         assert len(svcs) == 20
         names = {s["name"] for s in svcs}
-        assert names == {"kokoro", "espeak", "index_tts", "qwen_tts", "vibevoice",
-                         "gpt_sovits", "faster_whisper", "vibevoice_asr", "qwen_asr",
+        assert names == {"kokoro", "espeak", "index_tts", "qwen_tts", "vibevoice_cpp_gpu",
+                         "gpt_sovits", "faster_whisper", "vibevoice_microsoft", "qwen_asr",
                          "moss_soundeffect", "tangoflux", "ace_step", "trellis", "anigen",
             "hy_motion", "see_through", "phi4mm", "comfyui",
                          "llm"}
@@ -351,8 +351,8 @@ class TestDashboardRegistry:
         from gateway.dashboard import KNOWN_DEPLOYMENTS
         for dep in ["kokoro_tts", "espeak_tts", "faster_whisper", "trellis", "anigen",
                     "hy_motion", "ace_step", "see_through", "phi4mm",
-                    "comfyui", "llm", "index_tts", "qwen_tts", "vibevoice",
-                    "gpt_sovits", "vibevoice_asr", "qwen_asr", "moss_soundeffect",
+                    "comfyui", "llm", "index_tts", "qwen_tts", "vibevoice_cpp_gpu",
+                    "gpt_sovits", "vibevoice_microsoft", "qwen_asr", "moss_soundeffect",
                     "tangoflux"]:
             assert dep in KNOWN_DEPLOYMENTS, f"Missing: {dep}"
 

@@ -1,6 +1,7 @@
-"""VibeVoice TTS — Long-form multi-speaker speech synthesis.
+"""VibeVoice Community TTS — 7B long-form multi-speaker speech synthesis.
 
-Uses VibeVoiceForConditionalGenerationInference. Supports multi-speaker voice cloning.
+Uses vibevoice/VibeVoice-7B community model with VibeVoiceForConditionalGenerationInference.
+Supports multi-speaker voice cloning.
 Conforms to TNAP: unified request/response protocol.
 """
 from __future__ import annotations
@@ -25,7 +26,7 @@ VOICES_DIR = os.environ.get("VIBEVOICE_VOICES_DIR", "/opt/vibevoice-community/vo
 
 
 @serve.deployment(
-    name="vibevoice",
+    name="vibevoice_community_tts",
     num_replicas=1,
     max_ongoing_requests=1,
     ray_actor_options={
@@ -39,10 +40,13 @@ VOICES_DIR = os.environ.get("VIBEVOICE_VOICES_DIR", "/opt/vibevoice-community/vo
         },
     },
 )
-class VibeVoiceDeployment(BaseGPUDeployment):
-    """VibeVoice long-form multi-speaker TTS."""
+class VibeVoiceCommunityTTSDeployment(BaseGPUDeployment):
+    """VibeVoice Community — vibevoice/VibeVoice-7B multi-speaker TTS."""
 
     def _load(self, model_name: str = "vibevoice-tts-7b") -> None:
+        from services.compat import apply as _apply_compat
+        _apply_compat()
+
         # Patch: community fork may reference classes from original vibevoice
         import vibevoice.modular.modular_vibevoice_text_tokenizer as _vtok
         if not hasattr(_vtok, 'VibeVoiceASRTextTokenizerFast'):

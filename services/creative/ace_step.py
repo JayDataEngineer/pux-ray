@@ -205,7 +205,16 @@ class ACEStepDeployment(BaseGPUDeployment):
                 return {"data": json.dumps({"error": "No audio produced"}).encode(), "media_type": "application/json"}
 
             audio_data = audios[0]
-            if isinstance(audio_data, np.ndarray):
+            # Handler returns {"tensor": torch.Tensor, "sample_rate": int}
+            if isinstance(audio_data, dict) and "tensor" in audio_data:
+                import torch as _torch
+                tensor = audio_data["tensor"]
+                sample_rate = audio_data.get("sample_rate", 48000)
+                waveform = tensor.numpy() if hasattr(tensor, "numpy") else np.asarray(tensor)
+                buf = io.BytesIO()
+                sf.write(buf, waveform.T, sample_rate, format=audio_format.upper())
+                data = buf.getvalue()
+            elif isinstance(audio_data, np.ndarray):
                 sample_rate = result.get("sample_rate", 48000)
                 buf = io.BytesIO()
                 sf.write(buf, audio_data.T, sample_rate, format=audio_format.upper())
@@ -213,7 +222,7 @@ class ACEStepDeployment(BaseGPUDeployment):
             elif isinstance(audio_data, bytes):
                 data = audio_data
             else:
-                return {"data": json.dumps({"error": "Unexpected audio format"}).encode(), "media_type": "application/json"}
+                return {"data": json.dumps({"error": f"Unexpected audio format: {type(audio_data).__name__}"}).encode(), "media_type": "application/json"}
 
             media_types = {
                 "wav": "audio/wav", "mp3": "audio/mpeg",

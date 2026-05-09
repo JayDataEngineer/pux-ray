@@ -14,8 +14,7 @@ metadata:
   namespace: ai-services
 spec:
   selector:
-    ray.io/cluster: tech-noir-ray-smdg9
-    ray.io/node-type: head
+    app.kubernetes.io/name: tech-noir-ray-head
   ports:
     - name: serve
       port: 8000

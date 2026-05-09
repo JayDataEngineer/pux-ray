@@ -589,10 +589,10 @@ function getApiEndpoints(name) {
         'espeak_tts': [{method: 'POST', path: '/v1/audio/speech'}],
         'index_tts': [{method: 'POST', path: '/v1/audio/speech'}],
         'qwen_tts': [{method: 'POST', path: '/v1/audio/speech'}],
-        'vibevoice': [{method: 'POST', path: '/v1/audio/speech'}],
+        'vibevoice_community_tts': [{method: 'POST', path: '/v1/audio/speech'}],
         'gpt_sovits': [{method: 'POST', path: '/v1/audio/speech'}],
         'faster_whisper': [{method: 'POST', path: '/v1/audio/transcriptions'}],
-        'vibevoice_asr': [{method: 'POST', path: '/v1/audio/transcriptions'}],
+        'vibevoice_microsoft': [{method: 'POST', path: '/v1/audio/transcriptions'}],
         'qwen_asr': [{method: 'POST', path: '/v1/audio/transcriptions'}],
     };
     return map[name] || [{method: 'POST', path: `/jobs/${name}`}];
