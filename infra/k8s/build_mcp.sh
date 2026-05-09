@@ -63,6 +63,7 @@ done
 
 echo ""
 echo "=== Deploying MCP services ==="
+python3 infra/secrets_sync.py
 kubectl apply -f infra/k8s/mcp/namespace.yaml
 kubectl apply -f infra/k8s/mcp/pvcs.yaml
 kubectl apply -f infra/k8s/mcp/web-research-deps.yaml

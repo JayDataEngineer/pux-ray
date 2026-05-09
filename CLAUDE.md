@@ -77,19 +77,16 @@ task infra:monitor         # Deploy the full monitoring stack
 task infra:monitor:status  # Check monitoring pods + scrape targets
 ```
 
-**Credentials**: Managed via **Infisical** (self-hosted, MIT licensed). CLI-first — `task secrets:set` or `infisical secrets set`. No plaintext secrets in git.
+**Credentials**: Single source of truth in `config/secrets.env` (gitignored). Synced to k8s via `task secrets:sync`.
 
 **Secrets workflow:**
 ```bash
-# First time bootstrap:
-task secrets:init                 # Creates K8s secrets with empty values
-kubectl edit secret infra-credentials -n infra  # Fill in real values
-
-# Or via Infisical CLI (after Infisical is deployed):
-infisical secrets set POSTGRES_PASSWORD value
+cp config/secrets.env.example config/secrets.env   # First time
+$EDITOR config/secrets.env                         # Set values
+task secrets:sync                                  # Push to all k8s namespaces
 ```
 
-**Infisical operator** (future): Install the K8s operator to auto-sync Infisical secrets into namespace K8s Secrets. `helm install infisical-operator infisical/operator`
+All deployments reference a single secret name `shared-infra` in their namespace. The sync script (`infra/secrets_sync.py`) reads `config/secrets.env` and creates identical `shared-infra` secrets in infra, mcp, and ai-services namespaces. Deploy tasks (`infra:deploy`, `build_mcp.sh`) run sync automatically.
 
 **Image**: `localhost/tech-noir/postgres-age-vector:latest` — Postgres 16 + AGE + pgvector. Built from `infra/docker/Dockerfile.postgres-age`.
 
@@ -105,8 +102,9 @@ task infra:down     # Tear down (keeps PVCs)
 
 **Adding a new database consumer:**
 1. Add database name to the init SQL in `infra/k8s/shared/postgres.yaml` ConfigMap
-2. Add the full DATABASE_URL to `infra/k8s/shared/secrets.yaml`
-3. Reference via `secretKeyRef` in the consumer's deployment
+2. Add the DATABASE_URL or password to `config/secrets.env`
+3. Reference via `secretKeyRef: shared-infra` in the consumer's deployment
+4. Run `task secrets:sync`
 
 ## MCP Servers (Standalone k3s Deployments)
 
@@ -138,7 +136,7 @@ kubectl apply -f infra/k8s/mcp/            # Re-apply manifests only
 2. Create K8s manifest in `infra/k8s/mcp/<name>.yaml` (Deployment + Service)
 3. Add Traefik route in `infra/k8s/traefik-ingress.yaml` with PathPrefix + stripPrefix middleware
 4. Add image config to `infra/k8s/build_mcp.sh`
-5. If it needs a database, add DATABASE_URL to `infra/k8s/mcp/shared-db-secret.yaml`
+5. If it needs secrets, add keys to `config/secrets.env` and reference `secretKeyRef: shared-infra` in the manifest
 
 ## Architecture: Ray + MCP, k3s + KubeRay
 

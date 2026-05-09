@@ -1,6 +1,6 @@
 # Web Research MCP Server — main FastAPI application
 # Accessible via Traefik: /mcp/web/*
-# Database: shared Postgres at postgres.infra.svc.cluster.local (integrated mode)
+# Database: shared Postgres at postgres.infra.svc.cluster.local (deployed via task infra:deploy)
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -29,13 +29,16 @@ spec:
             - name: MCP_PORT
               value: "8000"
             - name: POSTGRES_HOST
-              value: postgres
+              value: postgres.infra.svc.cluster.local
             - name: POSTGRES_PORT
               value: "5432"
             - name: POSTGRES_PASSWORD
-              value: mcp_local_dev
+              valueFrom:
+                secretKeyRef:
+                  name: shared-infra
+                  key: POSTGRES_PASSWORD
             - name: POSTGRES_DB
-              value: mcp_server
+              value: web_research
             - name: POSTGRES_USER
               value: postgres
             - name: CELERY_BROKER_URL

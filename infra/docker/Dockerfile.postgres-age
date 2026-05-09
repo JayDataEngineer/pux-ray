@@ -4,7 +4,8 @@ FROM apache/age:release_PG16_1.6.0
 
 # Install build deps, compile pgvector, clean up
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends git build-essential postgresql-server-dev-16 && \
+    apt-get install -y --no-install-recommends ca-certificates git build-essential postgresql-server-dev-16 && \
+    update-ca-certificates && \
     git clone --branch v0.8.0 https://github.com/pgvector/pgvector.git /tmp/pgvector && \
     cd /tmp/pgvector && \
     make OPTFLAGS="" && \

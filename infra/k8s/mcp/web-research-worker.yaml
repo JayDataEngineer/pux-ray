@@ -1,6 +1,6 @@
 # Celery workers + beat scheduler for Web Research MCP
 # Workers handle background scraping tasks; beat runs periodic cleanup
-# Database: shared Postgres at postgres.infra.svc.cluster.local (integrated mode)
+# Database: shared Postgres at postgres.infra.svc.cluster.local (deployed via task infra:deploy)
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -26,21 +26,22 @@ spec:
           command: ["celery", "-A", "src.celery_app", "worker", "--loglevel=info", "--concurrency=2"]
           env:
             - name: POSTGRES_HOST
-              value: postgres
+              value: postgres.infra.svc.cluster.local
             - name: POSTGRES_PORT
               value: "5432"
             - name: POSTGRES_PASSWORD
-              value: mcp_local_dev
+              valueFrom:
+                secretKeyRef:
+                  name: shared-infra
+                  key: POSTGRES_PASSWORD
             - name: POSTGRES_DB
-              value: mcp_server
+              value: web_research
             - name: POSTGRES_USER
               value: postgres
             - name: CELERY_BROKER_URL
               value: redis://redis:6379/0
             - name: CELERY_RESULT_BACKEND
               value: redis://redis:6379/0
-            - name: SEARXNG_URL
-              value: http://searxng:8080
             - name: SEARXNG_URL
               value: http://searxng:8080
           resources:
@@ -74,11 +75,19 @@ spec:
           imagePullPolicy: Never
           command: ["celery", "-A", "src.celery_app", "beat", "--loglevel=info"]
           env:
-            - name: DATABASE_URL
+            - name: POSTGRES_HOST
+              value: postgres.infra.svc.cluster.local
+            - name: POSTGRES_PORT
+              value: "5432"
+            - name: POSTGRES_PASSWORD
               valueFrom:
                 secretKeyRef:
-                  name: shared-db-url
-                  key: WEB_RESEARCH_DB_URL
+                  name: shared-infra
+                  key: POSTGRES_PASSWORD
+            - name: POSTGRES_DB
+              value: web_research
+            - name: POSTGRES_USER
+              value: postgres
             - name: CELERY_BROKER_URL
               value: redis://redis:6379/0
             - name: CELERY_RESULT_BACKEND
