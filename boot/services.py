@@ -7,9 +7,7 @@ and check health for Ray, Docker, and process-based services.
 from __future__ import annotations
 
 import logging
-import os
 import subprocess
-import time
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
@@ -21,8 +19,6 @@ from boot.health import (
     Status,
     check_docker,
     check_http,
-    check_ray,
-    check_tcp,
     wait_healthy,
 )
 
@@ -125,38 +121,12 @@ register(Service(
 ))
 
 
-# --- Ray services ---
-
-register(Service(
-    name="ray-cluster",
-    type=ServiceType.RAY,
-    working_dir=str(get_project_root()),
-    port=18265,
-    health_url="http://127.0.0.1:18265",
-    relative_to_root=True,
-    label="Ray Cluster (KubeRay)",
-))
-
-register(Service(
-    name="ray-serve",
-    type=ServiceType.RAY,
-    working_dir=str(get_project_root()),
-    port=18800,
-    depends_on=["ray-cluster"],
-    relative_to_root=True,
-    label="Ray Serve Deployments",
-))
-
-register(Service(
-    name="ingress",
-    type=ServiceType.PROCESS,
-    working_dir=str(get_project_root()),
-    port=18080,
-    health_url="http://127.0.0.1:18080/health",
-    depends_on=["ray-serve"],
-    relative_to_root=True,
-    label="API Ingress",
-))
+# --- Ray services (managed by KubeRay, NOT bare-metal) ---
+# Ray is deployed via `kubectl apply -f infra/k8s/ray-service.yaml`.
+# Do NOT register ray-cluster, ray-serve, or ingress here —
+# those would start bare-metal Ray processes on the host.
+# KubeRay manages Ray head + worker pods inside k3s.
+# See: infra/k8s/ray-service.yaml
 
 
 # ---------------------------------------------------------------------------
@@ -183,10 +153,9 @@ def start_service(svc: Service) -> bool:
 
     if svc.type == ServiceType.DOCKER:
         return _start_docker(svc)
-    elif svc.type == ServiceType.RAY:
-        return _start_ray(svc)
-    elif svc.type == ServiceType.PROCESS:
-        return _start_process(svc)
+    else:
+        logger.error("Unknown service type: %s", svc.type)
+        return False
 
     return False
 
@@ -197,10 +166,9 @@ def stop_service(svc: Service) -> bool:
 
     if svc.type == ServiceType.DOCKER:
         return _stop_docker(svc)
-    elif svc.type == ServiceType.RAY:
-        return _stop_ray(svc)
-    elif svc.type == ServiceType.PROCESS:
-        return _stop_process(svc)
+    else:
+        logger.error("Unknown service type: %s", svc.type)
+        return False
 
     return False
 
@@ -210,26 +178,7 @@ def get_status(svc: Service) -> HealthResult:
     if svc.type == ServiceType.DOCKER:
         return check_docker(str(svc.get_working_dir()), svc.compose_file)
 
-    if svc.type == ServiceType.RAY:
-        if svc.name == "ray-cluster":
-            return check_ray()
-        # ray-serve depends on ray-cluster
-        cluster = check_ray()
-        if cluster.status != Status.HEALTHY:
-            return cluster
-        if svc.port:
-            return check_tcp(svc.port)
-        return cluster
-
-    if svc.type == ServiceType.PROCESS:
-        if svc.port:
-            return check_tcp(svc.port)
-        url = svc.get_health_url()
-        if url:
-            return check_http(url)
-        return HealthResult(Status.UNKNOWN, "no health check")
-
-    return HealthResult(Status.UNKNOWN)
+    return HealthResult(Status.UNKNOWN, f"unsupported type: {svc.type}")
 
 
 def get_all_status() -> dict[str, HealthResult]:
@@ -284,132 +233,8 @@ def _stop_docker(svc: Service) -> bool:
         return False
 
 
-# ---------------------------------------------------------------------------
-# Private: Ray lifecycle
-# ---------------------------------------------------------------------------
-
-def _start_ray(svc: Service) -> bool:
-    root = str(svc.get_working_dir())
-
-    if svc.name == "ray-cluster":
-        ray_bin = f"{root}/.venv/bin/ray"
-        try:
-            # Check if Ray is already running
-            check = subprocess.run(
-                [ray_bin, "status"], capture_output=True, text=True, timeout=10,
-            )
-            if "node" in (check.stdout or ""):
-                logger.info("Ray cluster already running")
-                return True
-
-            subprocess.run(
-                [
-                    ray_bin, "start", "--head",
-                    "--num-cpus=16",
-                    "--num-gpus=1",
-                    "--dashboard-host=0.0.0.0",
-                    "--dashboard-port=18265",
-                    "--min-worker-port=10002",
-                    "--max-worker-port=17999",
-                    "--object-store-memory=4000000000",
-                    "--temp-dir=/tmp/ray",
-                ],
-                cwd=root, capture_output=True, text=True, timeout=120,
-                env={
-                    **os.environ,
-                    "RAY_memory_usage_threshold": "0.98",
-                    "RAY_prestart_python_workers": "4",
-                    "RAY_RUNTIME_ENV_IMAGE_WORKER_PULLER": "docker",
-                },
-            )
-        except subprocess.TimeoutExpired:
-            logger.error("Ray cluster start timed out")
-            return False
-
-        return wait_healthy(check_ray, timeout=60)
-
-    if svc.name == "ray-serve":
-        # Deploy services via Python
-        venv = f"{root}/.venv/bin/python"
-        try:
-            result = subprocess.run(
-                [venv, "-m", "scripts.deploy_services"],
-                cwd=root, capture_output=True, text=True, timeout=180,
-            )
-            if result.returncode != 0:
-                logger.error("deploy_services failed: %s", result.stderr[-500:])
-                return False
-        except subprocess.TimeoutExpired:
-            logger.error("Ray Serve deploy timed out")
-            return False
-        return True
-
-    return False
-
-
-def _stop_ray(svc: Service) -> bool:
-    if svc.name in ("ray-cluster", "ray-serve", "ingress"):
-        root = str(svc.get_working_dir())
-        ray_bin = f"{root}/.venv/bin/ray"
-        try:
-            subprocess.run(
-                [ray_bin, "stop"], capture_output=True, text=True, timeout=30,
-            )
-            return True
-        except (subprocess.TimeoutExpired, FileNotFoundError):
-            return False
-    return False
-
 
 # ---------------------------------------------------------------------------
-# Private: Process lifecycle
+# Ray lifecycle — REMOVED. Ray is managed by KubeRay (k3s), not bare-metal.
+# To deploy/update Ray: kubectl apply -f infra/k8s/ray-service.yaml
 # ---------------------------------------------------------------------------
-
-def _start_process(svc: Service) -> bool:
-    root = str(svc.get_working_dir())
-
-    if svc.name == "ingress":
-        log_dir = "/tmp/tech-noir"
-        os.makedirs(log_dir, exist_ok=True)
-
-        venv = f"{root}/.venv/bin/python"
-        cmd = [
-            venv, "-c",
-            "import ray; ray.init(address='auto', namespace='tech_noir'); "
-            "import uvicorn; from gateway.ingress import create_app; "
-            "uvicorn.run(create_app(), host='0.0.0.0', port=18080)",
-        ]
-
-        log_file = open(f"{log_dir}/ingress.log", "a")
-        subprocess.Popen(
-            cmd, cwd=root,
-            stdout=log_file, stderr=log_file,
-            start_new_session=True,
-        )
-
-        url = svc.get_health_url()
-        if url:
-            return wait_healthy(lambda: check_http(url), timeout=30)
-        return wait_healthy(lambda: check_tcp(svc.port), timeout=30)
-
-    return False
-
-
-def _stop_process(svc: Service) -> bool:
-    """Kill any process listening on the service's port."""
-    if not svc.port:
-        return False
-    try:
-        result = subprocess.run(
-            ["lsof", "-ti", f":{svc.port}"],
-            capture_output=True, text=True, timeout=5,
-        )
-        pids = result.stdout.strip().split("\n")
-        for pid in pids:
-            pid = pid.strip()
-            if pid.isdigit():
-                os.kill(int(pid), 9)
-                logger.info("Killed PID %s on port %d", pid, svc.port)
-        return True
-    except (subprocess.TimeoutExpired, ProcessLookupError, PermissionError):
-        return False

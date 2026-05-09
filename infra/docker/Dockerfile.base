@@ -60,7 +60,8 @@ RUN git clone --depth 1 https://github.com/NVlabs/nvdiffrast.git /tmp/nvdiffrast
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv pip install transformers accelerate pillow einops numpy soundfile scipy \
     fastapi "uvicorn[standard]" python-multipart httpx \
-    imageio trimesh plyfile easydict kornia timm safetensors
+    imageio trimesh plyfile easydict kornia timm safetensors \
+    opencv-python-headless
 
 # TRELLIS.2 CUDA dependencies — cumesh, flex_gemm, o_voxel
 # Built from source to match torch ABI
@@ -74,19 +75,17 @@ RUN git clone --depth 1 --recursive https://github.com/JeffreyXiang/FlexGEMM.git
     uv pip install . --no-build-isolation && \
     rm -rf /tmp/flexgemm
 
-RUN git clone --depth 1 https://github.com/JayDataEngineer/trellis2-inference.git /tmp/trellis2 && \
-    cd /tmp/trellis2/o-voxel && \
+COPY vendor/o-voxel/ /tmp/o-voxel/
+RUN cd /tmp/o-voxel && \
     uv pip install . --no-build-isolation && \
-    rm -rf /tmp/trellis2
+    rm -rf /tmp/o-voxel
 
-# Verify
+# Verify core packages (GPU-dependent packages like flex_gemm, cumesh, o_voxel
+# trigger triton CUDA init and can only be tested at runtime with a GPU)
 RUN python3 -c "\
-import torch; print(f'torch {torch.__version__}, CUDA {torch.cuda.is_available()}'); \
+import torch; print(f'torch {torch.__version__}'); \
 import torchaudio; print(f'torchaudio {torchaudio.__version__}'); \
 import torchvision; print(f'torchvision {torchvision.__version__}'); \
 import vllm_flash_attn; print(f'vllm_flash_attn {vllm_flash_attn.__version__}'); \
 import nvdiffrast; print('nvdiffrast OK'); \
-import o_voxel; print('o_voxel OK'); \
-import cumesh; print('cumesh OK'); \
-import flex_gemm; print('flex_gemm OK'); \
 import ray; print(f'ray {ray.__version__}')"
