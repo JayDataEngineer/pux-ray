@@ -33,6 +33,7 @@ logger = logging.getLogger(__name__)
 )
 class SeeThroughDeployment(BaseGPUDeployment):
     vram_mb = 6_144
+    _service_name = "see_through"
     """See-Through layer decomposition via native PyTorch inference."""
 
     def __init__(self):

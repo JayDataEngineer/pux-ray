@@ -114,6 +114,40 @@ All services are registered in `boot/services.py` as `Service` dataclasses. Each
    ```
 3. Run `task status` to verify it appears
 
+## GPU Governor — VRAM Coordination
+
+All heavy GPU services (trellis, ace_step, moss_soundeffect, anigen, see_through, hy_motion, comfyui, llm) are independent Ray Serve deployments with `num_gpus: 0` coordinated by the **GPUGovernor** actor in `gateway/gpu_governor.py`.
+
+- Governor holds a lease for whichever heavy service is currently loaded
+- Before loading a new service, Governor proactively evicts the current holder (calls `unload_model()`)
+- Lightweight services (kokoro_tts, index_tts, vibevoice_cpp, etc.) coexist without leases
+- `num_gpus: 0` on all deployments — Governor manages VRAM, not Ray's GPU ledger
+
+### Serialization Note
+
+Ray's `@serve.deployment` has a serialization check that fails for some classes when imported from module context (`GenericModule` / `_Ops` errors). The workaround is to define wrapper subclasses in the module where the `@serve.deployment` decorator is applied. `serve_config.py` uses this pattern for `moss_soundeffect` and `anigen`.
+
+### Docker Images (KubeRay)
+
+The KubeRay RayService requires `localhost/tech-noir/gpu-all:latest` in the in-cluster registry. Build:
+```bash
+docker build --network=host -f infra/docker/Dockerfile.base -t tech-noir/ray-base:latest .
+docker build --network=host -f infra/docker/Dockerfile.gpu-all -t localhost/tech-noir/gpu-all:latest .
+docker build -f infra/docker/Dockerfile.model-sync -t tech-noir/model-sync:latest .
+docker tag tech-noir/model-sync:latest localhost/tech-noir/model-sync:latest
+# Push to in-cluster registry (kubectl port-forward or direct)
+```
+
+Ray-base build requires `--network=host` because `git clone` in Docker can't reach GitHub otherwise.
+
+### Host Testing (no Docker)
+
+```bash
+uv run ray start --head --num-gpus=1
+uv run python deploy_all.py
+# All 15 services available at http://localhost:8000/{route_prefix}
+```
+
 ## Configuration
 
 Config lives in `config/local.yaml` (git-ignored, machine-specific). Access via:

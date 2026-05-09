@@ -102,9 +102,17 @@ class GPUGovernor:
         """Tell a service to unload and wait for confirmation."""
         from ray import serve
 
-        handle = serve.get_deployment_handle(service, service)
+        logger.info("Governor: evicting %s — getting deployment handle", service)
+        try:
+            handle = serve.get_deployment_handle(service, app_name=service)
+        except Exception as e:
+            logger.warning("Governor: cannot get handle for %s (may be scaled to 0): %s", service, e)
+            self._holder = None
+            return
+
         try:
             await handle.unload_model.remote()
+            logger.info("Governor: eviction of %s complete", service)
         except Exception as e:
-            logger.warning("Governor: eviction of %s failed: %s", service, e)
+            logger.warning("Governor: eviction remote call to %s failed (replica may be gone): %s", service, e)
         self._holder = None

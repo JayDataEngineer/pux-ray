@@ -280,10 +280,17 @@ class BaseGPUDeployment:
     Governor integration: load_model() requests a VRAM lease before loading.
     Heavy services (trellis, ace_step, etc.) coordinate through the GPUGovernor
     to prevent OOM collisions. Lightweight services set vram_mb=0 to skip leasing.
+
+    Subclasses that need Governor leasing MUST set both:
+        _service_name: str  — deployment name matching HEAVY_SERVICES key
+        vram_mb: int > 0    — estimated VRAM footprint in MB
     """
 
     vram_mb: int = 0
     """Estimated VRAM footprint in MB. 0 = lightweight (no Governor lease)."""
+
+    _service_name: str = ""
+    """Governor service identifier. Must match a key in HEAVY_SERVICES."""
 
     def __init__(self):
         self.model: Optional[object] = None
@@ -300,47 +307,31 @@ class BaseGPUDeployment:
         except ValueError:
             return None
 
-    @staticmethod
-    def _run_async(coro) -> None:
-        """Run a coroutine safely from both sync and async contexts."""
-        import asyncio
-        try:
-            loop = asyncio.get_running_loop()
-            if loop.is_running():
-                import concurrent.futures
-                thread_pool = concurrent.futures.ThreadPoolExecutor(max_workers=1)
-                future = thread_pool.submit(asyncio.run, coro)
-                future.result()
-                thread_pool.shutdown(wait=False)
-            else:
-                loop.run_until_complete(coro)
-        except RuntimeError:
-            asyncio.run(coro)
-
-    def _request_lease(self, model_name: str) -> None:
-        """Request VRAM lease from Governor before loading (sync)."""
-        if self.vram_mb <= 0:
+    def _request_lease(self) -> None:
+        """Request VRAM lease from Governor before loading."""
+        if self.vram_mb <= 0 or not self._service_name:
             return
         gov = self._governor()
         if not gov:
             return
-        async def _do():
-            result = await gov.acquire.remote(model_name)
+        try:
+            result = ray.get(gov.acquire.remote(self._service_name))
             if result.get("evicted"):
-                logger.info("Governor evicted %s for %s", result["evicted"], model_name)
-        self._run_async(_do())
+                logger.info("Governor evicted %s for %s", result["evicted"], self._service_name)
+        except Exception as e:
+            logger.warning("Governor lease request failed for %s: %s", self._service_name, e)
 
     def _release_lease(self) -> None:
-        """Release VRAM lease to Governor after unloading (sync)."""
-        if self.vram_mb <= 0:
+        """Release VRAM lease to Governor after unloading."""
+        if self.vram_mb <= 0 or not self._service_name:
             return
         gov = self._governor()
         if not gov:
             return
-        name = self.model_name or "unknown"
-        async def _do():
-            await gov.release.remote(name)
-        self._run_async(_do())
+        try:
+            ray.get(gov.release.remote(self._service_name))
+        except Exception as e:
+            logger.warning("Governor lease release failed for %s: %s", self._service_name, e)
 
     # ── Model lifecycle ─────────────────────────────────────────────────────
 
@@ -358,7 +349,7 @@ class BaseGPUDeployment:
         if self.model is not None:
             self.unload_model()
 
-        self._request_lease(model_name)
+        self._request_lease()
 
         self._vram_before_load_mb = free_vram_mb()
         logger.info("Loading %s (free VRAM: %dMB)", model_name, self._vram_before_load_mb)
