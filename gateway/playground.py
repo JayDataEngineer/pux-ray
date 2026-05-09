@@ -155,17 +155,6 @@ PLAYGROUND_META: dict[str, dict] = {
             {"key": "image", "label": "Anime image", "type": "image", "required": True, "help": "Upload an anime image for layer decomposition"},
         ],
     },
-    "phi4mm": {
-        "category": "Vision",
-        "gpu": True,
-        "route": None,
-        "format": "tnap",
-        "input_fields": [
-            {"key": "image", "label": "Image (optional, for multimodal)", "type": "image"},
-            {"key": "text", "label": "Text prompt", "type": "textarea", "required": True, "placeholder": "Describe the image or ask a question..."},
-            {"key": "max_tokens", "label": "Max tokens", "type": "number", "default": 1024, "min": 64, "max": 8192},
-        ],
-    },
 }
 
 

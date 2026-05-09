@@ -73,6 +73,7 @@ def _get_moss_model_class():
 class MossSoundEffectDeployment(BaseGPUDeployment):
     """MOSS-SoundEffect text-to-sound via native PyTorch inference."""
     vram_mb = 18_432
+    _service_name = "moss_soundeffect"
 
     def __init__(self):
         super().__init__()

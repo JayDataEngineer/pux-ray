@@ -29,6 +29,8 @@ logger = logging.getLogger(__name__)
 class LLMDeployment(BaseGPUDeployment, SubprocessMixin):
     """Ray Serve deployment wrapping llama.cpp server."""
 
+    vram_mb = 20_480
+    _service_name = "llm"
     PORT = 18399
     DEFAULT_MODEL = "qwen3.6-27b-q6_k"
 

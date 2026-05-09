@@ -38,6 +38,7 @@ STATS_VENDOR_PATH = "/opt/hymotion/stats"
 class HYMotionDeployment(BaseGPUDeployment):
     """HY-Motion text-to-3D human motion via native PyTorch inference."""
     vram_mb = 6_144
+    _service_name = "hy_motion"
 
     def __init__(self):
         super().__init__()

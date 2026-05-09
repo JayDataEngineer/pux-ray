@@ -27,6 +27,7 @@ logger = logging.getLogger(__name__)
 
 class AniGenDeployment(BaseGPUDeployment):
     vram_mb = 10_240
+    _service_name = "anigen"
     """AniGen image-to-3D via native PyTorch inference."""
 
     def __init__(self):

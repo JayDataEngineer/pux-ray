@@ -48,6 +48,7 @@ logger = logging.getLogger(__name__)
 class ACEStepDeployment(BaseGPUDeployment):
     """ACE-STEP text-to-music via native PyTorch inference."""
     vram_mb = 8_192
+    _service_name = "ace_step"
 
     def __init__(self):
         super().__init__()
