@@ -7,7 +7,7 @@ explicit _load()/_unload() swaps with torch.cuda.empty_cache() between them.
 
 Lightweight GPU services (faster_qwen3_tts, index_tts, vibevoice_cpp) stay as
 separate Ray deployments — they're small enough to coexist. Only the heavy hitters
-(trellis, ace_step, comfyui, hy_motion, anigen, see_through, moss_soundeffect)
+(trellis, ace_step, comfyui, hy_motion, anigen, see_through, moss_soundeffect, llm)
 go through this router.
 """
 from __future__ import annotations
@@ -26,7 +26,12 @@ from starlette.responses import JSONResponse, Response
 logger = logging.getLogger(__name__)
 
 HEAVY_SERVICES = {"trellis", "ace_step", "comfyui", "hy_motion", "moss_soundeffect",
-                   "anigen", "see_through"}
+                   "anigen", "see_through", "llm"}
+
+# Default _load() arguments for services that need them.
+LOAD_KWARGS = {
+    "llm": {"model_name": "qwen3.6-27b-q6_k"},
+}
 
 
 @serve.deployment(
@@ -53,6 +58,7 @@ class MasterRouter:
             "moss_soundeffect": ("services.audio.moss_soundeffect", "MossSoundEffectDeployment"),
             "anigen": ("services.creative.anigen", "AniGenDeployment"),
             "see_through": ("services.creative.see_through", "SeeThroughDeployment"),
+            "llm": ("services.llm.deployment", "LLMDeployment"),
         }
         if name not in imports:
             raise ValueError(f"Unknown heavy service: {name}")
@@ -91,8 +97,8 @@ class MasterRouter:
         self._unload_active()
 
         svc = self._get_service(name)
-        import asyncio
-        svc._load()
+        kwargs = LOAD_KWARGS.get(name, {})
+        svc._load(**kwargs)
         self._loaded[name] = True
         self.active_service = name
         vram = torch.cuda.memory_allocated(0) / (1024 ** 2)
@@ -114,7 +120,6 @@ class MasterRouter:
 
         # Build a sub-request with the payload minus the router key
         inner_body = {k: v for k, v in body.items() if k != "service"}
-        inner_body.setdefault("action", "generate")
 
         class _InnerRequest:
             def __init__(self, data):
