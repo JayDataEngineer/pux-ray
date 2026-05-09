@@ -248,6 +248,11 @@ task cloud:up        # Launch SkyServe endpoint
 task cloud:status    # Show cloud status + GPU prices
 task cloud:push      # Push images to GHCR
 task cloud:down      # Terminate cloud endpoint
+task cloud:enable <url>   # Enable cloud burst (set CLOUD_SERVE_URL)
+task cloud:disable        # Disable cloud burst (clear CLOUD_SERVE_URL)
+task cloud:config         # Show runtime config (timeouts)
+task cloud:metrics        # Show Prometheus metrics
+task cloud:tune '{"local_timeout":5}'  # Adjust timeout at runtime (no restart)
 
 # Testing
 task test            # Run pytest
@@ -383,9 +388,26 @@ Request → Traefik → Overflow Gateway (k8s Deployment)
 **Workflow:**
 1. `task cloud:setup` — install SkyPilot, add cloud API keys to `config/secrets.env`
 2. `task cloud:push` — push Docker images to GHCR
-3. `task cloud:up` — launch SkyServe endpoint (saves URL to `CLOUD_SERVE_URL` secret)
-4. Requests to `/overflow/*` auto-fallback to cloud when local is overloaded
-5. `task cloud:down` — terminate cloud endpoint (scales to zero)
+3. `task cloud:up` — launch SkyServe endpoint
+4. `task cloud:enable <url>` — set CLOUD_SERVE_URL on the k8s deployment
+5. Requests to `/overflow/*` auto-fallback to cloud when local is overloaded
+6. `task cloud:disable` — clear CLOUD_SERVE_URL (stops cloud bursting)
+7. `task cloud:tune '{"local_timeout":5}'` — adjust at runtime (no restart)
+8. `task cloud:down` — terminate cloud endpoint (scales to zero)
+
+**Metrics (Prometheus — auto-scraped via ServiceMonitor):**
+| Metric | Type | Labels | Description |
+|---|---|---|---|
+| `overflow_requests_total` | Counter | source, status | Requests by local/cloud + 2xx/4xx/5xx |
+| `overflow_request_duration_seconds` | Histogram | source | Latency buckets by source |
+| `overflow_cloud_enabled` | Gauge | — | 1 if cloud URL configured |
+
+**Grafana:** Import `overflow_*` metrics into the existing FastAPI dashboard
+at `http://100.86.69.57:30080/grafana`. Add a panel with:
+```
+rate(overflow_requests_total{source="cloud"}[5m])
+```
+to see cloud fallback rate over time.
 
 ## Conventions
 
