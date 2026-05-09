@@ -6,6 +6,7 @@
 # Port 30080 is Traefik's NodePort (avoids common port conflicts).
 #
 # Routing:
+#   /overflow/*       → Overflow Gateway (cloud burst proxy)
 #   /ray-dashboard/*  → Ray Dashboard
 #   /mcp/media/*      → Media Analysis MCP
 #   /mcp/web/*        → Web Research MCP
@@ -207,3 +208,34 @@ spec:
   stripPrefix:
     prefixes:
       - /grafana
+
+---
+# Overflow Gateway — cloud burst proxy
+
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: overflow-ingress
+  namespace: infra
+spec:
+  entryPoints:
+    - web
+  routes:
+    - match: PathPrefix(`/overflow`)
+      kind: Rule
+      middlewares:
+        - name: overflow-rewrite
+      services:
+        - name: overflow-gateway
+          port: 8090
+
+---
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: overflow-rewrite
+  namespace: infra
+spec:
+  stripPrefix:
+    prefixes:
+      - /overflow

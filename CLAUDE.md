@@ -242,6 +242,13 @@ kubectl logs -n mcp -l app=web-research-mcp    # Web research logs
 task models:list     # Show all models and download status
 task models:pull     # Download missing models
 
+# Cloud burst (SkyPilot)
+task cloud:setup     # Install SkyPilot + verify cloud access
+task cloud:up        # Launch SkyServe endpoint
+task cloud:status    # Show cloud status + GPU prices
+task cloud:push      # Push images to GHCR
+task cloud:down      # Terminate cloud endpoint
+
 # Testing
 task test            # Run pytest
 python scripts/test_services_v2.py  # Integration tests against live cluster
@@ -319,6 +326,11 @@ Heavy GPU services share a single RTX 4090 via explicit model swapping. Send `{"
 | `/mcp/media/*` | Media Analysis MCP (CPU, YOLOv8/Florence-2/SAM2) |
 | `/mcp/web/*` | Web Research MCP (CPU, search/scrape/extract) |
 
+### Cloud Burst (SkyPilot/SkyServe)
+| Route | Service |
+|---|---|
+| `/overflow/*` | Overflow proxy (local → cloud fallback) |
+
 ### Tier 2/3 (commented out in serve_config.py)
 | Route | Service |
 |---|---|
@@ -347,6 +359,33 @@ Auth: `X-API-Key` header or `?api_key=` query param. Unset = no auth (dev mode).
 2. `ssh root@192.168.1.184` → `cryptroot-unlock` → type passphrase → OS boots
 3. Tailscale auto-starts → server reachable at `100.86.69.57`
 4. systemd `tech-noir.service` runs `tech-noir boot` → all services start
+
+## Cloud Burst (SkyPilot)
+
+When local GPU is overloaded (queue full, 503s), the overflow gateway automatically forwards requests to a SkyServe cloud endpoint. Cloud instances run the same Docker image (`ghcr.io/jaydataengineer/tech-noir/gpu-all:latest`) and auto-scale from 0→8→0 based on request queue depth.
+
+**Architecture:**
+```
+Request → Traefik → Overflow Gateway (k8s Deployment)
+                         │
+                    Local Ray Serve OK?
+                    YES → process locally
+                    NO  → SkyServe (cheapest cloud GPU)
+```
+
+**Key files:**
+- `infra/skypilot/serve.yaml` — SkyServe autoscaling config
+- `infra/skypilot/setup.sh` — SkyPilot install + credential check
+- `gateway/overflow_proxy.py` — FastAPI proxy (local → cloud fallback)
+- `infra/k8s/shared/overflow-gateway.yaml` — K8s Deployment
+- `infra/docker/push-images.sh` — Push images to GHCR
+
+**Workflow:**
+1. `task cloud:setup` — install SkyPilot, add cloud API keys to `config/secrets.env`
+2. `task cloud:push` — push Docker images to GHCR
+3. `task cloud:up` — launch SkyServe endpoint (saves URL to `CLOUD_SERVE_URL` secret)
+4. Requests to `/overflow/*` auto-fallback to cloud when local is overloaded
+5. `task cloud:down` — terminate cloud endpoint (scales to zero)
 
 ## Conventions
 
