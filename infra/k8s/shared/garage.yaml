@@ -17,7 +17,8 @@ data:
   garage.toml: |
     metadata_dir = "/data/meta"
     data_dir = "/data/data"
-    replication_mode = "1"
+    replication_factor = 1
+    consistency_mode = "consistent"
 
     rpc_bind_addr = "[::]:3902"
     rpc_public_addr = "127.0.0.1:3902"
@@ -71,6 +72,7 @@ spec:
       containers:
         - name: garage
           image: dxflrs/garage:v2.0.0
+          command: ["/garage"]
           args: ["server"]
           ports:
             - containerPort: 3900

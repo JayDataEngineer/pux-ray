@@ -42,7 +42,7 @@ spec:
                   name: shared-infra
                   key: INFISICAL_AUTH_SECRET
             - name: DB_CONNECTION_URI
-              value: "postgresql://postgres@postgres.infra.svc.cluster.local:5432/infisical"
+              value: "postgresql://postgres:mcp_local_dev@postgres.infra.svc.cluster.local:5432/infisical"
             - name: POSTGRES_PASSWORD
               valueFrom:
                 secretKeyRef:
