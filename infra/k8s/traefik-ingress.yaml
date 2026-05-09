@@ -2,17 +2,22 @@
 #
 # Apply: kubectl apply -f infra/k8s/traefik-ingress.yaml
 #
-# Routing (port 30080 via Tailscale):
-#   /langfuse         → Langfuse (infra namespace)
-#   /mcp/media        → Media Analysis MCP (mcp namespace)
-#   /mcp/web          → Web Research MCP (mcp namespace)
-#   /ray-dashboard/*  → Ray Dashboard (ai-services namespace)
-#   /*                → Ray Serve (catch-all, ai-services namespace)
+# All services accessible via: http://100.86.69.57:30080/<route>
+# Port 30080 is Traefik's NodePort (avoids common port conflicts).
 #
-# Direct access (bypass Traefik):
-#   18080 → Ray Serve     18265 → Ray Dashboard
+# Routing:
+#   /ray-dashboard/*  → Ray Dashboard
+#   /mcp/media/*      → Media Analysis MCP
+#   /mcp/web/*        → Web Research MCP
+#   /langfuse/*       → Langfuse
+#   /infisical/*      → Infisical
+#   /grafana/*        → Grafana
+#   /*                → Ray Serve (catch-all)
+#
+# Ray Serve uses ray-serve-proxy (head-only) to avoid 502s from worker
+# nodes that don't run the HTTP proxy.
 
-# Traefik IngressRoute — clean URLs on port 80
+# Traefik IngressRoute — catch-all Ray Serve
 apiVersion: traefik.io/v1alpha1
 kind: IngressRoute
 metadata:
@@ -25,7 +30,7 @@ spec:
     - match: PathPrefix(`/`)
       kind: Rule
       services:
-        - name: tech-noir-ray-serve-svc
+        - name: ray-serve-proxy
           port: 8000
 
 ---

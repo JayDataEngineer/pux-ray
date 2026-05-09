@@ -177,6 +177,10 @@ docker save localhost/tech-noir/gpu-all:latest | sudo k3s ctr images import -
 # Apply RayService (in-place update, no pod restart)
 kubectl apply -f infra/k8s/ray-service.yaml
 
+# Apply networking (Traefik routes + dedicated serve proxy)
+kubectl apply -f infra/k8s/ray-serve-proxy.yaml
+kubectl apply -f infra/k8s/traefik-ingress.yaml
+
 # Force fresh code pickup (source mount changes need pod restart)
 kubectl delete pod -n ai-services -l ray.io/cluster=tech-noir-ray-s8mcd
 ```
