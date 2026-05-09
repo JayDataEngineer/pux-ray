@@ -23,7 +23,7 @@ from starlette.routing import Route
 logger = logging.getLogger(__name__)
 
 # ── Defaults from env ──────────────────────────────────────────────
-LOCAL_RAY_URL = os.environ.get("LOCAL_RAY_URL", "http://tech-noir-ray-serve-svc.ai-services.svc.cluster.local:8000")
+LOCAL_RAY_URL = os.environ.get("LOCAL_RAY_URL", "http://ray-serve-proxy.ai-services.svc.cluster.local:8000")
 CLOUD_SERVE_URL = os.environ.get("CLOUD_SERVE_URL", "")
 LOCAL_TIMEOUT_DEFAULT = float(os.environ.get("LOCAL_TIMEOUT", "10"))
 CLOUD_TIMEOUT_DEFAULT = float(os.environ.get("CLOUD_TIMEOUT", "300"))

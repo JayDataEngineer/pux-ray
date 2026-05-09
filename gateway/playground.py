@@ -79,10 +79,10 @@ PLAYGROUND_META: dict[str, dict] = {
             {"key": "voice", "label": "Voice", "type": "text", "default": "default"},
         ],
     },
-    "vibevoice": {
+    "vibevoice_cpp_gpu": {
         "category": "TTS",
-        "gpu": True,
-        "route": "/tts/vibevoice-cpp",
+        "gpu": False,
+        "route": "/tts/vibevoice-cpp-gpu",
         "format": "tnap",
         "input_fields": [
             {"key": "text", "label": "Text to speak", "type": "textarea", "required": True, "placeholder": "Enter text to synthesize..."},

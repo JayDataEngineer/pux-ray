@@ -5,10 +5,10 @@ Multiple deployments with fractional GPU claims will physically OOM when their m
 collide in VRAM. This router claims the entire GPU (num_gpus: 1.0) and performs
 explicit _load()/_unload() swaps with torch.cuda.empty_cache() between them.
 
-Lightweight GPU services (faster_qwen3_tts, index_tts, vibevoice_cpp) stay as
+Lightweight GPU services (faster_qwen3_tts, index_tts, vibevoice_cpp_gpu, vibevoice_cpp_cpu) stay as
 separate Ray deployments — they're small enough to coexist. Only the heavy hitters
 (trellis, ace_step, comfyui, hy_motion, anigen, see_through, moss_soundeffect, llm,
- vibevoice_asr, vibevoice, phi4mm)
+ vibevoice_microsoft, vibevoice_community_tts, phi4mm)
 go through this router.
 """
 from __future__ import annotations
@@ -17,6 +17,7 @@ import gc
 import json
 import logging
 import os
+import sys
 from typing import Any, Dict, Optional
 
 import torch
@@ -27,7 +28,8 @@ from starlette.responses import JSONResponse, Response
 logger = logging.getLogger(__name__)
 
 HEAVY_SERVICES = {"trellis", "ace_step", "comfyui", "hy_motion", "moss_soundeffect",
-                   "anigen", "see_through", "llm", "vibevoice_asr", "vibevoice", "phi4mm"}
+                   "anigen", "see_through", "llm", "vibevoice_microsoft",
+                   "vibevoice_community_tts", "phi4mm"}
 
 # Default _load() arguments for services that need them.
 LOAD_KWARGS = {
@@ -60,8 +62,8 @@ class MasterRouter:
             "anigen": ("services.creative.anigen", "AniGenDeployment"),
             "see_through": ("services.creative.see_through", "SeeThroughDeployment"),
             "llm": ("services.llm.deployment", "LLMDeployment"),
-            "vibevoice_asr": ("services.asr.gpu_asr", "VibeVoiceASRDeployment"),
-            "vibevoice": ("services.tts.vibe_voice", "VibeVoiceDeployment"),
+            "vibevoice_microsoft": ("services.asr.gpu_asr", "VibeVoiceMicrosoftDeployment"),
+            "vibevoice_community_tts": ("services.tts.vibe_voice", "VibeVoiceCommunityTTSDeployment"),
             "phi4mm": ("services.multimodal.phi4mm", "Phi4MMDeployment"),
         }
         if name not in imports:
@@ -100,6 +102,15 @@ class MasterRouter:
 
         self._unload_active()
 
+        # Pre-import spconv once to prevent pybind11 type re-registration
+        # when services that both depend on spconv (TRELLIS, AniGen) load
+        # sequentially in the same process.
+        if 'spconv' not in sys.modules:
+            try:
+                import spconv  # noqa: F401
+            except ImportError:
+                pass
+
         svc = self._get_service(name)
         kwargs = LOAD_KWARGS.get(name, {})
         svc._load(**kwargs)
@@ -130,7 +141,7 @@ class MasterRouter:
                 self._data = data
                 self.method = "POST"
                 self.url = type("U", (), {"path": f"/{service}", "query": ""})()
-                self.headers = {}
+                self.headers = {"content-type": "application/json"}
 
             async def json(self):
                 return self._data

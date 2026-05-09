@@ -34,7 +34,7 @@ STUDIO_APPS: dict[str, dict] = {
     # --- Interactive tools (have native Web UIs) ---
     "comfyui": {
         "label": "ComfyUI",
-        "url": "http://localhost:18465",
+        "url": "/comfyui/",
         "has_ui": True,
         "category": "Image",
         "gpu": True,
@@ -104,14 +104,14 @@ STUDIO_APPS: dict[str, dict] = {
         "manage_type": "scheduler",
         "default_model": "qwen_tts",
     },
-    "vibevoice": {
-        "label": "VibeVoice TTS",
+    "vibevoice_community_tts": {
+        "label": "VibeVoice Community TTS (7B)",
         "url": None,
         "has_ui": False,
         "category": "TTS",
         "gpu": True,
         "manage_type": "scheduler",
-        "default_model": "vibevoice",
+        "default_model": "vibevoice_community_tts",
     },
     "gpt_sovits": {
         "label": "GPT-SoVITS",
@@ -146,14 +146,14 @@ STUDIO_APPS: dict[str, dict] = {
         "gpu": False,
         "manage_type": "none",
     },
-    "vibevoice_asr": {
-        "label": "VibeVoice ASR",
+    "vibevoice_microsoft": {
+        "label": "VibeVoice Microsoft ASR",
         "url": None,
         "has_ui": False,
         "category": "ASR",
         "gpu": True,
         "manage_type": "scheduler",
-        "default_model": "vibevoice_asr",
+        "default_model": "vibevoice_microsoft",
     },
     "qwen_asr": {
         "label": "Qwen ASR",
@@ -167,7 +167,7 @@ STUDIO_APPS: dict[str, dict] = {
     # --- MCP Servers (always-on, CPU, managed outside Ray) ---
     "local_web_mcp": {
         "label": "Local Web MCP",
-        "url": "http://localhost:18327",
+        "url": "/mcp/web/",
         "has_ui": False,
         "category": "MCP",
         "gpu": False,
@@ -175,7 +175,7 @@ STUDIO_APPS: dict[str, dict] = {
     },
     "media_analysis_mcp": {
         "label": "Media Analysis MCP",
-        "url": "http://localhost:18101",
+        "url": "/mcp/media/",
         "has_ui": False,
         "category": "MCP",
         "gpu": False,
