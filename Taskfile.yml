@@ -315,6 +315,33 @@ tasks:
     cmds:
       - bash infra/docker/push-images.sh
 
+  cloud:enable:
+    desc: "Enable cloud burst (set CLOUD_SERVE_URL in k8s)"
+    cmds:
+      - kubectl -n infra set env deploy/overflow-gateway CLOUD_SERVE_URL={{.CLI_ARGS}}
+      - kubectl -n infra rollout status deploy/overflow-gateway
+
+  cloud:disable:
+    desc: "Disable cloud burst (clear CLOUD_SERVE_URL in k8s)"
+    cmds:
+      - kubectl -n infra set env deploy/overflow-gateway CLOUD_SERVE_URL=""
+      - kubectl -n infra rollout status deploy/overflow-gateway
+
+  cloud:config:
+    desc: "Show current overflow gateway runtime config"
+    cmds:
+      - curl -s http://localhost:30080/overflow/config
+
+  cloud:metrics:
+    desc: "Fetch overflow gateway Prometheus metrics"
+    cmds:
+      - curl -s http://localhost:30080/overflow/metrics
+
+  cloud:tune:
+    desc: "Tune gateway runtime config  eg: task cloud:tune '{\"local_timeout\":5}'"
+    cmds:
+      - curl -s -X POST http://localhost:30080/overflow/config -H 'Content-Type: application/json' -d '{{.CLI_ARGS}}'
+
   cloud:logs:
     desc: "Stream SkyServe cloud logs"
     cmds:
