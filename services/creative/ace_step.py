@@ -46,7 +46,8 @@ logger = logging.getLogger(__name__)
     },
 )
 class ACEStepDeployment(BaseGPUDeployment):
-    """ACE-Step text-to-music via native PyTorch inference."""
+    """ACE-STEP text-to-music via native PyTorch inference."""
+    vram_mb = 8_192
 
     def __init__(self):
         super().__init__()

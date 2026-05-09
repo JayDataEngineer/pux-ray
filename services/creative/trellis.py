@@ -46,6 +46,7 @@ MAX_FACES_BEFORE_SIMPLIFY = 2_000_000
 )
 class TRELLISDeployment(BaseGPUDeployment):
     """TRELLIS image-to-3D via native PyTorch inference."""
+    vram_mb = 10_240
 
     def __init__(self):
         super().__init__()

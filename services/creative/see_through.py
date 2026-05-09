@@ -19,12 +19,20 @@ from pathlib import Path
 import torch
 from starlette.responses import JSONResponse
 
+from ray import serve
 from services.base import BaseGPUDeployment
 
 logger = logging.getLogger(__name__)
 
 
+@serve.deployment(
+    name="see_through",
+    num_replicas=1,
+    max_ongoing_requests=1,
+    ray_actor_options={"num_gpus": 0},
+)
 class SeeThroughDeployment(BaseGPUDeployment):
+    vram_mb = 6_144
     """See-Through layer decomposition via native PyTorch inference."""
 
     def __init__(self):

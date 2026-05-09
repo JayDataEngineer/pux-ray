@@ -92,8 +92,8 @@ PLAYGROUND_META: dict[str, dict] = {
     "moss_soundeffect": {
         "category": "Audio",
         "gpu": True,
-        "route": "/forge",
-        "format": "forge",
+        "route": "/audio/moss-sfx",
+        "format": "tnap",
         "input_fields": [
             {"key": "prompt", "label": "Sound description", "type": "textarea", "required": True, "placeholder": "e.g., thunder and heavy rain, ocean waves crashing, footsteps on gravel..."},
         ],
@@ -101,8 +101,8 @@ PLAYGROUND_META: dict[str, dict] = {
     "ace_step": {
         "category": "Music",
         "gpu": True,
-        "route": "/forge",
-        "format": "forge",
+        "route": "/music/ace-step",
+        "format": "tnap",
         "input_fields": [
             {"key": "prompt", "label": "Music description", "type": "textarea", "required": True, "placeholder": "e.g., upbeat electronic dance music with a driving bass line"},
             {"key": "duration", "label": "Duration (seconds)", "type": "number", "default": 30, "min": 5, "max": 120},
@@ -125,8 +125,8 @@ PLAYGROUND_META: dict[str, dict] = {
     "trellis": {
         "category": "3D",
         "gpu": True,
-        "route": "/forge",
-        "format": "forge",
+        "route": "/3d/trellis",
+        "format": "tnap",
         "input_fields": [
             {"key": "image", "label": "Source image", "type": "image", "required": True, "help": "Upload an image to convert to 3D mesh"},
             {"key": "seed", "label": "Seed", "type": "number", "default": 1},
@@ -137,8 +137,8 @@ PLAYGROUND_META: dict[str, dict] = {
     "anigen": {
         "category": "3D",
         "gpu": True,
-        "route": "/forge",
-        "format": "forge",
+        "route": "/3d/anigen",
+        "format": "tnap",
         "input_fields": [
             {"key": "image", "label": "Anime image", "type": "image", "required": True, "help": "Upload an anime-style image to convert to 3D"},
             {"key": "seed", "label": "Seed", "type": "number", "default": -1},
@@ -149,8 +149,8 @@ PLAYGROUND_META: dict[str, dict] = {
     "see_through": {
         "category": "Creative",
         "gpu": True,
-        "route": "/forge",
-        "format": "forge",
+        "route": "/creative/see-through",
+        "format": "tnap",
         "input_fields": [
             {"key": "image", "label": "Anime image", "type": "image", "required": True, "help": "Upload an anime image for layer decomposition"},
         ],
