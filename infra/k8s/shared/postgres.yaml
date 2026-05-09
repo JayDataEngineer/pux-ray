@@ -57,6 +57,9 @@ data:
     CREATE EXTENSION IF NOT EXISTS vector;
 
     \c tech_noir
+    CREATE EXTENSION IF NOT EXISTS age;
+    LOAD 'age';
+    SET search_path = ag_catalog, "$user", public;
     CREATE EXTENSION IF NOT EXISTS vector;
 
   postgres-multi-db.sh: |

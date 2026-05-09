@@ -46,6 +46,8 @@ dependencies = [
     "trimesh>=4.5",
     "plyfile>=1.0",
     "easydict>=1.11",
+    # Database — PostgreSQL with Apache AGE (graph) extension
+    "psycopg[binary,pool]>=3.2",
 ]
 
 [project.optional-dependencies]
@@ -64,4 +66,4 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["services", "gateway", "registry", "sdk", "scripts", "boot", "vendor"]
+packages = ["services", "gateway", "registry", "sdk", "scripts", "boot", "vendor", "services.db"]

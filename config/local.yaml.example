@@ -22,6 +22,17 @@ secrets:
   zai_api_key: ${ZAI_API_KEY:}
   api_key: ${TECH_NOIR_API_KEY:}
 
+# PostgreSQL connection (Apache AGE graph database)
+# Override via env vars or edit local.yaml directly.
+database:
+  host: ${PGHOST:postgres.infra.svc.cluster.local}
+  port: ${PGPORT:5432}
+  user: ${PGUSER:postgres}
+  password: ${PGPASSWORD:${POSTGRES_PASSWORD:}}
+  dbname: ${PGDATABASE:tech_noir}
+  min_conn: ${PG_MIN_CONN:2}
+  max_conn: ${PG_MAX_CONN:10}
+
 # External binaries (not managed by IaC — system-installed)
 binaries:
   espeak_ng: espeak-ng
