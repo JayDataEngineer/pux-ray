@@ -111,23 +111,9 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv pip install spconv --no-build-isolation
 
-# FlexGEMM (TRELLIS) — patch triton 3.x incompatibilities
-COPY infra/docker/patch_flex_gemm.py /tmp/patch_flex_gemm.py
-RUN git clone --depth 1 https://github.com/JeffreyXiang/FlexGEMM.git /tmp/flex_gemm && \
-    python3 /tmp/patch_flex_gemm.py /tmp/flex_gemm && \
-    uv pip install /tmp/flex_gemm --no-build-isolation && \
-    rm -rf /tmp/flex_gemm /tmp/patch_flex_gemm.py
-
-# CuMesh (TRELLIS) — CUDA mesh operations
-RUN git clone --recursive https://github.com/JeffreyXiang/CuMesh.git /tmp/CuMesh && \
-    uv pip install /tmp/CuMesh --no-build-isolation && \
-    rm -rf /tmp/CuMesh
-
-# o-voxel — CUDA voxel extension for TRELLIS
-COPY vendor/o-voxel/ /tmp/o-voxel/
-RUN cd /tmp/o-voxel && \
-    uv pip install . --no-build-isolation && \
-    rm -rf /tmp/o-voxel
+# TRELLIS CUDA extensions are pre-built in ray-base:
+# - FlexGEMM, CuMesh, o-voxel (installed in base image)
+# gpu-all only patches flex_gemm for triton 3.x at runtime (patch_conv_flex_gemm.py)
 
 # ── Python packages — ALL services ──────────────────────────────────────
 
@@ -225,7 +211,7 @@ COPY infra/repos/VibeVoice-Community/demo/voices/ /opt/vibevoice-community/voice
 
 # ── API wrappers (only for services still using subprocess) ────────────
 COPY infra/docker/api_hymotion.py /opt/hymotion/api.py
-COPY infra/docker/api_qwen_tts_vllm.py /opt/api_qwen_tts_vllm.py
+COPY infra/docker/api_qwen_tts.py /opt/api_qwen_tts.py
 COPY infra/docker/api_vibevoice.py /opt/api_vibevoice.py
 COPY infra/docker/api_trellis_spz.py /opt/api_trellis_spz.py
 COPY infra/docker/api_gptsovits.py /opt/api_gptsovits.py

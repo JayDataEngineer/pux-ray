@@ -48,14 +48,12 @@ spec:
             - name: models
               mountPath: /app/models
           livenessProbe:
-            httpGet:
-              path: /health
+            tcpSocket:
               port: 8001
             initialDelaySeconds: 30
             periodSeconds: 30
           readinessProbe:
-            httpGet:
-              path: /health
+            tcpSocket:
               port: 8001
             initialDelaySeconds: 10
             periodSeconds: 10
