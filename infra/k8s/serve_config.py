@@ -44,11 +44,6 @@ from services.tts.vibevoice_cpp import VibeVoiceCppDeployment
 
 vibevoice_cpp = VibeVoiceCppDeployment.bind()
 
-# LLM via llama.cpp (subprocess — GGUF inference on GPU)
-from services.llm.deployment import LLMDeployment
-
-llm = LLMDeployment.bind()
-
 # Heavy GPU services — routed through Master Router (exclusive GPU access)
 # The master router claims num_gpus: 1.0 and swaps models explicitly,
 # preventing VRAM collisions on the single RTX 4090.

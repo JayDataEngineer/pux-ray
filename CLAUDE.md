@@ -19,7 +19,6 @@ Reliable, tested, deployed by default. Registered in `infra/k8s/serve_config.py`
 | faster_qwen3_tts | GPU TTS | CUDA graph accelerated Qwen3-TTS 1.7B (5x faster than baseline) |
 | index_tts | GPU TTS | IndexTTS v2 neural voice cloning |
 | vibevoice_cpp | GPU TTS+ASR | vibevoice.cpp (C++/GGML) quantized TTS + ASR via subprocess |
-| llm | GPU LLM | llama.cpp server (GGUF models via subprocess) |
 
 **Master Router services** (exclusive GPU, explicit model swapping via `/forge`):
 
@@ -32,8 +31,9 @@ Reliable, tested, deployed by default. Registered in `infra/k8s/serve_config.py`
 | moss_soundeffect | GPU Audio | MOSS-SoundEffect 8B text-to-sound |
 | anigen | GPU 3D | AniGen image-to-rigged-3D |
 | see_through | GPU Image | See-Through anime layer decomposition |
+| llm | GPU LLM | llama.cpp server (GGUF models via subprocess) |
 
-The **Master Router** (`services/creative/master_router.py`) is infrastructure, not a service — it claims `num_gpus: 1.0` and explicitly `_load()`/`_unload()` heavy GPU models to prevent VRAM collisions on a single RTX 4090. Accessed via route `/forge` with `{"service": "trellis|ace_step|comfyui|hy_motion|moss_soundeffect|anigen|see_through", ...}`.
+The **Master Router** (`services/creative/master_router.py`) is infrastructure, not a service — it claims `num_gpus: 1.0` and explicitly `_load()`/`_unload()` heavy GPU models to prevent VRAM collisions on a single RTX 4090. Accessed via route `/forge` with `{"service": "trellis|ace_step|comfyui|hy_motion|moss_soundeffect|anigen|see_through|llm", ...}`.
 
 ### Tier 3 — Third-Class Citizens (broken/experimental)
 Not auto-deployed. Commented out in `serve_config.py`. Uncomment for debugging.
@@ -310,8 +310,6 @@ All proxied through the ingress at port 18080:
 | `/tts/index-tts/*` | IndexTTS (GPU) |
 | `/tts/vibevoice-cpp/*` | vibevoice.cpp TTS+ASR (GPU/CPU, quantized GGUF) |
 | `/asr/whisper/*` | Faster-Whisper (CPU) |
-| `/llm/*` | llama.cpp LLM (GPU, GGUF models) |
-
 ### Master Router (exclusive GPU, route `/forge`)
 Heavy GPU services share a single RTX 4090 via explicit model swapping. Send `{"service": "<name>", ...}` to `/forge`.
 
@@ -324,6 +322,7 @@ Heavy GPU services share a single RTX 4090 via explicit model swapping. Send `{"
 | `moss_soundeffect` | MOSS-SoundEffect 8B text-to-sound |
 | `anigen` | AniGen image-to-rigged-3D |
 | `see_through` | See-Through anime layer decomposition |
+| `llm` | llama.cpp GGUF inference |
 
 ### MCP Services (standalone K8s, `mcp` namespace)
 | Route | Service |
