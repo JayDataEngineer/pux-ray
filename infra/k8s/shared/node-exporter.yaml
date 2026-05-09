@@ -1,0 +1,75 @@
+# Node Exporter — hardware metrics from every node (DaemonSet)
+# Exposes CPU, memory, disk, network, temperature per machine
+#
+# One pod per node. VictoriaMetrics scrapes these automatically.
+
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: node-exporter
+  namespace: infra
+  labels:
+    app: node-exporter
+spec:
+  selector:
+    matchLabels:
+      app: node-exporter
+  template:
+    metadata:
+      labels:
+        app: node-exporter
+    spec:
+      hostNetwork: true
+      hostPID: true
+      containers:
+        - name: node-exporter
+          image: prom/node-exporter:latest
+          args:
+            - "--path.rootfs=/host"
+            - "--path.procfs=/hostproc"
+            - "--path.sysfs=/hostsys"
+            - "--web.listen-address=:9100"
+          ports:
+            - containerPort: 9100
+              hostPort: 9100
+          resources:
+            limits:
+              memory: 64Mi
+              cpu: "100m"
+            requests:
+              memory: 32Mi
+              cpu: "50m"
+          volumeMounts:
+            - name: root
+              mountPath: /host
+              readOnly: true
+            - name: proc
+              mountPath: /hostproc
+              readOnly: true
+            - name: sys
+              mountPath: /hostsys
+              readOnly: true
+      volumes:
+        - name: root
+          hostPath:
+            path: /
+        - name: proc
+          hostPath:
+            path: /proc
+        - name: sys
+          hostPath:
+            path: /sys
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: node-exporter
+  namespace: infra
+spec:
+  selector:
+    app: node-exporter
+  ports:
+    - port: 9100
+      targetPort: 9100

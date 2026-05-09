@@ -46,6 +46,68 @@ Not auto-deployed. Commented out in `serve_config.py`. Uncomment for debugging.
 | vibevoice (community) | 7B TTS, huge, times out |
 | phi4mm | Model not on PVC |
 
+## Shared Infrastructure (infra namespace)
+
+Shared database and storage services in the `infra` namespace. Other services and machines across Tailscale connect to these via URL.
+
+| Service | Type | Description | Access |
+|---------|------|-------------|--------|
+| Postgres 16 | Database | Apache AGE (graph) + pgvector (vector) extensions. Multi-database: `langfuse`, `web_research`, `infisical` | Internal: `postgres.infra.svc.cluster.local:5432`, Tailscale: `100.86.69.57:30432` |
+| Garage | S3 Storage | Lightweight Rust S3-compatible object store (~27MB). Single-node mode | Internal: `garage-s3.infra.svc.cluster.local:3900`, Tailscale: `100.86.69.57:30390` |
+| Langfuse | Observability | LLM tracing and evaluation | `http://100.86.69.57:30080/langfuse` |
+| Infisical | Secrets | Self-hosted secret management (MIT). CLI-first, K8s operator for sync | `http://100.86.69.57:30080/infisical` |
+
+**Monitoring stack** (also in `infra` namespace):
+
+| Component | Purpose | RAM |
+|-----------|---------|-----|
+| VictoriaMetrics | Metrics storage (Prometheus-compatible) | ~300MB |
+| Grafana Loki | Log aggregation | ~300MB |
+| Vector | Log + metrics collector (DaemonSet, one per node) | ~64MB/node |
+| Node Exporter | Hardware metrics per machine (DaemonSet) | ~32MB/node |
+| Kube State Metrics | K8s object state (pods, deployments) | ~128MB |
+| Grafana | Dashboard UI | ~150MB |
+
+**Grafana access:** `http://100.86.69.57:30080/grafana` (Traefik) or `http://100.86.69.57:30031` (NodePort direct)
+**Dashboard import IDs:** `7249` (k3s cluster), `1860` (node), `6336` (pods), `16110` (Ray)
+
+**Deploy monitoring:**
+```bash
+task infra:monitor         # Deploy the full monitoring stack
+task infra:monitor:status  # Check monitoring pods + scrape targets
+```
+
+**Credentials**: Managed via **Infisical** (self-hosted, MIT licensed). CLI-first — `task secrets:set` or `infisical secrets set`. No plaintext secrets in git.
+
+**Secrets workflow:**
+```bash
+# First time bootstrap:
+task secrets:init                 # Creates K8s secrets with empty values
+kubectl edit secret infra-credentials -n infra  # Fill in real values
+
+# Or via Infisical CLI (after Infisical is deployed):
+infisical secrets set POSTGRES_PASSWORD value
+```
+
+**Infisical operator** (future): Install the K8s operator to auto-sync Infisical secrets into namespace K8s Secrets. `helm install infisical-operator infisical/operator`
+
+**Image**: `localhost/tech-noir/postgres-age-vector:latest` — Postgres 16 + AGE + pgvector. Built from `infra/docker/Dockerfile.postgres-age`.
+
+**Manage:**
+```bash
+task infra:build    # Build Postgres image + import to k3s
+task infra:deploy   # Deploy all shared infra
+task infra:status   # Show pods, services, PVCs
+task infra:pg       # Open psql shell
+task infra:s3       # List Garage buckets
+task infra:down     # Tear down (keeps PVCs)
+```
+
+**Adding a new database consumer:**
+1. Add database name to the init SQL in `infra/k8s/shared/postgres.yaml` ConfigMap
+2. Add the full DATABASE_URL to `infra/k8s/shared/secrets.yaml`
+3. Reference via `secretKeyRef` in the consumer's deployment
+
 ## MCP Servers (Standalone k3s Deployments)
 
 MCP servers run as standard K8s Deployments in the `mcp` namespace — completely separate from Ray. They are lightweight (50-150MB RAM) and don't need Ray's actor overhead. Currently deployed on the GPU node; node selectors ready for migration to a dedicated k3s worker.
@@ -56,10 +118,10 @@ MCP servers run as standard K8s Deployments in the `mcp` namespace — completel
 | web-research-mcp | CPU Search | Web scraping, search, crawling, structured extraction |
 
 **Web Research dependencies** (all in `mcp` namespace):
-- PostgreSQL 16 (StatefulSet + PVC)
 - Redis 7 (Celery broker/cache)
 - SearXNG (metasearch engine)
 - Celery worker + beat (background scraping tasks)
+- PostgreSQL provided by shared infra (`DATABASE_URL` env var)
 
 **Build & deploy:**
 ```bash
@@ -76,6 +138,7 @@ kubectl apply -f infra/k8s/mcp/            # Re-apply manifests only
 2. Create K8s manifest in `infra/k8s/mcp/<name>.yaml` (Deployment + Service)
 3. Add Traefik route in `infra/k8s/traefik-ingress.yaml` with PathPrefix + stripPrefix middleware
 4. Add image config to `infra/k8s/build_mcp.sh`
+5. If it needs a database, add DATABASE_URL to `infra/k8s/mcp/shared-db-secret.yaml`
 
 ## Architecture: Ray + MCP, k3s + KubeRay
 
@@ -145,7 +208,7 @@ ssh root@192.168.1.184   # passphrase prompt → cryptroot-unlock
 | Ray Dashboard | `http://100.86.69.57:18265` |
 | Ray Client | `ray://100.86.69.57:10001` |
 | ComfyUI | `http://100.86.69.57:18465` |
-| Grafana | `http://100.86.69.57:3001` |
+| Grafana | `http://100.86.69.57:30080/grafana` |
 
 ### Working Remotely
 

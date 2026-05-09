@@ -1,0 +1,113 @@
+# Infisical — self-hosted secret management (MIT licensed)
+#
+# CLI: infisical secrets set KEY value
+# K8s operator syncs secrets into namespaces automatically
+#
+# Uses shared Postgres (database: infisical) and MCP Redis (DB index 1)
+#
+# Tailscale: http://100.86.69.57:30080/infisical
+
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: infisical-secrets
+  namespace: infra
+type: Opaque
+stringData:
+  ENCRYPTION_KEY: ""
+  AUTH_SECRET: ""
+  DB_CONNECTION_URI: "postgresql://postgres@postgres.infra.svc.cluster.local:5432/infisical"
+  POSTGRES_PASSWORD: ""
+  REDIS_URL: "redis://redis.mcp.svc.cluster.local:6379/1"
+  SITE_URL: "http://100.86.69.57:30080/infisical"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: infisical
+  namespace: infra
+  labels:
+    app: infisical
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: infisical
+  template:
+    metadata:
+      labels:
+        app: infisical
+    spec:
+      containers:
+        - name: infisical
+          image: infisical/infisical:v0.159.23
+          ports:
+            - containerPort: 8080
+          env:
+            - name: ENCRYPTION_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: infisical-secrets
+                  key: ENCRYPTION_KEY
+            - name: AUTH_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: infisical-secrets
+                  key: AUTH_SECRET
+            - name: DB_CONNECTION_URI
+              valueFrom:
+                secretKeyRef:
+                  name: infisical-secrets
+                  key: DB_CONNECTION_URI
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: infisical-secrets
+                  key: POSTGRES_PASSWORD
+            - name: REDIS_URL
+              valueFrom:
+                secretKeyRef:
+                  name: infisical-secrets
+                  key: REDIS_URL
+            - name: SITE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: infisical-secrets
+                  key: SITE_URL
+            - name: NODE_ENV
+              value: "production"
+            - name: PORT
+              value: "8080"
+          resources:
+            limits:
+              memory: 1Gi
+              cpu: "1"
+            requests:
+              memory: 256Mi
+              cpu: "250m"
+          livenessProbe:
+            httpGet:
+              path: /api/status
+              port: 8080
+            initialDelaySeconds: 30
+            periodSeconds: 15
+          readinessProbe:
+            httpGet:
+              path: /api/status
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 5
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: infisical
+  namespace: infra
+spec:
+  selector:
+    app: infisical
+  ports:
+    - port: 8080
+      targetPort: 8080

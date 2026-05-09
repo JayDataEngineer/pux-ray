@@ -1,0 +1,16 @@
+# Postgres 16 with Apache AGE (graph) + pgvector (vector) extensions
+# Based on official Apache AGE image, adds pgvector on top
+FROM apache/age:release_PG16_1.6.0
+
+# Install build deps, compile pgvector, clean up
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends git build-essential postgresql-server-dev-16 && \
+    git clone --branch v0.8.0 https://github.com/pgvector/pgvector.git /tmp/pgvector && \
+    cd /tmp/pgvector && \
+    make OPTFLAGS="" && \
+    make install && \
+    rm -rf /tmp/pgvector && \
+    apt-get purge -y git build-essential && \
+    apt-get autoremove -y && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*

@@ -1,0 +1,150 @@
+# Shared PostgreSQL 16 with Apache AGE (graph) + pgvector (vector) extensions
+#
+# Databases created on first boot: langfuse, web_research, infisical
+# NodePort 30432 for Tailscale access (Tailscale encrypts traffic)
+#
+# Internal DNS: postgres.infra.svc.cluster.local:5432
+# Tailscale:    100.86.69.57:30432
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: postgres-init
+  namespace: infra
+data:
+  init-extensions.sql: |
+    -- Create databases for consumers
+    DO $$
+    BEGIN
+      CREATE DATABASE langfuse;
+    EXCEPTION WHEN duplicate_database THEN
+      RAISE NOTICE 'database langfuse already exists';
+    END;
+    DO $$
+    BEGIN
+      CREATE DATABASE web_research;
+    EXCEPTION WHEN duplicate_database THEN
+      RAISE NOTICE 'database web_research already exists';
+    END;
+    DO $$
+    BEGIN
+      CREATE DATABASE infisical;
+    EXCEPTION WHEN duplicate_database THEN
+      RAISE NOTICE 'database infisical already exists';
+    END;
+
+    -- Install extensions in each database
+    \c langfuse
+    CREATE EXTENSION IF NOT EXISTS age;
+    LOAD 'age';
+    SET search_path = ag_catalog, "$user", public;
+    CREATE EXTENSION IF NOT EXISTS vector;
+
+    \c web_research
+    CREATE EXTENSION IF NOT EXISTS age;
+    LOAD 'age';
+    SET search_path = ag_catalog, "$user", public;
+    CREATE EXTENSION IF NOT EXISTS vector;
+
+    \c infisical
+    CREATE EXTENSION IF NOT EXISTS vector;
+
+  postgres-multi-db.sh: |
+    #!/bin/bash
+    set -e
+
+    # Wait for Postgres to be ready
+    until pg_isready -U postgres; do
+      echo "Waiting for Postgres..."
+      sleep 1
+    done
+
+    # Run init SQL
+    psql -U postgres -f /docker-entrypoint-initdb.d/init-extensions.sql
+
+    echo "Init complete: databases and extensions created."
+
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: postgres
+  namespace: infra
+  labels:
+    app: postgres
+spec:
+  serviceName: postgres
+  replicas: 1
+  selector:
+    matchLabels:
+      app: postgres
+  template:
+    metadata:
+      labels:
+        app: postgres
+    spec:
+      containers:
+        - name: postgres
+          image: localhost/tech-noir/postgres-age-vector:latest
+          imagePullPolicy: Never
+          ports:
+            - containerPort: 5432
+          env:
+            - name: POSTGRES_USER
+              value: postgres
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: infra-credentials
+                  key: POSTGRES_PASSWORD
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+          resources:
+            limits:
+              memory: 2Gi
+            requests:
+              memory: 512Mi
+          volumeMounts:
+            - name: pgdata
+              mountPath: /var/lib/postgresql/data
+            - name: init-scripts
+              mountPath: /docker-entrypoint-initdb.d
+          livenessProbe:
+            exec:
+              command: ["pg_isready", "-U", "postgres"]
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          readinessProbe:
+            exec:
+              command: ["pg_isready", "-U", "postgres"]
+            initialDelaySeconds: 5
+            periodSeconds: 5
+      volumes:
+        - name: init-scripts
+          configMap:
+            name: postgres-init
+  volumeClaimTemplates:
+    - metadata:
+        name: pgdata
+      spec:
+        accessModes: [ReadWriteOnce]
+        storageClassName: local-path
+        resources:
+          requests:
+            storage: 20Gi
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres
+  namespace: infra
+spec:
+  selector:
+    app: postgres
+  ports:
+    - port: 5432
+      targetPort: 5432
+      nodePort: 30432
+  type: NodePort
