@@ -21948,3 +21948,453 @@ data:
       "uid": "000000039",
       "version": 1
     }
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: dashboard-tn-business
+  namespace: infra
+  labels:
+    grafana_dashboard: "1"
+data:
+  tn-business.json: |
+    {
+      "title": "Tech Noir Business",
+      "uid": "tn-business",
+      "version": 1,
+      "tags": ["tech-noir", "business"],
+      "schemaVersion": 39,
+      "timezone": "browser",
+      "editable": true,
+      "panels": [
+        {
+          "title": "Revenue (24h)",
+          "type": "stat",
+          "gridPos": {"h": 4, "w": 4, "x": 0, "y": 0},
+          "targets": [{
+            "expr": "sum(increase(tn_revenue_usd_total[24h]))",
+            "legendFormat": "Revenue"
+          }],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "currencyUSD",
+              "color": {"mode": "fixed"},
+              "thresholds": {"mode": "absolute", "steps": [{"color": "green"}]}
+            }
+          }
+        },
+        {
+          "title": "Margin (24h)",
+          "type": "stat",
+          "gridPos": {"h": 4, "w": 4, "x": 4, "y": 0},
+          "targets": [{
+            "expr": "sum(increase(tn_margin_usd_total[24h]))",
+            "legendFormat": "Margin"
+          }],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "currencyUSD",
+              "color": {"mode": "fixed"},
+              "thresholds": {"mode": "absolute", "steps": [{"color": "green"}]}
+            }
+          }
+        },
+        {
+          "title": "Margin % (24h)",
+          "type": "stat",
+          "gridPos": {"h": 4, "w": 4, "x": 8, "y": 0},
+          "targets": [{
+            "expr": "sum(increase(tn_margin_usd_total[24h])) / sum(increase(tn_revenue_usd_total[24h])) * 100",
+            "legendFormat": "Margin %"
+          }],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "percent",
+              "color": {"mode": "thresholds"},
+              "thresholds": {"mode": "absolute", "steps": [
+                {"value": null, "color": "red"},
+                {"value": 30, "color": "yellow"},
+                {"value": 60, "color": "green"}
+              ]}
+            }
+          }
+        },
+        {
+          "title": "Jobs Completed (24h)",
+          "type": "stat",
+          "gridPos": {"h": 4, "w": 4, "x": 12, "y": 0},
+          "targets": [{
+            "expr": "sum(increase(tn_jobs_total{status=\"completed\"}[24h]))",
+            "legendFormat": "Jobs"
+          }]
+        },
+        {
+          "title": "Credits Spent (24h)",
+          "type": "stat",
+          "gridPos": {"h": 4, "w": 4, "x": 16, "y": 0},
+          "targets": [{
+            "expr": "sum(increase(tn_credits_spent_total[24h]))",
+            "legendFormat": "Credits"
+          }]
+        },
+        {
+          "title": "Active Users (24h)",
+          "type": "stat",
+          "gridPos": {"h": 4, "w": 4, "x": 20, "y": 0},
+          "targets": [{
+            "expr": "count(count by(user_id) (increase(tn_jobs_total[24h])))",
+            "legendFormat": "Users"
+          }]
+        },
+        {
+          "title": "Revenue by Service",
+          "type": "barchart",
+          "gridPos": {"h": 8, "w": 8, "x": 0, "y": 4},
+          "targets": [{
+            "expr": "sum by(service_id) (increase(tn_revenue_usd_total[7d]))",
+            "legendFormat": "{{service_id}}"
+          }],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "currencyUSD",
+              "color": {"mode": "palette-classic"}
+            }
+          }
+        },
+        {
+          "title": "Margin by Service",
+          "type": "barchart",
+          "gridPos": {"h": 8, "w": 8, "x": 8, "y": 4},
+          "targets": [{
+            "expr": "sum by(service_id) (increase(tn_margin_usd_total[7d]))",
+            "legendFormat": "{{service_id}}"
+          }],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "currencyUSD",
+              "color": {"mode": "palette-classic"}
+            }
+          }
+        },
+        {
+          "title": "Job Status Breakdown",
+          "type": "piechart",
+          "gridPos": {"h": 8, "w": 8, "x": 16, "y": 4},
+          "targets": [{
+            "expr": "sum by(status) (increase(tn_jobs_total[30d]))",
+            "legendFormat": "{{status}}"
+          }]
+        },
+        {
+          "title": "Revenue Trend (7d)",
+          "type": "timeseries",
+          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 12},
+          "targets": [{
+            "expr": "sum by(service_id) (rate(tn_revenue_usd_total[1h]))",
+            "legendFormat": "{{service_id}}"
+          }],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "currencyUSD",
+              "color": {"mode": "palette-classic"}
+            }
+          }
+        },
+        {
+          "title": "GPU Seconds by Service (7d)",
+          "type": "timeseries",
+          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 12},
+          "targets": [{
+            "expr": "sum by(service_id) (rate(tn_gpu_seconds_total[1h]))",
+            "legendFormat": "{{service_id}}"
+          }],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "s",
+              "color": {"mode": "palette-classic"}
+            }
+          }
+        }
+      ]
+    }
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: dashboard-tn-ops
+  namespace: infra
+  labels:
+    grafana_dashboard: "1"
+data:
+  tn-ops.json: |
+    {
+      "title": "Tech Noir Operations",
+      "uid": "tn-ops",
+      "version": 1,
+      "tags": ["tech-noir", "operations"],
+      "schemaVersion": 39,
+      "timezone": "browser",
+      "editable": true,
+      "panels": [
+        {
+          "title": "Request Rate",
+          "type": "timeseries",
+          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0},
+          "targets": [
+            {"expr": "rate(http_requests_total{job=\"tech-noir-webapp\"}[5m])", "legendFormat": "{{handler}} {{method}}"}
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "reqps"
+            }
+          }
+        },
+        {
+          "title": "P99 Latency",
+          "type": "timeseries",
+          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 0},
+          "targets": [
+            {"expr": "histogram_quantile(0.99, sum(rate(http_request_duration_seconds_bucket{job=\"tech-noir-webapp\"}[5m])) by(le, handler))", "legendFormat": "{{handler}}"}
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "s"
+            }
+          }
+        },
+        {
+          "title": "API Latency by Service (p50)",
+          "type": "timeseries",
+          "gridPos": {"h": 8, "w": 8, "x": 0, "y": 8},
+          "targets": [{
+            "expr": "histogram_quantile(0.50, sum(rate(tn_api_duration_seconds_bucket[5m])) by(le, service_id))",
+            "legendFormat": "{{service_id}}"
+          }],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "s"
+            }
+          }
+        },
+        {
+          "title": "API Latency by Service (p99)",
+          "type": "timeseries",
+          "gridPos": {"h": 8, "w": 8, "x": 8, "y": 8},
+          "targets": [{
+            "expr": "histogram_quantile(0.99, sum(rate(tn_api_duration_seconds_bucket[5m])) by(le, service_id))",
+            "legendFormat": "{{service_id}}"
+          }],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "s"
+            }
+          }
+        },
+        {
+          "title": "Error Rate (5xx)",
+          "type": "timeseries",
+          "gridPos": {"h": 8, "w": 8, "x": 16, "y": 8},
+          "targets": [{
+            "expr": "sum(rate(http_requests_total{job=\"tech-noir-webapp\", status=~\"5..\"}[5m])) / sum(rate(http_requests_total{job=\"tech-noir-webapp\"}[5m])) * 100",
+            "legendFormat": "Error %"
+          }],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "percent",
+              "thresholds": {"mode": "absolute", "steps": [
+                {"value": null, "color": "green"},
+                {"value": 1, "color": "yellow"},
+                {"value": 5, "color": "red"}
+              ]}
+            }
+          }
+        },
+        {
+          "title": "Jobs In Progress",
+          "type": "gauge",
+          "gridPos": {"h": 6, "w": 4, "x": 0, "y": 16},
+          "targets": [{
+            "expr": "sum(tn_jobs_in_progress)",
+            "legendFormat": "In Progress"
+          }]
+        },
+        {
+          "title": "Jobs In Progress by Service",
+          "type": "barchart",
+          "gridPos": {"h": 6, "w": 8, "x": 4, "y": 16},
+          "targets": [{
+            "expr": "sum by(service_id) (tn_jobs_in_progress)",
+            "legendFormat": "{{service_id}}"
+          }]
+        },
+        {
+          "title": "Job Queue Rate (queued vs completed)",
+          "type": "timeseries",
+          "gridPos": {"h": 6, "w": 12, "x": 12, "y": 16},
+          "targets": [
+            {"expr": "rate(tn_jobs_total{status=\"queued\"}[5m])", "legendFormat": "Queued"},
+            {"expr": "rate(tn_jobs_total{status=\"completed\"}[5m])", "legendFormat": "Completed"},
+            {"expr": "rate(tn_jobs_total{status=\"failed\"}[5m])", "legendFormat": "Failed"}
+          ]
+        }
+      ]
+    }
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: dashboard-tn-cost
+  namespace: infra
+  labels:
+    grafana_dashboard: "1"
+data:
+  tn-cost.json: |
+    {
+      "title": "Tech Noir Cost Analytics",
+      "uid": "tn-cost",
+      "version": 1,
+      "tags": ["tech-noir", "cost"],
+      "schemaVersion": 39,
+      "timezone": "browser",
+      "editable": true,
+      "panels": [
+        {
+          "title": "Total GPU Cost (7d)",
+          "type": "stat",
+          "gridPos": {"h": 4, "w": 4, "x": 0, "y": 0},
+          "targets": [{
+            "expr": "sum(increase(tn_gpu_seconds_total[7d])) * 0.3 / 3600",
+            "legendFormat": "GPU Cost"
+          }],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "currencyUSD",
+              "color": {"mode": "fixed"},
+              "thresholds": {"mode": "absolute", "steps": [{"color": "red"}]}
+            }
+          }
+        },
+        {
+          "title": "Total GPU Hours (7d)",
+          "type": "stat",
+          "gridPos": {"h": 4, "w": 4, "x": 4, "y": 0},
+          "targets": [{
+            "expr": "sum(increase(tn_gpu_seconds_total[7d])) / 3600",
+            "legendFormat": "GPU Hours"
+          }],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "duration(h)",
+              "decimals": 2
+            }
+          }
+        },
+        {
+          "title": "Avg Margin %",
+          "type": "stat",
+          "gridPos": {"h": 4, "w": 4, "x": 8, "y": 0},
+          "targets": [{
+            "expr": "sum(increase(tn_margin_usd_total[7d])) / sum(increase(tn_revenue_usd_total[7d])) * 100",
+            "legendFormat": "Margin %"
+          }],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "percent",
+              "color": {"mode": "thresholds"},
+              "thresholds": {"mode": "absolute", "steps": [
+                {"value": null, "color": "red"},
+                {"value": 30, "color": "yellow"},
+                {"value": 60, "color": "green"}
+              ]}
+            }
+          }
+        },
+        {
+          "title": "Revenue vs Cost (7d)",
+          "type": "stat",
+          "gridPos": {"h": 4, "w": 4, "x": 12, "y": 0},
+          "targets": [
+            {"expr": "sum(increase(tn_revenue_usd_total[7d]))", "legendFormat": "Revenue"},
+            {"expr": "sum(increase(tn_gpu_seconds_total[7d])) * 0.3 / 3600", "legendFormat": "Cost"}
+          ]
+        },
+        {
+          "title": "GPU Seconds by Service (7d)",
+          "type": "barchart",
+          "gridPos": {"h": 8, "w": 8, "x": 0, "y": 4},
+          "targets": [{
+            "expr": "sum by(service_id) (increase(tn_gpu_seconds_total[7d]))",
+            "legendFormat": "{{service_id}}"
+          }],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "s",
+              "color": {"mode": "palette-classic"}
+            }
+          }
+        },
+        {
+          "title": "GPU Seconds by Model",
+          "type": "barchart",
+          "gridPos": {"h": 8, "w": 8, "x": 8, "y": 4},
+          "targets": [{
+            "expr": "sum by(gpu_model) (increase(tn_gpu_seconds_total[7d]))",
+            "legendFormat": "{{gpu_model}}"
+          }],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "s",
+              "color": {"mode": "palette-classic"}
+            }
+          }
+        },
+        {
+          "title": "Cost per Service (7d)",
+          "type": "barchart",
+          "gridPos": {"h": 8, "w": 8, "x": 16, "y": 4},
+          "targets": [{
+            "expr": "sum by(service_id) (increase(tn_gpu_seconds_total[7d])) * 0.3 / 3600",
+            "legendFormat": "{{service_id}}"
+          }],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "currencyUSD",
+              "color": {"mode": "palette-classic"}
+            }
+          }
+        },
+        {
+          "title": "GPU Trend (30d)",
+          "type": "timeseries",
+          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 12},
+          "targets": [{
+            "expr": "sum by(service_id) (rate(tn_gpu_seconds_total[1h]))",
+            "legendFormat": "{{service_id}}"
+          }],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "s",
+              "color": {"mode": "palette-classic"}
+            }
+          }
+        },
+        {
+          "title": "Margin Trend (30d)",
+          "type": "timeseries",
+          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 12},
+          "targets": [
+            {"expr": "rate(tn_revenue_usd_total[1h])", "legendFormat": "Revenue"},
+            {"expr": "rate(tn_gpu_seconds_total[1h]) * 0.3 / 3600", "legendFormat": "GPU Cost"}
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "currencyUSD",
+              "color": {"mode": "palette-classic"}
+            }
+          }
+        }
+      ]
+    }
