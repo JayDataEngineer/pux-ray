@@ -1,7 +1,5 @@
-"""GPU ASR services - VibeVoice ASR and Qwen ASR.
+"""VibeVoice ASR — 7B model with native diarization (~16GB VRAM).
 
-VibeVoice ASR: 7B model with native diarization (~16GB VRAM).
-Qwen ASR: 1.7B model, 52 languages.
 Conforms to TNAP: unified request/response protocol.
 """
 from __future__ import annotations
@@ -22,7 +20,6 @@ from services.base import BaseGPUDeployment, InferenceConfig
 logger = logging.getLogger(__name__)
 
 VIBEVOICE_ASR_PATH = os.environ.get("VIBEVOICE_ASR_MODEL_PATH", "/models/asr/vibevoice-asr")
-QWEN_ASR_PATH = os.environ.get("QWEN_ASR_MODEL_PATH", "/models/asr/qwen-asr")
 
 
 @serve.deployment(
@@ -71,7 +68,7 @@ class VibeVoiceASRDeployment(BaseGPUDeployment):
             del self.processor
             self.model = None
             self.processor = None
-            super()._unload()
+        super()._unload()
 
     def _run_transcribe(
         self,
@@ -164,131 +161,4 @@ class VibeVoiceASRDeployment(BaseGPUDeployment):
             )
         except Exception as e:
             logger.error("vibevoice_asr error: %s", e)
-            return JSONResponse(self.handle_error(str(e)), status_code=500)
-
-
-@serve.deployment(
-    name="qwen_asr",
-    num_replicas=1,
-    max_ongoing_requests=2,
-    ray_actor_options={
-        "num_gpus": 0,
-        "num_cpus": 0.5,
-        "runtime_env": {
-            "env_vars": {
-                "HF_HUB_OFFLINE": "1",
-                "HF_HOME": "/models/hf_cache",
-            }
-        },
-    },
-)
-class QwenASRDeployment(BaseGPUDeployment):
-    """Qwen ASR. Custom QWen model with trust_remote_code."""
-
-    def _load(self, model_name: str = "qwen-asr") -> None:
-        import sys
-        from transformers import AutoModelForCausalLM, AutoTokenizer
-
-        if not os.path.isdir(QWEN_ASR_PATH):
-            raise FileNotFoundError(f"Qwen ASR model not found at {QWEN_ASR_PATH}")
-
-        # Ensure model directory is on sys.path for auto_map imports
-        if QWEN_ASR_PATH not in sys.path:
-            sys.path.insert(0, QWEN_ASR_PATH)
-
-        self.tokenizer = AutoTokenizer.from_pretrained(
-            QWEN_ASR_PATH, local_files_only=True, trust_remote_code=True,
-        )
-        self.model = AutoModelForCausalLM.from_pretrained(
-            QWEN_ASR_PATH, torch_dtype=torch.float32, device_map="auto",
-            local_files_only=True, trust_remote_code=True,
-        )
-        self.model_name = model_name
-        logger.info("Qwen ASR loaded from %s", QWEN_ASR_PATH)
-
-    def _unload(self) -> None:
-        if self.model is not None:
-            del self.model
-            del self.tokenizer
-            self.model = None
-            self.tokenizer = None
-            super()._unload()
-
-    def _run_transcribe(self, audio: bytes, language: str | None = None) -> dict:
-        import torch
-        import soundfile as sf
-
-        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
-            tmp.write(audio)
-            tmp_path = tmp.name
-
-        waveform, sr = sf.read(tmp_path)
-        Path(tmp_path).unlink(missing_ok=True)
-
-        prompt = f"<think>\nTranscribe the following audio.\nassistant\n"
-        input_ids = self.tokenizer(prompt, return_tensors="pt").input_ids.to("cuda")
-
-        with torch.no_grad():
-            output = self.model.generate(input_ids, max_new_tokens=4096)
-
-        text = self.tokenizer.decode(output[0], skip_special_tokens=True)
-        return {"text": text, "language": language or "auto"}
-
-    def _extract_input(self, inp) -> dict:
-        result = super()._extract_input(inp)
-        if inp.audio_b64:
-            from services.base import _b64_decode
-            result["audio"] = _b64_decode(inp.audio_b64)
-        return result
-
-    async def __call__(self, request):
-        """TNAP endpoint. Supports JSON with audio_b64 or multipart."""
-        if request.method == "GET":
-            return {"status": "ok", "model": self.model_name, "loaded": self.is_loaded()}
-
-        start = time.perf_counter()
-
-        try:
-            if request.headers.get("content-type", "").startswith("multipart/form-data"):
-                form = await request.form()
-                audio_file = form["file"]
-                audio_bytes = await audio_file.read()
-
-                if "config" in form:
-                    requested = InferenceConfig(**form["config"])
-                    if requested != self.config:
-                        self.config = requested
-
-                if not self.is_loaded():
-                    await asyncio.to_thread(self.load_model, "qwen-asr")
-
-                result = await asyncio.to_thread(
-                    lambda: self._run_transcribe(audio=audio_bytes),
-                )
-            else:
-                body = await request.json()
-                tnap_req, extracted = self.handle_request(body)
-
-                audio_bytes = extracted.get("audio")
-                if not audio_bytes:
-                    return JSONResponse(self.handle_error("audio_b64 required"), status_code=400)
-
-                if not self.is_loaded():
-                    await asyncio.to_thread(self.load_model, "qwen-asr")
-
-                result = await asyncio.to_thread(
-                    lambda: self._run_transcribe(audio=audio_bytes),
-                )
-
-            latency_ms = int((time.perf_counter() - start) * 1000)
-            return JSONResponse(
-                self.handle_response(
-                    json.dumps(result).encode("utf-8"),
-                    "application/json",
-                    latency_ms,
-                    extra_metrics={"language": result.get("language", "")},
-                )
-            )
-        except Exception as e:
-            logger.error("qwen_asr error: %s", e)
             return JSONResponse(self.handle_error(str(e)), status_code=500)

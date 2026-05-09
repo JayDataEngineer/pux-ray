@@ -205,15 +205,6 @@ asr:
     vram_estimate_gb: 1.0
     device: cpu
     description: Faster-Whisper distil-large-v3. CTranslate2 format.
-  qwen-asr:
-    path: asr/qwen-asr/
-    source: null
-    download: skip
-    sha256: null
-    size_gb: 0.01
-    vram_estimate_gb: 1.0
-    device: gpu
-    description: Qwen ASR. Not actively used — faster-whisper is primary.
   vibevoice-asr-engine:
     path: asr/vibevoice/
     source: null

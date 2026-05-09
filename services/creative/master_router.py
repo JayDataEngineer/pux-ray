@@ -7,7 +7,8 @@ explicit _load()/_unload() swaps with torch.cuda.empty_cache() between them.
 
 Lightweight GPU services (faster_qwen3_tts, index_tts, vibevoice_cpp) stay as
 separate Ray deployments — they're small enough to coexist. Only the heavy hitters
-(trellis, ace_step, comfyui, hy_motion, anigen, see_through, moss_soundeffect, llm)
+(trellis, ace_step, comfyui, hy_motion, anigen, see_through, moss_soundeffect, llm,
+ vibevoice_asr, vibevoice, phi4mm)
 go through this router.
 """
 from __future__ import annotations
@@ -26,7 +27,7 @@ from starlette.responses import JSONResponse, Response
 logger = logging.getLogger(__name__)
 
 HEAVY_SERVICES = {"trellis", "ace_step", "comfyui", "hy_motion", "moss_soundeffect",
-                   "anigen", "see_through", "llm"}
+                   "anigen", "see_through", "llm", "vibevoice_asr", "vibevoice", "phi4mm"}
 
 # Default _load() arguments for services that need them.
 LOAD_KWARGS = {
@@ -59,6 +60,9 @@ class MasterRouter:
             "anigen": ("services.creative.anigen", "AniGenDeployment"),
             "see_through": ("services.creative.see_through", "SeeThroughDeployment"),
             "llm": ("services.llm.deployment", "LLMDeployment"),
+            "vibevoice_asr": ("services.asr.gpu_asr", "VibeVoiceASRDeployment"),
+            "vibevoice": ("services.tts.vibe_voice", "VibeVoiceDeployment"),
+            "phi4mm": ("services.multimodal.phi4mm", "Phi4MMDeployment"),
         }
         if name not in imports:
             raise ValueError(f"Unknown heavy service: {name}")
