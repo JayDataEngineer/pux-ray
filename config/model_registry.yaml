@@ -47,7 +47,7 @@ llm:
     download: file
     sha256: null
     size_gb: 18.0
-    vram_estimate_gb: 21.0
+    vram_estimate_gb: 19.5
     device: gpu
     ctx_size: 32768
     parallel: 1
