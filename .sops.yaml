@@ -12,4 +12,4 @@
 
 creation_rules:
   - path_regex: ^infra/flux/infra-secrets/.*\.yaml$
-    age: AGE_PUBLIC_KEY_PLACEHOLDER
+    age: age125amch63h60xmua48jxzjdm4fwr6z387g5zw0mwja4z2533u8f9syye5qr

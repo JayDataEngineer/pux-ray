@@ -59,6 +59,7 @@ tasks:
     desc: "Full bootstrap (first run on new machine)"
     cmds:
       - task: setup:prereqs
+      - task: setup:host
       - task: setup:config
       - task: setup:venv
       - task: setup:repos
@@ -73,6 +74,11 @@ tasks:
       - uv --version
       - "nvidia-smi --query-gpu=name --format=csv,noheader || echo 'WARNING: No GPU detected'"
       - "docker --version || echo 'WARNING: Docker not found (needed for repo sync)'"
+
+  setup:host:
+    desc: "Bootstrap host for k3s + Flux (one-time, idempotent)"
+    cmds:
+      - sudo python -m infra.setup bootstrap --fix
 
   setup:config:
     desc: "Copy config template if local.yaml doesn't exist"
@@ -200,6 +206,24 @@ tasks:
     desc: "Open secrets.env in $EDITOR"
     cmds:
       - ${EDITOR:-nano} config/secrets.env
+
+  secrets:sops:
+    desc: "Generate AGE key, encrypt secrets with SOPS, commit for Flux"
+    cmds:
+      - "{{.VENV_PYTHON}} -m infra.setup sops --fix"
+      - git add infra/flux/infra-secrets/shared-infra.enc.yaml .sops.yaml
+      - |
+        if git diff --cached --quiet; then
+          echo "No changes to commit"
+        else
+          git commit -m "Update encrypted secrets (SOPS)"
+          git push
+        fi
+
+  secrets:sync:
+    desc: "Push secrets directly to k8s (imperative, quick updates)"
+    cmds:
+      - "{{.VENV_PYTHON}} infra/secrets_sync.py"
 
   secrets:list:
     desc: "List secrets in all namespaces"
