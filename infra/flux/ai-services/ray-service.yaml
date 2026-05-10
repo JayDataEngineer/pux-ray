@@ -185,7 +185,7 @@ spec:
                   - name: MODELS_ROOT
                     value: /models
                   - name: MODELS
-                    value: "audio.moss-soundeffect,tts.vibevoice-tts,tts.qwen3-tts,asr.vibevoice-asr,vibevoice-cpp,multimodal.phi4-multimodal"
+                    value: "audio.moss-soundeffect,tts.vibevoice-tts,tts.qwen3-tts,asr.vibevoice-asr,vibevoice-cpp"
                 volumeMounts:
                   - name: models
                     mountPath: /models
