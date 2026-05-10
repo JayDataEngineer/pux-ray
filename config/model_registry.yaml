@@ -798,8 +798,8 @@ comfyui:
     device: gpu
     description: SeedVR2 upscaler VAE (FP16). From numz ComfyUI repo.
   diffusion-klein-4b-q8:
-    path: image-gen/comfyui/diffusion_models/flux-2-klein-4b-q8_0.gguf
-    source: hf://unsloth/FLUX.2-klein-4B-GGUF/flux-2-klein-4b-q8_0.gguf
+    path: image-gen/comfyui/diffusion_models/flux-2-klein-4b-Q8_0.gguf
+    source: hf://unsloth/FLUX.2-klein-4B-GGUF/flux-2-klein-4b-Q8_0.gguf
     download: file
     sha256: null
     size_gb: 4.3
@@ -807,8 +807,8 @@ comfyui:
     device: gpu
     description: Flux.2 Klein 4B GGUF Q8_0. Primary quant for image generation.
   diffusion-klein-4b-q5:
-    path: image-gen/comfyui/diffusion_models/flux-2-klein-4b-q5_0.gguf
-    source: hf://unsloth/FLUX.2-klein-4B-GGUF/flux-2-klein-4b-q5_0.gguf
+    path: image-gen/comfyui/diffusion_models/flux-2-klein-4b-Q5_0.gguf
+    source: hf://unsloth/FLUX.2-klein-4B-GGUF/flux-2-klein-4b-Q5_0.gguf
     download: file
     sha256: null
     size_gb: 2.9
@@ -816,8 +816,8 @@ comfyui:
     device: gpu
     description: Flux.2 Klein 4B GGUF Q5_0. Smaller quant for constrained VRAM.
   diffusion-klein-4b-q4:
-    path: image-gen/comfyui/diffusion_models/flux-2-klein-4b-q4_0.gguf
-    source: hf://unsloth/FLUX.2-klein-4B-GGUF/flux-2-klein-4b-q4_0.gguf
+    path: image-gen/comfyui/diffusion_models/flux-2-klein-4b-Q4_0.gguf
+    source: hf://unsloth/FLUX.2-klein-4B-GGUF/flux-2-klein-4b-Q4_0.gguf
     download: file
     sha256: null
     size_gb: 2.5
@@ -825,8 +825,8 @@ comfyui:
     device: gpu
     description: Flux.2 Klein 4B GGUF Q4_0. Smallest quant.
   diffusion-klein-4b-q6:
-    path: image-gen/comfyui/diffusion_models/flux-2-klein-4b-q6_k.gguf
-    source: hf://unsloth/FLUX.2-klein-4B-GGUF/flux-2-klein-4b-q6_k.gguf
+    path: image-gen/comfyui/diffusion_models/flux-2-klein-4b-Q6_K.gguf
+    source: hf://unsloth/FLUX.2-klein-4B-GGUF/flux-2-klein-4b-Q6_K.gguf
     download: file
     sha256: null
     size_gb: 3.4
@@ -835,7 +835,7 @@ comfyui:
     description: Flux.2 Klein 4B GGUF Q6_K. Higher quality quant.
   vae-flux2:
     path: image-gen/comfyui/vae/flux2-vae.safetensors
-    source: hf://Comfy-Org/flux2-dev/flux2-vae.safetensors
+    source: hf://Comfy-Org/flux2-dev/split_files/vae/flux2-vae.safetensors
     download: file
     sha256: null
     size_gb: 0.15
