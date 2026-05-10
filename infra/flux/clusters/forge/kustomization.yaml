@@ -26,7 +26,9 @@ spec:
   interval: 5m
   ref:
     branch: master
-  url: file:///home/user/Documents/programs/ray
+  url: https://github.com/JayDataEngineer/tech-noir-ray.git
+  secretRef:
+    name: github-token
   ignore: |
     # Exclude everything not related to Flux manifests
     /*
@@ -104,7 +106,7 @@ spec:
     - name: infra-secrets
 
 ---
-# Layer 5: AI services — Ray cluster (depends on infra)
+# Layer 5: AI services — Ray cluster (depends on namespaces + storage)
 apiVersion: kustomize.toolkit.fluxcd.io/v1
 kind: Kustomization
 metadata:
@@ -118,10 +120,11 @@ spec:
     kind: GitRepository
     name: tech-noir
   dependsOn:
-    - name: infra-services
+    - name: namespaces
+    - name: infra-storage
 
 ---
-# Layer 6: MCP servers (depends on infra)
+# Layer 6: MCP servers (depends on namespaces + storage)
 apiVersion: kustomize.toolkit.fluxcd.io/v1
 kind: Kustomization
 metadata:
@@ -135,7 +138,8 @@ spec:
     kind: GitRepository
     name: tech-noir
   dependsOn:
-    - name: infra-services
+    - name: namespaces
+    - name: infra-storage
 
 ---
 # Layer 7: Networking — Traefik routes (depends on all services)

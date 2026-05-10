@@ -87,9 +87,11 @@ metadata:
   name: forge-registry
   namespace: infra
 spec:
+  type: NodePort
   selector:
     app: forge-registry
   ports:
     - name: registry
       port: 5000
       targetPort: 5000
+      nodePort: 30500
