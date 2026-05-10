@@ -7,12 +7,16 @@
 #   docker build -f infra/docker/Dockerfile.gpu-all -t 100.86.69.57:30500/tech-noir/gpu-all:latest .
 #   docker push 100.86.69.57:30500/tech-noir/gpu-all:latest
 
-# ── Stage 1: Build llama.cpp with CUDA (needs nvidia/cuda:devel for driver API) ──
+# ── Stage 1: Build BeeLlama.cpp with CUDA (needs nvidia/cuda:devel for driver API) ──
+# BeeLlama.cpp = llama.cpp fork with DFlash speculative decoding, TurboQuant/TCQ KV cache,
+# adaptive draft-max, and reasoning-loop protection.
 FROM nvidia/cuda:12.4.1-devel-ubuntu22.04 AS llama-builder
 RUN apt-get update && apt-get install -y --no-install-recommends git cmake build-essential && rm -rf /var/lib/apt/lists/*
-RUN git clone --depth 1 https://github.com/ggml-org/llama.cpp.git /tmp/llama.cpp && \
+RUN git clone --depth 1 https://github.com/Anbeeld/beellama.cpp.git /tmp/llama.cpp && \
     cd /tmp/llama.cpp && \
-    cmake -B build -DGGML_CUDA=ON -DLLAMA_CURL=OFF -DLLAMA_BUILD_EXAMPLES=OFF \
+    cmake -B build -DGGML_CUDA=ON -DGGML_NATIVE=ON \
+        -DGGML_CUDA_FA=ON -DGGML_CUDA_FA_ALL_QUANTS=ON \
+        -DLLAMA_CURL=OFF -DLLAMA_BUILD_EXAMPLES=OFF \
         -DCMAKE_CUDA_ARCHITECTURES=89 \
         -DCMAKE_CXX_STANDARD_LIBRARIES="-lcuda" \
         -DCMAKE_EXE_LINKER_FLAGS="-L/usr/local/cuda-12.4/targets/x86_64-linux/lib/stubs -lcuda" \

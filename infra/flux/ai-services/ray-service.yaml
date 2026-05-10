@@ -80,6 +80,15 @@ spec:
           - name: playground
             autoscaling_config: { min_replicas: 0, max_replicas: 1, downscale_delay_s: 30 }
 
+      # API Ingress — catch-all gateway (/health, /status, /v1/*, /dashboard, /studio)
+      # LAST app — Ray Serve matches most-specific route_prefix first.
+      - name: api-ingress
+        import_path: serve_config:api_ingress
+        route_prefix: /
+        deployments:
+          - name: api-ingress
+            autoscaling_config: { min_replicas: 1, max_replicas: 1 }
+
       # ─── Tier 3: Not yet deployed (add to serve_config + uncomment to enable) ──
       # - name: gpt_sovits
       #   import_path: serve_config:gpt_sovits
@@ -99,7 +108,7 @@ spec:
           containers:
             - name: ray-head
               image: forge-reg/tech-noir/gpu-all:latest
-
+              imagePullPolicy: IfNotPresent
               ports:
                 - containerPort: 6379
                   name: gcs
@@ -171,6 +180,7 @@ spec:
             initContainers:
               - name: model-sync
                 image: forge-reg/tech-noir/model-sync:latest
+                imagePullPolicy: IfNotPresent
                 env:
                   - name: MODELS_ROOT
                     value: /models
@@ -183,6 +193,7 @@ spec:
             containers:
               - name: ray-worker
                 image: forge-reg/tech-noir/gpu-all:latest
+                imagePullPolicy: IfNotPresent
                 readinessProbe:
                   exec:
                     command:

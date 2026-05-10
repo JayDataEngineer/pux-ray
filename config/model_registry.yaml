@@ -7,20 +7,40 @@ llm:
     size_gb: 23.0
     vram_estimate_gb: 23.0
     device: gpu
-    ctx_size: 16384
+    ctx_size: 65536
     parallel: 1
     n_gpu_layers: 99
     mmproj_n_gpu_layers: 0
-    cache_type_k: q8_0
-    cache_type_v: q8_0
+    cache_type_k: turbo4
+    cache_type_v: turbo3_tcq
     temp: 0.6
     top_p: 0.95
     top_k: 20
     min_p: 0.0
     presence_penalty: 0.0
     mmproj_path: vision/mmproj-F32.gguf
-    description: Qwen 3.6 27B Q6_K. Tight fit on 24GB VRAM — quantized KV cache,
-      vision on DRAM via F32 mmproj. Best quality quant for 24GB cards.
+    spec_type: dflash
+    spec_draft_model: llm/dflash-draft-3.6-q4_k_m.gguf
+    spec_draft_ngl: 99
+    spec_dflash_cross_ctx: 512
+    flash_attn: true
+    reasoning: true
+    batch_size: 2048
+    ubatch_size: 256
+    description: Qwen 3.6 27B Q6_K + BeeLlama DFlash + TurboQuant. DFlash speculative
+      decoding (Q4_K_M draft) for 2-3x speedup, turbo4/turbo3_tcq KV cache for 4-5x
+      compression (65K ctx in same VRAM as old 16K). Vision on DRAM via F32 mmproj.
+  qwen3.6-27b-dflash-draft-q4km:
+    path: llm/dflash-draft-3.6-q4_k_m.gguf
+    source: hf://spiritbuun/Qwen3.6-27B-DFlash-GGUF/dflash-draft-3.6-q4_k_m.gguf
+    download: file
+    sha256: null
+    size_gb: 1.03
+    vram_estimate_gb: 1.5
+    device: gpu
+    description: DFlash draft model for Qwen 3.6 27B (Q4_K_M). Cross-attention
+      speculative drafter used by BeeLlama.cpp. Q4 recommended over Q8 (author
+      benchmarks show Q8 is net-negative for tok/s).
   qwen3.6-27b-ud-q4_k_xl:
     path: llm/Qwen3.6-27B-UD-Q4_K_XL.gguf
     source: hf://unsloth/Qwen3.6-27B-GGUF/Qwen3.6-27B-UD-Q4_K_XL.gguf
