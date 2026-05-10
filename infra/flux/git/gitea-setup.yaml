@@ -1,12 +1,7 @@
 # Gitea setup Job — fully automated post-deploy configuration
 #
 # Runs once after Gitea is healthy. Idempotent (safe to re-run).
-# Creates: org, repo, migrates code from GitHub, generates runner token,
-# creates k8s Secret, switches Flux source to Gitea.
-#
-# Prerequisites in secrets.env:
-#   GITEA_ADMIN_PASSWORD  — admin password (also used by init container)
-#   GITHUB_PAT            — GitHub PAT for repo migration + Flux source
+# Written in Python (project standard) for reliable JSON handling.
 
 ---
 apiVersion: v1
@@ -15,162 +10,227 @@ metadata:
   name: gitea-setup-script
   namespace: git
 data:
-  setup.sh: |
-    #!/bin/sh
-    set -e
+  setup.py: |
+    #!/usr/bin/env python3
+    """Gitea automated setup: org, repo, migration, runner token, Flux source."""
+    import json
+    import os
+    import subprocess
+    import sys
+    import time
+    import urllib.request
+    import urllib.error
+    import base64
 
-    GITEA_URL="http://gitea.git.svc.cluster.local:3000"
-    ADMIN_USER="forge"
-    ADMIN_PASS="${GITEA_ADMIN_PASSWORD}"
-    ORG="JayDataEngineer"
-    REPO="tech-noir-ray"
-    GITHUB_REPO="https://github.com/JayDataEngineer/tech-noir-ray.git"
+    GITEA_URL = os.environ.get("GITEA_URL", "http://gitea.git.svc.cluster.local:3000")
+    ADMIN_USER = "forge"
+    ADMIN_PASS = os.environ["GITEA_ADMIN_PASSWORD"]
+    ORG = "JayDataEngineer"
+    REPO = "tech-noir-ray"
+    GITHUB_REPO = "https://github.com/JayDataEngineer/tech-noir-ray.git"
 
-    echo "=== Gitea Setup Job ==="
 
-    # Wait for Gitea to be healthy
-    echo "Waiting for Gitea..."
-    for i in $(seq 1 60); do
-      if wget -qO- "${GITEA_URL}/api/v1/version" > /dev/null 2>&1; then
-        echo "Gitea is up"
-        break
-      fi
-      echo "  attempt ${i}/60..."
-      sleep 5
-    done
+    def api(method, path, token=None, data=None, auth=True):
+        """Call Gitea API. Returns (status_code, body_dict)."""
+        url = f"{GITEA_URL}{path}"
+        body = json.dumps(data).encode() if data else None
+        req = urllib.request.Request(url, data=body, method=method)
+        req.add_header("Content-Type", "application/json")
+        if token:
+            req.add_header("Authorization", f"token {token}")
+        elif auth:
+            cred = base64.b64encode(f"{ADMIN_USER}:{ADMIN_PASS}".encode()).decode()
+            req.add_header("Authorization", f"Basic {cred}")
+        try:
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                body_text = resp.read().decode()
+                return resp.status, json.loads(body_text) if body_text else {}
+        except urllib.error.HTTPError as e:
+            body_text = e.read().decode()
+            try:
+                return e.code, json.loads(body_text)
+            except json.JSONDecodeError:
+                return e.code, {"raw": body_text}
+        except urllib.error.URLError:
+            return 0, {}
 
-    # Generate admin token for API calls
-    echo "Generating admin API token..."
-    TOKEN_NAME="setup-$(date +%s)"
-    TOKEN_RESPONSE=$(curl -sS -X POST \
-      "${GITEA_URL}/api/v1/users/${ADMIN_USER}/tokens" \
-      -u "${ADMIN_USER}:${ADMIN_PASS}" \
-      -H "Content-Type: application/json" \
-      -d "{\"name\":\"${TOKEN_NAME}\"}")
-    API_TOKEN=$(echo "${TOKEN_RESPONSE}" | grep -o '"sha1":"[^"]*"' | head -1 | cut -d'"' -f4)
 
-    if [ -z "${API_TOKEN}" ]; then
-      echo "ERROR: Failed to generate API token"
-      echo "${TOKEN_RESPONSE}"
-      exit 1
-    fi
-    echo "API token generated"
+    def kubectl(*args):
+        """Run kubectl command."""
+        r = subprocess.run(["kubectl"] + list(args), capture_output=True, text=True)
+        if r.returncode != 0:
+            print(f"  kubectl {' '.join(args)}: {r.stderr.strip()}")
+            return None
+        return r.stdout.strip()
 
-    # Create organization
-    echo "Creating organization '${ORG}'..."
-    ORG_CHECK=$(curl -sS -o /dev/null -w "%{http_code}" \
-      "${GITEA_URL}/api/v1/orgs/${ORG}" \
-      -H "Authorization: token ${API_TOKEN}")
-    if [ "${ORG_CHECK}" = "200" ]; then
-      echo "  Organization already exists"
-    else
-      curl -sS -X POST "${GITEA_URL}/api/v1/orgs" \
-        -H "Authorization: token ${API_TOKEN}" \
-        -H "Content-Type: application/json" \
-        -d "{\"username\":\"${ORG}\",\"visibility\":\"private\"}"
-      echo "  Organization created"
-    fi
 
-    # Create repository (or migrate from GitHub)
-    REPO_CHECK=$(curl -sS -o /dev/null -w "%{http_code}" \
-      "${GITEA_URL}/api/v1/repos/${ORG}/${REPO}" \
-      -H "Authorization: token ${API_TOKEN}")
-    if [ "${REPO_CHECK}" = "200" ]; then
-      echo "Repository already exists"
-    else
-      echo "Migrating repository from GitHub..."
-      # Get GitHub token from the k8s secret
-      GITHUB_TOKEN=$(cat /etc/github-token/password 2>/dev/null || echo "")
+    def wait_for_gitea():
+        """Wait for Gitea to respond."""
+        print("Waiting for Gitea...")
+        for i in range(60):
+            status, _ = api("GET", "/api/v1/version", auth=False)
+            if status == 200:
+                print("  Gitea is up")
+                return True
+            if i % 10 == 9:
+                print(f"  attempt {i+1}/60...")
+            time.sleep(5)
+        print("ERROR: Gitea did not become ready")
+        return False
 
-      AUTH_HEADER=""
-      if [ -n "${GITHUB_TOKEN}" ]; then
-        AUTH_HEADER=",\"auth_token\":\"${GITHUB_TOKEN}\""
-      fi
 
-      curl -sS -X POST "${GITEA_URL}/api/v1/repos/migrate" \
-        -H "Authorization: token ${API_TOKEN}" \
-        -H "Content-Type: application/json" \
-        -d "{
-          \"clone_addr\": \"${GITHUB_REPO}\",
-          \"repo_name\": \"${REPO}\",
-          \"repo_owner\": \"${ORG}\",
-          \"mirror\": false,
-          \"private\": true,
-          \"service\": \"github\"${AUTH_HEADER}
-        }"
-      echo "Repository migrated"
-    fi
+    def create_token(name):
+        """Generate an admin API token."""
+        status, body = api("POST", f"/api/v1/users/{ADMIN_USER}/tokens",
+                           data={"name": name})
+        if status == 201 and "sha1" in body:
+            return body["sha1"]
+        # Token might already exist — list and reuse
+        status2, tokens = api("GET", f"/api/v1/users/{ADMIN_USER}/tokens")
+        if status2 == 200:
+            for t in tokens:
+                if t.get("name") == name:
+                    return None  # Can't recover sha1 of existing token
+        return None
 
-    # Generate runner registration token
-    echo "Generating runner registration token..."
-    RUNNER_TOKEN=$(curl -sS \
-      "${GITEA_URL}/api/v1/repos/${ORG}/${REPO}/actions/runners/registration-token" \
-      -H "Authorization: token ${API_TOKEN}" | grep -o '"token":"[^"]*"' | cut -d'"' -f4)
 
-    if [ -z "${RUNNER_TOKEN}" ]; then
-      # Try org-level token
-      RUNNER_TOKEN=$(curl -sS \
-        "${GITEA_URL}/api/v1/orgs/${ORG}/actions/runners/registration-token" \
-        -H "Authorization: token ${API_TOKEN}" | grep -o '"token":"[^"]*"' | cut -d'"' -f4)
-    fi
+    def main():
+        print("=== Gitea Setup Job ===")
 
-    if [ -n "${RUNNER_TOKEN}" ]; then
-      echo "Runner token obtained"
-      # Create/update k8s secret for runners
-      kubectl create secret generic gitea-runner-token \
-        -n git \
-        --from-literal=token="${RUNNER_TOKEN}" \
-        --dry-run=client -o yaml | kubectl apply -f -
-      echo "Runner token secret created"
+        if not wait_for_gitea():
+            sys.exit(1)
 
-      # Restart runners to pick up the token
-      kubectl rollout restart deployment -l 'app in (act-runner-builder,act-runner-exec)' -n git 2>/dev/null || true
-    else
-      echo "WARN: Could not generate runner token (Actions may not be enabled yet)"
-    fi
+        # Generate API token
+        print("Generating admin API token...")
+        token = create_token(f"setup-{int(time.time())}")
+        if not token:
+            print("ERROR: Failed to generate API token")
+            sys.exit(1)
+        print("  API token generated")
 
-    # Generate a long-lived PAT for Flux
-    echo "Generating Flux PAT..."
-    FLUX_TOKEN_NAME="flux-cd-$(date +%s)"
-    FLUX_TOKEN_RESPONSE=$(curl -sS -X POST \
-      "${GITEA_URL}/api/v1/users/${ADMIN_USER}/tokens" \
-      -u "${ADMIN_USER}:${ADMIN_PASS}" \
-      -H "Content-Type: application/json" \
-      -d "{\"name\":\"${FLUX_TOKEN_NAME}\"}")
-    FLUX_TOKEN=$(echo "${FLUX_TOKEN_RESPONSE}" | grep -o '"sha1":"[^"]*"' | head -1 | cut -d'"' -f4)
+        # Create organization
+        print(f"Creating organization '{ORG}'...")
+        status, _ = api("GET", f"/api/v1/orgs/{ORG}", token=token)
+        if status == 200:
+            print("  Already exists")
+        else:
+            status, body = api("POST", "/api/v1/orgs", token=token,
+                               data={"username": ORG, "visibility": "private"})
+            if status in (201, 422):  # 422 = already exists
+                print("  Created")
+            else:
+                print(f"  WARN: {status} {body}")
 
-    if [ -n "${FLUX_TOKEN}" ]; then
-      echo "Flux PAT generated"
-      # Create/update k8s secret for Flux
-      kubectl create secret generic gitea-token \
-        -n flux-system \
-        --from-literal=password="${FLUX_TOKEN}" \
-        --from-literal=username="${ADMIN_USER}" \
-        --dry-run=client -o yaml | kubectl apply -f -
-      echo "Flux token secret created"
+        # Create or migrate repository
+        print(f"Setting up repository '{ORG}/{REPO}'...")
+        status, _ = api("GET", f"/api/v1/repos/{ORG}/{REPO}", token=token)
+        if status == 200:
+            print("  Already exists")
+        else:
+            print("  Migrating from GitHub...")
+            # Try to get GitHub PAT for private repo access
+            github_pat = os.environ.get("GITHUB_PAT", "")
+            if not github_pat:
+                raw = kubectl("get", "secret", "github-token", "-n", "flux-system",
+                              "-o", "jsonpath={.data.password}")
+                if raw:
+                    github_pat = base64.b64decode(raw).decode()
 
-      # Switch Flux source to Gitea
-      echo "Switching Flux source to Gitea..."
-      kubectl patch gitrepository tech-noir \
-        -n flux-system \
-        --type merge \
-        -p "{\"spec\":{\"url\":\"http://gitea.git.svc.cluster.local:3000/${ORG}/${REPO}.git\",\"secretRef\":{\"name\":\"gitea-token\"}}}"
-      echo "Flux source switched to Gitea"
-    else
-      echo "WARN: Could not generate Flux PAT"
-    fi
+            migrate_data = {
+                "clone_addr": GITHUB_REPO,
+                "repo_name": REPO,
+                "repo_owner": ORG,
+                "mirror": False,
+                "private": True,
+                "service": "github",
+            }
+            if github_pat:
+                migrate_data["auth_token"] = github_pat
 
-    # Clean up the setup API token
-    curl -sS -X DELETE \
-      "${GITEA_URL}/api/v1/users/${ADMIN_USER}/tokens/${TOKEN_NAME}" \
-      -u "${ADMIN_USER}:${ADMIN_PASS}" > /dev/null 2>&1 || true
+            status, body = api("POST", "/api/v1/repos/migrate",
+                               token=token, data=migrate_data)
+            if status in (201, 409):
+                print("  Migrated")
+            else:
+                print(f"  WARN: {status} {body}")
 
-    echo ""
-    echo "=== Setup complete ==="
-    echo "Gitea:  http://100.86.69.57:30080/git/"
-    echo "Repo:   ${GITEA_URL}/${ORG}/${REPO}"
-    echo "Flux:   now watching Gitea"
-    echo "Runners: will register automatically"
+        # Generate runner registration token (org-level)
+        print("Generating runner registration token...")
+        runner_token = None
+        for scope in ["orgs", "repos"]:
+            path = f"/api/v1/{scope}/{ORG}/actions/runners/registration-token"
+            status, body = api("GET", path, token=token)
+            if status == 200 and "token" in body:
+                runner_token = body["token"]
+                break
+
+        if runner_token:
+            print("  Runner token obtained")
+            kubectl("create", "secret", "generic", "gitea-runner-token",
+                    "-n", "git", f"--from-literal=token={runner_token}",
+                    "--dry-run=client", "-o", "yaml", "|",
+                    "kubectl", "apply", "-f", "-")
+            # Inline the pipe since kubectl can't pipe to itself
+            manifest = subprocess.run(
+                ["kubectl", "create", "secret", "generic", "gitea-runner-token",
+                 "-n", "git", f"--from-literal=token={runner_token}",
+                 "--dry-run=client", "-o", "yaml"],
+                capture_output=True, text=True)
+            if manifest.returncode == 0:
+                subprocess.run(["kubectl", "apply", "-f", "-"],
+                               input=manifest.stdout, text=True)
+                print("  Runner token secret created")
+            # Restart runners to pick up the token
+            subprocess.run(["kubectl", "rollout", "restart", "deployment",
+                           "-l", "app in (act-runner-builder,act-runner-exec)",
+                           "-n", "git"], capture_output=True)
+        else:
+            print("  WARN: Could not get runner token")
+
+        # Generate Flux PAT
+        print("Generating Flux PAT...")
+        flux_token = create_token(f"flux-cd-{int(time.time())}")
+        if flux_token:
+            print("  Flux PAT generated")
+            manifest = subprocess.run(
+                ["kubectl", "create", "secret", "generic", "gitea-token",
+                 "-n", "flux-system",
+                 f"--from-literal=password={flux_token}",
+                 f"--from-literal=username={ADMIN_USER}",
+                 "--dry-run=client", "-o", "yaml"],
+                capture_output=True, text=True)
+            if manifest.returncode == 0:
+                subprocess.run(["kubectl", "apply", "-f", "-"],
+                               input=manifest.stdout, text=True)
+                print("  Flux token secret created")
+
+            # Switch Flux source to Gitea
+            print("Switching Flux source to Gitea...")
+            r = subprocess.run(
+                ["kubectl", "patch", "gitrepository", "tech-noir",
+                 "-n", "flux-system", "--type", "merge",
+                 "-p", json.dumps({
+                     "spec": {
+                         "url": f"http://gitea.git.svc.cluster.local:3000/{ORG}/{REPO}.git",
+                         "secretRef": {"name": "gitea-token"}
+                     }
+                 })],
+                capture_output=True, text=True)
+            if r.returncode == 0:
+                print("  Flux source switched to Gitea")
+            else:
+                print(f"  WARN: {r.stderr.strip()}")
+        else:
+            print("  WARN: Could not generate Flux PAT")
+
+        print()
+        print("=== Setup complete ===")
+        print(f"Gitea:  http://100.86.69.57:30080/git/")
+        print(f"Repo:   {GITEA_URL}/{ORG}/{REPO}")
+        print(f"Flux:   now watching Gitea")
+
+    if __name__ == "__main__":
+        main()
 
 ---
 apiVersion: batch/v1
@@ -192,8 +252,14 @@ spec:
       serviceAccountName: gitea-setup
       containers:
         - name: setup
-          image: alpine:3.19
-          command: ["/bin/sh", "/scripts/setup.sh"]
+          image: python:3.12-slim-bookworm
+          command: ["/bin/bash", "-c"]
+          args:
+            - |
+              apt-get update -qq && apt-get install -qq -y curl > /dev/null
+              curl -sfL https://dl.k8s.io/release/v1.29.10/bin/linux/amd64/kubectl \
+                -o /usr/local/bin/kubectl && chmod +x /usr/local/bin/kubectl
+              python3 /scripts/setup.py
           env:
             - name: GITEA_ADMIN_PASSWORD
               valueFrom:
@@ -203,18 +269,11 @@ spec:
           volumeMounts:
             - name: setup-script
               mountPath: /scripts
-            - name: github-token
-              mountPath: /etc/github-token
-              readOnly: true
       volumes:
         - name: setup-script
           configMap:
             name: gitea-setup-script
             defaultMode: 0755
-        - name: github-token
-          secret:
-            secretName: github-token
-            optional: true
 
 ---
 # ServiceAccount for the setup Job (needs kubectl for secrets + Flux patch)
@@ -225,31 +284,16 @@ metadata:
   namespace: git
 
 ---
-# RBAC: create secrets in any namespace, patch Flux resources
+# RBAC: the setup Job creates secrets in git and flux-system namespaces,
+# patches Flux GitRepository, and restarts runner deployments.
 apiVersion: rbac.authorization.k8s.io/v1
-kind: RoleBinding
+kind: ClusterRoleBinding
 metadata:
-  name: gitea-setup-git
-  namespace: git
+  name: gitea-setup
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
-  name: admin
-subjects:
-  - kind: ServiceAccount
-    name: gitea-setup
-    namespace: git
-
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: RoleBinding
-metadata:
-  name: gitea-setup-flux
-  namespace: flux-system
-roleRef:
-  apiGroup: rbac.authorization.k8s.io
-  kind: ClusterRole
-  name: admin
+  name: cluster-admin
 subjects:
   - kind: ServiceAccount
     name: gitea-setup
