@@ -1,8 +1,8 @@
 # K3s containerd registry mirror configuration
 #
-# Maps "forge-reg" hostname to the Forge Registry K8s service.
-# K3s containerd resolves forge-reg/tech-noir/gpu-all:latest
-# to http://forge-registry.infra.svc.cluster.local:5000/tech-noir/gpu-all:latest.
+# Maps "forge-reg.local:30500" to the Forge Registry NodePort.
+# Containerd requires a dotted hostname (forge-reg won't work —
+# it gets treated as a docker.io namespace).
 #
 # Setup:
 #   sudo mkdir -p /etc/rancher/k3s
@@ -10,9 +10,9 @@
 #   sudo systemctl restart k3s
 #
 # Verify:
-#   sudo cat /var/lib/rancher/k3s/agent/etc/containerd/config.toml | grep forge-reg
+#   sudo k3s crictl pull forge-reg.local:30500/tech-noir/gpu-all:latest
 
 mirrors:
-  "forge-reg":
+  "forge-reg.local:30500":
     endpoint:
-      - "http://forge-registry.infra.svc.cluster.local:5000"
+      - "http://forge-reg.local:30500"

@@ -83,16 +83,20 @@ task infra:monitor         # Deploy the full monitoring stack
 task infra:monitor:status  # Check monitoring pods + scrape targets
 ```
 
-**Credentials**: Single source of truth in `config/secrets.env` (gitignored). Synced to k8s via `task secrets:sync`.
+**Credentials**: Single source of truth in `config/secrets.env` (gitignored). Two paths to k8s:
 
 **Secrets workflow:**
 ```bash
 cp config/secrets.env.example config/secrets.env   # First time
 $EDITOR config/secrets.env                         # Set values
-task secrets:sync                                  # Push to all k8s namespaces
+task secrets:sops                                  # Encrypt + commit (Flux path — recommended)
+task secrets:sync                                  # Push directly to k8s (imperative, quick updates)
 ```
 
-All deployments reference a single secret name `shared-infra` in their namespace. The sync script (`infra/secrets_sync.py`) reads `config/secrets.env` and creates identical `shared-infra` secrets in infra, mcp, and ai-services namespaces. Deploy tasks (`infra:deploy`, `build_mcp.sh`) run sync automatically.
+- `task secrets:sops` — AGE-encrypts secrets into `shared-infra.enc.yaml`, commits for Flux to decrypt and apply
+- `task secrets:sync` — pushes directly via kubectl (used by `build_mcp.sh` for MCP deployments)
+
+All deployments reference a single secret name `shared-infra` in their namespace.
 
 **Image**: `forge-reg/tech-noir/postgres-age-vector:latest` — Postgres 16 + AGE + pgvector. Built from `infra/docker/Dockerfile.postgres-age`.
 

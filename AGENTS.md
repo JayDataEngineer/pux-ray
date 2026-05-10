@@ -177,6 +177,9 @@ root = Config().models_root
 On a fresh Ubuntu 26.04 install, run these in order:
 
 ```bash
+# 0. Bootstrap host for k3s + Flux (hosts, registries, SOPS, Flux controllers)
+sudo python -m infra.setup bootstrap --fix
+
 # 1. System provisioning (apt packages, CUDA header patch, sysctl, swap)
 sudo python -m infra.setup system --fix
 
@@ -189,10 +192,13 @@ task models:pull
 # 4. Set up bare-metal tool venvs + llama.cpp build
 python -m infra.setup all
 
-# 5. Build Docker worker images (TRELLIS, AniGen, VibeVoice)
-python -m infra.setup docker
+# 5. Build and push Docker images to Forge Registry
+docker bake --push
 
-# 6. Start everything
+# 6. Encrypt secrets and commit (Flux will deploy everything)
+task secrets:sops
+
+# 7. Start everything
 task boot
 ```
 
