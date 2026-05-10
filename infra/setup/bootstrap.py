@@ -120,26 +120,43 @@ def check_flux_controllers(fix: bool) -> bool:
 
 
 def check_github_token_secret(fix: bool) -> bool:
-    r = _run(["kubectl", "get", "secret", "github-token", "-n", "flux-system"])
+    # Determine source type from Flux kustomization
+    source_url = ""
+    secret_name = "github-token"
+    username = "JayDataEngineer"
+    if FLUX_KUSTOMIZATION.exists():
+        content = FLUX_KUSTOMIZATION.read_text()
+        for line in content.splitlines():
+            stripped = line.strip()
+            if stripped.startswith("url:"):
+                source_url = stripped.split(":", 1)[1].strip()
+                break
+    if "gitea.git.svc" in source_url:
+        secret_name = "gitea-token"
+
+    r = _run(["kubectl", "get", "secret", secret_name, "-n", "flux-system"])
     if r.returncode == 0:
-        _log("github-token secret exists in flux-system")
+        _log(f"{secret_name} secret exists in flux-system")
         return True
     if not fix:
-        _warn("github-token secret missing (Flux can't pull private repo)")
+        _warn(f"{secret_name} secret missing (Flux can't pull repo)")
         return False
 
-    token = _run(["gh", "auth", "token"]).stdout.strip()
-    if not token:
-        token = input("Enter GitHub PAT (repo scope): ").strip()
+    if secret_name == "github-token":
+        token = _run(["gh", "auth", "token"]).stdout.strip()
+        if not token:
+            token = input("Enter GitHub PAT (repo scope): ").strip()
+    else:
+        token = input(f"Enter Gitea PAT (repo scope): ").strip()
     if not token:
         _err("No token provided")
         return False
 
     r = _run([
-        "kubectl", "create", "secret", "generic", "github-token",
+        "kubectl", "create", "secret", "generic", secret_name,
         "-n", "flux-system",
         f"--from-literal=password={token}",
-        "--from-literal=username=JayDataEngineer",
+        f"--from-literal=username={username}",
         "--dry-run=client", "-o", "yaml",
     ])
     if r.returncode != 0:
@@ -149,7 +166,7 @@ def check_github_token_secret(fix: bool) -> bool:
     if r2.returncode != 0:
         _err(f"Secret apply failed: {r2.stderr}")
         return False
-    _log("github-token secret created in flux-system")
+    _log(f"{secret_name} secret created in flux-system")
     return True
 
 

@@ -4,3 +4,4 @@ resources:
   - models-pv.yaml
   - cache-pvcs.yaml
   - mcp-pvcs.yaml
+  - gitea-pvc.yaml

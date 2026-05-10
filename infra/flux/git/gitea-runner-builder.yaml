@@ -1,0 +1,83 @@
+# Act Runner — Docker builder
+#
+# Runs Gitea Actions jobs labeled `docker-builder`. Mounts the host Docker
+# socket so it can build and push images to Forge Registry using the same
+# Docker daemon used for manual builds.
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: act-runner-builder-config
+  namespace: git
+data:
+  config.yaml: |
+    runner:
+      name: docker-builder
+      labels:
+        - docker-builder
+
+    container:
+      network: host
+
+    cache:
+      enabled: false
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: act-runner-builder
+  namespace: git
+  labels:
+    app: act-runner-builder
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: act-runner-builder
+  template:
+    metadata:
+      labels:
+        app: act-runner-builder
+    spec:
+      containers:
+        - name: runner
+          image: gitea/act_runner:latest
+          command: ["act_runner", "daemon"]
+          env:
+            - name: GITEA_INSTANCE_URL
+              value: http://gitea.git.svc.cluster.local:3000
+            - name: GITEA_RUNNER_REGISTRATION_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: gitea-runner-token
+                  key: token
+            - name: CONFIG_FILE
+              value: /config/config.yaml
+          volumeMounts:
+            - name: config
+              mountPath: /config
+            - name: docker-sock
+              mountPath: /var/run/docker.sock
+            - name: docker-config
+              mountPath: /root/.docker
+          resources:
+            requests:
+              cpu: 500m
+              memory: 500Mi
+            limits:
+              cpu: "2"
+              memory: 4Gi
+      volumes:
+        - name: config
+          configMap:
+            name: act-runner-builder-config
+        - name: docker-sock
+          hostPath:
+            path: /var/run/docker.sock
+            type: Socket
+        - name: docker-config
+          hostPath:
+            path: /home/user/.docker
+            type: Directory

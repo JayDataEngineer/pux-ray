@@ -1,0 +1,18 @@
+name: Test
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: code-exec
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install uv
+        run: which uv || curl -LsSf https://astral.sh/uv/install.sh | sh
+      - name: Install deps
+        run: uv sync --extra dev
+      - name: Run tests
+        run: uv run pytest tests/ -v --timeout=30
