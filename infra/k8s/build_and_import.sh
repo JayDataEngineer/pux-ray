@@ -8,7 +8,7 @@
 #   3. K3s containerd configured: see REGISTRIES_YAML below
 set -euo pipefail
 
-REGISTRY="forge-reg/tech-noir"      # K3s containerd resolves via registries.yaml
+REGISTRY="forge-reg.local:30500/tech-noir"      # K3s containerd resolves via registries.yaml
 PUSH_REGISTRY="100.86.69.57:30500"  # Traefik NodePort for host Docker push
 REGISTRIES_YAML="/etc/rancher/k3s/registries.yaml"
 

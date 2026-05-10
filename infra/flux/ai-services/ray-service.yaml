@@ -107,7 +107,7 @@ spec:
         spec:
           containers:
             - name: ray-head
-              image: forge-reg/tech-noir/gpu-all:latest
+              image: forge-reg.local:30500/tech-noir/gpu-all:latest
               imagePullPolicy: IfNotPresent
               ports:
                 - containerPort: 6379
@@ -179,7 +179,7 @@ spec:
           spec:
             initContainers:
               - name: model-sync
-                image: forge-reg/tech-noir/model-sync:latest
+                image: forge-reg.local:30500/tech-noir/model-sync:latest
                 imagePullPolicy: IfNotPresent
                 env:
                   - name: MODELS_ROOT
@@ -192,7 +192,7 @@ spec:
             runtimeClassName: nvidia
             containers:
               - name: ray-worker
-                image: forge-reg/tech-noir/gpu-all:latest
+                image: forge-reg.local:30500/tech-noir/gpu-all:latest
                 imagePullPolicy: IfNotPresent
                 readinessProbe:
                   exec:

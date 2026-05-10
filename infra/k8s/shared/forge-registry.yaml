@@ -10,7 +10,7 @@
 #
 # Usage:
 #   docker push 100.86.69.57:30500/tech-noir/gpu-all:latest
-#   # Pods reference: forge-reg/tech-noir/gpu-all:latest
+#   # Pods reference: forge-reg.local:30500/tech-noir/gpu-all:latest
 
 ---
 apiVersion: v1

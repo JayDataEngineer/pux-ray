@@ -5,7 +5,7 @@
 # Usage: bash infra/k8s/build_mcp.sh
 set -euo pipefail
 
-REGISTRY="forge-reg/tech-noir"      # K3s containerd resolves via registries.yaml
+REGISTRY="forge-reg.local:30500/tech-noir"      # K3s containerd resolves via registries.yaml
 PUSH_REGISTRY="100.86.69.57:30500"  # Traefik NodePort for host Docker push
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
