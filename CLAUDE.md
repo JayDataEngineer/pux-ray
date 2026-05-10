@@ -138,7 +138,7 @@ kubectl apply -f infra/k8s/mcp/            # Re-apply manifests only
 
 ### Adding a new MCP server
 
-1. Create Dockerfile in `mcp-servers/<name>/Dockerfile`
+1. Create Dockerfile in `mcp/<name>/Dockerfile`
 2. Create K8s manifest in `infra/k8s/mcp/<name>.yaml` (Deployment + Service)
 3. Add Traefik route in `infra/k8s/traefik-ingress.yaml` with PathPrefix + stripPrefix middleware
 4. Add image config to `infra/k8s/build_mcp.sh`

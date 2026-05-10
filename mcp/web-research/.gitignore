@@ -1,0 +1,50 @@
+# Environment
+.env
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+
+# Runtime data
+data/
+*.db
+*.sqlite
+
+# Logs
+logs/
+*.log
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Build artifacts
+.pytest_cache/
+.coverage
+
+# Git backup (emergency recovery)
+.git.backup/
+
+# Project notes
+UPDATES.md
+docs_config.yaml
+CLAUDE.md
+reference
+llm_models/
+benchmark_*.sh
+quick_bench.sh
+run_tps_bench.sh

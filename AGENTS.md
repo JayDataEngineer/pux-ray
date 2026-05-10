@@ -37,8 +37,7 @@ GPU-accelerated AI services managed by Ray Serve with a Starlette ingress on por
 ### 2. Docker Compose (Infrastructure + Apps)
 Multiple Docker Compose projects in `/home/user/Documents/programs/`:
 - **redshiftdb** — Full app stack: PostgreSQL, MongoDB, MinIO, Vault, Zitadel (auth), Prometheus, Grafana, Loki, Tempo, CRM app, UI, monitoring agents
-- **local-web-mcp** — Web content MCP server with Celery workers, Postgres, Redis, SearxNG, VPN, Caddy, TimescaleDB
-- **media-analysis-mcp** — Media analysis service
+- **mcp** — MCP source code (K3s-native, no Docker): web-research + media-analysis
 - **act-scheduler-bot** — Telegram bot (aiogram + FastAPI + PostgreSQL + Redis)
 - **jellyfin** — Jellyfin media server + Nextcloud AIO
 
@@ -62,8 +61,9 @@ Multiple Docker Compose projects in `/home/user/Documents/programs/`:
 │   ├── Taskfile.yml        #   Task runner
 │   ├── AGENTS.md           #   This file
 │   └── pyproject.toml      #   uv-managed, entry points: tech-noir, ray-noir
-├── local-web-mcp/          # Web MCP (Docker Compose, 10 containers)
-├── media-analysis-mcp/     # Media MCP (Docker Compose)
+├── mcp/                    # MCP source code (K3s-native, no Docker)
+│   ├── web-research/       #   Web research MCP (FastMCP server)
+│   └── media-analysis/     #   Media analysis MCP (vision, audio, video)
 ├── redshiftdb/             # CRM + infra (Docker Compose, 20 containers)
 │   ├── ops/docker/         #   compose.dev.yaml
 │   └── ...
@@ -90,8 +90,8 @@ All services are registered in `boot/services.py` as `Service` dataclasses. Each
 
 | Name | Type | Port | Description |
 |---|---|---|---|
-| local-web-mcp | Docker | 18327 | Web content MCP (Celery, Postgres, Redis, SearxNG, Caddy) |
-| media-analysis-mcp | Docker | 18101 | Media analysis service |
+| mcp/web-research | K8s | 8000 | Web research MCP (FastMCP, SearXNG, Celery, Redis) |
+| mcp/media-analysis | K8s | 8001 | Media analysis (vision, audio, video) |
 | redshiftdb | Docker | — | Full infra (Postgres, MongoDB, MinIO, Vault, Zitadel, monitoring, CRM, UI) |
 | act-scheduler-bot | Docker | 8621 | Telegram bot (aiogram + FastAPI) |
 | jellyfin | Docker | — | Jellyfin + Nextcloud AIO |

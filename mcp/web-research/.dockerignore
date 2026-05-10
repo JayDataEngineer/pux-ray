@@ -1,0 +1,162 @@
+# ============================================
+# Git & Version Control
+# ============================================
+.git/
+.gitignore
+.gitattributes
+
+# ============================================
+# Documentation (keep in repo, not in image)
+# ============================================
+README.md
+*.md
+docs/
+LICENSE
+
+# ============================================
+# Python - Build Artifacts
+# ============================================
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# ============================================
+# Virtual Environments (don't copy into image)
+# ============================================
+.venv/
+venv/
+ENV/
+env/
+.ENV/
+virtualenv/
+
+# ============================================
+# IDE & Editor
+# ============================================
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.project
+.pydevproject
+.settings/
+
+# ============================================
+# Environment & Secrets (CRITICAL - don't leak!)
+# ============================================
+.env
+.env.local
+.env.*.local
+*.key
+*.pem
+*.cert
+secrets/
+credentials/
+.aws/
+.secrets/
+
+# ============================================
+# Logs & Runtime Data
+# ============================================
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# ============================================
+# Databases & State Data
+# ============================================
+*.db
+*.sqlite
+*.sqlite3
+data/
+ts-state/
+searxng-data/
+
+# ============================================
+# Test & CI
+# ============================================
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.hypothesis/
+.github/
+.gitlab-ci.yml
+.travis.yml
+
+# ============================================
+# OS
+# ============================================
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+Desktop.ini
+
+# ============================================
+# Docker (don't copy docker files into image)
+# ============================================
+Dockerfile*
+docker-compose*.yml
+.dockerignore
+
+# ============================================
+# Project-Specific
+# ============================================
+# SeleniumBase drivers
+*.chromedriver
+*.geckodriver
+driver_cache/
+
+# Celery
+celerybeat-schedule
+celerybeat.pid
+
+# Shell scripts (mount as volume if needed)
+*.sh
+setup-*.sh
+
+# ============================================
+# Temporary Files
+# ============================================
+*.tmp
+*.bak
+*.swp
+.cache/
+
+# ============================================
+# Node.js (if any frontend tools)
+# ============================================
+node_modules/
+npm-debug.log
+yarn-error.log
+
+# ============================================
+# EXPLICITLY INCLUDE (if needed)
+# ============================================
+!pyproject.toml
+!uv.lock
