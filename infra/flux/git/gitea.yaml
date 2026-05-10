@@ -1,0 +1,150 @@
+# Gitea — self-hosted Git server + Actions CI
+#
+# Provides the Git source for Flux CD and runs CI via Gitea Actions.
+# Two act_runner instances connect: docker-builder (image builds) and
+# code-exec (tests/lint).
+#
+# Access: http://100.86.69.57:30080/git/
+# SSH:    git@100.86.69.57:30222
+#
+# First-time setup:
+#   1. Access /git/, create admin account
+#   2. Create org + repo, push code
+#   3. Generate PAT for Flux + runners
+#   4. Register runners: task gitea:register-runner -- <token>
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: gitea-config
+  namespace: git
+data:
+  app.ini: |
+    APP_NAME = Tech Noir Forge
+    RUN_MODE = prod
+
+    [server]
+    ROOT_URL = http://100.86.69.57:30080/git/
+    HTTP_PORT = 3000
+    SSH_DOMAIN = 100.86.69.57
+    SSH_PORT = 30222
+    SSH_LISTEN_PORT = 2222
+    LFS_START_SERVER = true
+    OFFLINE_MODE = true
+    LOCAL_ROOT_URL = http://localhost:3000/
+
+    [service]
+    DISABLE_REGISTRATION = true
+    REQUIRE_SIGNIN_VIEW = false
+
+    [repository]
+    DEFAULT_PRIVATE = private
+
+    [security]
+    INSTALL_LOCK = true
+
+    [actions]
+    ENABLED = true
+    DEFAULT_ACTIONS_URL = https://gitea.com
+
+    [log]
+    LEVEL = Info
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gitea
+  namespace: git
+  labels:
+    app: gitea
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: gitea
+  template:
+    metadata:
+      labels:
+        app: gitea
+    spec:
+      containers:
+        - name: gitea
+          image: gitea/gitea:1.22
+          ports:
+            - containerPort: 3000
+              name: http
+            - containerPort: 2222
+              name: ssh
+          env:
+            - name: GITEA__database__DB_TYPE
+              value: sqlite3
+          volumeMounts:
+            - name: gitea-data
+              mountPath: /data
+            - name: gitea-config
+              mountPath: /data/gitea/conf/app.ini
+              subPath: app.ini
+          readinessProbe:
+            httpGet:
+              path: /git/api/v1/version
+              port: 3000
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /git/api/v1/version
+              port: 3000
+            initialDelaySeconds: 30
+            periodSeconds: 30
+          resources:
+            requests:
+              cpu: 250m
+              memory: 300Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
+      volumes:
+        - name: gitea-data
+          persistentVolumeClaim:
+            claimName: gitea-data
+        - name: gitea-config
+          configMap:
+            name: gitea-config
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: gitea
+  namespace: git
+spec:
+  selector:
+    app: gitea
+  ports:
+    - name: http
+      port: 3000
+      targetPort: 3000
+    - name: ssh
+      port: 2222
+      targetPort: 2222
+
+---
+# SSH NodePort for git push/pull over SSH
+apiVersion: v1
+kind: Service
+metadata:
+  name: gitea-ssh
+  namespace: git
+spec:
+  type: NodePort
+  selector:
+    app: gitea
+  ports:
+    - name: ssh
+      port: 2222
+      targetPort: 2222
+      nodePort: 30222

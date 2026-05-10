@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: git
+  labels:
+    app.kubernetes.io/part-of: tech-noir
+    tier: git

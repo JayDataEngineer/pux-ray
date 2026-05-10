@@ -272,6 +272,7 @@ tasks:
       - flux reconcile kustomization namespaces --with-source
       - flux reconcile kustomization infra-storage --with-source
       - flux reconcile kustomization infra-secrets --with-source
+      - flux reconcile kustomization git --with-source
       - flux reconcile kustomization infra-services --with-source
       - flux reconcile kustomization ai-services --with-source
       - flux reconcile kustomization mcp --with-source
@@ -286,12 +287,37 @@ tasks:
   flux:suspend:
     desc: "Suspend all Flux reconciliations (for maintenance)"
     cmds:
-      - flux suspend kustomization namespaces infra-storage infra-secrets infra-services ai-services mcp networking
+      - flux suspend kustomization namespaces infra-storage infra-secrets git infra-services ai-services mcp networking
 
   flux:resume:
     desc: "Resume all Flux reconciliations"
     cmds:
-      - flux resume kustomization namespaces infra-storage infra-secrets infra-services ai-services mcp networking
+      - flux resume kustomization namespaces infra-storage infra-secrets git infra-services ai-services mcp networking
+
+  # ── Gitea ────────────────────────────────────────────────────────────────
+  gitea:setup:
+    desc: "Deploy Gitea + runners via Flux reconciliation"
+    cmds:
+      - flux reconcile kustomization git --with-source
+      - echo "Waiting for Gitea pod..."
+      - kubectl wait --for=condition=ready pod -l app=gitea -n git --timeout=120s
+      - echo "Waiting for runners..."
+      - kubectl wait --for=condition=ready pod -l app=act-runner-builder -n git --timeout=60s
+      - kubectl wait --for=condition=ready pod -l app=act-runner-exec -n git --timeout=60s
+      - echo ""
+      - echo "Gitea: http://100.86.69.57:30080/git/"
+      - echo "SSH:   git@100.86.69.57:30222"
+
+  gitea:register-runner:
+    desc: "Register Act Runners with Gitea (pass token as arg)"
+    cmds:
+      - kubectl create secret generic gitea-runner-token -n git --from-literal=token={{.CLI_ARGS}} --dry-run=client -o yaml | kubectl apply -f -
+      - kubectl rollout restart deployment -l 'app in (act-runner-builder,act-runner-exec)' -n git
+
+  gitea:status:
+    desc: "Show Gitea + runner pod status"
+    cmds:
+      - kubectl get pods,svc,pvc -n git
 
   # ── Testing ──────────────────────────────────────────────────────────────
   test:

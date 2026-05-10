@@ -1,0 +1,89 @@
+name: Build Images
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - 'infra/docker/**'
+      - 'services/**'
+      - 'gateway/**'
+      - 'registry/**'
+      - 'sdk/**'
+      - 'vendor/**'
+      - 'mcp/**'
+      - 'pyproject.toml'
+
+concurrency:
+  group: build-${{ gitea.ref }}
+  cancel-in-progress: true
+
+env:
+  REGISTRY: 100.86.69.57:30500/tech-noir
+
+jobs:
+  build-base:
+    runs-on: docker-builder
+    if: |
+      contains(github.event.commits.*.modified, 'infra/docker/Dockerfile.base') ||
+      contains(github.event.commits.*.added, 'infra/docker/Dockerfile.base')
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build ray-base
+        run: |
+          docker build -f infra/docker/Dockerfile.base \
+            -t ${REGISTRY}/ray-base:latest .
+      - name: Push ray-base
+        run: docker push ${REGISTRY}/ray-base:latest
+
+  build-gpu-all:
+    needs: [build-base]
+    runs-on: docker-builder
+    if: always() && (needs.build-base.result == 'success' || needs.build-base.result == 'skipped')
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build gpu-all
+        run: |
+          docker build -f infra/docker/Dockerfile.gpu-all \
+            -t ${REGISTRY}/gpu-all:latest .
+      - name: Push gpu-all
+        run: docker push ${REGISTRY}/gpu-all:latest
+
+  build-model-sync:
+    runs-on: docker-builder
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build model-sync
+        run: |
+          docker build -f infra/docker/Dockerfile.model-sync \
+            -t ${REGISTRY}/model-sync:latest .
+      - name: Push model-sync
+        run: docker push ${REGISTRY}/model-sync:latest
+
+  build-mcp:
+    runs-on: docker-builder
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - dockerfile: mcp/media-analysis/Dockerfile
+            tag: mcp-media-analysis
+          - dockerfile: mcp/web-research/Dockerfile
+            tag: mcp-web-research
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build ${{ matrix.tag }}
+        run: |
+          docker build -f ${{ matrix.dockerfile }} \
+            -t ${REGISTRY}/${{ matrix.tag }}:latest \
+            $(dirname ${{ matrix.dockerfile }})
+      - name: Push ${{ matrix.tag }}
+        run: docker push ${REGISTRY}/${{ matrix.tag }}:latest
+
+  deploy:
+    needs: [build-gpu-all, build-model-sync, build-mcp]
+    runs-on: code-exec
+    if: always() && (needs.build-gpu-all.result == 'success' || needs.build-model-sync.result == 'success' || needs.build-mcp.result == 'success')
+    steps:
+      - name: Restart Ray head pod
+        run: |
+          kubectl delete pod -n ai-services -l app.kubernetes.io/name=tech-noir-ray-head

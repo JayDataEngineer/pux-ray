@@ -4,8 +4,8 @@
 # layers that Flux reconciles. Push to master → Flux syncs the cluster.
 #
 # Layers are applied in dependency order:
-#   namespaces → infra-storage → infra-secrets → infra-services
-#   → ai-services + mcp → networking
+#   namespaces → infra-storage → infra-secrets → git
+#   → infra-services → ai-services + mcp → networking
 #
 # Setup:
 #   flux install --components=source-controller,kustomize-controller
@@ -86,6 +86,24 @@ spec:
     provider: sops
     secretRef:
       name: sops-age
+
+---
+# Layer 3.5: Git services — Gitea + Act Runners (depends on storage + secrets)
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: git
+  namespace: flux-system
+spec:
+  interval: 5m
+  path: ./infra/flux/git
+  prune: true
+  sourceRef:
+    kind: GitRepository
+    name: tech-noir
+  dependsOn:
+    - name: infra-storage
+    - name: infra-secrets
 
 ---
 # Layer 4: Infrastructure services (depends on storage + secrets)

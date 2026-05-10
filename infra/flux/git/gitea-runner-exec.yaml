@@ -1,0 +1,70 @@
+# Act Runner — code executor
+#
+# Runs Gitea Actions jobs labeled `code-exec`. Used for tests, linting,
+# and validation. No Docker socket — runs shell commands only.
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: act-runner-exec-config
+  namespace: git
+data:
+  config.yaml: |
+    runner:
+      name: code-exec
+      labels:
+        - code-exec
+
+    container:
+      network: host
+
+    cache:
+      enabled: false
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: act-runner-exec
+  namespace: git
+  labels:
+    app: act-runner-exec
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: act-runner-exec
+  template:
+    metadata:
+      labels:
+        app: act-runner-exec
+    spec:
+      containers:
+        - name: runner
+          image: gitea/act_runner:latest
+          command: ["act_runner", "daemon"]
+          env:
+            - name: GITEA_INSTANCE_URL
+              value: http://gitea.git.svc.cluster.local:3000
+            - name: GITEA_RUNNER_REGISTRATION_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: gitea-runner-token
+                  key: token
+            - name: CONFIG_FILE
+              value: /config/config.yaml
+          volumeMounts:
+            - name: config
+              mountPath: /config
+          resources:
+            requests:
+              cpu: 100m
+              memory: 200Mi
+            limits:
+              cpu: 500m
+              memory: 1Gi
+      volumes:
+        - name: config
+          configMap:
+            name: act-runner-exec-config
