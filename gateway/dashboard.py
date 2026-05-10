@@ -313,17 +313,17 @@ async def dashboard_gpu_current(request: Request) -> JSONResponse:
     if sample is None:
         return JSONResponse({"error": "no data yet"}, status_code=503)
 
-    # Query GPU scheduler state
-    scheduler_state = {}
+    # Query GPU governor state
+    governor_state = {}
     try:
         import ray
-        scheduler = ray.get_actor("gpu_scheduler")
-        scheduler_state = await scheduler.status.remote()
+        governor = ray.get_actor("gpu_governor")
+        governor_state = await governor.status.remote()
     except Exception:
         pass
 
     data = asdict(sample)
-    data["scheduler"] = scheduler_state
+    data["governor"] = governor_state
     data["processes"] = query_gpu_processes()
     return JSONResponse(data)
 

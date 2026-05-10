@@ -6,9 +6,6 @@
 #
 # Setup:
 #   1. cp config/local.yaml.example config/local.yaml
-#   2. docker compose -f infra/docker-compose.yml run --rm tools-sync
-#   3. bash infra/setup_venvs.sh
-#   4. ray start --head && ray serve deploy config/serve.yaml
 
 # Root directory for all model files.
 # Must be set via env var or in local.yaml. No hardcoded default.
