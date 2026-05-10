@@ -82,6 +82,8 @@ class TNAPInput(BaseModel):
     seed: Optional[int] = None
     steps: Optional[int] = None
     guidance: Optional[float] = None
+    messages: Optional[list[dict]] = None
+    stream: Optional[bool] = None
 
 
 class TNAPConfig(BaseModel):
@@ -419,6 +421,10 @@ class BaseGPUDeployment:
             result["steps"] = inp.steps
         if inp.guidance is not None:
             result["guidance"] = inp.guidance
+        if inp.messages is not None:
+            result["messages"] = inp.messages
+        if inp.stream is not None:
+            result["stream"] = inp.stream
         return result
 
     def handle_response(

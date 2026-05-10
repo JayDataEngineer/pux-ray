@@ -47,9 +47,9 @@ llm:
     download: file
     sha256: null
     size_gb: 18.0
-    vram_estimate_gb: 19.0
+    vram_estimate_gb: 21.0
     device: gpu
-    ctx_size: 125000
+    ctx_size: 32768
     parallel: 1
     n_gpu_layers: 99
     mmproj_n_gpu_layers: 0
@@ -69,9 +69,7 @@ llm:
     reasoning: true
     batch_size: 2048
     ubatch_size: 256
-    description: Qwen 3.6 27B Q5_K_S + BeeLlama DFlash + TurboQuant. Speed-focused
-      config matching author benchmarks (130+ tok/s on RTX 3090). 5GB more VRAM headroom
-      than Q6 for larger context. Vision on DRAM via F32 mmproj.
+    description: "Qwen 3.6 27B Q5_K_S + BeeLlama DFlash + TurboQuant. ctx_size=32K fits 24GB VRAM (18GB model + 2GB KV cache + 1GB draft = ~21GB). Vision on DRAM via F32 mmproj."
   qwen3.6-27b-ud-q4_k_xl:
     path: llm/Qwen3.6-27B-UD-Q4_K_XL.gguf
     source: hf://unsloth/Qwen3.6-27B-GGUF/Qwen3.6-27B-UD-Q4_K_XL.gguf
