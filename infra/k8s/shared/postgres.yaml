@@ -98,7 +98,7 @@ spec:
     spec:
       containers:
         - name: postgres
-          image: forge-reg/tech-noir/postgres-age-vector:latest
+          image: forge-reg.local:30500/tech-noir/postgres-age-vector:latest
           ports:
             - containerPort: 5432
           env:

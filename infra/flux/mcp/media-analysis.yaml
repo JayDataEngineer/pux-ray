@@ -22,7 +22,7 @@ spec:
       #   node-role.kubernetes.io/mcp: "true"
       containers:
         - name: server
-          image: forge-reg/tech-noir/mcp-media-analysis:latest
+          image: forge-reg.local:30500/tech-noir/mcp-media-analysis:latest
           ports:
             - containerPort: 8001
           env:

@@ -97,7 +97,7 @@ class TestDownloadSources:
                 assert model_id.isdigit(), f"{cat}/{name}: civitai ID not numeric: {model_id}"
 
     def test_download_modes_valid(self, registry):
-        valid_modes = {"file", "snapshot", "civitai", "skip", ""}
+        valid_modes = {"file", "snapshot", "civitai", "modelscope", "skip", ""}
         for cat, models in registry.data.items():
             for name, meta in models.items():
                 mode = meta.get("download", "")

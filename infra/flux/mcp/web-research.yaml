@@ -21,7 +21,7 @@ spec:
     spec:
       containers:
         - name: server
-          image: forge-reg/tech-noir/mcp-web-research:latest
+          image: forge-reg.local:30500/tech-noir/mcp-web-research:latest
           ports:
             - containerPort: 8000
           env:

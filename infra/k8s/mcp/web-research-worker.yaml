@@ -21,7 +21,7 @@ spec:
     spec:
       containers:
         - name: worker
-          image: forge-reg/tech-noir/mcp-web-research:latest
+          image: forge-reg.local:30500/tech-noir/mcp-web-research:latest
           command: ["celery", "-A", "src.celery_app", "worker", "--loglevel=info", "--concurrency=2"]
           env:
             - name: POSTGRES_HOST
@@ -70,7 +70,7 @@ spec:
     spec:
       containers:
         - name: beat
-          image: forge-reg/tech-noir/mcp-web-research:latest
+          image: forge-reg.local:30500/tech-noir/mcp-web-research:latest
           command: ["celery", "-A", "src.celery_app", "beat", "--loglevel=info"]
           env:
             - name: POSTGRES_HOST
