@@ -10,7 +10,7 @@ Empty/unset = no auth (dev mode).
 from __future__ import annotations
 
 import logging
-from typing import Any, Optional
+from typing import Any
 
 import ray
 from ray import serve
@@ -53,27 +53,23 @@ class APIKeyMiddleware(BaseHTTPMiddleware):
 
 
 class APIIngress:
-    """Main API router. GPU scheduling via service registry."""
+    """Main API router. GPU coordination via GPUGovernor."""
 
     def __init__(self):
-        self.gpu_scheduler: Optional[Any] = None
-        self._initialized = False
+        self._governor: Any | None = None
 
-    def _ensure_scheduler(self):
-        if self._initialized:
-            return
-        try:
-            self.gpu_scheduler = ray.get_actor("gpu_scheduler")
-            self._initialized = True
-            logger.info("Ingress: GPU scheduler ready")
-        except Exception as e:
-            logger.warning("Ingress: GPU scheduler not available (%s)", e)
+    async def _ensure_governor(self):
+        if self._governor is None:
+            try:
+                self._governor = ray.get_actor("gpu_governor")
+            except Exception:
+                pass
 
-    async def _use_gpu(self, service: str, model: str | None = None):
-        """Acquire GPU for a service. Blocks until GPU is freed and service loaded."""
-        self._ensure_scheduler()
-        if self.gpu_scheduler:
-            await self.gpu_scheduler.acquire_gpu.remote(service, model)
+    async def _use_gpu(self, service: str):
+        """Acquire GPU lease for a heavy service."""
+        await self._ensure_governor()
+        if self._governor:
+            await self._governor.acquire.remote(service)
 
     # ── Generic TNAP route ─────────────────────────────────────────────────────
 
@@ -93,7 +89,7 @@ class APIIngress:
         model = body.get("input", {}).get("model") or body.get("model")
 
         if entry.needs_gpu:
-            await self._use_gpu(service_name, model)
+            await self._use_gpu(service_name)
 
         handle = serve.get_deployment_handle(entry.deployment, entry.app)
         return await handle.remote(request)
@@ -106,7 +102,7 @@ class APIIngress:
 
         entry = get_service("llm")
         if not model.endswith("-cpu") and entry:
-            await self._use_gpu("llm", model)
+            await self._use_gpu("llm")
 
         handle = serve.get_deployment_handle(entry.deployment, entry.app)
         result = await handle.remote(
@@ -197,10 +193,10 @@ class APIIngress:
     # ── Status / Health / Admin ────────────────────────────────────────────────
 
     async def status(self, request: Request) -> Response:
-        self._ensure_scheduler()
+        await self._ensure_governor()
         status = {}
-        if self.gpu_scheduler:
-            gpu_status = await self.gpu_scheduler.status.remote()
+        if self._governor:
+            gpu_status = await self._governor.status.remote()
             status["gpu"] = gpu_status
 
         from services.base import gpu_memory_info, gpu_resources
@@ -213,21 +209,23 @@ class APIIngress:
         return JSONResponse({"status": "ok"})
 
     async def load_model(self, request: Request) -> Response:
-        self._ensure_scheduler()
+        await self._ensure_governor()
         body = await request.json()
         service = body["service"]
-        model = body.get("model")
-        if self.gpu_scheduler:
-            await self.gpu_scheduler.acquire_gpu.remote(service, model)
-            return JSONResponse({"status": "loaded", "service": service, "model": model})
-        return JSONResponse({"error": "scheduler not available"}, status_code=503)
+        if self._governor:
+            await self._governor.acquire.remote(service)
+            return JSONResponse({"status": "loaded", "service": service})
+        return JSONResponse({"error": "governor not available"}, status_code=503)
 
     async def unload_all(self, request: Request) -> Response:
-        self._ensure_scheduler()
-        if self.gpu_scheduler:
-            await self.gpu_scheduler.release_gpu.remote()
+        await self._ensure_governor()
+        if self._governor:
+            state = await self._governor.status.remote()
+            holder = state.get("holder")
+            if holder:
+                await self._governor.release.remote(holder)
             return JSONResponse({"status": "unloaded"})
-        return JSONResponse({"error": "scheduler not available"}, status_code=503)
+        return JSONResponse({"error": "governor not available"}, status_code=503)
 
 
 def create_app() -> Starlette:

@@ -109,18 +109,6 @@ tasks:
     deps: [setup:repos]
     cmds:
       - "{{.VENV_PYTHON}} -m infra.setup all"
-      - task: workers:build
-
-  # ── Legacy cluster tasks (kept for compatibility) ────────────────────────
-  start:
-    desc: "Start Ray cluster (legacy, use boot:ray)"
-    cmds:
-      - "{{.VENV_PYTHON}} -m boot.cli up ray-cluster"
-
-  deploy:
-    desc: "Deploy all Ray Serve services (legacy, use boot:ray)"
-    cmds:
-      - "{{.VENV_PYTHON}} -m scripts.deploy_services"
 
   # ── Models ───────────────────────────────────────────────────────────────
   models:list:
@@ -145,31 +133,31 @@ tasks:
 
   # ── Shared Infrastructure ────────────────────────────────────────────────
   infra:build:
-    desc: "Build Postgres AGE+pgvector image and import to k3s"
+    desc: "Build Postgres AGE+pgvector image and push to Forge Registry"
     sources:
       - infra/docker/Dockerfile.postgres-age
     generates:
       - /dev/null
-    status:
-      - docker inspect localhost/tech-noir/postgres-age-vector:latest > /dev/null 2>&1
     cmds:
-      - docker build -f infra/docker/Dockerfile.postgres-age -t localhost/tech-noir/postgres-age-vector:latest .
-      - docker save localhost/tech-noir/postgres-age-vector:latest | sudo k3s ctr images import -
+      - docker build -f infra/docker/Dockerfile.postgres-age -t 100.86.69.57:30500/tech-noir/postgres-age-vector:latest .
+      - docker push 100.86.69.57:30500/tech-noir/postgres-age-vector:latest
 
   infra:deploy:
-    desc: "Deploy shared infra (secrets + Postgres + Garage + Langfuse)"
+    desc: "Deploy shared infra via Flux reconciliation"
     cmds:
-      - task: secrets:sync
-      - task: infra:build
-      - kubectl apply -f infra/k8s/shared/
+      - flux reconcile kustomization namespaces --with-source
+      - flux reconcile kustomization infra-storage --with-source
+      - flux reconcile kustomization infra-secrets --with-source
+      - flux reconcile kustomization infra-services --with-source
       - echo "Waiting for Postgres..."
       - kubectl wait --for=condition=ready pod -l app=postgres -n infra --timeout=120s
       - echo "Waiting for Garage..."
       - kubectl wait --for=condition=ready pod -l app=garage -n infra --timeout=60s
 
   infra:status:
-    desc: "Show shared infra status"
+    desc: "Show Flux sync status + pod state"
     cmds:
+      - flux get kustomizations
       - kubectl get pods,svc,pvc -n infra
 
   infra:down:
@@ -189,15 +177,9 @@ tasks:
 
   # ── Monitoring ─────────────────────────────────────────────────────────
   infra:monitor:
-    desc: "Deploy monitoring stack (VictoriaMetrics + Loki + Vector + Grafana + exporters)"
+    desc: "Deploy monitoring stack via Flux reconciliation"
     cmds:
-      - kubectl apply -f infra/k8s/shared/victoriametrics.yaml
-      - kubectl apply -f infra/k8s/shared/node-exporter.yaml
-      - kubectl apply -f infra/k8s/shared/kube-state-metrics.yaml
-      - kubectl apply -f infra/k8s/shared/loki.yaml
-      - kubectl apply -f infra/k8s/shared/vector.yaml
-      - kubectl apply -f infra/k8s/shared/grafana.yaml
-      - kubectl apply -f infra/k8s/shared/grafana-dashboards.yaml
+      - flux reconcile kustomization infra-services --with-source
       - echo "Waiting for monitoring stack..."
       - kubectl wait --for=condition=ready pod -l app=victoriametrics -n infra --timeout=60s
       - kubectl wait --for=condition=ready pod -l app=grafana -n infra --timeout=60s
@@ -214,11 +196,6 @@ tasks:
       - echo "=== Scrape targets ===" && kubectl exec -n infra deploy/victoriametrics -- wget -qO- http://localhost:8428/targets 2>/dev/null | head -5 || echo "Check VM UI for targets"
 
   # ── Secrets Management ──────────────────────────────────────────────────
-  secrets:sync:
-    desc: "Sync secrets from config/secrets.env to all k8s namespaces"
-    cmds:
-      - "{{.VENV_PYTHON}} infra/secrets_sync.py"
-
   secrets:edit:
     desc: "Open secrets.env in $EDITOR"
     cmds:
@@ -230,6 +207,50 @@ tasks:
       - kubectl get secrets -n infra
       - kubectl get secrets -n mcp
       - kubectl get secrets -n ai-services
+
+  # ── Flux CD ─────────────────────────────────────────────────────────────
+  flux:install:
+    desc: "Install Flux controllers (source + kustomize)"
+    cmds:
+      - flux install --components=source-controller,kustomize-controller
+
+  flux:check:
+    desc: "Check Flux installation health"
+    cmds:
+      - flux check
+
+  flux:bootstrap:
+    desc: "Apply root Flux config and start reconciliation"
+    cmds:
+      - kubectl apply -f infra/flux/clusters/forge/kustomization.yaml
+      - flux get kustomizations --watch
+
+  flux:reconcile:
+    desc: "Force reconcile all Flux layers in dependency order"
+    cmds:
+      - flux reconcile kustomization namespaces --with-source
+      - flux reconcile kustomization infra-storage --with-source
+      - flux reconcile kustomization infra-secrets --with-source
+      - flux reconcile kustomization infra-services --with-source
+      - flux reconcile kustomization ai-services --with-source
+      - flux reconcile kustomization mcp --with-source
+      - flux reconcile kustomization networking --with-source
+
+  flux:status:
+    desc: "Show Flux sync status for all layers"
+    cmds:
+      - flux get kustomizations
+      - flux get sources git
+
+  flux:suspend:
+    desc: "Suspend all Flux reconciliations (for maintenance)"
+    cmds:
+      - flux suspend kustomization namespaces infra-storage infra-secrets infra-services ai-services mcp networking
+
+  flux:resume:
+    desc: "Resume all Flux reconciliations"
+    cmds:
+      - flux resume kustomization namespaces infra-storage infra-secrets infra-services ai-services mcp networking
 
   # ── Testing ──────────────────────────────────────────────────────────────
   test:
@@ -251,37 +272,6 @@ tasks:
     desc: "Run service integration tests (LLM, TTS, ASR, 3D, music, ComfyUI) — requires running cluster"
     cmds:
       - "{{.VENV_PYTHON}} -m pytest tests/integration/test_full_pipeline.py -v {{.CLI_ARGS}}"
-
-  # ── Docker Workers ──────────────────────────────────────────────────────
-  workers:build:
-    desc: "Build all Docker worker images (TRELLIS, AniGen, VibeVoice)"
-    cmds:
-      - docker compose -f infra/docker/compose.workers.yaml build
-
-  workers:build-trellis:
-    desc: "Build TRELLIS worker image only"
-    cmds:
-      - docker compose -f infra/docker/compose.workers.yaml build trellis-worker
-
-  workers:build-anigen:
-    desc: "Build AniGen worker image only"
-    cmds:
-      - docker compose -f infra/docker/compose.workers.yaml build anigen-worker
-
-  workers:build-vibevoice:
-    desc: "Build VibeVoice worker image only"
-    cmds:
-      - docker compose -f infra/docker/compose.workers.yaml build vibevoice-worker
-
-  workers:ps:
-    desc: "Show running Docker worker containers"
-    cmds:
-      - docker compose -f infra/docker/compose.workers.yaml ps
-
-  workers:stop:
-    desc: "Stop all Docker worker containers"
-    cmds:
-      - docker compose -f infra/docker/compose.workers.yaml down
 
   # ── Cloud Burst (SkyPilot) ──────────────────────────────────────────────
   cloud:setup:

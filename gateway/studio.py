@@ -191,23 +191,23 @@ CATEGORY_ORDER = ["Image", "LLM", "3D", "Music", "Creative", "TTS", "ASR", "MCP"
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _get_scheduler():
-    """Get the GPUScheduler named actor, or None."""
+def _get_governor():
+    """Get the GPUGovernor named actor, or None."""
     try:
-        return ray.get_actor("gpu_scheduler")
+        return ray.get_actor("gpu_governor")
     except ValueError:
         return None
 
 
-async def _get_scheduler_state() -> dict:
-    """Get current scheduler state (service + model)."""
-    scheduler = _get_scheduler()
-    if not scheduler:
-        return {"current_service": None, "current_model": None}
+async def _get_governor_state() -> dict:
+    """Get current governor state (holder service)."""
+    governor = _get_governor()
+    if not governor:
+        return {"holder": None}
     try:
-        return await scheduler.status.remote()
+        return await governor.status.remote()
     except Exception:
-        return {"current_service": None, "current_model": None}
+        return {"holder": None}
 
 
 async def _is_comfyui_running() -> bool:
@@ -256,11 +256,11 @@ async def studio_apps(request: Request) -> JSONResponse:
     """GET /studio/api/apps — all services with status + UI metadata."""
     # Merge Ray Serve deployment status with studio metadata
     deploy_status = {s["name"]: s for s in query_service_status()}
-    sched_state = await _get_scheduler_state()
+    gov_state = await _get_governor_state()
     comfyui_running = await _is_comfyui_running()
 
-    active_service = sched_state.get("current_service")
-    # If ComfyUI is running but scheduler doesn't track it
+    active_service = gov_state.get("holder")
+    # If ComfyUI is running but governor doesn't track it
     if comfyui_running and not active_service:
         active_service = "comfyui"
 
@@ -290,7 +290,7 @@ async def studio_apps(request: Request) -> JSONResponse:
     return JSONResponse({
         "apps": apps,
         "active_service": active_service,
-        "active_model": sched_state.get("current_model"),
+        "active_model": gov_state.get("holder"),
         "comfyui_running": comfyui_running,
     })
 
@@ -302,7 +302,6 @@ async def studio_switch(request: Request) -> JSONResponse:
     """
     body = await request.json()
     service_name = body.get("service", "")
-    model_name = body.get("model")
 
     if service_name not in STUDIO_APPS:
         return JSONResponse(
@@ -311,19 +310,22 @@ async def studio_switch(request: Request) -> JSONResponse:
         )
 
     app_meta = STUDIO_APPS[service_name]
-    scheduler = _get_scheduler()
+    governor = _get_governor()
 
     # --- Unload current ---
     # Stop ComfyUI if running
     if await _is_comfyui_running():
         await _stop_comfyui()
 
-    # Release scheduler-managed service
-    if scheduler:
+    # Release governor-managed service
+    if governor:
         try:
-            await scheduler.release_gpu.remote()
+            state = await governor.status.remote()
+            holder = state.get("holder")
+            if holder:
+                await governor.release.remote(holder)
         except Exception as e:
-            logger.warning("Studio: scheduler release failed: %s", e)
+            logger.warning("Studio: governor release failed: %s", e)
 
     # --- Load target ---
     if app_meta["manage_type"] == "subprocess":
@@ -342,17 +344,16 @@ async def studio_switch(request: Request) -> JSONResponse:
             })
 
     elif app_meta["manage_type"] == "scheduler":
-        # Scheduler-managed services (BaseGPUDeployment)
-        if not scheduler:
+        # Governor-managed services (BaseGPUDeployment)
+        if not governor:
             return JSONResponse(
-                {"error": "GPUScheduler not available"},
+                {"error": "GPUGovernor not available"},
                 status_code=503,
             )
-        model = model_name or app_meta.get("default_model", service_name)
         try:
-            await scheduler.acquire_gpu.remote(service_name, model)
+            await governor.acquire.remote(service_name)
         except Exception as e:
-            logger.error("Studio: acquire_gpu failed: %s", e)
+            logger.error("Studio: acquire failed: %s", e)
             return JSONResponse(
                 {"error": f"Failed to load {service_name}: {e}"},
                 status_code=500,
@@ -377,12 +378,15 @@ async def studio_release(request: Request) -> JSONResponse:
     if await _is_comfyui_running():
         await _stop_comfyui()
 
-    # Release scheduler-managed service
-    scheduler = _get_scheduler()
-    if scheduler:
+    # Release governor-managed service
+    governor = _get_governor()
+    if governor:
         try:
-            await scheduler.release_gpu.remote()
+            state = await governor.status.remote()
+            holder = state.get("holder")
+            if holder:
+                await governor.release.remote(holder)
         except Exception as e:
-            logger.warning("Studio: scheduler release failed: %s", e)
+            logger.warning("Studio: governor release failed: %s", e)
 
     return JSONResponse({"status": "released"})
