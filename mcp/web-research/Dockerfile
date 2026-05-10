@@ -1,9 +1,6 @@
-# Web Research MCP Server (with Celery worker support)
-# Build context: ../local-web-mcp/ (cloned by build_mcp.sh)
-#
-# Build: docker build -f mcp-servers/web-research/Dockerfile -t tech-noir/mcp-web-research:latest ./repos/local-web-mcp
-
-# Builder stage
+# =============================================================================
+# Builder stage - UV for fast dependency installation
+# =============================================================================
 FROM ghcr.io/astral-sh/uv:python3.13-bookworm-slim AS builder
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
@@ -11,6 +8,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
+# Install system dependencies needed for browsers
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     curl \
@@ -42,21 +40,29 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     xvfb \
     && rm -rf /var/lib/apt/lists/*
 
+# Copy dependency files
 COPY pyproject.toml ./
 
+# Create virtual environment
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv venv /app/.venv
 
+# Install dependencies from pyproject.toml
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync
 
+# Force-install PyTorch CPU-only AFTER uv sync.
+# uv sync pulls CUDA variants from PyPI; this replaces them with CPU-only (~190MB vs 2GB+).
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv pip install --python /app/.venv/bin/python \
     --force-reinstall \
     torch torchvision --index-url https://download.pytorch.org/whl/cpu
 
+# Install Playwright Chromium
 RUN .venv/bin/playwright install --with-deps chromium
 
+# Install Google Chrome for SeleniumBase fallback
+# Note: libindicator7 is obsolete in Bookworm, using libayatana-appindicator instead
 RUN apt-get update && apt-get install -y \
     libxss1 \
     libayatana-appindicator3-1 \
@@ -64,16 +70,22 @@ RUN apt-get update && apt-get install -y \
     wget \
     && rm -rf /var/lib/apt/lists/*
 
-RUN wget https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb && \
-    apt-get install -y ./google-chrome*.deb && rm ./google-chrome*.deb
+RUN wget https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb
 
+RUN apt-get install -y ./google-chrome*.deb && rm ./google-chrome*.deb
+
+# Install SeleniumBase chromedriver for Google Chrome
 RUN .venv/bin/seleniumbase get chromedriver
 
+# Copy source code
 COPY src/ /app/src/
 
+# =============================================================================
 # Final stage
+# =============================================================================
 FROM python:3.13-slim-bookworm
 
+# Install runtime dependencies only
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libglib2.0-0 \
     libnss3 \
@@ -105,26 +117,30 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libvulkan1 \
     && rm -rf /var/lib/apt/lists/*
 
+# Install Google Chrome for SeleniumBase fallback
 RUN wget https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb && \
     apt-get install -y ./google-chrome*.deb && \
     rm ./google-chrome*.deb
 
 WORKDIR /app
 
+# Copy virtual environment and source from builder
 COPY --from=builder /app/.venv /app/.venv
 COPY --from=builder /app/src /app/src
-COPY --from=builder /app/pyproject.toml /app/pyproject.toml
+COPY profiling/ /app/profiling/
+COPY tests/ /app/tests/
+COPY pyproject.toml /app/pyproject.toml
+# Copy Playwright browser cache
 COPY --from=builder /root/.cache /root/.cache
 
+# Create data directory
 RUN mkdir -p /app/data
 
+# Add venv to PATH
 ENV PATH="/app/.venv/bin:$PATH" \
     PYTHONPATH=/app \
     PYTHONWARNINGS="ignore::RequestsDependencyWarning,ignore::DeprecationWarning"
 
 EXPOSE 8000
 
-HEALTHCHECK --interval=30s --timeout=5s --retries=3 \
-    CMD curl -f http://localhost:8000/health || exit 1
-
-CMD ["uvicorn", "src.mcp_sse:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["uvicorn", "src.main:app", "--host", "0.0.0.0", "--port", "8000"]

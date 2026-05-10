@@ -57,8 +57,8 @@ Client → https://cloud.tailb1e597.ts.net/mcp/media
   └─ Tailscale Funnel :443 → http://127.0.0.1:30080
        └─ k3s NodePort :30080 → Traefik pod :80
             └─ rewrite /mcp/media → /mcp
-                 └─ K8s Endpoint → 192.168.1.184:8001
-                      └─ Docker: media-analysis-mcp
+                 └─ K8s Service → media-analysis-mcp:8001
+                       └─ Pod: media-analysis-mcp
 ```
 
 Routes:
