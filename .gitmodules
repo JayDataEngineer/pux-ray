@@ -1,0 +1,3 @@
+[submodule "reference/tech-noir-studio"]
+	path = reference/tech-noir-studio
+	url = https://github.com/JayDataEngineer/tech-noir-studio.git

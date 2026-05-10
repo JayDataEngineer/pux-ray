@@ -108,7 +108,7 @@ spec:
           containers:
             - name: ray-head
               image: forge-reg.local:30500/tech-noir/gpu-all:latest
-              imagePullPolicy: IfNotPresent
+              imagePullPolicy: Always
               ports:
                 - containerPort: 6379
                   name: gcs
@@ -185,7 +185,7 @@ spec:
                   - name: MODELS_ROOT
                     value: /models
                   - name: MODELS
-                    value: "audio.moss-soundeffect,tts.vibevoice-tts,tts.qwen3-tts,asr.vibevoice-asr,vibevoice-cpp"
+                    value: "audio.moss-soundeffect,tts.vibevoice-tts,tts.qwen3-tts,asr.vibevoice-asr,vibevoice-cpp,comfyui.diffusion-klein-4b-q8,comfyui.vae-flux2"
                 volumeMounts:
                   - name: models
                     mountPath: /models
@@ -193,7 +193,7 @@ spec:
             containers:
               - name: ray-worker
                 image: forge-reg.local:30500/tech-noir/gpu-all:latest
-                imagePullPolicy: IfNotPresent
+                imagePullPolicy: Always
                 readinessProbe:
                   exec:
                     command:
