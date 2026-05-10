@@ -231,8 +231,10 @@ def cmd_models_pull(args):
             if not isinstance(meta, dict):
                 continue
 
-            if target and f"{category}/{name}" != target and name != target:
-                continue
+            if target:
+                normalized = target.replace(".", "/", 1)
+                if f"{category}/{name}" != normalized and name != target:
+                    continue
 
             # Check download mode
             download_mode = meta.get("download", "")

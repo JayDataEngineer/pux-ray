@@ -10,7 +10,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-NAMESPACES = ["infra", "mcp", "ai-services"]
+NAMESPACES = ["infra", "mcp", "ai-services", "git"]
 SECRET_NAME = "shared-infra"
 ENV_PATH = Path("config/secrets.env")
 

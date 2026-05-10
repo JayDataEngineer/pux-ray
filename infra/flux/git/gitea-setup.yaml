@@ -1,0 +1,256 @@
+# Gitea setup Job — fully automated post-deploy configuration
+#
+# Runs once after Gitea is healthy. Idempotent (safe to re-run).
+# Creates: org, repo, migrates code from GitHub, generates runner token,
+# creates k8s Secret, switches Flux source to Gitea.
+#
+# Prerequisites in secrets.env:
+#   GITEA_ADMIN_PASSWORD  — admin password (also used by init container)
+#   GITHUB_PAT            — GitHub PAT for repo migration + Flux source
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: gitea-setup-script
+  namespace: git
+data:
+  setup.sh: |
+    #!/bin/sh
+    set -e
+
+    GITEA_URL="http://gitea.git.svc.cluster.local:3000"
+    ADMIN_USER="forge"
+    ADMIN_PASS="${GITEA_ADMIN_PASSWORD}"
+    ORG="JayDataEngineer"
+    REPO="tech-noir-ray"
+    GITHUB_REPO="https://github.com/JayDataEngineer/tech-noir-ray.git"
+
+    echo "=== Gitea Setup Job ==="
+
+    # Wait for Gitea to be healthy
+    echo "Waiting for Gitea..."
+    for i in $(seq 1 60); do
+      if wget -qO- "${GITEA_URL}/api/v1/version" > /dev/null 2>&1; then
+        echo "Gitea is up"
+        break
+      fi
+      echo "  attempt ${i}/60..."
+      sleep 5
+    done
+
+    # Generate admin token for API calls
+    echo "Generating admin API token..."
+    TOKEN_NAME="setup-$(date +%s)"
+    TOKEN_RESPONSE=$(curl -sS -X POST \
+      "${GITEA_URL}/api/v1/users/${ADMIN_USER}/tokens" \
+      -u "${ADMIN_USER}:${ADMIN_PASS}" \
+      -H "Content-Type: application/json" \
+      -d "{\"name\":\"${TOKEN_NAME}\"}")
+    API_TOKEN=$(echo "${TOKEN_RESPONSE}" | grep -o '"sha1":"[^"]*"' | head -1 | cut -d'"' -f4)
+
+    if [ -z "${API_TOKEN}" ]; then
+      echo "ERROR: Failed to generate API token"
+      echo "${TOKEN_RESPONSE}"
+      exit 1
+    fi
+    echo "API token generated"
+
+    # Create organization
+    echo "Creating organization '${ORG}'..."
+    ORG_CHECK=$(curl -sS -o /dev/null -w "%{http_code}" \
+      "${GITEA_URL}/api/v1/orgs/${ORG}" \
+      -H "Authorization: token ${API_TOKEN}")
+    if [ "${ORG_CHECK}" = "200" ]; then
+      echo "  Organization already exists"
+    else
+      curl -sS -X POST "${GITEA_URL}/api/v1/orgs" \
+        -H "Authorization: token ${API_TOKEN}" \
+        -H "Content-Type: application/json" \
+        -d "{\"username\":\"${ORG}\",\"visibility\":\"private\"}"
+      echo "  Organization created"
+    fi
+
+    # Create repository (or migrate from GitHub)
+    REPO_CHECK=$(curl -sS -o /dev/null -w "%{http_code}" \
+      "${GITEA_URL}/api/v1/repos/${ORG}/${REPO}" \
+      -H "Authorization: token ${API_TOKEN}")
+    if [ "${REPO_CHECK}" = "200" ]; then
+      echo "Repository already exists"
+    else
+      echo "Migrating repository from GitHub..."
+      # Get GitHub token from the k8s secret
+      GITHUB_TOKEN=$(cat /etc/github-token/password 2>/dev/null || echo "")
+
+      AUTH_HEADER=""
+      if [ -n "${GITHUB_TOKEN}" ]; then
+        AUTH_HEADER=",\"auth_token\":\"${GITHUB_TOKEN}\""
+      fi
+
+      curl -sS -X POST "${GITEA_URL}/api/v1/repos/migrate" \
+        -H "Authorization: token ${API_TOKEN}" \
+        -H "Content-Type: application/json" \
+        -d "{
+          \"clone_addr\": \"${GITHUB_REPO}\",
+          \"repo_name\": \"${REPO}\",
+          \"repo_owner\": \"${ORG}\",
+          \"mirror\": false,
+          \"private\": true,
+          \"service\": \"github\"${AUTH_HEADER}
+        }"
+      echo "Repository migrated"
+    fi
+
+    # Generate runner registration token
+    echo "Generating runner registration token..."
+    RUNNER_TOKEN=$(curl -sS \
+      "${GITEA_URL}/api/v1/repos/${ORG}/${REPO}/actions/runners/registration-token" \
+      -H "Authorization: token ${API_TOKEN}" | grep -o '"token":"[^"]*"' | cut -d'"' -f4)
+
+    if [ -z "${RUNNER_TOKEN}" ]; then
+      # Try org-level token
+      RUNNER_TOKEN=$(curl -sS \
+        "${GITEA_URL}/api/v1/orgs/${ORG}/actions/runners/registration-token" \
+        -H "Authorization: token ${API_TOKEN}" | grep -o '"token":"[^"]*"' | cut -d'"' -f4)
+    fi
+
+    if [ -n "${RUNNER_TOKEN}" ]; then
+      echo "Runner token obtained"
+      # Create/update k8s secret for runners
+      kubectl create secret generic gitea-runner-token \
+        -n git \
+        --from-literal=token="${RUNNER_TOKEN}" \
+        --dry-run=client -o yaml | kubectl apply -f -
+      echo "Runner token secret created"
+
+      # Restart runners to pick up the token
+      kubectl rollout restart deployment -l 'app in (act-runner-builder,act-runner-exec)' -n git 2>/dev/null || true
+    else
+      echo "WARN: Could not generate runner token (Actions may not be enabled yet)"
+    fi
+
+    # Generate a long-lived PAT for Flux
+    echo "Generating Flux PAT..."
+    FLUX_TOKEN_NAME="flux-cd-$(date +%s)"
+    FLUX_TOKEN_RESPONSE=$(curl -sS -X POST \
+      "${GITEA_URL}/api/v1/users/${ADMIN_USER}/tokens" \
+      -u "${ADMIN_USER}:${ADMIN_PASS}" \
+      -H "Content-Type: application/json" \
+      -d "{\"name\":\"${FLUX_TOKEN_NAME}\"}")
+    FLUX_TOKEN=$(echo "${FLUX_TOKEN_RESPONSE}" | grep -o '"sha1":"[^"]*"' | head -1 | cut -d'"' -f4)
+
+    if [ -n "${FLUX_TOKEN}" ]; then
+      echo "Flux PAT generated"
+      # Create/update k8s secret for Flux
+      kubectl create secret generic gitea-token \
+        -n flux-system \
+        --from-literal=password="${FLUX_TOKEN}" \
+        --from-literal=username="${ADMIN_USER}" \
+        --dry-run=client -o yaml | kubectl apply -f -
+      echo "Flux token secret created"
+
+      # Switch Flux source to Gitea
+      echo "Switching Flux source to Gitea..."
+      kubectl patch gitrepository tech-noir \
+        -n flux-system \
+        --type merge \
+        -p "{\"spec\":{\"url\":\"http://gitea.git.svc.cluster.local:3000/${ORG}/${REPO}.git\",\"secretRef\":{\"name\":\"gitea-token\"}}}"
+      echo "Flux source switched to Gitea"
+    else
+      echo "WARN: Could not generate Flux PAT"
+    fi
+
+    # Clean up the setup API token
+    curl -sS -X DELETE \
+      "${GITEA_URL}/api/v1/users/${ADMIN_USER}/tokens/${TOKEN_NAME}" \
+      -u "${ADMIN_USER}:${ADMIN_PASS}" > /dev/null 2>&1 || true
+
+    echo ""
+    echo "=== Setup complete ==="
+    echo "Gitea:  http://100.86.69.57:30080/git/"
+    echo "Repo:   ${GITEA_URL}/${ORG}/${REPO}"
+    echo "Flux:   now watching Gitea"
+    echo "Runners: will register automatically"
+
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: gitea-setup
+  namespace: git
+  labels:
+    app: gitea-setup
+spec:
+  backoffLimit: 6
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels:
+        app: gitea-setup
+    spec:
+      restartPolicy: OnFailure
+      serviceAccountName: gitea-setup
+      containers:
+        - name: setup
+          image: alpine:3.19
+          command: ["/bin/sh", "/scripts/setup.sh"]
+          env:
+            - name: GITEA_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: shared-infra
+                  key: GITEA_ADMIN_PASSWORD
+          volumeMounts:
+            - name: setup-script
+              mountPath: /scripts
+            - name: github-token
+              mountPath: /etc/github-token
+              readOnly: true
+      volumes:
+        - name: setup-script
+          configMap:
+            name: gitea-setup-script
+            defaultMode: 0755
+        - name: github-token
+          secret:
+            secretName: github-token
+            optional: true
+
+---
+# ServiceAccount for the setup Job (needs kubectl for secrets + Flux patch)
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: gitea-setup
+  namespace: git
+
+---
+# RBAC: create secrets in any namespace, patch Flux resources
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: gitea-setup-git
+  namespace: git
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: admin
+subjects:
+  - kind: ServiceAccount
+    name: gitea-setup
+    namespace: git
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: gitea-setup-flux
+  namespace: flux-system
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: admin
+subjects:
+  - kind: ServiceAccount
+    name: gitea-setup
+    namespace: git
