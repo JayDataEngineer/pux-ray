@@ -55,6 +55,13 @@ from gateway.playground_deployment import PlaygroundDeployment
 
 playground = PlaygroundDeployment.bind()
 
+# API Ingress — catch-all gateway for /health, /v1/*, /dashboard, /studio, etc.
+# Must be LAST — Ray Serve matches most-specific route_prefix first, so
+# /tts/kokoro, /asr/whisper, /forge, /playground bypass this deployment.
+from gateway.ingress_deployment import APIIngressDeployment
+
+api_ingress = APIIngressDeployment.bind()
+
 # ─── Tier 2: Available via forge master router (uncomment to enable) ──────
 # These services route through /forge with exclusive GPU access.
 # To enable, add the service name to HEAVY_SERVICES in master_router.py

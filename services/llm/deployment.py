@@ -1,7 +1,8 @@
-"""LLM deployment — llama.cpp server inside Ray-managed container.
+"""LLM deployment — BeeLlama.cpp server inside Ray-managed container.
 
-Ray manages the container (ghcr.io/ggml-org/llama.cpp:server-cuda).
-The actor starts llama-server as a subprocess and proxies requests.
+BeeLlama.cpp fork adds DFlash speculative decoding, TurboQuant/TCQ KV cache
+compression, adaptive draft-max, and reasoning-loop protection on top of
+llama.cpp. API-compatible with upstream llama-server.
 Conforms to TNAP: unified request/response protocol.
 """
 from __future__ import annotations
@@ -27,7 +28,7 @@ logger = logging.getLogger(__name__)
     max_ongoing_requests=8,
 )
 class LLMDeployment(BaseGPUDeployment, SubprocessMixin):
-    """Ray Serve deployment wrapping llama.cpp server."""
+    """Ray Serve deployment wrapping BeeLlama.cpp server."""
 
     vram_mb = 20_480
     _service_name = "llm"
@@ -64,9 +65,25 @@ class LLMDeployment(BaseGPUDeployment, SubprocessMixin):
             "-ngl", str(n_gpu_layers),
             "-c", str(ctx_size),
             "--parallel", str(parallel),
+            "--jinja",
+            "--kv-unified",
+            "--no-mmap", "--mlock",
+            "--cache-ram", "0",
         ]
 
-        # Quantized KV cache — critical for tight VRAM fits
+        # Flash attention (required for TurboQuant/TCQ cache types)
+        if meta.get("flash_attn"):
+            cmd.extend(["--flash-attn", "on"])
+
+        # Batch sizes — larger ubatch speeds up prefill
+        batch_size = meta.get("batch_size")
+        if batch_size:
+            cmd.extend(["-b", str(batch_size)])
+        ubatch_size = meta.get("ubatch_size")
+        if ubatch_size:
+            cmd.extend(["-ub", str(ubatch_size)])
+
+        # KV cache compression — turbo4/turbo3_tcq give ~5x with minimal quality loss
         cache_type_k = meta.get("cache_type_k")
         if cache_type_k:
             cmd.extend(["--cache-type-k", cache_type_k])
@@ -86,6 +103,32 @@ class LLMDeployment(BaseGPUDeployment, SubprocessMixin):
                 mmproj_offload = meta.get("mmproj_n_gpu_layers", 0) > 0
                 if not mmproj_offload:
                     cmd.append("--no-mmproj-offload")
+
+        # DFlash speculative decoding — 2-3x speedup on structured output
+        spec_type = meta.get("spec_type")
+        if spec_type:
+            cmd.extend(["--spec-type", spec_type])
+        spec_draft_model = meta.get("spec_draft_model")
+        if spec_draft_model:
+            draft_path = Path(spec_draft_model)
+            if not draft_path.is_absolute():
+                draft_path = Path(config.models_root) / spec_draft_model
+            if draft_path.exists():
+                container_draft = f"/models/{draft_path.relative_to(config.models_root)}"
+                cmd.extend(["--spec-draft-model", container_draft])
+            else:
+                logger.warning("DFlash draft model not found: %s — DFlash disabled", draft_path)
+        spec_draft_ngl = meta.get("spec_draft_ngl")
+        if spec_draft_ngl is not None:
+            cmd.extend(["--spec-draft-ngl", str(spec_draft_ngl)])
+        spec_dflash_cross_ctx = meta.get("spec_dflash_cross_ctx")
+        if spec_dflash_cross_ctx is not None:
+            cmd.extend(["--spec-dflash-cross-ctx", str(spec_dflash_cross_ctx)])
+
+        # Reasoning mode — thinking tokens give drafter richer context
+        if meta.get("reasoning"):
+            cmd.extend(["--reasoning", "on"])
+            cmd.extend(["--chat-template-kwargs", '{"preserve_thinking":true}'])
 
         # Sampling defaults from model config (overridable per-request)
         for flag, key in [
