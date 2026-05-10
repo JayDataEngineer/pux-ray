@@ -1,0 +1,156 @@
+# Tech Noir Forge — Flux CD root configuration
+#
+# This file defines the GitRepository source and the Kustomization
+# layers that Flux reconciles. Push to master → Flux syncs the cluster.
+#
+# Layers are applied in dependency order:
+#   namespaces → infra-storage → infra-secrets → infra-services
+#   → ai-services + mcp → networking
+#
+# Setup:
+#   flux install --components=source-controller,kustomize-controller
+#   kubectl apply -f infra/flux/clusters/forge/kustomization.yaml
+#
+# Verify:
+#   flux get kustomizations
+#   flux get kustomizations --watch
+
+---
+# GitRepository — Flux watches this repo on the master branch
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: GitRepository
+metadata:
+  name: tech-noir
+  namespace: flux-system
+spec:
+  interval: 5m
+  ref:
+    branch: master
+  url: file:///home/user/Documents/programs/ray
+  ignore: |
+    # Exclude everything not related to Flux manifests
+    /*
+    !/infra/flux/
+
+---
+# Layer 1: Namespaces — must exist before anything else
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: namespaces
+  namespace: flux-system
+spec:
+  interval: 10m
+  path: ./infra/flux/namespaces
+  prune: true
+  sourceRef:
+    kind: GitRepository
+    name: tech-noir
+
+---
+# Layer 2: Storage — PVs and PVCs (depends on namespaces)
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: infra-storage
+  namespace: flux-system
+spec:
+  interval: 10m
+  path: ./infra/flux/infra-storage
+  prune: true
+  sourceRef:
+    kind: GitRepository
+    name: tech-noir
+  dependsOn:
+    - name: namespaces
+
+---
+# Layer 3: Secrets — SOPS-encrypted (depends on namespaces)
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: infra-secrets
+  namespace: flux-system
+spec:
+  interval: 10m
+  path: ./infra/flux/infra-secrets
+  prune: true
+  sourceRef:
+    kind: GitRepository
+    name: tech-noir
+  dependsOn:
+    - name: namespaces
+  decryption:
+    provider: sops
+    secretRef:
+      name: sops-age
+
+---
+# Layer 4: Infrastructure services (depends on storage + secrets)
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: infra-services
+  namespace: flux-system
+spec:
+  interval: 5m
+  path: ./infra/flux/infra-services
+  prune: true
+  sourceRef:
+    kind: GitRepository
+    name: tech-noir
+  dependsOn:
+    - name: infra-storage
+    - name: infra-secrets
+
+---
+# Layer 5: AI services — Ray cluster (depends on infra)
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: ai-services
+  namespace: flux-system
+spec:
+  interval: 5m
+  path: ./infra/flux/ai-services
+  prune: true
+  sourceRef:
+    kind: GitRepository
+    name: tech-noir
+  dependsOn:
+    - name: infra-services
+
+---
+# Layer 6: MCP servers (depends on infra)
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: mcp
+  namespace: flux-system
+spec:
+  interval: 5m
+  path: ./infra/flux/mcp
+  prune: true
+  sourceRef:
+    kind: GitRepository
+    name: tech-noir
+  dependsOn:
+    - name: infra-services
+
+---
+# Layer 7: Networking — Traefik routes (depends on all services)
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: networking
+  namespace: flux-system
+spec:
+  interval: 5m
+  path: ./infra/flux/networking
+  prune: true
+  sourceRef:
+    kind: GitRepository
+    name: tech-noir
+  dependsOn:
+    - name: ai-services
+    - name: mcp

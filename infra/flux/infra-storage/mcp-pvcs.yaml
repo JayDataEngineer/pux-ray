@@ -1,0 +1,25 @@
+# Persistent volumes for MCP services
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: media-models
+  namespace: mcp
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: local-path
+  resources:
+    requests:
+      storage: 10Gi
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: web-pgdata
+  namespace: mcp
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: local-path
+  resources:
+    requests:
+      storage: 5Gi

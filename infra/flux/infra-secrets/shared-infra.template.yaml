@@ -1,0 +1,50 @@
+# Shared infrastructure secrets template
+#
+# This file is a TEMPLATE. To activate:
+#   1. Copy this file: cp shared-infra.template.yaml shared-infra.yaml
+#   2. Fill in real values from config/secrets.env
+#   3. Encrypt: sops -e -i shared-infra.yaml
+#   4. Rename: mv shared-infra.yaml shared-infra.enc.yaml
+#
+# The .gitignore prevents committing the unencrypted version.
+# Flux decrypts shared-infra.enc.yaml at apply time using the SOPS age key.
+#
+# Each namespace that needs these secrets gets its own copy below.
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: shared-infra
+  namespace: infra
+type: Opaque
+stringData:
+  POSTGRES_PASSWORD: CHANGE_ME
+  GARAGE_RPC_SECRET: CHANGE_ME
+  GARAGE_S3_ACCESS_KEY: CHANGE_ME
+  GARAGE_S3_SECRET_KEY: CHANGE_ME
+  LANGFUSE_SECRET_KEY: CHANGE_ME
+  LANGFUSE_PUBLIC_KEY: CHANGE_ME
+  LANGFUSE_SALT: CHANGE_ME
+  LANGFUSE_DB_URL: CHANGE_ME
+  INFISICAL_ENCRYPTION_KEY: CHANGE_ME
+  INFISICAL_AUTH_SECRET: CHANGE_ME
+  INFISICAL_DB_CONNECTION_URI: CHANGE_ME
+  INFISICAL_POSTGRES_PASSWORD: CHANGE_ME
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: shared-infra
+  namespace: mcp
+type: Opaque
+stringData:
+  POSTGRES_PASSWORD: CHANGE_ME
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: shared-infra
+  namespace: ai-services
+type: Opaque
+stringData:
+  POSTGRES_PASSWORD: CHANGE_ME

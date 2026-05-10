@@ -4,7 +4,8 @@
 # Ray Serve handles fractional GPU scheduling within the same pod — no k8s delays.
 #
 # Build:
-#   docker build -f infra/docker/Dockerfile.gpu-all -t localhost/tech-noir/gpu-all:latest .
+#   docker build -f infra/docker/Dockerfile.gpu-all -t 100.86.69.57:30500/tech-noir/gpu-all:latest .
+#   docker push 100.86.69.57:30500/tech-noir/gpu-all:latest
 
 # ── Stage 1: Build llama.cpp with CUDA (needs nvidia/cuda:devel for driver API) ──
 FROM nvidia/cuda:12.4.1-devel-ubuntu22.04 AS llama-builder

@@ -129,14 +129,16 @@ Ray's `@serve.deployment` has a serialization check that fails for some classes 
 
 ### Docker Images (KubeRay)
 
-The KubeRay RayService requires `localhost/tech-noir/gpu-all:latest` in the in-cluster registry. Build:
+Images are pushed to the Forge Registry and referenced as `forge-reg/tech-noir/<name>:latest`. Build:
 ```bash
-docker build --network=host -f infra/docker/Dockerfile.base -t tech-noir/ray-base:latest .
-docker build --network=host -f infra/docker/Dockerfile.gpu-all -t localhost/tech-noir/gpu-all:latest .
-docker build -f infra/docker/Dockerfile.model-sync -t tech-noir/model-sync:latest .
-docker tag tech-noir/model-sync:latest localhost/tech-noir/model-sync:latest
-# Push to in-cluster registry (kubectl port-forward or direct)
+# Push to Forge Registry via Traefik NodePort
+docker build --network=host -f infra/docker/Dockerfile.base -t 100.86.69.57:30500/tech-noir/ray-base:latest .
+docker push 100.86.69.57:30500/tech-noir/ray-base:latest
+docker build --network=host -f infra/docker/Dockerfile.gpu-all -t 100.86.69.57:30500/tech-noir/gpu-all:latest .
+docker push 100.86.69.57:30500/tech-noir/gpu-all:latest
 ```
+
+K3s containerd resolves `forge-reg` via `/etc/rancher/k3s/registries.yaml` (see `config/registries.yaml.example`).
 
 Ray-base build requires `--network=host` because `git clone` in Docker can't reach GitHub otherwise.
 

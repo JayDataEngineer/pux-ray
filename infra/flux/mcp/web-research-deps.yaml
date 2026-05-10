@@ -1,0 +1,158 @@
+# Dependencies for Web Research MCP: Redis, SearXNG
+# PostgreSQL: shared infra at postgres.infra.svc.cluster.local (deployed via task infra:deploy)
+---
+# Redis — cache/broker for Celery
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: redis
+  namespace: mcp
+  labels:
+    app: redis
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: redis
+  template:
+    metadata:
+      labels:
+        app: redis
+    spec:
+      containers:
+        - name: redis
+          image: redis:7-alpine
+          ports:
+            - containerPort: 6379
+          resources:
+            limits:
+              memory: 256Mi
+            requests:
+              memory: 128Mi
+          livenessProbe:
+            exec:
+              command: ["redis-cli", "ping"]
+            initialDelaySeconds: 5
+            periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis
+  namespace: mcp
+spec:
+  selector:
+    app: redis
+  ports:
+    - port: 6379
+      targetPort: 6379
+---
+# SearXNG — privacy-respecting metasearch engine
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: searxng-config
+  namespace: mcp
+data:
+  settings.yml: |
+    use_default_settings: true
+    server:
+      limiter: false
+      secret_key: "tech-noir-searxng-instance-key"
+    search:
+      formats:
+        - html
+        - json
+      default_lang: en
+      max_results: 20
+    outgoing:
+      request_timeout: 12.0
+      max_request_timeout: 20.0
+    engines:
+      - name: google
+        disabled: true
+      - name: google images
+        disabled: true
+      - name: google news
+        disabled: true
+      - name: google video
+        disabled: true
+      - name: startpage
+        disabled: true
+      - name: qwant
+        disabled: false
+        timeout: 8.0
+      - name: duckduckgo
+        disabled: false
+        timeout: 10.0
+      - name: brave
+        disabled: false
+        timeout: 8.0
+      - name: bing
+        disabled: false
+        timeout: 10.0
+      - name: wikipedia
+        disabled: false
+      - name: wikidata
+        disabled: false
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: searxng
+  namespace: mcp
+  labels:
+    app: searxng
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: searxng
+  template:
+    metadata:
+      labels:
+        app: searxng
+    spec:
+      containers:
+        - name: searxng
+          image: searxng/searxng:latest
+          ports:
+            - containerPort: 8080
+          env:
+            - name: SEARXNG_PORT
+              value: "8080"
+            - name: SEARXNG_BASE_URL
+              value: "http://searxng:8080/"
+            - name: SEARXNG_SETTINGS_PATH
+              value: "/etc/searxng/settings.yml"
+          resources:
+            limits:
+              memory: 512Mi
+            requests:
+              memory: 256Mi
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+            initialDelaySeconds: 15
+            periodSeconds: 15
+          volumeMounts:
+            - name: config
+              mountPath: /etc/searxng
+              readOnly: true
+      volumes:
+        - name: config
+          configMap:
+            name: searxng-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: searxng
+  namespace: mcp
+spec:
+  selector:
+    app: searxng
+  ports:
+    - port: 8080
+      targetPort: 8080

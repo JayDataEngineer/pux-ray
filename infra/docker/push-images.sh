@@ -3,22 +3,23 @@
 #
 # Prerequisites:
 #   1. docker login ghcr.io -u JayDataEngineer
-#   2. Local images already built (task setup or bash infra/k8s/build_and_import.sh)
+#   2. Images already pushed to Forge Registry (bash infra/k8s/build_and_import.sh)
 #
 # Usage: bash infra/docker/push-images.sh
 set -euo pipefail
 
-REGISTRY="ghcr.io/jaydataengineer/tech-noir"
+FORGE_REGISTRY="100.86.69.57:30500"
+GHCR_REGISTRY="ghcr.io/jaydataengineer/tech-noir"
 
 declare -A IMAGES=(
-    ["gpu-all"]="localhost/tech-noir/gpu-all:latest"
+    ["gpu-all"]="gpu-all"
 )
 
 echo "=== Pushing images to GHCR ==="
 
 for name in "${!IMAGES[@]}"; do
-    local_tag="${IMAGES[$name]}"
-    remote_tag="${REGISTRY}/${name}:latest"
+    local_tag="${FORGE_REGISTRY}/tech-noir/${IMAGES[$name]}:latest"
+    remote_tag="${GHCR_REGISTRY}/${name}:latest"
 
     if ! docker inspect "$local_tag" > /dev/null 2>&1; then
         echo "SKIP: ${local_tag} not found locally"
@@ -33,4 +34,4 @@ for name in "${!IMAGES[@]}"; do
 done
 
 echo ""
-echo "Done. Images available at ${REGISTRY}"
+echo "Done. Images available at ${GHCR_REGISTRY}"

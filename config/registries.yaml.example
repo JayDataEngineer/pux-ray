@@ -1,0 +1,18 @@
+# K3s containerd registry mirror configuration
+#
+# Maps "forge-reg" hostname to the Forge Registry K8s service.
+# K3s containerd resolves forge-reg/tech-noir/gpu-all:latest
+# to http://forge-registry.infra.svc.cluster.local:5000/tech-noir/gpu-all:latest.
+#
+# Setup:
+#   sudo mkdir -p /etc/rancher/k3s
+#   sudo cp config/registries.yaml.example /etc/rancher/k3s/registries.yaml
+#   sudo systemctl restart k3s
+#
+# Verify:
+#   sudo cat /var/lib/rancher/k3s/agent/etc/containerd/config.toml | grep forge-reg
+
+mirrors:
+  "forge-reg":
+    endpoint:
+      - "http://forge-registry.infra.svc.cluster.local:5000"

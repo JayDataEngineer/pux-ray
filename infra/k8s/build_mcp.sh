@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
-# Build MCP server images and import into k3s.
-# Clones/updates source repos from GitHub, builds Docker images, imports to k3s.
+# Build MCP server images and push to the Forge Registry.
+# Clones/updates source repos from GitHub, builds Docker images, pushes to registry.
 #
 # Usage: bash infra/k8s/build_mcp.sh
 set -euo pipefail
 
-REGISTRY="localhost/tech-noir"
+REGISTRY="forge-reg/tech-noir"      # K3s containerd resolves via registries.yaml
+PUSH_REGISTRY="100.86.69.57:30500"  # Traefik NodePort for host Docker push
 REPO_DIR="infra/repos"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
@@ -46,7 +47,7 @@ echo "=== Building MCP images ==="
 for dockerfile in "${!MCP_IMAGES[@]}"; do
     IFS=' ' read -r context_dir image_name <<< "${MCP_IMAGES[$dockerfile]}"
     context_path="$REPO_DIR/$context_dir"
-    tag="${REGISTRY}/${image_name}:latest"
+    push_tag="${PUSH_REGISTRY}/tech-noir/${image_name}:latest"
 
     if [ ! -d "$context_path" ]; then
         echo "SKIP: $context_path not found (repo sync failed?)"
@@ -55,9 +56,9 @@ for dockerfile in "${!MCP_IMAGES[@]}"; do
 
     echo ""
     echo "--- Building ${image_name} ---"
-    docker build -f "$dockerfile" -t "$tag" "$context_path" 2>&1 | tail -5
-    echo "Saving ${image_name}..."
-    docker save "$tag" | sudo k3s ctr images import -
+    docker build -f "$dockerfile" -t "$push_tag" "$context_path" 2>&1 | tail -5
+    echo "Pushing ${image_name}..."
+    docker push "$push_tag"
     echo "OK: ${image_name}"
 done
 

@@ -1,0 +1,15 @@
+# SOPS encryption config for Flux-managed secrets
+#
+# Setup:
+#   1. Generate age keypair: age-keygen -o config/age.key
+#   2. Add public key to this file (replace PLACEHOLDER below)
+#   3. Create Flux decryption key:
+#      kubectl create secret generic sops-age -n flux-system \
+#        --from-file=age.agekey=config/age.key
+#   4. Encrypt secrets: sops -e infra/flux/infra-secrets/shared-infra.yaml
+#
+# The private key (config/age.key) is gitignored and stays on the server only.
+
+creation_rules:
+  - path_regex: ^infra/flux/infra-secrets/.*\.yaml$
+    age: AGE_PUBLIC_KEY_PLACEHOLDER
