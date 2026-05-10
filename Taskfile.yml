@@ -299,17 +299,17 @@ tasks:
     desc: "Deploy Gitea + runners via Flux reconciliation"
     cmds:
       - flux reconcile kustomization git --with-source
-      - echo "Waiting for Gitea pod..."
+      - 'echo "Waiting for Gitea pod..."'
       - kubectl wait --for=condition=ready pod -l app=gitea -n git --timeout=120s
-      - echo "Waiting for setup Job to complete..."
+      - 'echo "Waiting for setup Job to complete..."'
       - kubectl wait --for=condition=complete job/gitea-setup -n git --timeout=180s
-      - echo "Waiting for runners..."
+      - 'echo "Waiting for runners..."'
       - kubectl wait --for=condition=ready pod -l app=act-runner-builder -n git --timeout=120s
       - kubectl wait --for=condition=ready pod -l app=act-runner-exec -n git --timeout=120s
-      - echo ""
-      - echo "Gitea: http://100.86.69.57:30080/git/"
-      - echo "SSH:   git@100.86.69.57:30222"
-      - echo "Flux:  now watching Gitea (internal cluster DNS)"
+      - 'echo ""'
+      - 'echo "Gitea: http://100.86.69.57:30080/git/"'
+      - 'echo "SSH:   git@100.86.69.57:30222"'
+      - 'echo "Flux:  now watching Gitea (internal cluster DNS)"'
 
   gitea:status:
     desc: "Show Gitea + runner pod status"
@@ -321,6 +321,11 @@ tasks:
     desc: "Run pytest test suite"
     cmds:
       - "{{.VENV_PYTHON}} -m pytest tests/ -v {{.CLI_ARGS}}"
+
+  validate:
+    desc: "Validate config (VRAM budgets, cross-references, TNAP, YAML)"
+    cmds:
+      - "{{.VENV_PYTHON}} -m registry.validate"
 
   test:infra:
     desc: "Run infrastructure validation tests (registry, setup modules)"

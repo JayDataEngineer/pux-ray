@@ -6,6 +6,17 @@ on:
   pull_request:
 
 jobs:
+  validate:
+    runs-on: code-exec
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install uv
+        run: which uv || curl -LsSf https://astral.sh/uv/install.sh | sh
+      - name: Install deps
+        run: uv sync
+      - name: Validate config (VRAM budgets, cross-references, TNAP, YAML)
+        run: uv run python -m registry.validate
+
   test:
     runs-on: code-exec
     steps:
