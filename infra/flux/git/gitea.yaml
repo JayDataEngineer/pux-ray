@@ -1,17 +1,13 @@
 # Gitea — self-hosted Git server + Actions CI
 #
-# Provides the Git source for Flux CD and runs CI via Gitea Actions.
-# Two act_runner instances connect: docker-builder (image builds) and
-# code-exec (tests/lint).
+# Fully automated setup. On first boot:
+#   1. Init container creates admin user (via CLI, writes to SQLite)
+#   2. Main container starts Gitea
+#   3. Setup Job creates org, repo, migrates from GitHub,
+#      generates runner token, switches Flux source
 #
 # Access: http://100.86.69.57:30080/git/
 # SSH:    git@100.86.69.57:30222
-#
-# First-time setup:
-#   1. Access /git/, create admin account
-#   2. Create org + repo, push code
-#   3. Generate PAT for Flux + runners
-#   4. Register runners: task gitea:register-runner -- <token>
 
 ---
 apiVersion: v1
@@ -71,6 +67,41 @@ spec:
       labels:
         app: gitea
     spec:
+      initContainers:
+        - name: create-admin
+          image: gitea/gitea:1.22
+          command:
+            - sh
+            - -c
+            - |
+              if gitea admin user list 2>/dev/null | grep -q "forge"; then
+                echo "Admin user 'forge' already exists"
+              else
+                echo "Creating admin user 'forge'..."
+                gitea admin user create \
+                  --admin \
+                  --username forge \
+                  --password "${GITEA_ADMIN_PASSWORD}" \
+                  --email forge@tech-noir.local \
+                  --must-change-password=false
+                echo "Admin user created"
+              fi
+          env:
+            - name: GITEA_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: shared-infra
+                  key: GITEA_ADMIN_PASSWORD
+            - name: GITEA__database__DB_TYPE
+              value: sqlite3
+            - name: GITEA_WORK_DIR
+              value: /data/gitea
+          volumeMounts:
+            - name: gitea-data
+              mountPath: /data
+            - name: gitea-config
+              mountPath: /data/gitea/conf/app.ini
+              subPath: app.ini
       containers:
         - name: gitea
           image: gitea/gitea:1.22

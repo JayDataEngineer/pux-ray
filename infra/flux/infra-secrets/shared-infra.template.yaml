@@ -48,3 +48,12 @@ metadata:
 type: Opaque
 stringData:
   POSTGRES_PASSWORD: CHANGE_ME
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: shared-infra
+  namespace: git
+type: Opaque
+stringData:
+  GITEA_ADMIN_PASSWORD: CHANGE_ME
