@@ -33,7 +33,7 @@ HEAVY_SERVICES = {"trellis", "ace_step", "comfyui", "hy_motion", "moss_soundeffe
 
 # Default _load() arguments for services that need them.
 LOAD_KWARGS = {
-    "llm": {"model_name": "qwen3.6-27b-q6_k"},
+    "llm": {"model_name": "qwen3.6-27b-q5_k_s"},
 }
 
 
@@ -102,10 +102,10 @@ class MasterRouter:
 
         self._unload_active()
 
-        # Pre-import spconv once to prevent pybind11 type re-registration
-        # when services that both depend on spconv (TRELLIS, AniGen) load
-        # sequentially in the same process.
-        if 'spconv' not in sys.modules:
+        # Only import spconv for services that actually need it (TRELLIS, AniGen).
+        # Never import for LLM/ComfyUI/ACE-Step/etc — spconv triggers 814 CUDA
+        # kernel JIT compilations that block the first request for 10+ minutes.
+        if name in ('trellis', 'anigen') and 'spconv' not in sys.modules:
             try:
                 import spconv  # noqa: F401
             except ImportError:

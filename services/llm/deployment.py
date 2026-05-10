@@ -33,7 +33,7 @@ class LLMDeployment(BaseGPUDeployment, SubprocessMixin):
     vram_mb = 20_480
     _service_name = "llm"
     PORT = 18399
-    DEFAULT_MODEL = "qwen3.6-27b-q6_k"
+    DEFAULT_MODEL = "qwen3.6-27b-q5_k_s"
 
     def __init__(self):
         super().__init__()
