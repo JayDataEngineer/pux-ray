@@ -34,6 +34,23 @@ tasks:
       - "{{.VENV_PYTHON}} -m boot.cli boot docker"
 
   # ── Service lifecycle ────────────────────────────────────────────────────
+  build:
+    desc: "Build Ray images (gpu-all) via docker bake and push to Forge Registry"
+    cmds:
+      - docker bake gpu-all --push
+
+  deploy:
+    desc: "Force Ray pods to pick up new image (delete head pod, wait for ready)"
+    cmds:
+      - kubectl delete pod -n ai-services -l app.kubernetes.io/name=tech-noir-ray-head
+      - kubectl wait --for=condition=ready pod -l app.kubernetes.io/name=tech-noir-ray-head -n ai-services --timeout=300s
+
+  release:
+    desc: "Build + deploy in one shot (docker bake + push + pod restart)"
+    cmds:
+      - task: build
+      - task: deploy
+
   up:
     desc: "Start specific service (e.g. task up ray-cluster)"
     cmds:
@@ -191,9 +208,9 @@ tasks:
       - kubectl wait --for=condition=ready pod -l app=grafana -n infra --timeout=60s
       - kubectl wait --for=condition=ready pod -l app=loki -n infra --timeout=60s
       - echo ""
-      - echo "Grafana: http://100.86.69.57:30080/grafana"
+      - "echo 'Grafana: http://100.86.69.57:30080/grafana'"
       - echo ""
-      - echo "Dashboards pre-loaded: Node Exporter, K8s Cluster, Pod Resources, Ray, PostgreSQL"
+      - "echo 'Dashboards pre-loaded: Node Exporter, K8s Cluster, Pod Resources, Ray, PostgreSQL'"
 
   infra:monitor:status:
     desc: "Show monitoring stack status"
@@ -354,7 +371,7 @@ tasks:
   cloud:tune:
     desc: "Tune gateway runtime config  eg: task cloud:tune '{\"local_timeout\":5}'"
     cmds:
-      - curl -s -X POST http://localhost:30080/overflow/config -H 'Content-Type: application/json' -d '{{.CLI_ARGS}}'
+      - "curl -s -X POST http://localhost:30080/overflow/config -H 'Content-Type: application/json' -d '{{.CLI_ARGS}}'"
 
   cloud:logs:
     desc: "Stream SkyServe cloud logs"

@@ -7,7 +7,7 @@ llm:
     size_gb: 23.0
     vram_estimate_gb: 23.0
     device: gpu
-    ctx_size: 65536
+    ctx_size: 32768
     parallel: 1
     n_gpu_layers: 99
     mmproj_n_gpu_layers: 0
@@ -797,6 +797,51 @@ comfyui:
     vram_estimate_gb: 1.0
     device: gpu
     description: SeedVR2 upscaler VAE (FP16). From numz ComfyUI repo.
+  diffusion-klein-4b-q8:
+    path: image-gen/comfyui/diffusion_models/flux-2-klein-4b-q8_0.gguf
+    source: hf://unsloth/FLUX.2-klein-4B-GGUF/flux-2-klein-4b-q8_0.gguf
+    download: file
+    sha256: null
+    size_gb: 4.3
+    vram_estimate_gb: 5.0
+    device: gpu
+    description: Flux.2 Klein 4B GGUF Q8_0. Primary quant for image generation.
+  diffusion-klein-4b-q5:
+    path: image-gen/comfyui/diffusion_models/flux-2-klein-4b-q5_0.gguf
+    source: hf://unsloth/FLUX.2-klein-4B-GGUF/flux-2-klein-4b-q5_0.gguf
+    download: file
+    sha256: null
+    size_gb: 2.9
+    vram_estimate_gb: 3.5
+    device: gpu
+    description: Flux.2 Klein 4B GGUF Q5_0. Smaller quant for constrained VRAM.
+  diffusion-klein-4b-q4:
+    path: image-gen/comfyui/diffusion_models/flux-2-klein-4b-q4_0.gguf
+    source: hf://unsloth/FLUX.2-klein-4B-GGUF/flux-2-klein-4b-q4_0.gguf
+    download: file
+    sha256: null
+    size_gb: 2.5
+    vram_estimate_gb: 3.0
+    device: gpu
+    description: Flux.2 Klein 4B GGUF Q4_0. Smallest quant.
+  diffusion-klein-4b-q6:
+    path: image-gen/comfyui/diffusion_models/flux-2-klein-4b-q6_k.gguf
+    source: hf://unsloth/FLUX.2-klein-4B-GGUF/flux-2-klein-4b-q6_k.gguf
+    download: file
+    sha256: null
+    size_gb: 3.4
+    vram_estimate_gb: 4.0
+    device: gpu
+    description: Flux.2 Klein 4B GGUF Q6_K. Higher quality quant.
+  vae-flux2:
+    path: image-gen/comfyui/vae/flux2-vae.safetensors
+    source: hf://Comfy-Org/flux2-dev/flux2-vae.safetensors
+    download: file
+    sha256: null
+    size_gb: 0.15
+    vram_estimate_gb: 0.2
+    device: gpu
+    description: Flux.2 VAE. Required for Klein/Flux.2 diffusion models.
 3d:
   trellis:
     path: 3d/trellis/TRELLIS.2-4B/ckpts/
