@@ -17,7 +17,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  REGISTRY: localhost/tech-noir
+  REGISTRY: tech-noir
 
 jobs:
   # ----------------------------------------------------------------

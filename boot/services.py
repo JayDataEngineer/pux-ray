@@ -83,20 +83,8 @@ def all_services() -> list[Service]:
 
 # --- Docker services ---
 
-register(Service(
-    name="local-web-mcp",
-    type=ServiceType.DOCKER,
-    working_dir=f"{PROGRAMS}/local-web-mcp",
-    port=18327,
-    health_url="http://127.0.0.1:18327/health",
-))
-
-register(Service(
-    name="media-analysis-mcp",
-    type=ServiceType.DOCKER,
-    working_dir=f"{PROGRAMS}/media-analysis-mcp",
-    port=8001,
-))
+# MCP services are deployed as K3s pods (see infra/k8s/mcp/ and infra/flux/mcp/).
+# K8s livenessProbes handle auto-restart — no Docker lifecycle needed.
 
 register(Service(
     name="redshiftdb",

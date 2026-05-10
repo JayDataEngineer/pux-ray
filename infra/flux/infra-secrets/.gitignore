@@ -1,0 +1,3 @@
+# Ignore unencrypted secrets — only SOPS-encrypted versions are committed
+shared-infra.yaml
+*.env

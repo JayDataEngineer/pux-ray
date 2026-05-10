@@ -94,7 +94,7 @@ task secrets:sync                                  # Push to all k8s namespaces
 
 All deployments reference a single secret name `shared-infra` in their namespace. The sync script (`infra/secrets_sync.py`) reads `config/secrets.env` and creates identical `shared-infra` secrets in infra, mcp, and ai-services namespaces. Deploy tasks (`infra:deploy`, `build_mcp.sh`) run sync automatically.
 
-**Image**: `localhost/tech-noir/postgres-age-vector:latest` — Postgres 16 + AGE + pgvector. Built from `infra/docker/Dockerfile.postgres-age`.
+**Image**: `forge-reg/tech-noir/postgres-age-vector:latest` — Postgres 16 + AGE + pgvector. Built from `infra/docker/Dockerfile.postgres-age`.
 
 **Manage:**
 ```bash
@@ -146,7 +146,7 @@ kubectl apply -f infra/k8s/mcp/            # Re-apply manifests only
 
 ## Architecture: Ray + MCP, k3s + KubeRay
 
-**Container runtime:** k3s (lightweight k8s) with its own containerd. Images imported via `sudo k3s ctr images import -`. Docker used for builds only.
+**Container runtime:** k3s (lightweight k8s) with its own containerd. Images pushed to Forge Registry (`forge-reg`) via Traefik NodePort 30500. Docker used for builds only.
 
 **GPU scheduling:** NVIDIA Device Plugin. NOT the heavy GPU Operator.
 
@@ -173,12 +173,22 @@ kubectl apply -f infra/k8s/mcp/            # Re-apply manifests only
 
 ### Build & Deploy
 ```bash
-# Build all images and import into k3s (ray-base, gpu-all, model-sync)
+# First-time setup: configure K3s containerd to resolve "forge-reg"
+sudo mkdir -p /etc/rancher/k3s
+sudo cp config/registries.yaml.example /etc/rancher/k3s/registries.yaml
+sudo systemctl restart k3s
+
+# Deploy Forge Registry (first time only)
+kubectl apply -f infra/k8s/shared/forge-registry.yaml
+kubectl apply -f infra/k8s/traefik-config.yaml   # adds registry entrypoint
+kubectl apply -f infra/k8s/traefik-ingress.yaml   # adds registry TCP route
+
+# Build all images and push to Forge Registry
 bash infra/k8s/build_and_import.sh
 
 # Or individually:
-docker build -f infra/docker/Dockerfile.gpu-all -t localhost/tech-noir/gpu-all:latest .
-docker save localhost/tech-noir/gpu-all:latest | sudo k3s ctr images import -
+docker build -f infra/docker/Dockerfile.gpu-all -t 100.86.69.57:30500/tech-noir/gpu-all:latest .
+docker push 100.86.69.57:30500/tech-noir/gpu-all:latest
 
 # Apply RayService (in-place update, no pod restart)
 kubectl apply -f infra/k8s/ray-service.yaml
@@ -188,7 +198,7 @@ kubectl apply -f infra/k8s/ray-serve-proxy.yaml
 kubectl apply -f infra/k8s/traefik-ingress.yaml
 
 # Force fresh code pickup (source mount changes need pod restart)
-kubectl delete pod -n ai-services -l ray.io/cluster=tech-noir-ray-s8mcd
+kubectl delete pod -n ai-services -l app.kubernetes.io/name=tech-noir-ray-head
 ```
 
 ## Remote Access (Tailscale)
