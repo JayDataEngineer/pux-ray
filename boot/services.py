@@ -101,14 +101,6 @@ register(Service(
     label="ACT Scheduler Bot",
 ))
 
-register(Service(
-    name="jellyfin",
-    type=ServiceType.DOCKER,
-    working_dir=f"{PROGRAMS}/jellyfin_act",
-    label="Jellyfin + Nextcloud",
-))
-
-
 # --- Ray services (managed by KubeRay, NOT bare-metal) ---
 # Ray is deployed via `kubectl apply -f infra/k8s/ray-service.yaml`.
 # Do NOT register ray-cluster, ray-serve, or ingress here —

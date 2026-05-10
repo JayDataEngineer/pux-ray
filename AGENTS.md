@@ -39,7 +39,6 @@ Multiple Docker Compose projects in `/home/user/Documents/programs/`:
 - **redshiftdb** — Full app stack: PostgreSQL, MongoDB, MinIO, Vault, Zitadel (auth), Prometheus, Grafana, Loki, Tempo, CRM app, UI, monitoring agents
 - **mcp** — MCP source code (K3s-native, no Docker): web-research + media-analysis
 - **act-scheduler-bot** — Telegram bot (aiogram + FastAPI + PostgreSQL + Redis)
-- **jellyfin** — Jellyfin media server + Nextcloud AIO
 
 ### 3. Persistent Processes
 - **ingress** — Starlette API gateway on port 18080 (proxies to Ray Serve and MCP servers)
@@ -68,7 +67,6 @@ Multiple Docker Compose projects in `/home/user/Documents/programs/`:
 │   ├── ops/docker/         #   compose.dev.yaml
 │   └── ...
 ├── act-scheduler-bot/      # Telegram bot (Docker Compose)
-├── jellyfin_act/           # Jellyfin + Nextcloud (Docker Compose)
 ├── media_server/           # Media server (Next.js + Zitadel)
 ├── zitadel/                # Zitadel identity platform
 ├── terraform-provider-zitadel/
@@ -94,10 +92,6 @@ All services are registered in `boot/services.py` as `Service` dataclasses. Each
 | mcp/media-analysis | K8s | 8001 | Media analysis (vision, audio, video) |
 | redshiftdb | Docker | — | Full infra (Postgres, MongoDB, MinIO, Vault, Zitadel, monitoring, CRM, UI) |
 | act-scheduler-bot | Docker | 8621 | Telegram bot (aiogram + FastAPI) |
-| jellyfin | Docker | — | Jellyfin + Nextcloud AIO |
-| ray-cluster | Ray | 18265 | Ray head node (1 GPU, 16 CPUs) |
-| ray-serve | Ray | 18800 | Ray Serve deployments (14 AI services) |
-| ingress | Process | 18080 | API gateway (proxies all routes) |
 
 ### How to Add a New Service
 
