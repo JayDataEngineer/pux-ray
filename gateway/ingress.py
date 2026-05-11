@@ -9,6 +9,7 @@ Empty/unset = no auth (dev mode).
 """
 from __future__ import annotations
 
+import hmac
 import json
 import logging
 from typing import Any
@@ -31,6 +32,22 @@ from services.registry import SERVICE_REGISTRY, get_service, resolve_model
 logger = logging.getLogger(__name__)
 
 
+class _ForgeRequest:
+    """Lightweight request wrapper for routing through the master router."""
+
+    def __init__(self, data: dict, path: str = "/forge"):
+        self._data = data
+        self.method = "POST"
+        self.url = type("U", (), {"path": path, "query": ""})()
+        self.headers = {"content-type": "application/json"}
+
+    async def json(self):
+        return self._data
+
+    async def body(self):
+        return json.dumps(self._data).encode()
+
+
 def _get_api_key() -> str:
     return Config().get("secrets.api_key", "")
 
@@ -47,7 +64,7 @@ class APIKeyMiddleware(BaseHTTPMiddleware):
             return await call_next(request)
 
         key = request.headers.get("x-api-key", "") or request.query_params.get("api_key", "")
-        if key != api_key:
+        if not hmac.compare_digest(key, api_key):
             return JSONResponse({"error": "unauthorized"}, status_code=401)
 
         return await call_next(request)
@@ -94,19 +111,8 @@ class APIIngress:
             body = await request.json()
             forge_body = {"service": "llm", **body}
 
-            class _InnerRequest:
-                def __init__(self, data):
-                    self._data = data
-                    self.method = "POST"
-                    self.url = type("U", (), {"path": "/v1/llm/generate", "query": ""})()
-                    self.headers = {"content-type": "application/json"}
-                async def json(self):
-                    return self._data
-                async def body(self):
-                    return json.dumps(self._data).encode()
-
             handle = serve.get_deployment_handle("master_router", "forge")
-            inner_req = _InnerRequest(forge_body)
+            inner_req = _ForgeRequest(forge_body, path="/v1/llm/generate")
             return await handle.remote(inner_req)
 
         handle = serve.get_deployment_handle(entry.deployment, entry.app)
@@ -138,19 +144,8 @@ class APIIngress:
         # LLM lives inside the master_router — wrap as forge request
         forge_body = {"service": "llm", **body}
 
-        class _InnerRequest:
-            def __init__(self, data):
-                self._data = data
-                self.method = "POST"
-                self.url = type("U", (), {"path": "/v1/chat/completions", "query": ""})()
-                self.headers = {"content-type": "application/json"}
-            async def json(self):
-                return self._data
-            async def body(self):
-                return json.dumps(self._data).encode()
-
         handle = serve.get_deployment_handle("master_router", "forge")
-        inner_req = _InnerRequest(forge_body)
+        inner_req = _ForgeRequest(forge_body, path="/v1/chat/completions")
         return await handle.remote(inner_req)
 
     async def llm_configure(self, request: Request) -> Response:
@@ -167,19 +162,8 @@ class APIIngress:
         # Wrap in forge format: {"service": "llm", "action": "configure", ...}
         forge_body = {"service": "llm", "action": "configure", **body}
 
-        class _InnerRequest:
-            def __init__(self, data):
-                self._data = data
-                self.method = "POST"
-                self.url = type("U", (), {"path": "/forge", "query": ""})()
-                self.headers = {"content-type": "application/json"}
-            async def json(self):
-                return self._data
-            async def body(self):
-                return json.dumps(self._data).encode()
-
         handle = serve.get_deployment_handle("master_router", "forge")
-        inner_req = _InnerRequest(forge_body)
+        inner_req = _ForgeRequest(forge_body, path="/forge")
         return await handle.remote(inner_req)
 
     async def audio_speech(self, request: Request) -> Response:
