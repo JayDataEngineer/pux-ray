@@ -19,6 +19,7 @@ from boot.health import (
     Status,
     check_docker,
     check_http,
+    check_tcp,
     wait_healthy,
 )
 

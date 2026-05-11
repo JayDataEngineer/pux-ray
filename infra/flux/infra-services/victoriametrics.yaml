@@ -57,6 +57,17 @@ data:
             action: keep
             regex: tech-noir-ray-head-svc
 
+      # vmalert — alert evaluation engine
+      - job_name: vmalert
+        kubernetes_sd_configs:
+          - role: endpoints
+            namespaces:
+              names: [infra]
+        relabel_configs:
+          - source_labels: [__meta_kubernetes_service_name]
+            action: keep
+            regex: vmalert
+
       # Postgres metrics (if pg_exporter is added later)
       # - job_name: postgres
       #   static_configs:

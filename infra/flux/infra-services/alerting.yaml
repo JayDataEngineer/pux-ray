@@ -1,0 +1,134 @@
+# Alerting — vmalert + alert rules
+#
+# vmalert evaluates Prometheus-compatible rules against VictoriaMetrics.
+# Alerts appear in the vmalert UI at port 8880. Add Alertmanager or a
+# Discord webhook later for push notifications.
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: alert-rules
+  namespace: infra
+data:
+  alerts.yml: |
+    groups:
+      - name: tech-noir
+        rules:
+          - alert: PodCrashLooping
+            expr: increase(kube_pod_container_status_restarts_total[15m]) > 3
+            for: 5m
+            labels:
+              severity: critical
+            annotations:
+              summary: "Pod {{ $labels.namespace }}/{{ $labels.pod }} crash-looping"
+
+          - alert: RayHeadNotReady
+            expr: kube_pod_status_ready{condition="true", namespace="ai-services", pod=~"tech-noir-ray-.*"} == 0
+            for: 5m
+            labels:
+              severity: critical
+            annotations:
+              summary: "Ray pod {{ $labels.pod }} not ready for 5m"
+
+          - alert: DiskUsageHigh
+            expr: (node_filesystem_avail_bytes{mountpoint="/"} / node_filesystem_size_bytes{mountpoint="/"}) < 0.15
+            for: 10m
+            labels:
+              severity: warning
+            annotations:
+              summary: "Disk usage > 85% on {{ $labels.instance }}"
+
+          - alert: ServiceDown
+            expr: up == 0
+            for: 5m
+            labels:
+              severity: critical
+            annotations:
+              summary: "Scrape target {{ $labels.job }} down for 5m"
+
+          - alert: VictoriaMetricsDown
+            expr: up{job="victoriametrics"} == 0
+            for: 3m
+            labels:
+              severity: critical
+            annotations:
+              summary: "VictoriaMetrics is down"
+
+          - alert: HighMemoryUsage
+            expr: (1 - node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes) > 0.9
+            for: 10m
+            labels:
+              severity: warning
+            annotations:
+              summary: "Memory usage > 90% on {{ $labels.instance }}"
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vmalert
+  namespace: infra
+  labels:
+    app: vmalert
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: vmalert
+  template:
+    metadata:
+      labels:
+        app: vmalert
+    spec:
+      containers:
+        - name: vmalert
+          image: victoriametrics/vmalert:latest
+          args:
+            - "-rule=/etc/vmalert/rules/*.yml"
+            - "-datasource.url=http://victoriametrics.infra.svc.cluster.local:8428"
+            - "-notifier.url=http://localhost:9093"
+            - "-httpListenAddr=:8880"
+            - "-evaluationInterval=30s"
+          ports:
+            - containerPort: 8880
+          volumeMounts:
+            - name: rules
+              mountPath: /etc/vmalert/rules
+          resources:
+            limits:
+              memory: 128Mi
+              cpu: "250m"
+            requests:
+              memory: 64Mi
+              cpu: "50m"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8880
+            initialDelaySeconds: 5
+            periodSeconds: 15
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8880
+            initialDelaySeconds: 3
+            periodSeconds: 5
+      volumes:
+        - name: rules
+          configMap:
+            name: alert-rules
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: vmalert
+  namespace: infra
+spec:
+  selector:
+    app: vmalert
+  ports:
+    - name: http
+      port: 8880
+      targetPort: 8880

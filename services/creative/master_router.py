@@ -1,15 +1,19 @@
 """Master Router — exclusive GPU access for heavy services on a single RTX 4090.
 
-Ray's logical GPU scheduler (num_gpus: 0.5, 1.0) is a ledger, not a hardware fence.
-Multiple deployments with fractional GPU claims will physically OOM when their models
-collide in VRAM. This router claims the entire GPU (num_gpus: 1.0) and performs
-explicit _load()/_unload() swaps with torch.cuda.empty_cache() between them.
+GPU Coordination:
+  This router claims num_gpus: 1.0, preventing Ray from scheduling other
+  GPU workloads alongside it. It performs explicit model swapping with
+  torch.cuda.empty_cache() between services.
 
-Lightweight GPU services (faster_qwen3_tts, index_tts, vibevoice_cpp_gpu, vibevoice_cpp_cpu) stay as
-separate Ray deployments — they're small enough to coexist. Only the heavy hitters
-(trellis, ace_step, comfyui, hy_motion, anigen, see_through, moss_soundeffect, llm,
- vibevoice_microsoft, vibevoice_community_tts, phi4mm)
-go through this router.
+  The GPUGovernor (gateway/gpu_governor.py) manages lightweight GPU services
+  (faster_qwen3_tts, index_tts, vibevoice_cpp_gpu) that use fractional GPU
+  claims and coexist when this router is idle (scaled to 0 replicas).
+
+  The Governor calls unload_service() here when it needs to evict a heavy
+  service to make room for a lightweight GPU service request.
+
+  HEAVY_SERVICES includes Tier 2 services (vibevoice_microsoft,
+  vibevoice_community_tts, phi4mm) that are not yet enabled in serve_config.py.
 """
 from __future__ import annotations
 
@@ -140,6 +144,12 @@ class MasterRouter:
         self.active_service = name
         vram = torch.cuda.memory_allocated(0) / (1024 ** 2)
         logger.info("Loaded %s model=%s (VRAM: %.0fMB)", name, target_model, vram)
+
+    async def unload_service(self, service: str) -> None:
+        """Unload a specific service. Called by GPUGovernor during eviction."""
+        if self.active_service == service and self._loaded.get(service):
+            import asyncio
+            await asyncio.to_thread(self._unload_active)
 
     async def __call__(self, request: Request) -> Response:
         body = await request.json()

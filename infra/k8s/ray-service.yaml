@@ -116,6 +116,22 @@ spec:
                   name: dashboard
                 - containerPort: 8000
                   name: serve
+              readinessProbe:
+                httpGet:
+                  path: /api/cluster_status
+                  port: 8265
+                initialDelaySeconds: 30
+                timeoutSeconds: 5
+                periodSeconds: 5
+                failureThreshold: 30
+              livenessProbe:
+                httpGet:
+                  path: /api/cluster_status
+                  port: 8265
+                initialDelaySeconds: 120
+                timeoutSeconds: 5
+                periodSeconds: 10
+                failureThreshold: 30
               env:
                 - name: HF_HOME
                   value: /tmp/huggingface
