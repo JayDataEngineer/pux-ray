@@ -53,6 +53,11 @@ spec:
             requests:
               memory: 2Gi
               cpu: "1"
+          volumeMounts:
+            - name: docs-config
+              mountPath: /app/docs_config.yaml
+              subPath: docs_config.yaml
+              readOnly: true
           livenessProbe:
             tcpSocket:
               port: 8000
@@ -63,6 +68,10 @@ spec:
               port: 8000
             initialDelaySeconds: 10
             periodSeconds: 10
+      volumes:
+        - name: docs-config
+          configMap:
+            name: docs-config
 ---
 apiVersion: v1
 kind: Service
@@ -75,3 +84,31 @@ spec:
   ports:
     - port: 8000
       targetPort: 8000
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: docs-config
+  namespace: mcp
+data:
+  docs_config.yaml: |
+    # Documentation sources for the web research MCP server.
+    # Domains linked within llms.txt files are auto-discovered and allowed.
+    - name: langchain
+      llms_txt: https://docs.langchain.com/llms.txt
+    - name: langgraph
+      llms_txt: https://langchain-ai.github.io/langgraph/llms.txt
+    - name: fastmcp
+      llms_txt: https://gofastmcp.com/llms.txt
+    - name: mcp-spec
+      llms_txt: https://modelcontextprotocol.io/llms.txt
+    - name: pydantic
+      llms_txt: https://docs.pydantic.dev/llms.txt
+    - name: pydantic-ai
+      llms_txt: https://ai.pydantic.dev/llms.txt
+    - name: docker
+      llms_txt: https://docs.docker.com/llms.txt
+    - name: nextjs
+      llms_txt: https://nextjs.org/llms.txt
+    - name: ai-sdk
+      llms_txt: https://ai-sdk.dev/llms.txt
