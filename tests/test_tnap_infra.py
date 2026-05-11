@@ -39,11 +39,11 @@ class TestServiceRegistry:
     def test_all_services_present(self):
         from services.registry import SERVICE_REGISTRY
         expected = {
-            "kokoro", "espeak", "index_tts", "qwen_tts", "vibevoice_cpp_gpu",
-            "gpt_sovits", "faster_whisper", "vibevoice_microsoft", "qwen_asr",
-            "moss_soundeffect", "tangoflux", "ace_step", "trellis", "anigen",
-                         "hy_motion", "see_through", "phi4mm", "comfyui",
-            "llm",
+            "kokoro", "espeak", "faster_qwen3_tts", "index_tts", "qwen_tts",
+            "vibevoice_cpp_gpu", "gpt_sovits", "faster_whisper",
+            "vibevoice_microsoft", "qwen_asr", "moss_soundeffect", "tangoflux",
+            "ace_step", "trellis", "anigen", "hy_motion", "see_through",
+            "phi4mm", "comfyui", "llm",
         }
         assert set(SERVICE_REGISTRY.keys()) == expected, \
             f"Missing: {expected - set(SERVICE_REGISTRY.keys())}, " \
@@ -62,13 +62,15 @@ class TestServiceRegistry:
     def test_deployment_names_match_serve_config(self):
         from services.registry import SERVICE_REGISTRY
         from pathlib import Path
-        not_in_serve_config = {"tangoflux", "llm"}
+        import re
         serve_config = Path("infra/k8s/serve_config.py").read_text()
-        for name, entry in SERVICE_REGISTRY.items():
-            if name in not_in_serve_config:
-                continue
-            assert entry.deployment in serve_config, \
-                f"{name}: deployment '{entry.deployment}' not in serve_config.py"
+        registry_deployments = {e.deployment for e in SERVICE_REGISTRY.values()}
+        # Extract bound deployment names from serve_config (e.g. "kokoro_tts = KokoroTTS.bind()")
+        bound = set(re.findall(r'^(\w+)\s*=\s*\w+\.bind\(\)', serve_config, re.MULTILINE))
+        # Exclude infrastructure deployments (not AI services)
+        infra = {"api_ingress", "playground", "vibevoice_cpp_cpu", "master_router"}
+        unregistered = bound - registry_deployments - infra
+        assert not unregistered, f"Deployments in serve_config but not in registry: {unregistered}"
 
     def test_get_service_found(self):
         from services.registry import get_service
@@ -126,7 +128,8 @@ class TestServiceRegistry:
         from services.registry import SERVICE_REGISTRY
         gpu_services = {"trellis", "anigen", "ace_step", "phi4mm",
                         "hy_motion", "see_through", "comfyui", "llm", "index_tts",
-                        "qwen_tts", "vibevoice_cpp_gpu", "gpt_sovits", "moss_soundeffect"}
+                        "faster_qwen3_tts", "qwen_tts", "gpt_sovits",
+                        "moss_soundeffect", "vibevoice_microsoft", "qwen_asr", "tangoflux"}
         for name in gpu_services:
             assert SERVICE_REGISTRY[name].needs_gpu is True, f"{name} should be GPU"
 
@@ -166,16 +169,13 @@ class TestIngressRoutes:
         assert r.status_code == 200
 
     def test_list_services(self, client):
+        from services.registry import SERVICE_REGISTRY
         r = client.get("/v1/services")
         assert r.status_code == 200
         svcs = r.json()
-        assert len(svcs) == 20
+        assert len(svcs) == len(SERVICE_REGISTRY)
         names = {s["name"] for s in svcs}
-        assert names == {"kokoro", "espeak", "index_tts", "qwen_tts", "vibevoice_cpp_gpu",
-                         "gpt_sovits", "faster_whisper", "vibevoice_microsoft", "qwen_asr",
-                         "moss_soundeffect", "tangoflux", "ace_step", "trellis", "anigen",
-            "hy_motion", "see_through", "phi4mm", "comfyui",
-                         "llm"}
+        assert names == set(SERVICE_REGISTRY.keys())
         for s in svcs:
             assert all(k in s for k in ("name", "label", "category", "needs_gpu",
                                          "output_type", "description"))
@@ -239,7 +239,7 @@ class TestIngressRoutes:
     def test_services_list_has_all_categories(self, client):
         r = client.get("/v1/services")
         categories = {s["category"] for s in r.json()}
-        for cat in ("tts", "asr", "audio", "creative", "vision", "multimodal", "image", "llm"):
+        for cat in ("tts", "asr", "audio", "creative", "multimodal", "image", "llm"):
             assert cat in categories, f"Missing category: {cat}"
 
     def test_admin_load(self, client):

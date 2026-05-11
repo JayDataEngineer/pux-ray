@@ -68,6 +68,13 @@ build-backend = "hatchling.build"
 [tool.hatch.build.targets.wheel]
 packages = ["services", "gateway", "registry", "sdk", "scripts", "boot", "vendor"]
 
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+markers = [
+    "integration: tests requiring live Ray cluster",
+]
+
 [dependency-groups]
 dev = [
     "httpx>=0.28.1",
