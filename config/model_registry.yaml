@@ -121,7 +121,7 @@ llm:
     ctx_size: 200000
     parallel: 1
     n_gpu_layers: 99
-    mmproj_n_gpu_layers: 99
+    mmproj_n_gpu_layers: 0
     temp: 0.6
     top_p: 0.95
     top_k: 20

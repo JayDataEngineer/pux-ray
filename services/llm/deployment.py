@@ -155,13 +155,13 @@ class LLMDeployment(BaseGPUDeployment, SubprocessMixin):
                 cache_type_v = "f16"
             cmd.extend(["--cache-type-v", str(cache_type_v)])
 
-        # Vision projector (mmproj) — kept off GPU unless explicitly requested
+        # Vision projector (mmproj) — always load when path configured; offload=0 keeps it CPU
         mmproj_path = overrides.get("mmproj_path") or meta.get("mmproj_path")
         use_vision = overrides.get("use_vision")
         if use_vision is None:
             use_vision = mmproj_path is not None
         offload = int(_val("mmproj_n_gpu_layers", 0))
-        if use_vision and mmproj_path and offload > 0:
+        if use_vision and mmproj_path:
             full_mmproj = Path(mmproj_path)
             if not full_mmproj.is_absolute():
                 full_mmproj = Path(config.models_root) / mmproj_path
@@ -170,6 +170,8 @@ class LLMDeployment(BaseGPUDeployment, SubprocessMixin):
                     f"/models/{full_mmproj.relative_to(config.models_root)}"
                 )
                 cmd.extend(["--mmproj", container_mmproj])
+                if offload == 0:
+                    cmd.append("--no-mmproj-offload")
 
         # Engine-specific flags
         if engine == "beellama":
