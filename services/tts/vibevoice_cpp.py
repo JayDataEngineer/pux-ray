@@ -81,77 +81,77 @@ class _VibeVoiceCppBase(BaseGPUDeployment):
         with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
             out_path = tmp.name
 
-        cmd = [
-            VV_BIN, "tts",
-            "--model", self.tts_model,
-            "--tokenizer", self.tokenizer,
-            "--text", text,
-            "--out", out_path,
-            "--seed", str(seed),
-            "--steps", "20",
-            "--cfg", "1.3",
-        ]
+        try:
+            cmd = [
+                VV_BIN, "tts",
+                "--model", self.tts_model,
+                "--tokenizer", self.tokenizer,
+                "--text", text,
+                "--out", out_path,
+                "--seed", str(seed),
+                "--steps", "20",
+                "--cfg", "1.3",
+            ]
 
-        if ref_audio_path:
-            cmd.extend(["--ref-audio", ref_audio_path])
-        else:
-            voice_path = self._find_voice(voice_name)
-            if voice_path:
-                cmd.extend(["--voice", voice_path])
+            if ref_audio_path:
+                cmd.extend(["--ref-audio", ref_audio_path])
+            else:
+                voice_path = self._find_voice(voice_name)
+                if voice_path:
+                    cmd.extend(["--voice", voice_path])
 
-        logger.info("vibevoice.cpp TTS: text=%r voice=%s", text[:60], voice_name)
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+            logger.info("vibevoice.cpp TTS: text=%r voice=%s", text[:60], voice_name)
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
 
-        if result.returncode != 0:
-            raise RuntimeError(f"vibevoice-cli tts failed: {result.stderr}")
+            if result.returncode != 0:
+                raise RuntimeError(f"vibevoice-cli tts failed: {result.stderr}")
 
-        data = Path(out_path).read_bytes()
-        Path(out_path).unlink(missing_ok=True)
-        return data
+            return Path(out_path).read_bytes()
+        finally:
+            Path(out_path).unlink(missing_ok=True)
 
     def _run_asr(self, audio_bytes: bytes, language: str | None = None) -> dict:
         with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
             tmp.write(audio_bytes)
             audio_path = tmp.name
 
-        cmd = [
-            VV_BIN, "asr",
-            "--model", self.asr_model,
-            "--tokenizer", self.tokenizer,
-            "--audio", audio_path,
-            "--max-new-tokens", "8192",
-        ]
-
-        logger.info("vibevoice.cpp ASR: audio=%d bytes", len(audio_bytes))
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
-
-        Path(audio_path).unlink(missing_ok=True)
-
-        if result.returncode != 0:
-            raise RuntimeError(f"vibevoice-cli asr failed: {result.stderr}")
-
-        # Parse JSON output: [{"Start":0.0,"End":2.8,"Speaker":0,"Content":"..."}]
-        output = result.stdout.strip()
-        # The CLI prints timing info to stderr, JSON to stdout
-        # Find the JSON array in stdout
-        if not output.startswith("["):
-            for line in output.split("\n"):
-                line = line.strip()
-                if line.startswith("["):
-                    output = line
-                    break
-
         try:
-            segments = json.loads(output)
-        except json.JSONDecodeError:
-            segments = [{"text": output, "speaker": 0}]
+            cmd = [
+                VV_BIN, "asr",
+                "--model", self.asr_model,
+                "--tokenizer", self.tokenizer,
+                "--audio", audio_path,
+                "--max-new-tokens", "8192",
+            ]
 
-        text = " ".join(s.get("Content", s.get("text", "")) for s in segments)
-        return {
-            "text": text,
-            "language": language or "auto",
-            "segments": segments,
-        }
+            logger.info("vibevoice.cpp ASR: audio=%d bytes", len(audio_bytes))
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+
+            if result.returncode != 0:
+                raise RuntimeError(f"vibevoice-cli asr failed: {result.stderr}")
+
+            # Parse JSON output: [{"Start":0.0,"End":2.8,"Speaker":0,"Content":"..."}]
+            output = result.stdout.strip()
+            if not output.startswith("["):
+                for line in output.split("\n"):
+                    line = line.strip()
+                    if line.startswith("["):
+                        output = line
+                        break
+
+            try:
+                segments = json.loads(output)
+            except json.JSONDecodeError:
+                segments = [{"text": output, "speaker": 0}]
+
+            text = " ".join(s.get("Content", s.get("text", "")) for s in segments)
+            return {
+                "text": text,
+                "language": language or "auto",
+                "segments": segments,
+            }
+        finally:
+            Path(audio_path).unlink(missing_ok=True)
 
     async def __call__(self, request):
         """TNAP endpoint: TTS if text provided, ASR if audio_b64 provided."""

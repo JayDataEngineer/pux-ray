@@ -35,6 +35,22 @@ LOAD_KWARGS = {
 }
 
 
+class _InnerRequest:
+    """Lightweight request wrapper for forwarding to inner services."""
+
+    def __init__(self, data: dict, path: str = "/forge"):
+        self._data = data
+        self.method = "POST"
+        self.url = type("U", (), {"path": path, "query": ""})()
+        self.headers = {"content-type": "application/json"}
+
+    async def json(self):
+        return self._data
+
+    async def body(self):
+        return json.dumps(self._data).encode()
+
+
 @serve.deployment(
     name="master_router",
     num_replicas=1,
@@ -145,21 +161,7 @@ class MasterRouter:
         svc = self._services[service]
 
         inner_body = {k: v for k, v in body.items() if k != "service"}
-
-        class _InnerRequest:
-            def __init__(self, data):
-                self._data = data
-                self.method = "POST"
-                self.url = type("U", (), {"path": f"/{service}", "query": ""})()
-                self.headers = {"content-type": "application/json"}
-
-            async def json(self):
-                return self._data
-
-            async def body(self):
-                return json.dumps(self._data).encode()
-
-        inner_req = _InnerRequest(inner_body)
+        inner_req = _InnerRequest(inner_body, path=f"/{service}")
         return await svc(inner_req)
 
 

@@ -137,8 +137,6 @@ def start_service(svc: Service) -> bool:
         logger.error("Unknown service type: %s", svc.type)
         return False
 
-    return False
-
 
 def stop_service(svc: Service) -> bool:
     """Stop a service. Returns True if stopped successfully."""
@@ -149,8 +147,6 @@ def stop_service(svc: Service) -> bool:
     else:
         logger.error("Unknown service type: %s", svc.type)
         return False
-
-    return False
 
 
 def get_status(svc: Service) -> HealthResult:
