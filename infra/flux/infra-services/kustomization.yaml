@@ -14,3 +14,4 @@ resources:
   - infisical.yaml
   - langfuse.yaml
   - overflow-gateway.yaml
+  - alerting.yaml

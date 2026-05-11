@@ -1,21 +1,21 @@
 """GPU Governor — VRAM lease manager for single-node RTX 4090.
 
-Replaces the old GPUScheduler and MasterRouter with a proactive eviction
-model. Every heavy GPU service requests a lease before loading. If VRAM is
-tight, the Governor evicts the current holder BEFORE the new service loads,
-eliminating the OOM window.
+Coordination model:
+  - The Master Router (services/creative/master_router.py) claims num_gpus: 1.0
+    and performs explicit _load/_unload for heavy services (trellis, ace_step,
+    comfyui, hy_motion, moss_soundeffect, anigen, see_through, llm).
+    It manages GPU state independently — the Governor cannot directly evict
+    models loaded inside the Master Router.
+  - The Governor manages lightweight GPU services that use fractional GPU
+    claims (faster_qwen3_tts, index_tts, vibevoice_cpp_gpu).
+  - The API Ingress calls governor.acquire() for any service with needs_gpu=True.
+    For heavy services, acquire() records the lease but eviction is best-effort
+    (heavy services live inside master_router, not standalone deployments).
 
-Lightweight services (faster_qwen3_tts, index_tts, vibevoice_cpp_gpu, vibevoice_cpp_cpu) coexist
-without leases — they're small enough to share. Only heavy hitters (trellis,
-ace_step, moss_soundeffect, anigen, see_through, comfyui, hy_motion, llm)
-coordinate through the Governor.
-
-Usage in a deployment::
-
-    governor = ray.get_actor("gpu_governor")
-    await governor.acquire.remote("trellis", 8192)
-    # ... load model ...
-    await governor.release.remote("trellis")
+HEAVY_SERVICES here provides VRAM estimates for logging. It does NOT need to
+match MasterRouter's HEAVY_SERVICES exactly — the router's set includes
+Tier 2 services (vibevoice_microsoft, vibevoice_community_tts, phi4mm) that
+are not yet deployed.
 """
 
 from __future__ import annotations
@@ -101,6 +101,17 @@ class GPUGovernor:
     async def _evict(self, service: str) -> None:
         """Tell a service to unload and wait for confirmation."""
         from ray import serve
+
+        # Heavy services live inside master_router — unload through it
+        if service in HEAVY_SERVICES:
+            try:
+                router = serve.get_deployment_handle("master_router", app_name="forge")
+                await router.unload_service.remote(service)
+                logger.info("Governor: evicted %s via master_router", service)
+            except Exception as e:
+                logger.warning("Governor: failed to evict %s via master_router: %s", service, e)
+            self._holder = None
+            return
 
         logger.info("Governor: evicting %s — getting deployment handle", service)
         try:

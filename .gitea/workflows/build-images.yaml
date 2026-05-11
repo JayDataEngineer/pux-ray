@@ -44,9 +44,12 @@ jobs:
       - name: Build gpu-all
         run: |
           docker build -f infra/docker/Dockerfile.gpu-all \
-            -t ${REGISTRY}/gpu-all:latest .
+            -t ${REGISTRY}/gpu-all:latest \
+            -t ${REGISTRY}/gpu-all:${{ github.sha }} .
       - name: Push gpu-all
-        run: docker push ${REGISTRY}/gpu-all:latest
+        run: |
+          docker push ${REGISTRY}/gpu-all:latest
+          docker push ${REGISTRY}/gpu-all:${{ github.sha }}
 
   build-model-sync:
     runs-on: docker-builder
@@ -84,6 +87,56 @@ jobs:
     runs-on: code-exec
     if: always() && (needs.build-gpu-all.result == 'success' || needs.build-model-sync.result == 'success' || needs.build-mcp.result == 'success')
     steps:
+      - name: Save current image as rollback target
+        run: |
+          CURRENT=$(kubectl get pod -n ai-services -l app.kubernetes.io/name=tech-noir-ray-head \
+            -o jsonpath='{.items[0].spec.containers[0].image}' 2>/dev/null || echo "")
+          if [ -n "$CURRENT" ]; then
+            docker pull "$CURRENT" 2>/dev/null || true
+            docker tag "$CURRENT" ${REGISTRY}/gpu-all:stable 2>/dev/null || true
+            docker push ${REGISTRY}/gpu-all:stable 2>/dev/null || true
+            echo "Rollback target saved: $CURRENT"
+          fi
+
       - name: Restart Ray head pod
         run: |
           kubectl delete pod -n ai-services -l app.kubernetes.io/name=tech-noir-ray-head
+
+      - name: Wait for head pod readiness
+        run: |
+          echo "Waiting 90s for head pod to start..."
+          sleep 90
+          for i in $(seq 1 12); do
+            READY=$(kubectl get pod -n ai-services -l app.kubernetes.io/name=tech-noir-ray-head \
+              -o jsonpath='{.items[0].status.containerStatuses[0].ready}' 2>/dev/null || echo "false")
+            if [ "$READY" = "true" ]; then
+              echo "Head pod is ready."
+              exit 0
+            fi
+            echo "Not ready yet, waiting 10s... (attempt $i/12)"
+            sleep 10
+          done
+          echo "ERROR: Head pod did not become ready in time"
+          exit 1
+
+      - name: Health check
+        run: |
+          for i in $(seq 1 6); do
+            if curl -sf http://tech-noir-ray-serve-svc.ai-services.svc.cluster.local:8000/health > /dev/null 2>&1; then
+              echo "Health check passed."
+              exit 0
+            fi
+            echo "Health check failed, retrying in 10s... (attempt $i/6)"
+            sleep 10
+          done
+          echo "ERROR: Health check failed after deploy"
+          exit 1
+
+      - name: Rollback on failure
+        if: failure()
+        run: |
+          echo "Rolling back to stable image..."
+          kubectl patch rayservice tech-noir-ray -n ai-services --type merge -p \
+            '{"spec":{"rayClusterConfig":{"headGroupSpec":{"template":{"spec":{"containers":[{"name":"ray-head","image":"'${REGISTRY}/gpu-all:stable'"}]}}}}}}'
+          kubectl delete pod -n ai-services -l app.kubernetes.io/name=tech-noir-ray-head
+          echo "Rollback initiated. Check status manually."

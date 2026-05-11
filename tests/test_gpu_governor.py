@@ -82,6 +82,34 @@ class TestGPUGovernor:
         assert result["evicted"] == "trellis"
         assert gov._holder == "ace_step"
 
+    def test_evict_heavy_service_routes_to_master_router(self):
+        gov = _make_governor()
+        asyncio.get_event_loop().run_until_complete(gov.acquire("trellis"))
+
+        with patch("ray.serve") as mock_serve:
+            mock_router = AsyncMock()
+            mock_serve.get_deployment_handle.return_value = mock_router
+
+            asyncio.get_event_loop().run_until_complete(gov.acquire("ace_step"))
+
+        # Heavy services should route through master_router, not the service name
+        mock_serve.get_deployment_handle.assert_called_with("master_router", app_name="forge")
+        mock_router.unload_service.remote.assert_called_with("trellis")
+
+    def test_evict_non_heavy_service_uses_deployment_handle(self):
+        gov = _make_governor()
+        gov._holder = "some_lightweight_svc"
+
+        with patch("ray.serve") as mock_serve:
+            mock_handle = AsyncMock()
+            mock_serve.get_deployment_handle.return_value = mock_handle
+
+            asyncio.get_event_loop().run_until_complete(gov.acquire("trellis"))
+
+        # Non-heavy services use the deployment handle directly
+        mock_serve.get_deployment_handle.assert_called_with("some_lightweight_svc", app_name="some_lightweight_svc")
+        mock_handle.unload_model.remote.assert_called()
+
     def test_release_clears_holder(self):
         gov = _make_governor()
         asyncio.get_event_loop().run_until_complete(gov.acquire("trellis"))
