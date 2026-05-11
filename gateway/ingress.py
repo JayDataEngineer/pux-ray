@@ -114,6 +114,22 @@ class APIIngress:
 
     # ── OpenAI-compatible routes ───────────────────────────────────────────────
 
+    async def list_models(self, request: Request) -> Response:
+        """GET /v1/models — OpenAI-compatible model list."""
+        from registry.models import ModelRegistry
+        registry = ModelRegistry()
+        llm_models = registry.list_models("llm").get("llm", {})
+        models = []
+        for name, meta in llm_models.items():
+            if "dflash-draft" in name:
+                continue
+            models.append({
+                "id": name,
+                "object": "model",
+                "owned_by": "tech-noir",
+            })
+        return JSONResponse({"object": "list", "data": models})
+
     async def chat_completions(self, request: Request) -> Response:
         body = await request.json()
 
@@ -294,6 +310,7 @@ def create_app() -> Starlette:
         # Generic TNAP generate (covers all services)
         Route("/v1/{service}/generate", ingress.tnap_generate, methods=["POST"]),
         # OpenAI-compatible endpoints (keep for standard clients)
+        Route("/v1/models", ingress.list_models),
         Route("/v1/chat/completions", ingress.chat_completions, methods=["POST"]),
         Route("/v1/llm/configure", ingress.llm_configure, methods=["POST"]),
         Route("/v1/audio/speech", ingress.audio_speech, methods=["POST"]),
