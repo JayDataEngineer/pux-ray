@@ -102,3 +102,4 @@ class TestConfigSingleton:
         Config().reload()
         Config._instance._data = {"models_root": "/custom/models"}
         assert Config().models_root == "/custom/models"
+        Config().reload()

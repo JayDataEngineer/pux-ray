@@ -132,11 +132,15 @@ class TestPathResolution:
                 if not isinstance(meta, dict):
                     continue
                 path = registry.get_path(cat, name)
-                # Paths should be under models_root (or absolute external paths)
                 raw = meta.get("path", "")
+                # Absolute paths from config may point outside models_root
+                # (e.g. local dev machine vs container). Only check relative paths.
                 if not Path(raw).is_absolute():
                     assert str(path).startswith(str(models_root)), \
                         f"{cat}/{name}: path {path} not under {models_root}"
+                else:
+                    # Absolute paths should still exist or be resolvable
+                    assert str(path) == raw, f"{cat}/{name}: absolute path mismatch"
 
 
 class TestCLICommands:

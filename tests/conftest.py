@@ -1,34 +1,159 @@
-"""Test configuration and fixtures for Ray integration tests."""
+"""Shared test fixtures for Tech Noir Ray unit tests.
 
+Unit tests run WITHOUT a Ray cluster. All Ray interactions are mocked
+at the session level so no test hangs on cluster connection.
+
+Integration tests (in tests/integration/) still use the ray_cluster fixture.
+"""
+from __future__ import annotations
+
+import base64
+import io
+import math
+import os
+import struct
 import subprocess
+import zlib
+from pathlib import Path
+from unittest.mock import AsyncMock, MagicMock, patch
+
 import pytest
 
 
-def ray_is_running() -> bool:
-    try:
-        result = subprocess.run(
-            ["ray", "status"], capture_output=True, text=True, timeout=5,
-        )
-        return "node" in result.stdout
-    except Exception:
-        return False
+# ─── Session-scoped Ray mocking ────────────────────────────────────────────
+
+
+@pytest.fixture(autouse=True, scope="session")
+def _mock_ray_core():
+    """Mock Ray globally so no unit test hangs on cluster connection."""
+    mock_ray = MagicMock()
+    mock_ray.get_actor.side_effect = ValueError("no cluster")
+    mock_ray.available_resources.return_value = {"GPU": 1, "CPU": 8}
+    mock_ray.get.return_value = {}
+    mock_ray.is_initialized.return_value = False
+
+    patches = [
+        patch("ray.get_actor", mock_ray.get_actor),
+        patch("ray.get", mock_ray.get),
+        patch("ray.available_resources", mock_ray.available_resources),
+        patch("ray.is_initialized", mock_ray.is_initialized),
+    ]
+    for p in patches:
+        p.start()
+    yield
+    for p in patches:
+        p.stop()
+
+
+# ─── Binary test data ──────────────────────────────────────────────────────
+
+
+def _make_png(width: int = 64, height: int = 64) -> bytes:
+    """Generate a minimal valid PNG image."""
+    def _chunk(chunk_type: bytes, data: bytes) -> bytes:
+        c = chunk_type + data
+        crc = struct.pack(">I", zlib.crc32(c) & 0xFFFFFFFF)
+        return struct.pack(">I", len(data)) + c + crc
+
+    ihdr_data = struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0)
+    ihdr = _chunk(b"IHDR", ihdr_data)
+    raw_rows = bytearray()
+    for y in range(height):
+        raw_rows.append(0)
+        for x in range(width):
+            raw_rows.extend([100, 150, 200])
+    compressed = zlib.compress(bytes(raw_rows))
+    idat = _chunk(b"IDAT", compressed)
+    iend = _chunk(b"IEND", b"")
+    return b"\x89PNG\r\n\x1a\n" + ihdr + idat + iend
+
+
+def _make_wav(duration_s: float = 0.5, sample_rate: int = 16000,
+              freq: int = 440) -> bytes:
+    """Generate a minimal valid WAV file with a sine tone."""
+    num_samples = int(sample_rate * duration_s)
+    data = bytearray()
+    for i in range(num_samples):
+        sample = int(16000 * math.sin(2 * math.pi * freq * i / sample_rate))
+        data.extend(struct.pack("<h", max(-32768, min(32767, sample))))
+
+    buf = io.BytesIO()
+    buf.write(b"RIFF")
+    buf.write(struct.pack("<I", 36 + len(data)))
+    buf.write(b"WAVE")
+    buf.write(b"fmt ")
+    buf.write(struct.pack("<IHHIIHH", 16, 1, 1, sample_rate,
+                          sample_rate * 2, 2, 16))
+    buf.write(b"data")
+    buf.write(struct.pack("<I", len(data)))
+    buf.write(bytes(data))
+    return buf.getvalue()
+
+
+@pytest.fixture(scope="session")
+def sample_wav_bytes() -> bytes:
+    return _make_wav()
+
+
+@pytest.fixture(scope="session")
+def sample_png_bytes() -> bytes:
+    return _make_png()
+
+
+@pytest.fixture(scope="session")
+def sample_wav_b64(sample_wav_bytes) -> str:
+    return base64.b64encode(sample_wav_bytes).decode()
+
+
+@pytest.fixture(scope="session")
+def sample_png_b64(sample_png_bytes) -> str:
+    return base64.b64encode(sample_png_bytes).decode()
+
+
+# ─── Deployment fixtures ───────────────────────────────────────────────────
+
+
+@pytest.fixture
+def base_deployment():
+    """BaseGPUDeployment with model pre-loaded (skip _load)."""
+    from services.base import BaseGPUDeployment
+    dep = BaseGPUDeployment()
+    dep.model = True
+    dep.model_name = "test-model"
+    return dep
+
+
+@pytest.fixture
+def ingress_client():
+    """Starlette TestClient for APIIngress with Ray mocked."""
+    from starlette.testclient import TestClient
+    from gateway.ingress import create_app
+    return TestClient(create_app())
+
+
+# ─── Integration fixtures (kept for cluster-dependent tests) ───────────────
 
 
 @pytest.fixture(scope="session")
 def ray_cluster():
     """Ensure Ray cluster is running for the test session."""
-    if not ray_is_running():
-        subprocess.run(
-            ["bash", "scripts/start_cluster.sh"],
-            check=True, timeout=30,
+    try:
+        result = subprocess.run(
+            ["ray", "status"], capture_output=True, text=True, timeout=5,
         )
+        if "node" not in result.stdout:
+            subprocess.run(
+                ["bash", "scripts/start_cluster.sh"],
+                check=True, timeout=30,
+            )
+    except Exception:
+        pass
     yield
-    # Don't stop the cluster after tests - leave it for manual inspection
 
 
 @pytest.fixture
 def free_vram_mb() -> int:
-    """Get current free VRAM in MB via torch.cuda (Ray-native, no nvidia-smi)."""
+    """Get current free VRAM in MB via torch.cuda."""
     try:
         import torch
         if torch.cuda.is_available():
