@@ -83,6 +83,8 @@ class APIIngressDeployment:
             return await self._ingress.tnap_generate(wrapped)
 
         # OpenAI-compatible
+        if path == "/v1/models" and method == "GET":
+            return await self._ingress.list_models(request)
         if path == "/v1/chat/completions" and method == "POST":
             return await self._ingress.chat_completions(request)
         if path == "/v1/llm/configure" and method == "POST":
