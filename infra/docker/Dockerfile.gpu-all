@@ -1,36 +1,76 @@
 # Tech Noir Unified GPU Worker — ALL services in ONE image.
-# Golden base (Python 3.12 + CUDA 12.4 + torch 2.6.0 + ray + nvdiffrast + flash-attn).
+# NGC PyTorch 26.01 (CUDA 13.1.1 + PyTorch 2.10.0a0 + cuDNN + NCCL + TensorRT).
 # Every GPU service (TTS, ASR, 3D, music, vision, creative, image) lives here.
-# Ray Serve handles fractional GPU scheduling within the same pod — no k8s delays.
 #
 # Build:
-#   docker build -f infra/docker/Dockerfile.gpu-all -t 100.86.69.57:30500/tech-noir/gpu-all:latest .
-#   docker push 100.86.69.57:30500/tech-noir/gpu-all:latest
+#   docker bake gpu-all --push
 
-# ── Stage 1: Build BeeLlama.cpp with CUDA (needs nvidia/cuda:devel for driver API) ──
+# ── Stage 1a: Build BeeLlama.cpp with CUDA 13.1 ────────────────────────
 # BeeLlama.cpp = llama.cpp fork with DFlash speculative decoding, TurboQuant/TCQ KV cache,
 # adaptive draft-max, and reasoning-loop protection.
-FROM nvidia/cuda:12.4.1-devel-ubuntu22.04 AS llama-builder
+FROM nvidia/cuda:13.1.1-devel-ubuntu24.04 AS beellama-builder
 RUN apt-get update && apt-get install -y --no-install-recommends git cmake build-essential && rm -rf /var/lib/apt/lists/*
-RUN git clone --depth 1 https://github.com/Anbeeld/beellama.cpp.git /tmp/llama.cpp && \
-    cd /tmp/llama.cpp && \
+RUN git clone --depth 1 https://github.com/Anbeeld/beellama.cpp.git /tmp/beellama && \
+    cd /tmp/beellama && \
     cmake -B build -DGGML_CUDA=ON -DGGML_NATIVE=ON \
         -DGGML_CUDA_FA=ON -DGGML_CUDA_FA_ALL_QUANTS=ON \
         -DLLAMA_CURL=OFF -DLLAMA_BUILD_EXAMPLES=OFF \
         -DCMAKE_CUDA_ARCHITECTURES=89 \
         -DCMAKE_CXX_STANDARD_LIBRARIES="-lcuda" \
-        -DCMAKE_EXE_LINKER_FLAGS="-L/usr/local/cuda-12.4/targets/x86_64-linux/lib/stubs -lcuda" \
-        -DCMAKE_SHARED_LINKER_FLAGS="-L/usr/local/cuda-12.4/targets/x86_64-linux/lib/stubs -lcuda" && \
+        -DCMAKE_EXE_LINKER_FLAGS="-L/usr/local/cuda/lib64/stubs -lcuda" \
+        -DCMAKE_SHARED_LINKER_FLAGS="-L/usr/local/cuda/lib64/stubs -lcuda" && \
     cmake --build build -j$(nproc) --target llama-server llama-cli
 
-# ── Stage 2: Main image ─────────────────────────────────────────────────────────
-FROM tech-noir/ray-base:latest
+# ── Stage 1b: Build upstream llama.cpp with CUDA 13.1 ──────────────────
+# Stable upstream release, no DFlash. Installed as ``llama-server-upstream``
+# so both binaries coexist in the final image.
+FROM nvidia/cuda:13.1.1-devel-ubuntu24.04 AS upstream-builder
+RUN apt-get update && apt-get install -y --no-install-recommends git cmake build-essential && rm -rf /var/lib/apt/lists/*
+RUN git clone --depth 1 https://github.com/ggml-org/llama.cpp.git /tmp/upstream && \
+    cd /tmp/upstream && \
+    cmake -B build -DGGML_CUDA=ON -DGGML_NATIVE=ON \
+        -DGGML_CUDA_FA=ON \
+        -DLLAMA_CURL=OFF -DLLAMA_BUILD_EXAMPLES=OFF \
+        -DBUILD_SHARED_LIBS=OFF \
+        -DCMAKE_CUDA_ARCHITECTURES=89 \
+        -DCMAKE_EXE_LINKER_FLAGS="-L/usr/local/cuda/lib64/stubs -lcuda" && \
+    cmake --build build -j$(nproc) --target llama-server
+
+# ── Stage 2: Main image (NGC PyTorch 26.01) ──────────────────────────────
+FROM nvcr.io/nvidia/pytorch:26.01-py3
+
+# ── uv (must be before any uv pip install) ───────────────────────────────
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
+ENV UV_SYSTEM_PYTHON=1 UV_BREAK_SYSTEM_PACKAGES=1 UV_PRERELEASE=allow
 
 ENV DEBIAN_FRONTEND=noninteractive PYTHONUNBUFFERED=1 \
     LANG=C.UTF-8 \
     CUDA_HOME=/usr/local/cuda \
     TORCH_CUDA_ARCH_LIST="8.9" \
-    MAX_JOBS=2
+    MAX_JOBS=20
+
+# Remove only conflicting entries from NGC pip constraints.
+# Keep torch/torchaudio/torchvision pinned to NGC versions — PyPI versions break ABI.
+RUN sed -i '/^transformers==/d; /^tokenizers==/d' /etc/pip/constraint.txt
+ENV UV_CONSTRAINT=/etc/pip/constraint.txt
+
+# Pin NGC torchvision in constraints to prevent PyPI overwrite
+RUN TORCHVISION_VER=$(python3 -c "import torchvision; print(torchvision.__version__)") && \
+    echo "torchvision==${TORCHVISION_VER}" >> /etc/pip/constraint.txt
+
+# Build torchaudio from source against NGC torch (NGC 26.01 doesn't ship it;
+# PyPI torchaudio is ABI-incompatible due to custom NGC torch symbols like
+# torch_dtype_float4_e2m1fn_x2)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    sox libsox-dev libsox-fmt-all && rm -rf /var/lib/apt/lists/*
+RUN --mount=type=cache,target=/root/.cache/uv \
+    git clone --depth 1 --branch v2.9.1 https://github.com/pytorch/audio.git /tmp/torchaudio && \
+    cd /tmp/torchaudio && \
+    uv pip install --no-build-isolation --no-deps . && \
+    rm -rf /tmp/torchaudio
+# ── Ray (must install before CUDA extensions so they link to NGC torch) ──
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv pip install "ray[serve]==2.55.1"
 
 # ── System packages (union of all service needs) ────────────────────────
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -39,6 +79,58 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libjpeg-dev libspatialindex-dev libsndfile1 \
     ffmpeg mecab libmecab-dev espeak-ng \
     && rm -rf /var/lib/apt/lists/*
+
+# ── Build tools ──────────────────────────────────────────────────────────
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv pip install wheel ninja packaging
+
+# ── Flash attention ──────────────────────────────────────────────────────
+# NGC PyTorch has SDPA flash attention built in, but some services import
+# the flash_attn module directly. Install vllm-flash-attn for the Python API.
+# If ABI-incompatible with NGC's torch, services/compat.py provides a fallback shim.
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv pip install --no-deps vllm-flash-attn || true
+
+# ── CUDA extensions (source builds — torch ABI changed from 2.6 → 2.10) ─
+
+# nvdiffrast (CUDA rasterizer, ~10min)
+RUN git clone --depth 1 https://github.com/NVlabs/nvdiffrast.git /tmp/nvdiffrast && \
+    cd /tmp/nvdiffrast && \
+    uv pip install . --no-build-isolation && \
+    rm -rf /tmp/nvdiffrast
+
+# TRELLIS.2 CUDA dependencies — CuMesh, FlexGEMM, o-voxel
+RUN git clone --depth 1 --recursive https://github.com/JeffreyXiang/CuMesh.git /tmp/cumesh && \
+    cd /tmp/cumesh && \
+    uv pip install . --no-build-isolation && \
+    rm -rf /tmp/cumesh
+
+RUN git clone --depth 1 --recursive https://github.com/JeffreyXiang/FlexGEMM.git /tmp/flexgemm && \
+    cd /tmp/flexgemm && \
+    uv pip install . --no-build-isolation && \
+    rm -rf /tmp/flexgemm
+
+COPY vendor/o-voxel/ /tmp/o-voxel/
+RUN cd /tmp/o-voxel && \
+    uv pip install . --no-build-isolation && \
+    rm -rf /tmp/o-voxel
+
+# nvdiffrec (PBR rendering for TRELLIS)
+RUN git clone -b renderutils --depth 1 \
+        https://github.com/JeffreyXiang/nvdiffrec.git /tmp/extensions/nvdiffrec && \
+    uv pip install /tmp/extensions/nvdiffrec --no-build-isolation && \
+    rm -rf /tmp/extensions/nvdiffrec
+
+# pytorch3d (for AniGen)
+RUN --mount=type=cache,target=/root/.cache/uv \
+    git clone --depth 1 https://github.com/facebookresearch/pytorch3d.git /tmp/pytorch3d && \
+    cd /tmp/pytorch3d && \
+    uv pip install --no-build-isolation . && \
+    rm -rf /tmp/pytorch3d
+
+# spconv (no cu131 pre-built wheel, build from source)
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv pip install spconv --no-build-isolation
 
 # ── Clone git repos (for services that need full repo structure) ──────
 WORKDIR /opt
@@ -71,10 +163,11 @@ RUN git clone --recursive --depth 1 https://github.com/localai-org/vibevoice.cpp
     ldconfig && \
     rm -rf /tmp/vv-cpp
 
-# llama.cpp — copy from builder stage (compiled with CUDA in nvidia/cuda:devel)
-COPY --from=llama-builder /tmp/llama.cpp/build/bin/llama-server /usr/local/bin/
-COPY --from=llama-builder /tmp/llama.cpp/build/bin/llama-cli /usr/local/bin/
-COPY --from=llama-builder /tmp/llama.cpp/build/bin/lib* /usr/local/lib/
+# llama.cpp — copy both binaries from their builder stages
+COPY --from=beellama-builder /tmp/beellama/build/bin/llama-server /usr/local/bin/llama-server
+COPY --from=beellama-builder /tmp/beellama/build/bin/llama-cli /usr/local/bin/llama-cli
+COPY --from=beellama-builder /tmp/beellama/build/bin/lib* /usr/local/lib/
+COPY --from=upstream-builder /tmp/upstream/build/bin/llama-server /usr/local/bin/llama-server-upstream
 RUN ldconfig
 
 # ── Stripped vendor code (COPY from vendor/, no git clone) ─────────────
@@ -97,32 +190,9 @@ RUN git clone https://github.com/EasternJournalist/utils3d.git /opt/utils3d && \
     cd /opt/utils3d && \
     git checkout 9a4eb15e4021b67b12c460c7057d642626897ec8
 
-# ── Compiled extensions ─────────────────────────────────────────────────
-
-# nvdiffrec (PBR rendering for TRELLIS)
-RUN git clone -b renderutils --depth 1 \
-        https://github.com/JeffreyXiang/nvdiffrec.git /tmp/extensions/nvdiffrec && \
-    uv pip install /tmp/extensions/nvdiffrec --no-build-isolation && \
-    rm -rf /tmp/extensions/nvdiffrec
-
-# pytorch3d (for AniGen)
-RUN --mount=type=cache,target=/root/.cache/uv \
-    git clone --depth 1 https://github.com/facebookresearch/pytorch3d.git /tmp/pytorch3d && \
-    cd /tmp/pytorch3d && \
-    uv pip install --no-build-isolation . && \
-    rm -rf /tmp/pytorch3d
-
-# spconv (for AniGen)
-RUN --mount=type=cache,target=/root/.cache/uv \
-    uv pip install spconv --no-build-isolation
-
-# TRELLIS CUDA extensions are pre-built in ray-base:
-# - FlexGEMM, CuMesh, o-voxel (installed in base image)
-# gpu-all only patches flex_gemm for triton 3.x at runtime (patch_conv_flex_gemm.py)
-
 # ── Python packages — ALL services ──────────────────────────────────────
 
-# Core ML (overlap with base but pin versions)
+# Core ML
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv pip install \
     transformers==4.57.3 diffusers safetensors peft \
@@ -233,19 +303,28 @@ COPY infra/k8s/serve_build.py /app/serve_build.py
 
 WORKDIR /app
 
-# ── Final fixes ─────────────────────────────────────────────────────────
-# Pin transformers to 4.57.3 (ComfyUI deps may upgrade to 5.x, but
-# many services need 4.x APIs; qwen-tts needs >=4.53 for masking_utils).
+# ── Final version pins ───────────────────────────────────────────────────
+# Pin transformers (ComfyUI deps may upgrade to 5.x, but many services need 4.x)
 RUN uv pip install \
     "protobuf>=6,<7" \
-    torch==2.6.0 torchvision==0.21.0 torchaudio==2.6.0 \
     transformers==4.57.3 tokenizers==0.22.2
+
+# ── spconv pre-warm (bakes JIT kernel cache into image, avoids 10+ min cold start) ──
+RUN python3 -c "import spconv; print(f'spconv {spconv.__version__} pre-warmed')" || \
+    echo "spconv pre-warm skipped (needs GPU at runtime)"
 
 # ── Env defaults (overridden per-deployment) ────────────────────────────
 ENV PYTHONPATH=/app:/opt/utils3d:/opt/hymotion:/opt/anigen:/opt/seethrough:/opt/vendor \
     HF_HOME=/tmp/huggingface \
     HF_HUB_CACHE=/tmp/huggingface \
     ATTN_BACKEND=flash_attn
+
+# ── Reinstall torchaudio from source (pip deps may overwrite with PyPI version) ──
+RUN --mount=type=cache,target=/root/.cache/uv \
+    git clone --depth 1 --branch v2.9.1 https://github.com/pytorch/audio.git /tmp/torchaudio && \
+    cd /tmp/torchaudio && \
+    uv pip install --no-build-isolation --no-deps --force-reinstall . && \
+    rm -rf /tmp/torchaudio
 
 # ── Verify ──────────────────────────────────────────────────────────────
 RUN python3 -c "import torch; print(f'torch {torch.__version__}, CUDA {torch.cuda.is_available()}')" && \
@@ -254,8 +333,6 @@ RUN python3 -c "import torch; print(f'torch {torch.__version__}, CUDA {torch.cud
     python3 -c "import transformers; print(f'transformers {transformers.__version__}')" && \
     python3 -c "import google.protobuf; print(f'protobuf {google.protobuf.__version__}')" && \
     python3 -c "import nvdiffrast; print('nvdiffrast OK')" && \
-    python3 -c "import vllm_flash_attn; print('vllm_flash_attn OK')" && \
     python3 -c "import pytorch3d; print('pytorch3d OK')" && \
     python3 -c "import trellis2; print('trellis2 OK')" && \
-    echo "o_voxel/flex_gemm skipped (needs GPU at runtime)" && \
     echo "gpu-all image verification passed"
