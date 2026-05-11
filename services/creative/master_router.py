@@ -33,7 +33,7 @@ HEAVY_SERVICES = {"trellis", "ace_step", "comfyui", "hy_motion", "moss_soundeffe
 
 # Default _load() arguments for services that need them.
 LOAD_KWARGS = {
-    "llm": {"model_name": "qwen3.6-27b-q5_k_s"},
+    "llm": {"model_name": "qwen3.6-27b-q6_k-vision"},
 }
 
 
