@@ -62,16 +62,21 @@ class EspeakTTS(BaseGPUDeployment):
     ) -> bytes:
         """Synthesize speech via espeak-ng. Returns WAV bytes."""
         with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
+            out_path = tmp.name
+
+        try:
             cmd = [
                 self._espeak_bin,
                 "-v", voice,
                 "-s", str(speed),
                 "-p", str(pitch),
-                "-w", tmp.name,
+                "-w", out_path,
                 text,
             ]
             subprocess.run(cmd, capture_output=True, check=True)
-            return Path(tmp.name).read_bytes()
+            return Path(out_path).read_bytes()
+        finally:
+            Path(out_path).unlink(missing_ok=True)
 
     async def __call__(self, request):
         """TNAP endpoint: {action, input: {text, voice}, config}."""
