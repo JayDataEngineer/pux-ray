@@ -56,3 +56,4 @@ Thumbs.db
 
 # Lock file (optional - uncomment if you want to pin deps)
 # uv.lock
+llama-server-upstream
