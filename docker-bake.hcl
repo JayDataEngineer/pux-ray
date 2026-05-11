@@ -17,20 +17,13 @@ variable "REGISTRY" {
 }
 
 group "default" {
-  targets = ["ray-base", "gpu-all", "model-sync"]
-}
-
-target "ray-base" {
-  dockerfile = "infra/docker/Dockerfile.base"
-  context    = "."
-  tags       = ["${REGISTRY}/ray-base:latest"]
-  platforms  = ["linux/amd64"]
+  targets = ["gpu-all", "model-sync"]
 }
 
 target "gpu-all" {
   dockerfile = "infra/docker/Dockerfile.gpu-all"
   context    = "."
-  tags       = ["${REGISTRY}/gpu-all:latest"]
+  tags       = ["${REGISTRY}/gpu-all:latest", "${REGISTRY}/gpu-all:ngc-26.01"]
   platforms  = ["linux/amd64"]
 }
 

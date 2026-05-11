@@ -14,11 +14,26 @@ from ray import serve
 from starlette.requests import Request
 from starlette.responses import Response
 
-from gateway.ingress import APIIngress, _get_api_key, APIKeyMiddleware
+from gateway.ingress import APIIngress, _get_api_key
 from gateway.dashboard import (
     dashboard_page, dashboard_gpu_current, dashboard_gpu_history, dashboard_services,
 )
 from gateway.studio import studio_page, studio_apps, studio_switch, studio_release
+
+
+class _PathParamsRequest:
+    """Wraps a Request to override path_params (Starlette's is read-only)."""
+
+    def __init__(self, request: Request, path_params: dict):
+        self._request = request
+        self._path_params = path_params
+
+    @property
+    def path_params(self):
+        return self._path_params
+
+    def __getattr__(self, name):
+        return getattr(self._request, name)
 
 
 @serve.deployment(
@@ -56,17 +71,22 @@ class APIIngressDeployment:
         if path == "/v1/services" and method == "GET":
             return await self._ingress.list_services(request)
         if path.startswith("/v1/services/") and method == "GET":
-            request.path_params = {"service": path.split("/v1/services/")[1].rstrip("/")}
-            return await self._ingress.service_info(request)
+            wrapped = _PathParamsRequest(
+                request, {"service": path.split("/v1/services/")[1].rstrip("/")}
+            )
+            return await self._ingress.service_info(wrapped)
 
         # Generic TNAP generate
         if path.startswith("/v1/") and path.endswith("/generate") and method == "POST":
-            request.path_params = {"service": path.split("/v1/")[1].rstrip("/generate").rstrip("/")}
-            return await self._ingress.tnap_generate(request)
+            service = path.split("/v1/")[1].rstrip("/generate").rstrip("/")
+            wrapped = _PathParamsRequest(request, {"service": service})
+            return await self._ingress.tnap_generate(wrapped)
 
         # OpenAI-compatible
         if path == "/v1/chat/completions" and method == "POST":
             return await self._ingress.chat_completions(request)
+        if path == "/v1/llm/configure" and method == "POST":
+            return await self._ingress.llm_configure(request)
         if path == "/v1/audio/speech" and method == "POST":
             return await self._ingress.audio_speech(request)
         if path == "/v1/audio/transcriptions" and method == "POST":

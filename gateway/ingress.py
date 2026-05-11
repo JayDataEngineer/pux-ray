@@ -9,6 +9,7 @@ Empty/unset = no auth (dev mode).
 """
 from __future__ import annotations
 
+import json
 import logging
 from typing import Any
 
@@ -85,11 +86,28 @@ class APIIngress:
                 status_code=404,
             )
 
-        body = await request.json()
-        model = body.get("input", {}).get("model") or body.get("model")
-
         if entry.needs_gpu:
             await self._use_gpu(service_name)
+
+        # LLM lives inside master_router, not as a standalone deployment
+        if service_name == "llm":
+            body = await request.json()
+            forge_body = {"service": "llm", **body}
+
+            class _InnerRequest:
+                def __init__(self, data):
+                    self._data = data
+                    self.method = "POST"
+                    self.url = type("U", (), {"path": "/v1/llm/generate", "query": ""})()
+                    self.headers = {"content-type": "application/json"}
+                async def json(self):
+                    return self._data
+                async def body(self):
+                    return json.dumps(self._data).encode()
+
+            handle = serve.get_deployment_handle("master_router", "forge")
+            inner_req = _InnerRequest(forge_body)
+            return await handle.remote(inner_req)
 
         handle = serve.get_deployment_handle(entry.deployment, entry.app)
         return await handle.remote(request)
@@ -98,21 +116,55 @@ class APIIngress:
 
     async def chat_completions(self, request: Request) -> Response:
         body = await request.json()
-        model = body.get("model", "qwen3.6-27b-ud-q4_k_xl")
 
-        entry = get_service("llm")
-        if not model.endswith("-cpu") and entry:
-            await self._use_gpu("llm")
+        await self._use_gpu("llm")
 
-        handle = serve.get_deployment_handle(entry.deployment, entry.app)
-        result = await handle.remote(
-            messages=body.get("messages", []),
-            model=model,
-            stream=body.get("stream", False),
-            **{k: v for k, v in body.items()
-               if k not in ("model", "messages", "stream")},
-        )
-        return JSONResponse(result)
+        # LLM lives inside the master_router — wrap as forge request
+        forge_body = {"service": "llm", **body}
+
+        class _InnerRequest:
+            def __init__(self, data):
+                self._data = data
+                self.method = "POST"
+                self.url = type("U", (), {"path": "/v1/chat/completions", "query": ""})()
+                self.headers = {"content-type": "application/json"}
+            async def json(self):
+                return self._data
+            async def body(self):
+                return json.dumps(self._data).encode()
+
+        handle = serve.get_deployment_handle("master_router", "forge")
+        inner_req = _InnerRequest(forge_body)
+        return await handle.remote(inner_req)
+
+    async def llm_configure(self, request: Request) -> Response:
+        """POST /v1/llm/configure — set model, engine, startup flags, session defaults.
+
+        Routes through the forge master router (LLM is not a standalone
+        Ray Serve deployment — it lives inside the router).
+        """
+        body = await request.json()
+
+        # Acquire GPU lease — the LLM needs it
+        await self._use_gpu("llm")
+
+        # Wrap in forge format: {"service": "llm", "action": "configure", ...}
+        forge_body = {"service": "llm", "action": "configure", **body}
+
+        class _InnerRequest:
+            def __init__(self, data):
+                self._data = data
+                self.method = "POST"
+                self.url = type("U", (), {"path": "/forge", "query": ""})()
+                self.headers = {"content-type": "application/json"}
+            async def json(self):
+                return self._data
+            async def body(self):
+                return json.dumps(self._data).encode()
+
+        handle = serve.get_deployment_handle("master_router", "forge")
+        inner_req = _InnerRequest(forge_body)
+        return await handle.remote(inner_req)
 
     async def audio_speech(self, request: Request) -> Response:
         body = await request.json()
@@ -243,6 +295,7 @@ def create_app() -> Starlette:
         Route("/v1/{service}/generate", ingress.tnap_generate, methods=["POST"]),
         # OpenAI-compatible endpoints (keep for standard clients)
         Route("/v1/chat/completions", ingress.chat_completions, methods=["POST"]),
+        Route("/v1/llm/configure", ingress.llm_configure, methods=["POST"]),
         Route("/v1/audio/speech", ingress.audio_speech, methods=["POST"]),
         Route("/v1/audio/transcriptions", ingress.audio_transcriptions, methods=["POST"]),
         # ComfyUI (proxy all paths — ComfyUI has its own routing)

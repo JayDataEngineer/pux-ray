@@ -1,5 +1,6 @@
 llm:
   qwen3.6-27b-q6_k:
+    engine: beellama
     path: llm/Qwen3.6-27B-Q6_K.gguf
     source: hf://unsloth/Qwen3.6-27B-GGUF/Qwen3.6-27B-Q6_K.gguf
     download: file
@@ -23,13 +24,16 @@ llm:
     spec_draft_model: llm/dflash-draft-3.6-q4_k_m.gguf
     spec_draft_ngl: 99
     spec_dflash_cross_ctx: 512
+    spec_draft_n_max: 16
     flash_attn: true
     reasoning: true
     batch_size: 2048
     ubatch_size: 256
-    description: Qwen 3.6 27B Q6_K + BeeLlama DFlash + TurboQuant. DFlash speculative
-      decoding (Q4_K_M draft) for 2-3x speedup, turbo4/turbo3_tcq KV cache for 4-5x
-      compression (65K ctx in same VRAM as old 16K). Vision on DRAM via F32 mmproj.
+    no_host: true
+    no_spec_dm_adaptive: false
+    threads: 8
+    description: Qwen 3.6 27B Q6_K + BeeLlama DFlash + TurboQuant. Adaptive draft-max,
+      8 threads, no-host bypass.
   qwen3.6-27b-dflash-draft-q4km:
     path: llm/dflash-draft-3.6-q4_k_m.gguf
     source: hf://spiritbuun/Qwen3.6-27B-DFlash-GGUF/dflash-draft-3.6-q4_k_m.gguf
@@ -42,6 +46,7 @@ llm:
       speculative drafter used by BeeLlama.cpp. Q4 recommended over Q8 (author
       benchmarks show Q8 is net-negative for tok/s).
   qwen3.6-27b-q5_k_s:
+    engine: beellama
     path: llm/Qwen3.6-27B-Q5_K_S.gguf
     source: hf://unsloth/Qwen3.6-27B-GGUF/Qwen3.6-27B-Q5_K_S.gguf
     download: file
@@ -49,28 +54,33 @@ llm:
     size_gb: 18.0
     vram_estimate_gb: 19.5
     device: gpu
-    ctx_size: 32768
+    ctx_size: 200000
     parallel: 1
     n_gpu_layers: 99
     mmproj_n_gpu_layers: 0
-    cache_type_k: turbo4
-    cache_type_v: turbo3_tcq
     temp: 0.6
     top_p: 0.95
     top_k: 20
     min_p: 0.0
     presence_penalty: 0.0
     mmproj_path: vision/mmproj-F32.gguf
+    cache_type_k: turbo4
+    cache_type_v: turbo3_tcq
     spec_type: dflash
     spec_draft_model: llm/dflash-draft-3.6-q4_k_m.gguf
     spec_draft_ngl: 99
     spec_dflash_cross_ctx: 1024
+    spec_draft_n_max: 16
     flash_attn: true
     reasoning: true
     batch_size: 2048
     ubatch_size: 256
-    description: "Qwen 3.6 27B Q5_K_S + BeeLlama DFlash + TurboQuant. ctx_size=32K fits 24GB VRAM (18GB model + 2GB KV cache + 1GB draft = ~21GB). Vision on DRAM via F32 mmproj."
+    no_host: true
+    no_spec_dm_adaptive: false
+    threads: 8
+    description: "Qwen 3.6 27B Q5_K_S + BeeLlama DFlash + TurboQuant. 200K context, single slot. DFlash CUDA graph buffers need ~240MB headroom — parallel=2 OOMs on 24GB."
   qwen3.6-27b-ud-q4_k_xl:
+    engine: beellama
     path: llm/Qwen3.6-27B-UD-Q4_K_XL.gguf
     source: hf://unsloth/Qwen3.6-27B-GGUF/Qwen3.6-27B-UD-Q4_K_XL.gguf
     download: file
@@ -83,6 +93,7 @@ llm:
     description: Qwen 3.6 27B Dynamic 4-bit UD-Q4_K_XL. Hybrid thinking, 256K context.
       Recommended quant for 24GB VRAM (18GB file).
   qwen3.6-27b-iq4_nl:
+    engine: beellama
     path: llm/Qwen3.6-27B-IQ4_NL.gguf
     source: hf://unsloth/Qwen3.6-27B-GGUF/Qwen3.6-27B-UD-IQ4_NL.gguf
     download: file
@@ -95,6 +106,7 @@ llm:
     mmproj_path: vision/mmproj-Qwen_Qwen3.6-27B-bf16.gguf
     description: Qwen 3.6 27B UD-IQ4_NL. Chat/reasoning LLM with vision. 256K context.
   gemma-4-26b-a4b-it-ud-iq4_nl:
+    engine: beellama
     path: llm/gemma-4-26B-A4B-it-UD-IQ4_NL.gguf
     source: hf://unsloth/gemma-4-26B-A4B-it-GGUF/gemma-4-26B-A4B-it-UD-IQ4_NL.gguf
     download: file
@@ -105,6 +117,7 @@ llm:
     mmproj_path: vision/gemma-4-26B-A4B-it-mmproj-F16.gguf
     description: Gemma 4 26B A4B IT UD-IQ4_NL.
   gemma-4-31b-it-ud-q4_k_xl:
+    engine: beellama
     path: llm/gemma-4-31B-it-UD-Q4_K_XL.gguf
     source: hf://unsloth/gemma-4-31B-it-GGUF/gemma-4-31B-it-UD-Q4_K_XL.gguf
     download: file
@@ -115,6 +128,7 @@ llm:
     mmproj_path: vision/gemma-4-31B-it-mmproj-F16.gguf
     description: Gemma 4 31B IT UD-Q4_K_XL.
   qwen3.6-35b-a3b-ud-iq4_nl:
+    engine: beellama
     path: llm/Qwen3.6-35B-A3B-UD-IQ4_NL.gguf
     source: hf://unsloth/Qwen3.6-35B-A3B-GGUF/Qwen3.6-35B-A3B-UD-IQ4_NL.gguf
     download: file
