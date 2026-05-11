@@ -116,6 +116,37 @@ llm:
     download: file
     sha256: null
     size_gb: 18.0
+    vram_estimate_gb: 23.0
+    device: gpu
+    ctx_size: 200000
+    parallel: 1
+    n_gpu_layers: 99
+    mmproj_n_gpu_layers: 99
+    temp: 0.6
+    top_p: 0.95
+    top_k: 20
+    min_p: 0.0
+    presence_penalty: 0.0
+    mmproj_path: vision/mmproj-Qwen_Qwen3.6-27B-bf16.gguf
+    cache_type_k: turbo4
+    cache_type_v: turbo3_tcq
+    spec_type: dflash
+    spec_draft_model: llm/dflash-draft-3.6-q4_k_m.gguf
+    spec_draft_ngl: 99
+    spec_dflash_cross_ctx: 1024
+    flash_attn: true
+    reasoning: true
+    batch_size: 2048
+    ubatch_size: 256
+    description: "Q5_K_S 200K + DFlash + TurboQuant + Vision (BF16 mmproj in VRAM).
+      Peak ~130-170 tok/s text, vision capable. BF16 mmproj saves ~870 MiB vs F32."
+  qwen3.6-27b-q5_k_s-32k:
+    engine: beellama
+    path: llm/Qwen3.6-27B-Q5_K_S.gguf
+    source: hf://unsloth/Qwen3.6-27B-GGUF/Qwen3.6-27B-Q5_K_S.gguf
+    download: file
+    sha256: null
+    size_gb: 18.0
     vram_estimate_gb: 21.0
     device: gpu
     ctx_size: 32768
@@ -138,7 +169,8 @@ llm:
     reasoning: true
     batch_size: 2048
     ubatch_size: 256
-    description: "Q5_K_S 32K + DFlash + TurboQuant. Fast profile: ~170 tok/s."
+    description: "Q5_K_S 32K + DFlash + TurboQuant (fallback). Fast: ~170 tok/s.
+      No vision. Use if 200K profile OOMs."
   qwen3.6-27b-ud-q4_k_xl:
     engine: beellama
     path: llm/Qwen3.6-27B-UD-Q4_K_XL.gguf
