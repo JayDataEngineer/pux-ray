@@ -12,6 +12,7 @@ import json
 import logging
 import os
 import time
+from pathlib import Path
 
 import torch
 from ray import serve
@@ -156,12 +157,14 @@ class VibeVoiceCommunityTTSDeployment(BaseGPUDeployment):
                 speaker_names = [s.strip() for s in speaker_names.split(",")]
 
             voice_samples = []
+            ref_audio_path = None
             if extracted.get("reference_audio"):
                 import tempfile
-                ref_path = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
-                ref_path.write(extracted["reference_audio"])
-                ref_path.flush()
-                voice_samples.append(ref_path.name)
+                ref = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
+                ref.write(extracted["reference_audio"])
+                ref.close()
+                ref_audio_path = ref.name
+                voice_samples.append(ref_audio_path)
             else:
                 for name in speaker_names:
                     try:
@@ -173,7 +176,11 @@ class VibeVoiceCommunityTTSDeployment(BaseGPUDeployment):
                             status_code=400,
                         )
 
-            audio = await asyncio.to_thread(self._generate_audio, text, voice_samples)
+            try:
+                audio = await asyncio.to_thread(self._generate_audio, text, voice_samples)
+            finally:
+                if ref_audio_path:
+                    Path(ref_audio_path).unlink(missing_ok=True)
 
             latency_ms = int((time.perf_counter() - start) * 1000)
             return JSONResponse(
