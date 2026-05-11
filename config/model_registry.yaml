@@ -20,20 +20,14 @@ llm:
     min_p: 0.0
     presence_penalty: 0.0
     mmproj_path: vision/mmproj-F32.gguf
-    spec_type: dflash
-    spec_draft_model: llm/dflash-draft-3.6-q4_k_m.gguf
-    spec_draft_ngl: 99
-    spec_dflash_cross_ctx: 512
-    spec_draft_n_max: 16
     flash_attn: true
     reasoning: true
     batch_size: 2048
     ubatch_size: 256
     no_host: true
-    no_spec_dm_adaptive: false
     threads: 8
-    description: Qwen 3.6 27B Q6_K + BeeLlama DFlash + TurboQuant. Default profile.
-      Adaptive draft-max, 8 threads, no-host bypass.
+    description: Q6_K 125K context, TurboQuant K/V, no DFlash. mmproj (vision) in DRAM.
+      Single slot, max quality text-only inference.
   qwen3.6-27b-q6_k-vision:
     engine: beellama
     path: llm/Qwen3.6-27B-Q6_K.gguf
@@ -78,7 +72,7 @@ llm:
     size_gb: 23.0
     vram_estimate_gb: 24.0
     device: gpu
-    ctx_size: 200000
+    ctx_size: 125000
     parallel: 2
     n_gpu_layers: 99
     mmproj_n_gpu_layers: 0
@@ -102,8 +96,8 @@ llm:
     no_host: true
     no_spec_dm_adaptive: false
     threads: 8
-    description: Q6_K 2x200K parallel, mmproj (vision) in DRAM. Two concurrent
-      200K slots, TurboQuant K/V. Saves ~1GB vs vision profile.
+    description: Q6_K 125K parallel, mmproj (vision) in DRAM. Two concurrent
+      slots, TurboQuant K/V, DFlash speculative decoding.
   qwen3.6-27b-dflash-draft-q4km:
     path: llm/dflash-draft-3.6-q4_k_m.gguf
     source: hf://spiritbuun/Qwen3.6-27B-DFlash-GGUF/dflash-draft-3.6-q4_k_m.gguf
@@ -122,10 +116,10 @@ llm:
     download: file
     sha256: null
     size_gb: 18.0
-    vram_estimate_gb: 19.5
+    vram_estimate_gb: 21.0
     device: gpu
-    ctx_size: 200000
-    parallel: 2
+    ctx_size: 32768
+    parallel: 1
     n_gpu_layers: 99
     mmproj_n_gpu_layers: 0
     temp: 0.6
@@ -140,15 +134,11 @@ llm:
     spec_draft_model: llm/dflash-draft-3.6-q4_k_m.gguf
     spec_draft_ngl: 99
     spec_dflash_cross_ctx: 1024
-    spec_draft_n_max: 16
     flash_attn: true
     reasoning: true
     batch_size: 2048
     ubatch_size: 256
-    no_host: true
-    no_spec_dm_adaptive: false
-    threads: 8
-    description: "Q5_K_S 2x200K parallel, TurboQuant K/V, mmproj in DRAM."
+    description: "Q5_K_S 32K + DFlash + TurboQuant. Fast profile: ~170 tok/s."
   qwen3.6-27b-ud-q4_k_xl:
     engine: beellama
     path: llm/Qwen3.6-27B-UD-Q4_K_XL.gguf

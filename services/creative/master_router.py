@@ -16,7 +16,6 @@ from __future__ import annotations
 import gc
 import json
 import logging
-import os
 import sys
 from typing import Any, Dict, Optional
 
@@ -31,9 +30,8 @@ HEAVY_SERVICES = {"trellis", "ace_step", "comfyui", "hy_motion", "moss_soundeffe
                    "anigen", "see_through", "llm", "vibevoice_microsoft",
                    "vibevoice_community_tts", "phi4mm"}
 
-# Default _load() arguments for services that need them.
 LOAD_KWARGS = {
-    "llm": {"model_name": "qwen3.6-27b-q6_k-vision"},
+    "llm": {"model_name": "qwen3.6-27b-q5_k_s"},
 }
 
 
@@ -48,6 +46,7 @@ class MasterRouter:
         self.active_service: Optional[str] = None
         self._services: Dict[str, Any] = {}
         self._loaded: Dict[str, bool] = {}
+        self._loaded_model: Dict[str, Optional[str]] = {}
 
     def _get_service(self, name: str):
         if name in self._services:
@@ -76,6 +75,7 @@ class MasterRouter:
         cls = deployment_obj.func_or_class if hasattr(deployment_obj, 'func_or_class') else deployment_obj
         self._services[name] = cls()
         self._loaded[name] = False
+        self._loaded_model[name] = None
         return self._services[name]
 
     def _unload_active(self):
@@ -90,21 +90,27 @@ class MasterRouter:
                 except Exception as e:
                     logger.warning("Failed to unload %s: %s", self.active_service, e)
             self._loaded[self.active_service] = False
+            self._loaded_model[self.active_service] = None
 
         self.active_service = None
         gc.collect()
         torch.cuda.empty_cache()
         torch.cuda.synchronize()
 
-    def _load_service(self, name: str):
-        if self._loaded.get(name, False) and self.active_service == name:
+    def _load_service(self, name: str, model_override: Optional[str] = None):
+        kwargs = dict(LOAD_KWARGS.get(name, {}))
+        if model_override:
+            kwargs["model_name"] = model_override
+        target_model = kwargs.get("model_name")
+
+        # Skip if same service + same model already active
+        if (self._loaded.get(name, False)
+                and self.active_service == name
+                and self._loaded_model.get(name) == target_model):
             return
 
         self._unload_active()
 
-        # Only import spconv for services that actually need it (TRELLIS, AniGen).
-        # Never import for LLM/ComfyUI/ACE-Step/etc — spconv triggers 814 CUDA
-        # kernel JIT compilations that block the first request for 10+ minutes.
         if name in ('trellis', 'anigen') and 'spconv' not in sys.modules:
             try:
                 import spconv  # noqa: F401
@@ -112,12 +118,12 @@ class MasterRouter:
                 pass
 
         svc = self._get_service(name)
-        kwargs = LOAD_KWARGS.get(name, {})
         svc._load(**kwargs)
         self._loaded[name] = True
+        self._loaded_model[name] = target_model
         self.active_service = name
         vram = torch.cuda.memory_allocated(0) / (1024 ** 2)
-        logger.info("Loaded %s (VRAM: %.0fMB)", name, vram)
+        logger.info("Loaded %s model=%s (VRAM: %.0fMB)", name, target_model, vram)
 
     async def __call__(self, request: Request) -> Response:
         body = await request.json()
@@ -128,12 +134,16 @@ class MasterRouter:
                 status_code=400,
             )
 
+        # For LLM, pass the model from the request so it auto-configures
+        model_override = None
+        if service == "llm":
+            model_override = body.get("model")
+
         import asyncio
-        await asyncio.to_thread(self._load_service, service)
+        await asyncio.to_thread(self._load_service, service, model_override)
 
         svc = self._services[service]
 
-        # Build a sub-request with the payload minus the router key
         inner_body = {k: v for k, v in body.items() if k != "service"}
 
         class _InnerRequest:
