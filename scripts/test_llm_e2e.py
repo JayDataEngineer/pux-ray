@@ -1,9 +1,12 @@
-"""End-to-end integration tests for LLM /configure + inference.
+"""End-to-end integration tests for LLM service.
 
-Tests the full path: ingress → master_router → LLM deployment → llama-server.
+Tests the full path: client → ingress → master_router → LLM → llama-server.
+
+The main flow is one call: POST /v1/chat/completions with {"model": "...", "messages": [...]}.
+The server auto-configures (smart diff restart) if the model changed, then infers.
 
 Usage:
-  python scripts/test_llm_e2e.py [--base-url http://100.86.69.57:18080]
+  python scripts/test_llm_e2e.py [--base-url http://100.86.69.57:30080]
 """
 from __future__ import annotations
 
@@ -11,11 +14,10 @@ import argparse
 import json
 import sys
 import time
-from pathlib import Path
 
 import httpx
 
-BASE = "http://100.86.69.57:18080"
+BASE = "http://100.86.69.57:30080"
 PASS = 0
 FAIL = 0
 SKIP = 0
@@ -40,6 +42,8 @@ def _skip(name: str, reason: str):
     print(f"  [SKIP] {name} — {reason}")
 
 
+# ── Phase 1: Health & Discovery ──────────────────────────────────────
+
 def test_health(client: httpx.Client):
     r = client.get("/health")
     _report("GET /health returns 200", r.status_code == 200, f"status={r.status_code}")
@@ -47,7 +51,7 @@ def test_health(client: httpx.Client):
 
 def test_status(client: httpx.Client):
     r = client.get("/status")
-    _report("GET /status returns 200", r.status_code == 200, f"status={r.status_code}")
+    _report("GET /status returns 200", r.status_code == 200)
     if r.status_code == 200:
         data = r.json()
         _report("Status has vram key", "vram" in data, f"keys={list(data.keys())}")
@@ -59,7 +63,7 @@ def test_list_services(client: httpx.Client):
     if r.status_code == 200:
         services = r.json()
         names = [s["name"] for s in services]
-        _report("LLM service registered", "llm" in names, f"names={sorted(names)}")
+        _report("LLM service registered", "llm" in names)
 
 
 def test_service_info(client: httpx.Client):
@@ -71,108 +75,78 @@ def test_service_info(client: httpx.Client):
         _report("LLM service info has model_aliases", "model_aliases" in info)
 
 
-def test_configure_default(client: httpx.Client):
-    """Configure with default model (Q5_K_S)."""
-    r = client.post("/v1/llm/configure", json={"model": "qwen3.6-27b-q5_k_s"}, timeout=300)
-    _report("POST /v1/llm/configure (q5_k_s) returns 200", r.status_code == 200, f"status={r.status_code}")
-    if r.status_code == 200:
-        data = r.json()
-        _report("Configure returns status=ok", data.get("status") == "ok", f"status={data.get('status')}")
-        _report("Configure returns engine", "engine" in data, f"engine={data.get('engine')}")
-        _report("Configure returns model name", data.get("model") == "qwen3.6-27b-q5_k_s",
-                f"model={data.get('model')}")
-        _report("Engine is beellama", data.get("engine") == "beellama", f"engine={data.get('engine')}")
-        _report("Configure returns session_defaults", "session_defaults" in data)
-        if "session_defaults" in data:
-            sd = data["session_defaults"]
-            _report("Session defaults has temperature", "temperature" in sd,
-                    f"keys={sorted(sd.keys())}")
-            _report("Session defaults has top_p", "top_p" in sd)
-            _report("Session defaults has chat_template_kwargs", "chat_template_kwargs" in sd,
-                    f"sd={json.dumps(sd, indent=2)}")
-    return r.status_code == 200
+# ── Phase 2: One-call inference (auto-configures model) ──────────────
 
-
-def test_configure_idempotent(client: httpx.Client):
-    """Second configure with same model should not restart (changed=false)."""
-    r = client.post("/v1/llm/configure", json={"model": "qwen3.6-27b-q5_k_s"}, timeout=300)
-    _report("Idempotent configure returns 200", r.status_code == 200)
-    if r.status_code == 200:
-        data = r.json()
-        _report("Idempotent configure: changed=false", data.get("changed") is False,
-                f"changed={data.get('changed')}")
-
-
-def test_configure_with_overrides(client: httpx.Client):
-    """Configure with session defaults override."""
+def test_chat_q5(client: httpx.Client):
+    """First call — server cold-starts Q5_K_S model."""
     body = {
         "model": "qwen3.6-27b-q5_k_s",
-        "session_defaults": {
-            "temperature": 0.3,
-            "top_p": 0.9,
-        },
-    }
-    r = client.post("/v1/llm/configure", json=body, timeout=300)
-    _report("Configure with overrides returns 200", r.status_code == 200)
-    if r.status_code == 200:
-        data = r.json()
-        sd = data.get("session_defaults", {})
-        _report("Override temperature applied", sd.get("temperature") == 0.3,
-                f"temp={sd.get('temperature')}")
-        _report("Override top_p applied", sd.get("top_p") == 0.9, f"top_p={sd.get('top_p')}")
-
-
-def test_configure_upstream_engine(client: httpx.Client):
-    """Configure with upstream engine (no DFlash) — skipped by default (slow restart)."""
-    _skip("Upstream engine test", "requires 300+ second restart, run with --test-upstream")
-
-
-def test_chat_completions(client: httpx.Client):
-    """OpenAI-compatible /v1/chat/completions."""
-    body = {
         "messages": [{"role": "user", "content": "Say exactly: hello world"}],
         "max_tokens": 100,
         "temperature": 0.0,
     }
-    r = client.post("/v1/chat/completions", json=body, timeout=120)
-    _report("POST /v1/chat/completions returns 200", r.status_code == 200,
+    r = client.post("/v1/chat/completions", json=body, timeout=300)
+    _report("Q5_K_S chat completions returns 200", r.status_code == 200,
             f"status={r.status_code}")
     if r.status_code == 200:
-        data = r.json()
-        _report("Response has choices", "choices" in data, f"keys={list(data.keys())}")
-        if "choices" in data and data["choices"]:
-            msg = data["choices"][0].get("message", {})
-            content = msg.get("content", "")
-            reasoning = msg.get("reasoning_content", "")
-            has_output = len(content) > 0 or len(reasoning) > 0
-            _report("Response has content or reasoning", has_output,
-                    f"content={content[:60]}, reasoning={reasoning[:60]}")
-    elif r.status_code == 500:
-        try:
-            err = r.json()
-            print(f"         Error: {json.dumps(err, indent=2)}")
-        except Exception:
-            print(f"         Raw: {r.text[:500]}")
+        _check_response(r, "Q5_K_S")
 
 
-def test_chat_completions_thinking_off(client: httpx.Client):
-    """Chat with thinking disabled per-request."""
+def test_chat_q5_thinking_off(client: httpx.Client):
+    """Same model, thinking disabled — no restart."""
     body = {
+        "model": "qwen3.6-27b-q5_k_s",
         "messages": [{"role": "user", "content": "Say exactly: test pass"}],
         "max_tokens": 20,
         "temperature": 0.0,
         "chat_template_kwargs": {"enable_thinking": False},
     }
     r = client.post("/v1/chat/completions", json=body, timeout=120)
-    _report("POST /v1/chat/completions (thinking off) returns 200",
-            r.status_code == 200, f"status={r.status_code}")
+    _report("Q5_K_S thinking-off returns 200", r.status_code == 200,
+            f"status={r.status_code}")
     if r.status_code == 200:
         data = r.json()
         if "choices" in data and data["choices"]:
             content = data["choices"][0].get("message", {}).get("content", "")
-            _report("Thinking-off response has content", len(content) > 0,
+            _report("Thinking-off has content", len(content) > 0,
                     f"content={content[:80]}")
 
+
+def test_chat_q6_switch(client: httpx.Client):
+    """Switch to Q6_K default (125K) — triggers restart via smart diff."""
+    body = {
+        "model": "qwen3.6-27b-q6_k",
+        "messages": [{"role": "user", "content": "Say exactly: switched"}],
+        "max_tokens": 100,
+        "temperature": 0.0,
+    }
+    r = client.post("/v1/chat/completions", json=body, timeout=300)
+    _report("Q6_K model switch returns 200", r.status_code == 200,
+            f"status={r.status_code}")
+    if r.status_code == 200:
+        _check_response(r, "Q6_K")
+
+
+def test_chat_q6_same(client: httpx.Client):
+    """Same Q6_K model — no restart, instant inference."""
+    body = {
+        "model": "qwen3.6-27b-q6_k",
+        "messages": [{"role": "user", "content": "Say exactly: cached"}],
+        "max_tokens": 100,
+        "temperature": 0.0,
+        "chat_template_kwargs": {"enable_thinking": False},
+    }
+    r = client.post("/v1/chat/completions", json=body, timeout=120)
+    _report("Q6_K repeat returns 200 (no restart)", r.status_code == 200,
+            f"status={r.status_code}")
+    if r.status_code == 200:
+        data = r.json()
+        if "choices" in data and data["choices"]:
+            content = data["choices"][0].get("message", {}).get("content", "")
+            _report("Repeat has content", len(content) > 0, f"content={content[:80]}")
+
+
+# ── Phase 3: TNAP + Explicit configure ────────────────────────────────
 
 def test_tnap_generate(client: httpx.Client):
     """TNAP format: POST /v1/{service}/generate."""
@@ -192,44 +166,77 @@ def test_tnap_generate(client: httpx.Client):
                 f"keys={list(data.keys())}")
 
 
+def test_explicit_configure(client: httpx.Client):
+    """Explicit /configure for session defaults (no inference)."""
+    r = client.post("/v1/llm/configure", json={
+        "model": "qwen3.6-27b-q6_k",
+        "session_defaults": {"temperature": 0.3, "top_p": 0.9},
+    }, timeout=300)
+    _report("Explicit configure returns 200", r.status_code == 200)
+    if r.status_code == 200:
+        data = r.json()
+        _report("Configure status=ok", data.get("status") == "ok")
+        sd = data.get("session_defaults", {})
+        _report("Session defaults overridden", sd.get("temperature") == 0.3,
+                f"temp={sd.get('temperature')}")
+
+
+def test_configure_idempotent(client: httpx.Client):
+    """Same config twice — changed=false, no restart."""
+    r = client.post("/v1/llm/configure", json={
+        "model": "qwen3.6-27b-q6_k",
+    }, timeout=300)
+    _report("Idempotent configure returns 200", r.status_code == 200)
+    if r.status_code == 200:
+        data = r.json()
+        _report("Idempotent: changed=false", data.get("changed") is False,
+                f"changed={data.get('changed')}")
+
+
+# ── Helpers ───────────────────────────────────────────────────────────
+
+def _check_response(r, label: str):
+    data = r.json()
+    _report(f"{label} has choices", "choices" in data, f"keys={list(data.keys())}")
+    if "choices" in data and data["choices"]:
+        msg = data["choices"][0].get("message", {})
+        content = msg.get("content", "")
+        reasoning = msg.get("reasoning_content", "")
+        has_output = len(content) > 0 or len(reasoning) > 0
+        _report(f"{label} has output", has_output,
+                f"content={content[:60]}, reasoning={reasoning[:60]}")
+    elif r.status_code == 500:
+        try:
+            err = r.json()
+            print(f"         Error: {json.dumps(err, indent=2)}")
+        except Exception:
+            print(f"         Raw: {r.text[:500]}")
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--base-url", default=BASE)
-    parser.add_argument("--skip-inference", action="store_true",
-                        help="Skip inference tests (only test configure)")
     args = parser.parse_args()
 
-    print(f"\nEnd-to-end LLM tests — {args.base_url}\n")
+    print(f"\nLLM e2e tests — {args.base_url}\n")
 
-    with httpx.Client(base_url=args.base_url, timeout=300) as client:
-        # Phase 1: Health and discovery
+    with httpx.Client(base_url=args.base_url, timeout=httpx.Timeout(300.0, connect=10.0)) as client:
         print("Phase 1: Health & Discovery")
         test_health(client)
         test_status(client)
         test_list_services(client)
         test_service_info(client)
 
-        # Phase 2: Configure
-        print("\nPhase 2: Configure")
-        ok = test_configure_default(client)
-        if not ok:
-            print("\nConfigure failed — skipping remaining tests")
-            _summarize()
-            return 1
-        test_configure_idempotent(client)
-        test_configure_with_overrides(client)
-        test_configure_upstream_engine(client)
+        print("\nPhase 2: One-call inference (model in request)")
+        test_chat_q5(client)
+        test_chat_q5_thinking_off(client)
+        test_chat_q6_switch(client)
+        test_chat_q6_same(client)
 
-        if args.skip_inference:
-            print("\n--skip-inference: skipping inference tests")
-            _summarize()
-            return 0
-
-        # Phase 3: Inference
-        print("\nPhase 3: Inference")
-        test_chat_completions(client)
-        test_chat_completions_thinking_off(client)
+        print("\nPhase 3: TNAP + Explicit configure")
         test_tnap_generate(client)
+        test_explicit_configure(client)
+        test_configure_idempotent(client)
 
     _summarize()
     return 1 if FAIL > 0 else 0

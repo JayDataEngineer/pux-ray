@@ -155,26 +155,21 @@ class LLMDeployment(BaseGPUDeployment, SubprocessMixin):
                 cache_type_v = "f16"
             cmd.extend(["--cache-type-v", str(cache_type_v)])
 
-        # Vision projector — controlled by ``use_vision`` override
+        # Vision projector (mmproj) — kept off GPU unless explicitly requested
+        mmproj_path = overrides.get("mmproj_path") or meta.get("mmproj_path")
         use_vision = overrides.get("use_vision")
         if use_vision is None:
-            use_vision = meta.get("mmproj_path") is not None
-        if use_vision:
-            mmproj_path = overrides.get("mmproj_path") or meta.get("mmproj_path")
-            if mmproj_path:
-                full_mmproj = Path(mmproj_path)
-                if not full_mmproj.is_absolute():
-                    full_mmproj = Path(config.models_root) / mmproj_path
-                if full_mmproj.exists():
-                    container_mmproj = (
-                        f"/models/{full_mmproj.relative_to(config.models_root)}"
-                    )
-                    cmd.extend(["--mmproj", container_mmproj])
-                    offload = int(_val("mmproj_n_gpu_layers", 0))
-                    if offload > 0:
-                        cmd.extend(["--mmproj-n-gpu-layers", str(offload)])
-                    else:
-                        cmd.append("--no-mmproj-offload")
+            use_vision = mmproj_path is not None
+        offload = int(_val("mmproj_n_gpu_layers", 0))
+        if use_vision and mmproj_path and offload > 0:
+            full_mmproj = Path(mmproj_path)
+            if not full_mmproj.is_absolute():
+                full_mmproj = Path(config.models_root) / mmproj_path
+            if full_mmproj.exists():
+                container_mmproj = (
+                    f"/models/{full_mmproj.relative_to(config.models_root)}"
+                )
+                cmd.extend(["--mmproj", container_mmproj])
 
         # Engine-specific flags
         if engine == "beellama":
@@ -444,7 +439,7 @@ class LLMDeployment(BaseGPUDeployment, SubprocessMixin):
         try:
             body = await request.json()
 
-            # Configure action — set model, engine, startup_overrides, session_defaults
+            # Configure action — explicit config without inference
             if body.get("action") == "configure":
                 import asyncio
                 result = await asyncio.to_thread(self._configure_sync, body)
@@ -453,10 +448,7 @@ class LLMDeployment(BaseGPUDeployment, SubprocessMixin):
             # OpenAI-compatible: {"messages": [...], "model": "..."}
             if "messages" in body and "action" not in body:
                 if not self.is_loaded():
-                    import asyncio
-
-                    model_name = body.get("model", self.DEFAULT_MODEL)
-                    await asyncio.to_thread(self.load_model, self.DEFAULT_MODEL)
+                    raise RuntimeError(f"No model loaded. Current: {self.model_name}")
 
                 result = await self.chat(
                     messages=body["messages"],
@@ -474,10 +466,7 @@ class LLMDeployment(BaseGPUDeployment, SubprocessMixin):
             tnap_req, extracted = self.handle_request(body)
 
             if not self.is_loaded():
-                model_name = extracted.get("model", self.DEFAULT_MODEL)
-                import asyncio
-
-                await asyncio.to_thread(self.load_model, model_name)
+                raise RuntimeError(f"No model loaded. Current: {self.model_name}")
 
             messages = extracted.get("messages", [])
             stream = extracted.get("stream", False)
