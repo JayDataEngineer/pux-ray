@@ -108,14 +108,23 @@ All services are registered in `boot/services.py` as `Service` dataclasses. Each
    ```
 3. Run `task status` to verify it appears
 
-## GPU Governor — VRAM Coordination
+## The Forge — VRAM-Aware GPU Management
 
-All heavy GPU services (trellis, ace_step, moss_soundeffect, anigen, see_through, hy_motion, comfyui, llm) are independent Ray Serve deployments with `num_gpus: 0` coordinated by the **GPUGovernor** actor in `gateway/gpu_governor.py`.
+All heavy GPU services run through the **Forge** (`services/forge.py`), a single Ray Serve deployment that claims `num_gpus: 1.0`. Services implement `ForgeService` (3 methods: `load()`, `unload()`, `infer(dict) -> dict`).
 
-- Governor holds a lease for whichever heavy service is currently loaded
-- Before loading a new service, Governor proactively evicts the current holder (calls `unload_model()`)
-- Lightweight services (kokoro_tts, index_tts, vibevoice_cpp, etc.) coexist without leases
-- `num_gpus: 0` on all deployments — Governor manages VRAM, not Ray's GPU ledger
+- **VRAM-aware scheduling**: Tracks allocations in MB per service. Multiple services coexist when their combined VRAM fits within `AVAILABLE_MB = 22_528`. Evicts largest loaded service only when a new service needs more VRAM than free.
+- **Self-managed services** (`vram_mb=0`): Wan2GP uses mmgp for dynamic VRAM management. Always passes `_can_fit()`, coexists with other services.
+- **Testable**: `ForgeCore` has zero Ray dependency — fully testable without a cluster. `Forge` is a thin `@serve.deployment` wrapper.
+- **12 services registered** in `SERVICE_MAP`: trellis, ace_step, comfyui, hy_motion, moss_soundeffect, anigen, see_through, llm, wan2gp, vibevoice_microsoft, vibevoice_community_tts, phi4mm.
+
+```python
+# services/forge.py — VRAM-aware GPU manager
+forge = serve.get_deployment_handle("forge", "forge")
+result = await forge.invoke.remote("llm", {"messages": [...]})
+status = await forge.status.remote()
+await forge.preload.remote("trellis", "trellis")
+await forge.release.remote()
+```
 
 ### Serialization Note
 
@@ -140,8 +149,8 @@ Ray-base build requires `--network=host` because `git clone` in Docker can't rea
 
 ```bash
 uv run ray start --head --num-gpus=1
-uv run python deploy_all.py
-# All 15 services available at http://localhost:8000/{route_prefix}
+# Deploy via serve_config.py (used by KubeRay)
+# Or invoke Forge directly: forge.invoke.remote("llm", payload)
 ```
 
 ## Configuration

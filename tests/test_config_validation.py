@@ -69,15 +69,15 @@ class TestVRAMBudget:
             }
         }
         reg = _make_registry(tmp_path, data)
-        # Also need a master_router with this model in LOAD_KWARGS
-        router_src = textwrap.dedent('''
-            LOAD_KWARGS = {
-                "llm": {"model_name": "small-model"},
+        # Also need Forge with this service registered
+        forge_src = textwrap.dedent('''
+            SERVICE_MAP = {
+                "llm": ("services.llm.deployment", "LLMService"),
             }
         ''')
-        router_path = tmp_path / "services" / "creative" / "master_router.py"
-        router_path.parent.mkdir(parents=True, exist_ok=True)
-        router_path.write_text(router_src)
+        forge_path = tmp_path / "services" / "forge.py"
+        forge_path.parent.mkdir(parents=True, exist_ok=True)
+        forge_path.write_text(forge_src)
 
         deploy_path = tmp_path / "services" / "llm" / "deployment.py"
         deploy_path.parent.mkdir(parents=True, exist_ok=True)
@@ -106,9 +106,12 @@ class TestVRAMBudget:
             }
         }
         reg = _make_registry(tmp_path, data)
-        router_path = tmp_path / "services" / "creative" / "master_router.py"
-        router_path.parent.mkdir(parents=True, exist_ok=True)
-        router_path.write_text('LOAD_KWARGS = {"llm": {"model_name": "big-model"}}')
+        forge_path = tmp_path / "services" / "forge.py"
+        forge_path.parent.mkdir(parents=True, exist_ok=True)
+        forge_path.write_text('SERVICE_MAP = {"llm": ("services.llm.deployment", "LLMService")}')
+        deploy_path = tmp_path / "services" / "llm" / "deployment.py"
+        deploy_path.parent.mkdir(parents=True, exist_ok=True)
+        deploy_path.write_text('DEFAULT_MODEL = "big-model"\n')
 
         with patch("registry.validate._REGISTRY_PATH", reg), \
              patch("registry.validate._PROJECT_ROOT", tmp_path):
@@ -142,10 +145,10 @@ class TestCrossReferences:
         data = {"llm": {"qwen-q5": {"path": "qwen.gguf", "size_gb": 18}}}
         reg = _make_registry(tmp_path, data)
 
-        router_path = tmp_path / "services" / "creative" / "master_router.py"
-        router_path.parent.mkdir(parents=True, exist_ok=True)
-        router_path.write_text(
-            'LOAD_KWARGS = {"llm": {"model_name": "qwen-q5"}}'
+        forge_path = tmp_path / "services" / "forge.py"
+        forge_path.parent.mkdir(parents=True, exist_ok=True)
+        forge_path.write_text(
+            'SERVICE_MAP = {"llm": ("services.llm.deployment", "LLMService")}'
         )
         deploy_path = tmp_path / "services" / "llm" / "deployment.py"
         deploy_path.parent.mkdir(parents=True, exist_ok=True)
@@ -159,32 +162,35 @@ class TestCrossReferences:
         data = {"llm": {"qwen-q5": {"path": "qwen-q5.gguf", "size_gb": 18}}}
         reg = _make_registry(tmp_path, data)
 
-        router_path = tmp_path / "services" / "creative" / "master_router.py"
-        router_path.parent.mkdir(parents=True, exist_ok=True)
-        router_path.write_text(
-            'LOAD_KWARGS = {"llm": {"model_name": "qwen-q6"}}'
+        forge_path = tmp_path / "services" / "forge.py"
+        forge_path.parent.mkdir(parents=True, exist_ok=True)
+        forge_path.write_text(
+            'SERVICE_MAP = {"llm": ("services.llm.deployment", "LLMService")}'
         )
         deploy_path = tmp_path / "services" / "llm" / "deployment.py"
         deploy_path.parent.mkdir(parents=True, exist_ok=True)
-        deploy_path.write_text('DEFAULT_MODEL = "qwen-q5"\n')
+        deploy_path.write_text('DEFAULT_MODEL = "qwen-q6"\n')
 
         with patch("registry.validate._REGISTRY_PATH", reg), \
              patch("registry.validate._PROJECT_ROOT", tmp_path):
             failures = check_cross_references(data)
-            # Should get: 1 for LOAD_KWARGS referencing missing model, 1 for mismatch
+            # DEFAULT_MODEL references missing model
             assert len(failures) >= 1
             checks = [f.check for f in failures]
             assert "cross_reference" in checks
 
-    def test_load_kwargs_references_missing_model(self, tmp_path):
+    def test_default_model_references_missing_model(self, tmp_path):
         data = {"llm": {"model-a": {"path": "a.gguf", "size_gb": 10}}}
         reg = _make_registry(tmp_path, data)
 
-        router_path = tmp_path / "services" / "creative" / "master_router.py"
-        router_path.parent.mkdir(parents=True, exist_ok=True)
-        router_path.write_text(
-            'LOAD_KWARGS = {"llm": {"model_name": "nonexistent-model"}}'
+        forge_path = tmp_path / "services" / "forge.py"
+        forge_path.parent.mkdir(parents=True, exist_ok=True)
+        forge_path.write_text(
+            'SERVICE_MAP = {"llm": ("services.llm.deployment", "LLMService")}'
         )
+        deploy_path = tmp_path / "services" / "llm" / "deployment.py"
+        deploy_path.parent.mkdir(parents=True, exist_ok=True)
+        deploy_path.write_text('DEFAULT_MODEL = "nonexistent-model"\n')
 
         with patch("registry.validate._REGISTRY_PATH", reg), \
              patch("registry.validate._PROJECT_ROOT", tmp_path):
