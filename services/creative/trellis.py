@@ -19,6 +19,7 @@ from ray import serve
 from starlette.responses import JSONResponse
 
 from services.base import BaseGPUDeployment
+from services.forge_base import ForgeService
 
 logger = logging.getLogger(__name__)
 
@@ -302,3 +303,127 @@ class TRELLISDeployment(BaseGPUDeployment):
 
         import asyncio
         return await asyncio.to_thread(_run)
+
+
+# ─── Forge Service ────────────────────────────────────────────────────────────
+
+class TrellisService(ForgeService):
+    """TRELLIS image-to-3D for the Forge. Takes dict, returns dict."""
+    vram_mb = 10_240
+    service_name = "trellis"
+    default_model = "trellis"
+
+    def __init__(self):
+        super().__init__()
+        self.pipeline = None
+        self._config = InferenceConfig()
+
+    def load(self, model_name: str = "trellis") -> None:
+        from registry.config import Config
+        from registry.models import ModelRegistry
+
+        cfg = Config()
+        registry = ModelRegistry()
+        model_path = registry.get_path("3d", model_name)
+
+        if not Path(model_path).is_dir():
+            raise FileNotFoundError(f"TRELLIS model not found at {model_path}")
+
+        vendor = str(Path(cfg.project_root) / "vendor")
+        if vendor not in sys.path:
+            sys.path.insert(0, vendor)
+
+        os.environ["TRELLIS_PIPELINE_ROOT"] = str(model_path)
+
+        from trellis2.pipelines import Trellis2ImageTo3DPipeline
+
+        self.pipeline = Trellis2ImageTo3DPipeline.from_pretrained(str(model_path))
+        self.pipeline.to("cuda" if torch.cuda.is_available() else "cpu")
+        self.model_name = model_name
+        self._loaded = True
+        torch.cuda.empty_cache()
+        gc.collect()
+
+    def unload(self) -> None:
+        if self.pipeline is not None:
+            del self.pipeline
+            self.pipeline = None
+        self.model_name = None
+        self._loaded = False
+        super().unload()
+
+    def infer(self, payload: dict) -> dict:
+        import base64
+        import o_voxel
+
+        # Accept raw bytes or base64-encoded image
+        img_data = payload.get("image")
+        if isinstance(img_data, str):
+            img_data = base64.b64decode(img_data)
+        if not img_data:
+            return {"status": "error", "error": "image required"}
+
+        from PIL import Image
+        img = Image.open(io.BytesIO(img_data)).convert("RGBA")
+        if max(img.size) > 4096:
+            scale = 4096 / max(img.size)
+            img = img.resize((int(img.width * scale), int(img.height * scale)),
+                             Image.Resampling.LANCZOS)
+
+        seed = payload.get("seed", 1)
+        steps = payload.get("steps", 12)
+        guidance = payload.get("guidance", 7.5)
+        resolution = payload.get("resolution", "1024_cascade")
+        decimation = payload.get("decimation", 50000)
+        texture_size = payload.get("texture_size", 4096)
+
+        ss_params = {"steps": steps, "guidance_strength": guidance,
+                     "guidance_rescale": 0.7, "rescale_t": 5.0}
+        shape_params = {"steps": steps, "guidance_strength": 7.5,
+                        "guidance_rescale": 0.5, "rescale_t": 3.0}
+        tex_params = {"steps": steps, "guidance_strength": 1.0,
+                      "guidance_rescale": 0.0, "rescale_t": 3.0}
+
+        with torch.inference_mode():
+            shape_slat, tex_slat, res = self.pipeline.run(
+                img, seed=seed, preprocess_image=True,
+                sparse_structure_sampler_params=ss_params,
+                shape_slat_sampler_params=shape_params,
+                tex_slat_sampler_params=tex_params,
+                pipeline_type=resolution, return_before_decode=True,
+            )
+            mesh = self.pipeline.decode_and_cleanup(shape_slat, tex_slat, res)[0]
+            del shape_slat, tex_slat
+            torch.cuda.empty_cache()
+
+            if mesh.faces.shape[0] > MAX_FACES_BEFORE_SIMPLIFY:
+                try:
+                    mesh.simplify(MAX_FACES_BEFORE_SIMPLIFY)
+                except (AttributeError, ImportError, RuntimeError):
+                    pass
+
+            _verts, _faces, _attrs = mesh.vertices, mesh.faces, mesh.attrs
+            _coords, _layout, _voxel_size = mesh.coords, mesh.layout, mesh.voxel_size
+            del mesh
+            torch.cuda.empty_cache()
+
+            glb = o_voxel.postprocess.to_glb(
+                vertices=_verts, faces=_faces, attr_volume=_attrs,
+                coords=_coords, attr_layout=_layout, voxel_size=_voxel_size,
+                aabb=[[-0.5, -0.5, -0.5], [0.5, 0.5, 0.5]],
+                decimation_target=decimation, texture_size=texture_size,
+                remesh=True, remesh_band=1, remesh_project=0, verbose=False,
+            )
+
+            buf = io.BytesIO()
+            glb.export(buf, file_type="glb")
+            data = buf.getvalue()
+
+        import base64 as b64
+        return {
+            "status": "success",
+            "data": b64.b64encode(data).decode(),
+            "media_type": "model/gltf-binary",
+            "vertices": len(_verts),
+            "faces": len(_faces),
+        }

@@ -1,7 +1,7 @@
 """API Ingress — single entry point for all AI service requests.
 
-All services route through the service registry via /v1/{service}/generate.
-GPU scheduling is handled automatically based on each service's needs_gpu flag.
+GPU services route through the Forge (VRAM-aware scheduler).
+CPU services route directly to their Ray Serve deployments.
 
 Auth: API key via X-API-Key header or api_key query param.
 Set secrets.api_key in config/local.yaml or TECH_NOIR_API_KEY env var.
@@ -10,7 +10,6 @@ Empty/unset = no auth (dev mode).
 from __future__ import annotations
 
 import hmac
-import json
 import logging
 from typing import Any
 
@@ -28,24 +27,9 @@ from gateway.playground import playground_page, playground_services
 from gateway.studio import studio_page, studio_apps, studio_switch, studio_release
 from registry.config import Config
 from services.registry import SERVICE_REGISTRY, get_service, resolve_model
+from services.forge import SERVICE_MAP as FORGE_SERVICES
 
 logger = logging.getLogger(__name__)
-
-
-class _ForgeRequest:
-    """Lightweight request wrapper for routing through the master router."""
-
-    def __init__(self, data: dict, path: str = "/forge"):
-        self._data = data
-        self.method = "POST"
-        self.url = type("U", (), {"path": path, "query": ""})()
-        self.headers = {"content-type": "application/json"}
-
-    async def json(self):
-        return self._data
-
-    async def body(self):
-        return json.dumps(self._data).encode()
 
 
 def _get_api_key() -> str:
@@ -70,24 +54,18 @@ class APIKeyMiddleware(BaseHTTPMiddleware):
         return await call_next(request)
 
 
+def _get_forge():
+    """Get the Forge deployment handle."""
+    return serve.get_deployment_handle("forge", "forge")
+
+
+def _is_forge_service(service_name: str) -> bool:
+    """Check if a service is managed by the Forge (GPU heavy service)."""
+    return service_name in FORGE_SERVICES
+
+
 class APIIngress:
-    """Main API router. GPU coordination via GPUGovernor."""
-
-    def __init__(self):
-        self._governor: Any | None = None
-
-    async def _ensure_governor(self):
-        if self._governor is None:
-            try:
-                self._governor = ray.get_actor("gpu_governor")
-            except Exception:
-                pass
-
-    async def _use_gpu(self, service: str):
-        """Acquire GPU lease for a heavy service."""
-        await self._ensure_governor()
-        if self._governor:
-            await self._governor.acquire.remote(service)
+    """Main API router. GPU services go through the Forge."""
 
     # ── Generic TNAP route ─────────────────────────────────────────────────────
 
@@ -103,18 +81,14 @@ class APIIngress:
                 status_code=404,
             )
 
-        if entry.needs_gpu:
-            await self._use_gpu(service_name)
-
-        # LLM lives inside master_router, not as a standalone deployment
-        if service_name == "llm":
+        # Forge-managed GPU services — route through Forge with dict payload
+        if _is_forge_service(service_name):
             body = await request.json()
-            forge_body = {"service": "llm", **body}
+            forge = _get_forge()
+            result = await forge.invoke.remote(service_name, body)
+            return JSONResponse(result)
 
-            handle = serve.get_deployment_handle("master_router", "forge")
-            inner_req = _ForgeRequest(forge_body, path="/v1/llm/generate")
-            return await handle.remote(inner_req)
-
+        # Direct deployments (CPU services, lightweight GPU)
         handle = serve.get_deployment_handle(entry.deployment, entry.app)
         return await handle.remote(request)
 
@@ -138,47 +112,32 @@ class APIIngress:
 
     async def chat_completions(self, request: Request) -> Response:
         body = await request.json()
-
-        await self._use_gpu("llm")
-
-        # LLM lives inside the master_router — wrap as forge request
-        forge_body = {"service": "llm", **body}
-
-        handle = serve.get_deployment_handle("master_router", "forge")
-        inner_req = _ForgeRequest(forge_body, path="/v1/chat/completions")
-        return await handle.remote(inner_req)
+        forge = _get_forge()
+        result = await forge.invoke.remote("llm", body)
+        return JSONResponse(result)
 
     async def llm_configure(self, request: Request) -> Response:
-        """POST /v1/llm/configure — set model, engine, startup flags, session defaults.
-
-        Routes through the forge master router (LLM is not a standalone
-        Ray Serve deployment — it lives inside the router).
-        """
+        """POST /v1/llm/configure — set model, engine, startup flags, session defaults."""
         body = await request.json()
-
-        # Acquire GPU lease — the LLM needs it
-        await self._use_gpu("llm")
-
-        # Wrap in forge format: {"service": "llm", "action": "configure", ...}
-        forge_body = {"service": "llm", "action": "configure", **body}
-
-        handle = serve.get_deployment_handle("master_router", "forge")
-        inner_req = _ForgeRequest(forge_body, path="/forge")
-        return await handle.remote(inner_req)
+        body["action"] = "configure"
+        forge = _get_forge()
+        result = await forge.invoke.remote("llm", body)
+        return JSONResponse(result)
 
     async def audio_speech(self, request: Request) -> Response:
         body = await request.json()
         model = body.get("model", "tts-01-kokoro")
 
-        # Resolve model alias to service
         resolved = resolve_model(model)
         if resolved:
             service_key, entry = resolved
         else:
             service_key, entry = "kokoro", get_service("kokoro")
 
-        if entry.needs_gpu:
-            await self._use_gpu(service_key)
+        if _is_forge_service(service_key):
+            forge = _get_forge()
+            result = await forge.invoke.remote(service_key, body)
+            return JSONResponse(result)
 
         handle = serve.get_deployment_handle(entry.deployment, entry.app)
         return await handle.remote(request)
@@ -192,9 +151,6 @@ class APIIngress:
             service_key, entry = resolved
         else:
             service_key, entry = "faster_whisper", get_service("faster_whisper")
-
-        if entry.needs_gpu:
-            await self._use_gpu(service_key)
 
         handle = serve.get_deployment_handle(entry.deployment, entry.app)
         return await handle.remote(request)
@@ -236,20 +192,25 @@ class APIIngress:
     # ── ComfyUI proxy ──────────────────────────────────────────────────────────
 
     async def comfyui_proxy(self, request: Request) -> Response:
-        """Route to ComfyUI via Ray Serve deployment handle."""
-        entry = get_service("comfyui")
-        await self._use_gpu("comfyui")
-        handle = serve.get_deployment_handle(entry.deployment, entry.app)
-        return await handle.remote(request)
+        """Route to ComfyUI via Forge."""
+        body = await request.json() if request.method == "POST" else {}
+        forge = _get_forge()
+        result = await forge.invoke.remote("comfyui", {
+            "method": request.method,
+            "path": request.url.path.replace("/comfyui", "") or "/",
+            **body,
+        })
+        return JSONResponse(result)
 
     # ── Status / Health / Admin ────────────────────────────────────────────────
 
     async def status(self, request: Request) -> Response:
-        await self._ensure_governor()
         status = {}
-        if self._governor:
-            gpu_status = await self._governor.status.remote()
-            status["gpu"] = gpu_status
+        try:
+            forge = _get_forge()
+            status = await forge.status.remote()
+        except Exception:
+            pass
 
         from services.base import gpu_memory_info, gpu_resources
         status["vram"] = gpu_memory_info()
@@ -261,23 +222,24 @@ class APIIngress:
         return JSONResponse({"status": "ok"})
 
     async def load_model(self, request: Request) -> Response:
-        await self._ensure_governor()
         body = await request.json()
-        service = body["service"]
-        if self._governor:
-            await self._governor.acquire.remote(service)
-            return JSONResponse({"status": "loaded", "service": service})
-        return JSONResponse({"error": "governor not available"}, status_code=503)
+        service = body.get("service", "")
+        if not service:
+            return JSONResponse({"error": "service required"}, status_code=400)
+        try:
+            forge = _get_forge()
+            result = await forge.preload.remote(service, body.get("model"))
+            return JSONResponse(result)
+        except Exception as e:
+            return JSONResponse({"error": str(e)}, status_code=503)
 
     async def unload_all(self, request: Request) -> Response:
-        await self._ensure_governor()
-        if self._governor:
-            state = await self._governor.status.remote()
-            holder = state.get("holder")
-            if holder:
-                await self._governor.release.remote(holder)
-            return JSONResponse({"status": "unloaded"})
-        return JSONResponse({"error": "governor not available"}, status_code=503)
+        try:
+            forge = _get_forge()
+            result = await forge.release.remote()
+            return JSONResponse(result)
+        except Exception as e:
+            return JSONResponse({"error": str(e)}, status_code=503)
 
 
 def create_app() -> Starlette:
