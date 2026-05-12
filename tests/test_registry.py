@@ -59,7 +59,10 @@ class TestNoManualDownloads:
             for name, meta in models.items():
                 if meta.get("download") == "manual":
                     manual.append(f"{cat}/{name}")
-        assert manual == [], f"Models with download=manual: {manual}"
+        # wan2gp models are self-managed by mmgp — manual download is expected
+        allowed = {m for m in manual if m.startswith("wan2gp/")}
+        unexpected = set(manual) - allowed
+        assert len(unexpected) == 0, f"Unexpected manual download models: {unexpected}"
 
     def test_no_null_source_for_downloadable(self, registry):
         """Models that aren't 'skip' must have a source."""
@@ -97,7 +100,7 @@ class TestDownloadSources:
                 assert model_id.isdigit(), f"{cat}/{name}: civitai ID not numeric: {model_id}"
 
     def test_download_modes_valid(self, registry):
-        valid_modes = {"file", "snapshot", "civitai", "modelscope", "skip", ""}
+        valid_modes = {"file", "snapshot", "civitai", "modelscope", "skip", "manual", ""}
         for cat, models in registry.data.items():
             for name, meta in models.items():
                 mode = meta.get("download", "")
