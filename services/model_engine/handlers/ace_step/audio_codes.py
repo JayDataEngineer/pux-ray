@@ -155,17 +155,22 @@ def generate_audio_codes(
     mask_processor = AudioCodeMaskProcessor(audio_code_mask.to(device))
 
     # Generate
+    gen_kwargs = dict(
+        input_ids=both["input_ids"],
+        attention_mask=both["attention_mask"],
+        max_new_tokens=max_tokens,
+        temperature=temperature if temperature > 0 else 1.0,
+        top_p=top_p,
+        do_sample=temperature > 0,
+        logits_processor=[mask_processor],
+        return_dict_in_generate=True,
+        output_scores=False,
+    )
+    if top_k is not None and top_k > 0:
+        gen_kwargs["top_k"] = top_k
+
     with torch.no_grad():
-        outputs = lm_model.generate(
-            input_ids=both["input_ids"],
-            attention_mask=both["attention_mask"],
-            max_new_tokens=max_tokens,
-            temperature=temperature if temperature > 0 else 1.0,
-            top_p=top_p,
-            top_k=top_k if top_k else -1,
-            do_sample=temperature > 0,
-            logits_processor=[mask_processor],
-            return_dict_in_generate=True,
+        outputs = lm_model.generate(**gen_kwargs)
             output_scores=False,
         )
 
