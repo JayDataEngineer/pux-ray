@@ -389,29 +389,42 @@ class AceStepHandler(BaseHandler):
         config_path: Path,
         dtype: torch.dtype,
     ) -> torch.nn.Module:
-        """Load a model via mmgp with trust_remote_code.
+        """Load a model — instantiate with config, load safetensors weights.
 
-        Wraps mmgp's fast_load_transformers_model, handling the
-        trust_remote_code requirement for custom model code.
+        Bypasses mmgp's AutoConfig.from_pretrained() which prompts for
+        trust_remote_code. We already have the model class and config class,
+        so we load directly.
         """
-        import os
-        from mmgp import offload
+        from safetensors.torch import load_file
 
-        # Ensure HF doesn't prompt for trust_remote_code
-        old_trust = os.environ.get("HF_TRUST_REMOTE_CODE")
-        os.environ["HF_TRUST_REMOTE_CODE"] = "1"
-        try:
-            model = offload.fast_load_transformers_model(
-                str(weights_path),
-                modelClass=model_class,
-                defaultConfigPath=str(config_path) if config_path.exists() else None,
-                default_dtype=dtype,
-            )
-        finally:
-            if old_trust is not None:
-                os.environ["HF_TRUST_REMOTE_CODE"] = old_trust
-            else:
-                os.environ.pop("HF_TRUST_REMOTE_CODE", None)
+        # Load config
+        import json
+        config = None
+        if config_path.exists():
+            with open(config_path) as f:
+                config_dict = json.load(f)
+            # Strip metadata keys that confuse constructors
+            for key in ["_class_name", "_diffusers_version", "_name_or_path"]:
+                config_dict.pop(key, None)
+            # Try model class's config class
+            config_cls = getattr(model_class, "config_class", None)
+            if config_cls is not None:
+                try:
+                    config = config_cls(**config_dict)
+                except TypeError:
+                    config = None
+
+        # Instantiate model
+        if config is not None:
+            model = model_class(config)
+        else:
+            model = model_class()
+
+        # Load weights
+        state_dict = load_file(str(weights_path))
+        model.load_state_dict(state_dict, strict=False)
+        model = model.to(dtype)
+
         return model
 
     @staticmethod
