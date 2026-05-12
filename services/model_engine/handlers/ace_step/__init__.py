@@ -274,7 +274,6 @@ class AceStepHandler(BaseHandler):
             logger.info("Loading LM from %s", lm_weights.name)
 
             lm_model = self._fast_load(lm_weights, Qwen3ForCausalLM, lm_config_path, dtype)
-            )
             lm_model.eval()
 
         # ── Load silence latent ─────────────────────────────────────
