@@ -55,36 +55,30 @@ class AceStepV15Pipeline:
         self.audio_code_token_map = audio_code_token_map
         self.audio_code_mask = audio_code_mask
 
-        # Deep-copy quantizer + detokenizer to CPU for audio code → latent
-        # conversion without touching GPU-loaded transformer.
-        # NOTE: These are deep-copied before mmgp takes over the transformer.
-        # We store the quantizer's state_dict and reconstruct on CPU to avoid
-        # shared storage issues with mmgp's in-place quantization.
-        self._lm_hint_quantizer = None
+        # Extract codebook + projection weights for manual audio code lookup.
+        # We can't use the quantizer object directly because mmgp's hooks
+        # interfere with its runtime code generation (einx).
+        self._codebook = None
+        self._proj_weight = None
+        self._proj_bias = None
         self._lm_hint_detokenizer = None
         if (
             hasattr(transformer, "tokenizer")
             and hasattr(transformer.tokenizer, "quantizer")
         ):
             try:
-                q_copy = copy.deepcopy(transformer.tokenizer.quantizer)
+                q = transformer.tokenizer.quantizer
+                # codebooks: [num_layers, vocab_size, codebook_dim]
+                self._codebook = q.codebooks.detach().clone().cpu().float()
+                # project_out: Linear(codebook_dim, model_dim)
+                self._proj_weight = q.project_out.weight.data.detach().clone().cpu().float()
+                self._proj_bias = q.project_out.bias.data.detach().clone().cpu().float()
+                # Detokenizer (nn.Module, deep-copied to CPU)
                 d_copy = copy.deepcopy(transformer.detokenizer)
-                q_copy = q_copy.cpu().float()
-                d_copy = d_copy.cpu().float()
-                # Move implicit_codebook on each FSQ layer — the
-                # codebooks property stacks these dynamically.
-                for mod in q_copy.modules():
-                    if hasattr(mod, "implicit_codebook"):
-                        mod.implicit_codebook = (
-                            mod.implicit_codebook.detach().clone().cpu()
-                        )
-                self._lm_hint_quantizer = q_copy
-                self._lm_hint_detokenizer = d_copy
+                self._lm_hint_detokenizer = d_copy.cpu().float()
             except Exception as e:
-                logger.warning("Failed to copy quantizer/detokenizer: %s", e)
-        else:
-            self._lm_hint_quantizer = None
-            self._lm_hint_detokenizer = None
+                logger.warning("Failed to extract codebook/projection: %s", e)
+                self._lm_hint_detokenizer = None
 
     def __call__(self, payload: dict) -> dict:
         """Run inference from a payload dict."""
@@ -218,7 +212,7 @@ class AceStepV15Pipeline:
         refer_audio_order_mask = torch.tensor([0], device=device, dtype=torch.long)
         src_latents = silence_latent.clone()
         chunk_masks = torch.ones_like(src_latents)
-        has_real_hints = audio_codes is not None and self._lm_hint_quantizer is not None
+        has_real_hints = audio_codes is not None and self._codebook is not None
         is_covers = torch.tensor(
             [1 if has_real_hints else 0],
             device=device,
@@ -419,16 +413,28 @@ class AceStepV15Pipeline:
         target_length: int,
         dtype: torch.dtype,
     ) -> Optional[torch.Tensor]:
-        """Convert audio code tokens → 25Hz latent hints via CPU quantizer/detokenizer."""
-        if self._lm_hint_quantizer is None or self._lm_hint_detokenizer is None:
+        """Convert audio code tokens → 25Hz latent hints.
+
+        Manual codebook lookup + projection, bypassing the quantizer object
+        to avoid mmgp's runtime hooks interfering with einx code generation.
+        """
+        if self._codebook is None or self._lm_hint_detokenizer is None:
             return None
 
         try:
-            codes = torch.tensor(audio_codes, dtype=torch.long).unsqueeze(0).unsqueeze(-1)
+            # Force CPU — mmgp sets default device to CUDA after profiling
+            codes = torch.tensor(audio_codes, dtype=torch.long, device='cpu').unsqueeze(0)
 
             with torch.no_grad():
-                quantized = self._lm_hint_quantizer.get_output_from_indices(codes)
-                hints = self._lm_hint_detokenizer(quantized.to(dtype))
+                # Lookup in codebook: [num_layers, vocab, codebook_dim]
+                looked_up = self._codebook[0][codes]  # [1, seq, codebook_dim]
+                # Project to model dimension
+                quantized = torch.nn.functional.linear(
+                    looked_up, self._proj_weight, self._proj_bias,
+                )
+                # Detokenize to 25Hz (match detokenizer's dtype)
+                detok_dtype = next(self._lm_hint_detokenizer.parameters()).dtype
+                hints = self._lm_hint_detokenizer(quantized.to(detok_dtype))
 
             hints = hints[:, :target_length, :]
             return hints
