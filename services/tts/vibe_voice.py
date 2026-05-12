@@ -19,6 +19,7 @@ from ray import serve
 from starlette.responses import JSONResponse
 
 from services.base import BaseGPUDeployment
+from services.forge_base import ForgeService
 
 logger = logging.getLogger(__name__)
 
@@ -189,3 +190,149 @@ class VibeVoiceCommunityTTSDeployment(BaseGPUDeployment):
         except Exception as e:
             logger.error("vibevoice error: %s", e)
             return JSONResponse(self.handle_error(str(e)), status_code=500)
+
+
+class VibeVoiceCommunityTTSService(ForgeService):
+    """Forge adapter for VibeVoice Community TTS (~18.7GB VRAM).
+
+    Uses vibevoice/VibeVoice-7B for long-form multi-speaker speech synthesis
+    with voice cloning support.
+    """
+
+    vram_mb = 18_700
+    service_name = "vibevoice_community_tts"
+    default_model = "vibevoice-tts-7b"
+
+    def __init__(self):
+        super().__init__()
+        self.pipeline = None
+        self.processor = None
+
+    def load(self, model_name: str | None = None) -> None:
+        model_name = model_name or self.default_model
+
+        from services.compat import apply as _apply_compat
+        _apply_compat()
+
+        # Patch: community fork may reference classes from original vibevoice
+        import vibevoice.modular.modular_vibevoice_text_tokenizer as _vtok
+        if not hasattr(_vtok, 'VibeVoiceASRTextTokenizerFast'):
+            _vtok.VibeVoiceASRTextTokenizerFast = _vtok.VibeVoiceTextTokenizerFast
+
+        from vibevoice_community.modular.modeling_vibevoice_inference import (
+            VibeVoiceForConditionalGenerationInference,
+        )
+        from vibevoice_community.processor.vibevoice_processor import VibeVoiceProcessor
+
+        self.processor = VibeVoiceProcessor.from_pretrained(MODEL_PATH)
+
+        self.pipeline = VibeVoiceForConditionalGenerationInference.from_pretrained(
+            MODEL_PATH,
+            torch_dtype=torch.bfloat16,
+            device_map="cuda:0",
+            attn_implementation="flash_attention_2",
+        )
+        self.pipeline.eval()
+        self.pipeline.set_ddpm_inference_steps(num_steps=10)
+
+        self.model_name = model_name
+        self._loaded = True
+        logger.info("VibeVoice loaded: %s", MODEL_PATH)
+
+    def unload(self) -> None:
+        self.pipeline = None
+        self.processor = None
+        super().unload()
+
+    def infer(self, payload: dict) -> dict:
+        import base64
+
+        text = payload.get("text", "")
+        if not text:
+            return {"status": "error", "error": "text is required"}
+
+        speaker_names = payload.get("voice", "Andrew")
+        if isinstance(speaker_names, str):
+            speaker_names = [s.strip() for s in speaker_names.split(",")]
+
+        voice_samples = []
+        ref_audio_path = None
+        reference_audio = payload.get("reference_audio")
+        if reference_audio:
+            import tempfile
+            from services.base import _b64_decode
+
+            if isinstance(reference_audio, str):
+                reference_audio = _b64_decode(reference_audio)
+            ref = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
+            ref.write(reference_audio)
+            ref.close()
+            ref_audio_path = ref.name
+            voice_samples.append(ref_audio_path)
+        else:
+            for name in speaker_names:
+                try:
+                    wav_path = self._find_voice_file(name)
+                    voice_samples.append(wav_path)
+                except FileNotFoundError:
+                    return {"status": "error", "error": f"No voice file for speaker '{name}'"}
+
+        try:
+            audio = self._generate_audio(text, voice_samples)
+        finally:
+            if ref_audio_path:
+                Path(ref_audio_path).unlink(missing_ok=True)
+
+        return {
+            "status": "ok",
+            "data": base64.b64encode(audio).decode(),
+            "media_type": "audio/wav",
+        }
+
+    def _find_voice_file(self, speaker_name: str) -> str:
+        for ext in (".wav", ".flac", ".mp3"):
+            path = os.path.join(VOICES_DIR, f"{speaker_name}{ext}")
+            if os.path.isfile(path):
+                return path
+        if os.path.isdir(VOICES_DIR):
+            wavs = [f for f in os.listdir(VOICES_DIR) if f.endswith(".wav")]
+            if wavs:
+                return os.path.join(VOICES_DIR, wavs[0])
+        raise FileNotFoundError(f"No voice file found for '{speaker_name}' in {VOICES_DIR}")
+
+    def _generate_audio(self, text: str, voice_samples: list[str]) -> bytes:
+        import soundfile as sf
+
+        processed = self.processor(
+            text=[text],
+            voice_samples=[voice_samples],
+            padding=True,
+            return_tensors="pt",
+            return_attention_mask=True,
+        )
+
+        for k, v in processed.items():
+            if torch.is_tensor(v):
+                processed[k] = v.to("cuda:0")
+
+        outputs = self.pipeline.generate(
+            **processed,
+            max_new_tokens=None,
+            cfg_scale=1.3,
+            tokenizer=self.processor.tokenizer,
+            generation_config={"do_sample": False},
+            verbose=False,
+            is_prefill=True,
+        )
+
+        if not outputs.speech_outputs or outputs.speech_outputs[0] is None:
+            raise RuntimeError("generation produced no audio")
+
+        audio = outputs.speech_outputs[0]
+        if torch.is_tensor(audio):
+            audio = audio.detach().cpu().to(torch.float32).numpy()
+
+        buf = io.BytesIO()
+        sf.write(buf, audio, 24000, format="WAV")
+        buf.seek(0)
+        return buf.getvalue()

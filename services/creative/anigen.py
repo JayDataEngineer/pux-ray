@@ -21,6 +21,7 @@ from starlette.responses import JSONResponse
 from PIL import Image
 
 from services.base import BaseGPUDeployment, InferenceConfig, _b64_decode
+from services.forge_base import ForgeService
 
 logger = logging.getLogger(__name__)
 
@@ -383,6 +384,285 @@ class AniGenDeployment(BaseGPUDeployment):
                     ss_steps=ss_steps,
                     slat_steps=slat_steps,
                     texture_size=512 if self.config.low_resource else 1024,
+                )
+        except Exception as e:
+            logger.error("AniGen inference failed: %s", e, exc_info=True)
+            raise
+
+
+class AniGenService(ForgeService):
+    """Forge-managed AniGen image-to-3D service."""
+    vram_mb = 10_240
+    service_name = "anigen"
+    default_model = "anigen"
+
+    def __init__(self):
+        super().__init__()
+        self.pipeline = None
+
+    def load(self, model_name: str) -> None:
+        from services.compat import apply as _apply_compat
+        _apply_compat()
+
+        from registry.config import Config
+        from registry.models import ModelRegistry
+
+        cfg = Config()
+        registry = ModelRegistry()
+
+        model_path = registry.get_path("3d", model_name)
+        if not model_path.is_dir():
+            raise FileNotFoundError(
+                f"AniGen model not found at {model_path}. "
+                f"Check model_registry.yaml '3d.anigen' entry."
+            )
+
+        vendor = str(Path(cfg.project_root) / "vendor")
+        if vendor not in sys.path:
+            sys.path.insert(0, vendor)
+
+        os.environ.setdefault("SPCONV_DISABLE_JIT", "1")
+        os.environ.setdefault("ATTN_BACKEND", "sdpa")
+        os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+        os.environ.setdefault("U2NET_DEVICE", "cpu")
+
+        old_cwd = os.getcwd()
+        os.chdir(str(model_path))
+
+        logger.info("Loading AniGen pipeline from %s (CWD=%s)", model_path, model_path)
+
+        import importlib.util as _iu
+        _orig_find_spec = _iu.find_spec
+        def _safe_find_spec(name, *args, **kwargs):
+            try:
+                return _orig_find_spec(name, *args, **kwargs)
+            except (ModuleNotFoundError, ValueError):
+                return None
+        _iu.find_spec = _safe_find_spec
+
+        from anigen.pipelines import AnigenImageTo3DPipeline
+
+        import functools, rembg
+        _orig_new_session = rembg.new_session
+        @functools.wraps(_orig_new_session)
+        def _cpu_new_session(*args, **kwargs):
+            kwargs.setdefault("providers", ["CPUExecutionProvider"])
+            return _orig_new_session(*args, **kwargs)
+        rembg.new_session = _cpu_new_session
+
+        ckpts_dir = str(model_path / "ckpts" / "anigen")
+        ss_flow_path = str(Path(ckpts_dir) / "ss_flow_duet")
+        slat_flow_path = str(Path(ckpts_dir) / "slat_flow_auto")
+
+        self.pipeline = AnigenImageTo3DPipeline.from_pretrained(
+            ss_flow_path=ss_flow_path,
+            slat_flow_path=slat_flow_path,
+        )
+
+        os.chdir(old_cwd)
+
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+        self.pipeline.to(device)
+
+        for m in self.pipeline.models.values():
+            if not isinstance(m, torch.nn.Module):
+                continue
+            for p in m.parameters():
+                if p.dtype in (torch.bfloat16, torch.float16):
+                    p.data = p.data.to(torch.float32)
+            for b in m.buffers():
+                if b.dtype in (torch.bfloat16, torch.float16):
+                    b.data = b.data.to(torch.float32)
+
+        for m in self.pipeline.models.values():
+            if not isinstance(m, torch.nn.Module):
+                continue
+            for sub in m.modules():
+                if getattr(sub, "use_fp16", False):
+                    sub.use_fp16 = False
+                if getattr(sub, "dtype", None) in (torch.float16, torch.bfloat16):
+                    sub.dtype = torch.float32
+
+        import flash_attn as _fa
+        import torch.nn.functional as _F
+
+        def _sdpa_varlen(q, k, v, cu_q, cu_kv, max_q, max_kv,
+                         dropout_p=0.0, softmax_scale=None, causal=False):
+            scale = softmax_scale or (q.shape[-1] ** -0.5)
+            batch = cu_q.shape[0] - 1
+            parts = []
+            for i in range(batch):
+                qs, qe = cu_q[i].item(), cu_q[i + 1].item()
+                ks, ke = cu_kv[i].item(), cu_kv[i + 1].item()
+                qi = q[qs:qe].transpose(0, 1).unsqueeze(0)
+                ki = k[ks:ke].transpose(0, 1).unsqueeze(0)
+                vi = v[ks:ke].transpose(0, 1).unsqueeze(0)
+                o = _F.scaled_dot_product_attention(
+                    qi, ki, vi, dropout_p=dropout_p,
+                    scale=scale, is_causal=causal)
+                parts.append(o.squeeze(0).transpose(0, 1))
+            return torch.cat(parts, dim=0).unsqueeze(1)
+
+        def _sdpa_varlen_qkvpacked(qkv, cu_seqlens, max_seqlen,
+                                   dropout_p=0.0, softmax_scale=None,
+                                   causal=False, **_kw):
+            return _sdpa_varlen(
+                qkv[:, 0], qkv[:, 1], qkv[:, 2],
+                cu_seqlens, cu_seqlens, max_seqlen, max_seqlen,
+                dropout_p, softmax_scale, causal)
+
+        def _sdpa_varlen_kvpacked(q, kv, cu_q, cu_kv, max_q, max_kv,
+                                  dropout_p=0.0, softmax_scale=None,
+                                  causal=False, **_kw):
+            return _sdpa_varlen(
+                q, kv[:, 0], kv[:, 1],
+                cu_q, cu_kv, max_q, max_kv,
+                dropout_p, softmax_scale, causal)
+
+        def _sdpa_varlen_func(q, k, v, cu_q, cu_kv, max_q, max_kv,
+                              dropout_p=0.0, softmax_scale=None,
+                              causal=False, **_kw):
+            return _sdpa_varlen(
+                q, k, v, cu_q, cu_kv, max_q, max_kv,
+                dropout_p, softmax_scale, causal)
+
+        _fa.flash_attn_varlen_qkvpacked_func = _sdpa_varlen_qkvpacked
+        _fa.flash_attn_varlen_kvpacked_func = _sdpa_varlen_kvpacked
+        _fa.flash_attn_varlen_func = _sdpa_varlen_func
+
+        try:
+            from pytorch3d.ops import ball_query as _orig_ball_query, knn_points as _orig_knn_points
+            import functools
+
+            @functools.wraps(_orig_ball_query)
+            def _cpu_ball_query(p1, p2, K=1, radius=1.0, return_nn=False):
+                dev = p1.device
+                cpu_p1, cpu_p2 = p1.cpu(), p2.cpu()
+                result = _orig_ball_query(cpu_p1, cpu_p2, K=K, radius=radius, return_nn=return_nn)
+                if isinstance(result, tuple):
+                    return tuple(r.to(dev) if r is not None else None for r in result)
+                return result.to(dev)
+
+            @functools.wraps(_orig_knn_points)
+            def _cpu_knn_points(p1, p2, lengths1=None, lengths2=None,
+                                norm=2, K=1, version=-1,
+                                return_nn=False, return_sorted=True):
+                dev = p1.device
+                result = _orig_knn_points(
+                    p1.cpu(), p2.cpu(),
+                    lengths1=lengths1.cpu() if lengths1 is not None else None,
+                    lengths2=lengths2.cpu() if lengths2 is not None else None,
+                    norm=norm, K=K, version=version,
+                    return_nn=return_nn, return_sorted=return_sorted,
+                )
+                return result._replace(
+                    dists=result.dists.to(dev),
+                    idx=result.idx.to(dev),
+                    knn=result.knn.to(dev) if result.knn is not None else None,
+                )
+
+            import pytorch3d.ops.ball_query as _bq_mod
+            import pytorch3d.ops.knn as _knn_mod
+            _bq_mod.ball_query = _cpu_ball_query
+            _knn_mod.knn_points = _cpu_knn_points
+
+            from anigen.representations.skeleton import grouping as _grp_mod
+            _grp_mod.ball_query = _cpu_ball_query
+            _grp_mod.knn_points = _cpu_knn_points
+
+            from anigen.models.structured_latent_vae import anigen_decoder as _dec_mod
+            _dec_mod.knn_points = _cpu_knn_points
+
+            from anigen.models.structured_latent_vae import anigen_encoder as _enc_mod
+            _enc_mod.knn_points = _cpu_knn_points
+
+            try:
+                from anigen.representations.mesh import cube2mesh_skeleton as _c2m_mod
+                _c2m_mod.knn_points = _cpu_knn_points
+            except ImportError:
+                pass
+        except ImportError:
+            pass
+
+        self.model_name = model_name
+        self._loaded = True
+        torch.cuda.empty_cache()
+        gc.collect()
+
+        vram = torch.cuda.memory_allocated(0) / (1024**2) if torch.cuda.is_available() else 0
+        logger.info("AniGen loaded (VRAM=%.0fMB)", vram)
+
+    def unload(self) -> None:
+        if self.pipeline is not None:
+            del self.pipeline
+            self.pipeline = None
+        self._loaded = False
+        super().unload()
+
+    def infer(self, payload: dict) -> dict:
+        import base64 as _b64
+
+        img_input = payload.get("image")
+        if img_input is None:
+            return {"status": "error", "error": "image required"}
+
+        if isinstance(img_input, str):
+            img_bytes = _b64.b64decode(img_input)
+        else:
+            img_bytes = img_input
+
+        seed = int(payload.get("seed", 42))
+        img = Image.open(io.BytesIO(img_bytes))
+
+        result = self._run_pipeline(img, seed)
+
+        # Check if mesh endpoint was requested
+        if payload.get("endpoint", "").endswith("/mesh"):
+            mesh = result.get("mesh")
+            if mesh is None:
+                return {"status": "error", "error": "No mesh produced"}
+
+            with tempfile.NamedTemporaryFile(suffix=".glb", delete=False) as tmp:
+                mesh.export(tmp.name, file_type="glb")
+                data = Path(tmp.name).read_bytes()
+                Path(tmp.name).unlink(missing_ok=True)
+
+            logger.info("AniGen mesh done: %dKB GLB", len(data) // 1024)
+            return {
+                "status": "success",
+                "data": _b64.b64encode(data).decode(),
+                "media_type": "model/gltf-binary",
+            }
+
+        keys = list(result.keys())
+        mesh = result.get("mesh")
+        mesh_info = None
+        if mesh is not None:
+            mesh_info = {"vertices": len(mesh.vertices), "faces": len(mesh.faces)}
+
+        return {
+            "status": "success",
+            "data": _b64.b64encode(json.dumps({"status": "ok", "seed": seed, "mesh": mesh_info, "keys": keys}).encode()).decode(),
+            "media_type": "application/json",
+        }
+
+    def _run_pipeline(self, img, seed: int) -> dict:
+        """Reuse the same pipeline execution as AniGenDeployment._run_pipeline."""
+        ss_steps = 25
+        slat_steps = 25
+        cfg_scale_ss = 7.5
+        cfg_scale_slat = 3.0
+
+        try:
+            with torch.no_grad():
+                return self.pipeline.run(
+                    img,
+                    seed=seed,
+                    cfg_scale_ss=cfg_scale_ss,
+                    cfg_scale_slat=cfg_scale_slat,
+                    ss_steps=ss_steps,
+                    slat_steps=slat_steps,
+                    texture_size=1024,
                 )
         except Exception as e:
             logger.error("AniGen inference failed: %s", e, exc_info=True)

@@ -18,6 +18,7 @@ import torch
 from starlette.responses import JSONResponse
 
 from services.base import BaseGPUDeployment
+from services.forge_base import ForgeService
 
 logger = logging.getLogger(__name__)
 
@@ -257,3 +258,173 @@ class MossSoundEffectDeployment(BaseGPUDeployment):
         except Exception as e:
             logger.error("moss_soundeffect error: %s", e, exc_info=True)
             return JSONResponse(self.handle_error(str(e)), status_code=500)
+
+
+class MossService(ForgeService):
+    """Forge-managed MOSS-SoundEffect text-to-sound service."""
+    vram_mb = 18_432
+    service_name = "moss_soundeffect"
+    default_model = "moss-soundeffect"
+
+    def __init__(self):
+        super().__init__()
+        self.processor = None
+        self.device = None
+
+    def load(self, model_name: str) -> None:
+        if not os.path.isdir(MODEL_PATH):
+            raise FileNotFoundError(f"MOSS-SoundEffect model not found at {MODEL_PATH}")
+
+        _patch_transformers()
+        torch.backends.cuda.enable_cudnn_sdp(False)
+        torch.backends.cuda.enable_flash_sdp(True)
+
+        self.device = "cuda" if torch.cuda.is_available() else "cpu"
+        dtype = torch.bfloat16 if self.device == "cuda" else torch.float32
+
+        _get_moss_model_class()
+
+        from transformers import AutoConfig, AutoModel, AutoTokenizer
+        from transformers.dynamic_module_utils import get_class_from_dynamic_module
+
+        logger.info("Loading MOSS processor components from %s", MODEL_PATH)
+        config = AutoConfig.from_pretrained(
+            MODEL_PATH, trust_remote_code=True, local_files_only=True,
+        )
+        tokenizer = AutoTokenizer.from_pretrained(
+            MODEL_PATH, trust_remote_code=True, local_files_only=True,
+        )
+
+        codec_path = os.environ.get(
+            "MOSS_AUDIO_TOKENIZER_PATH",
+            os.path.join(MODELS_ROOT, "audio/moss-audio-tokenizer"),
+        )
+        logger.info("Loading MOSS audio tokenizer from %s (CPU)", codec_path)
+        audio_tokenizer = AutoModel.from_pretrained(
+            codec_path, trust_remote_code=True, local_files_only=True,
+            device_map="cpu", torch_dtype=torch.float32,
+        )
+
+        proc_cls = get_class_from_dynamic_module(
+            "processing_moss_tts.MossTTSDelayProcessor",
+            MODEL_PATH, trust_remote_code=True,
+        )
+        processor = proc_cls.__new__(proc_cls)
+        processor.tokenizer = tokenizer
+        processor.audio_tokenizer = audio_tokenizer
+        if config is None:
+            from importlib import import_module
+            cfg_mod = import_module(
+                "transformers_modules.moss_hyphen_soundeffect.configuration_moss_tts"
+            )
+            config = cfg_mod.MossTTSDelayConfig()
+        processor.model_config = config
+
+        if config.pad_token_id is None:
+            config.pad_token_id = tokenizer.pad_token_id
+
+        processor.imstart_token_id = tokenizer.convert_tokens_to_ids("<|im_start|>")
+        processor.imend_token_id = tokenizer.convert_tokens_to_ids("<|im_end|>")
+        processor.newline_token_id = 198
+
+        def _id_to_token(token_id):
+            tok = tokenizer.convert_ids_to_tokens(int(token_id))
+            if isinstance(tok, list):
+                return tok[0] if len(tok) > 0 else ""
+            return tok
+
+        processor.audio_user_slot_token = _id_to_token(
+            config.audio_user_slot_token_id
+        )
+        processor.audio_assistant_gen_slot_token = _id_to_token(
+            config.audio_assistant_gen_slot_token_id
+        )
+        processor.audio_assistant_delay_slot_token = _id_to_token(
+            config.audio_assistant_delay_slot_token_id
+        )
+        processor.audio_start_token = _id_to_token(config.audio_start_token_id)
+        processor.audio_end_token = _id_to_token(config.audio_end_token_id)
+        self.processor = processor
+
+        config.tie_word_embeddings = False
+
+        logger.info("Loading MOSS model (%s) from %s", dtype, MODEL_PATH)
+        gc.collect()
+        torch.cuda.empty_cache()
+
+        model = AutoModel.from_pretrained(
+            MODEL_PATH,
+            config=config,
+            trust_remote_code=True,
+            torch_dtype=dtype,
+            local_files_only=True,
+            low_cpu_mem_usage=True,
+            device_map={"": 0} if self.device == "cuda" else None,
+        )
+        model.eval()
+
+        self.model = model
+        self.model_name = model_name
+        self._loaded = True
+
+        vram = torch.cuda.memory_allocated(0) / (1024**2) if self.device == "cuda" else 0
+        logger.info("MOSS-SoundEffect loaded on %s (VRAM: %.0fMB)", self.device, vram)
+
+    def unload(self) -> None:
+        self.model = None
+        self.processor = None
+        self._loaded = False
+        super().unload()
+
+    def _generate_audio(self, prompt: str, tokens=None) -> bytes:
+        """Generate audio using loaded model — same logic as MossSoundEffectDeployment."""
+        batch_spec = {}
+        if tokens is not None:
+            batch_spec["tokens"] = tokens
+
+        conversations = [
+            [self.processor.build_user_message(ambient_sound=prompt, **batch_spec)]
+        ]
+        batch = self.processor(conversations, mode="generation")
+        input_ids = batch["input_ids"].to(self.device)
+        attention_mask = batch["attention_mask"].to(self.device)
+
+        with torch.no_grad():
+            outputs = self.model.generate(
+                input_ids=input_ids,
+                attention_mask=attention_mask,
+                max_new_tokens=4096,
+            )
+
+        results = self.processor.decode(outputs)
+        if not results:
+            raise RuntimeError("No audio generated")
+
+        audio = results[0].audio_codes_list[0]
+        buf = io.BytesIO()
+        import torchaudio
+        sample_rate = self.processor.model_config.sampling_rate
+        torchaudio.save(buf, audio.unsqueeze(0), sample_rate, format="WAV")
+        buf.seek(0)
+        return buf.read()
+
+    def infer(self, payload: dict) -> dict:
+        import base64 as _b64
+
+        prompt = payload.get("prompt", "")
+        if not prompt:
+            return {"status": "error", "error": "prompt required"}
+
+        tokens = payload.get("tokens")
+
+        try:
+            audio = self._generate_audio(prompt, tokens)
+        except Exception as e:
+            logger.error("MOSS inference failed: %s", e, exc_info=True)
+            return {"status": "error", "error": str(e)}
+
+        return {
+            "status": "success",
+            "data": _b64.b64encode(audio).decode(),
+            "media_type": "audio/wav",
+        }

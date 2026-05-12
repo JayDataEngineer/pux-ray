@@ -93,7 +93,6 @@ class ForgeCore:
             raise ValueError(f"Service {name} was registered but has no instance")
 
         mod = importlib.import_module(module_path)
-        mod = importlib.import_module(module_path)
         cls = getattr(mod, class_name)
         svc = cls()
         self._services[name] = svc
