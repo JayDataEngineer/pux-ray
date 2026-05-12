@@ -243,10 +243,11 @@ class AceStepHandler(BaseHandler):
             # Try default config.json
             config_path = transformer_dir / "config.json"
 
-        logger.info("Loading transformer from %s (config=%s)", transformer_dir, config_path.name)
+        transformer_weights = self._find_weights(transformer_dir)
+        logger.info("Loading transformer from %s (config=%s)", transformer_weights.name, config_path.name)
 
         transformer = offload.fast_load_transformers_model(
-            str(transformer_dir),
+            str(transformer_weights),
             modelClass=TransformerModel,
             defaultConfigPath=str(config_path) if config_path.exists() else None,
             default_dtype=dtype,
@@ -254,11 +255,12 @@ class AceStepHandler(BaseHandler):
         transformer.eval()
 
         # ── Load audio VAE ──────────────────────────────────────────
-        logger.info("Loading VAE from %s", vae_dir)
-
+        vae_weights = self._find_weights(vae_dir)
         vae_config_path = vae_dir / "config.json"
+        logger.info("Loading VAE from %s", vae_weights.name)
+
         audio_vae = offload.fast_load_transformers_model(
-            str(vae_dir),
+            str(vae_weights),
             modelClass=VaeModel,
             defaultConfigPath=str(vae_config_path) if vae_config_path.exists() else None,
             default_dtype=dtype,
@@ -266,11 +268,12 @@ class AceStepHandler(BaseHandler):
         audio_vae.eval()
 
         # ── Load text encoder 2 (Qwen3 0.6B embedding) ────────────
-        logger.info("Loading text encoder 2 from %s", te2_dir)
-
+        te2_weights = self._find_weights(te2_dir)
         te2_config_path = te2_dir / "config.json"
+        logger.info("Loading text encoder 2 from %s", te2_weights.name)
+
         text_encoder_2 = offload.fast_load_transformers_model(
-            str(te2_dir),
+            str(te2_weights),
             modelClass=Qwen3Model,
             defaultConfigPath=str(te2_config_path) if te2_config_path.exists() else None,
             default_dtype=dtype,
@@ -280,10 +283,12 @@ class AceStepHandler(BaseHandler):
         # ── Load LM (optional) ─────────────────────────────────────
         lm_model = None
         if enable_lm and lm_dir is not None and lm_dir.is_dir():
-            logger.info("Loading LM from %s", lm_dir)
+            lm_weights = self._find_weights(lm_dir)
             lm_config_path = lm_dir / "config.json"
+            logger.info("Loading LM from %s", lm_weights.name)
+
             lm_model = offload.fast_load_transformers_model(
-                str(lm_dir),
+                str(lm_weights),
                 modelClass=Qwen3ForCausalLM,
                 defaultConfigPath=str(lm_config_path) if lm_config_path.exists() else None,
                 default_dtype=dtype,
@@ -380,6 +385,21 @@ class AceStepHandler(BaseHandler):
                         if entry.name.lower() == name.lower():
                             return entry
         return None
+
+    @staticmethod
+    def _find_weights(component_dir: Path) -> Path:
+        """Find the weights file (safetensors) in a component directory."""
+        # Prefer safetensors
+        for pattern in ["model.safetensors", "*.safetensors", "diffusion_pytorch_model.safetensors"]:
+            matches = list(component_dir.glob(pattern))
+            if matches:
+                return matches[0]
+        # Fallback: any weights file
+        for pattern in ["*.bin", "*.pt", "*.pth"]:
+            matches = list(component_dir.glob(pattern))
+            if matches:
+                return matches[0]
+        raise FileNotFoundError(f"No weights file found in {component_dir}")
 
     @staticmethod
     def _find_silence_latent(root: Path, transformer_dir: Path) -> Path | None:
