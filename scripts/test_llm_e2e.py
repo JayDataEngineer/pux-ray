@@ -1,6 +1,6 @@
 """End-to-end integration tests for LLM service.
 
-Tests the full path: client → ingress → master_router → LLM → llama-server.
+Tests the full path: client → ingress → Forge → LLM → llama-server.
 
 The main flow is one call: POST /v1/chat/completions with {"model": "...", "messages": [...]}.
 The server auto-configures (smart diff restart) if the model changed, then infers.

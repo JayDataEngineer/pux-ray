@@ -40,9 +40,8 @@ Ray-Native Design:
 - GPU memory tracked via torch.cuda (not nvidia-smi subprocess)
 - Ray Serve handles port allocation (no manual port scanning)
 - ray.available_resources() for cluster-level GPU status
-- SubprocessMixin / CLIToolMixin exist only for tools lacking
-  Docker images; will be replaced by runtime_env["container"]
-  once images are built.
+- Heavy GPU services use ForgeService (services/forge_base.py)
+- SubprocessMixin / CLIToolMixin for subprocess-based services
 
 Ghost VRAM prevention:
 - unload_model() calls torch.cuda.empty_cache() + gc.collect()
@@ -273,67 +272,29 @@ def _free_cuda_cache():
 # ─── BaseGPUDeployment ────────────────────────────────────────────────────────
 
 class BaseGPUDeployment:
-    """Base class for GPU model deployments with load/unload lifecycle.
+    """Base class for Ray Serve deployments with load/unload lifecycle.
+
+    Used by CPU services (kokoro, espeak, faster_whisper) and lightweight
+    GPU services (faster_qwen3_tts, index_tts, vibevoice_cpp).
+
+    Heavy GPU services use ForgeService instead (services/forge_base.py).
 
     Subclasses must implement:
         _load(model_name) - load model into VRAM
         _unload() - release model from VRAM
-
-    Governor integration: load_model() requests a VRAM lease before loading.
-    Heavy services (trellis, ace_step, etc.) coordinate through the GPUGovernor
-    to prevent OOM collisions. Lightweight services set vram_mb=0 to skip leasing.
-
-    Subclasses that need Governor leasing MUST set both:
-        _service_name: str  — deployment name matching HEAVY_SERVICES key
-        vram_mb: int > 0    — estimated VRAM footprint in MB
     """
 
     vram_mb: int = 0
-    """Estimated VRAM footprint in MB. 0 = lightweight (no Governor lease)."""
+    """Estimated VRAM footprint in MB. 0 = lightweight (no VRAM tracking)."""
 
     _service_name: str = ""
-    """Governor service identifier. Must match a key in HEAVY_SERVICES."""
+    """Service identifier for logging."""
 
     def __init__(self):
         self.model: Optional[object] = None
         self.model_name: Optional[str] = None
         self._vram_before_load_mb: int = 0
         self.config = InferenceConfig()
-
-    # ── Governor helpers ────────────────────────────────────────────────────
-
-    @staticmethod
-    def _governor():
-        try:
-            return ray.get_actor("gpu_governor")
-        except ValueError:
-            return None
-
-    def _request_lease(self) -> None:
-        """Request VRAM lease from Governor before loading."""
-        if self.vram_mb <= 0 or not self._service_name:
-            return
-        gov = self._governor()
-        if not gov:
-            return
-        try:
-            result = ray.get(gov.acquire.remote(self._service_name))
-            if result.get("evicted"):
-                logger.info("Governor evicted %s for %s", result["evicted"], self._service_name)
-        except Exception as e:
-            logger.warning("Governor lease request failed for %s: %s", self._service_name, e)
-
-    def _release_lease(self) -> None:
-        """Release VRAM lease to Governor after unloading."""
-        if self.vram_mb <= 0 or not self._service_name:
-            return
-        gov = self._governor()
-        if not gov:
-            return
-        try:
-            ray.get(gov.release.remote(self._service_name))
-        except Exception as e:
-            logger.warning("Governor lease release failed for %s: %s", self._service_name, e)
 
     # ── Model lifecycle ─────────────────────────────────────────────────────
 
@@ -344,14 +305,12 @@ class BaseGPUDeployment:
         pass
 
     def load_model(self, model_name: str) -> None:
-        """Public load with Governor lease + VRAM tracking."""
+        """Public load with VRAM tracking."""
         if self.model_name == model_name and self.model is not None:
             return
 
         if self.model is not None:
             self.unload_model()
-
-        self._request_lease()
 
         self._vram_before_load_mb = free_vram_mb()
         logger.info("Loading %s (free VRAM: %dMB)", model_name, self._vram_before_load_mb)
@@ -359,7 +318,7 @@ class BaseGPUDeployment:
         logger.info("Loaded %s", model_name)
 
     def unload_model(self) -> None:
-        """Release GPU memory + Governor lease."""
+        """Release GPU memory."""
         if self.model is None and self.model_name is None:
             return
 
@@ -371,8 +330,6 @@ class BaseGPUDeployment:
         _free_cuda_cache()
         gc.collect()
         logger.info("Unloaded %s", name)
-
-        self._release_lease()
 
     def is_loaded(self) -> bool:
         return self.model is not None
