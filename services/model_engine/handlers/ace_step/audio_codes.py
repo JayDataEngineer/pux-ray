@@ -171,8 +171,6 @@ def generate_audio_codes(
 
     with torch.no_grad():
         outputs = lm_model.generate(**gen_kwargs)
-            output_scores=False,
-        )
 
     # Extract audio codes from the positive (first) sequence
     generated_ids = outputs.sequences[0]
