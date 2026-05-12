@@ -20,6 +20,7 @@ from starlette.responses import JSONResponse
 
 from services.base import BaseGPUDeployment
 from services.forge_base import ForgeService
+from services.base import InferenceConfig
 
 logger = logging.getLogger(__name__)
 
