@@ -143,19 +143,13 @@ def generate_audio_codes(
     )
     negative_prompt = _build_negative_prompt()
 
-    # Tokenize
-    pos_inputs = lm_tokenizer(
-        positive_prompt, return_tensors="pt", padding_side="left",
+    # Tokenize both together for matching lengths (CFG needs same seq dim)
+    both = lm_tokenizer(
+        [positive_prompt, negative_prompt],
+        return_tensors="pt",
+        padding=True,
+        padding_side="left",
     ).to(device)
-    neg_inputs = lm_tokenizer(
-        negative_prompt, return_tensors="pt", padding_side="left",
-    ).to(device)
-
-    # Prepare CFG: stack positive and negative
-    input_ids = torch.cat([pos_inputs["input_ids"], neg_inputs["input_ids"]], dim=0)
-    attention_mask = torch.cat(
-        [pos_inputs["attention_mask"], neg_inputs["attention_mask"]], dim=0,
-    )
 
     # Logits processor
     mask_processor = AudioCodeMaskProcessor(audio_code_mask.to(device))
@@ -163,8 +157,8 @@ def generate_audio_codes(
     # Generate
     with torch.no_grad():
         outputs = lm_model.generate(
-            input_ids=input_ids,
-            attention_mask=attention_mask,
+            input_ids=both["input_ids"],
+            attention_mask=both["attention_mask"],
             max_new_tokens=max_tokens,
             temperature=temperature if temperature > 0 else 1.0,
             top_p=top_p,
@@ -178,7 +172,7 @@ def generate_audio_codes(
     # Extract audio codes from the positive (first) sequence
     generated_ids = outputs.sequences[0]
     # Remove the input portion
-    input_len = pos_inputs["input_ids"].shape[1]
+    input_len = both["input_ids"].shape[1]
     new_ids = generated_ids[input_len:]
 
     # Map token IDs to audio codes
