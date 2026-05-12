@@ -69,20 +69,15 @@ class AceStepV15Pipeline:
             try:
                 q_copy = copy.deepcopy(transformer.tokenizer.quantizer)
                 d_copy = copy.deepcopy(transformer.detokenizer)
-                # Move to CPU and force-clone all tensors (codebooks etc.)
-                # that may be plain tensor attrs not moved by .to()
                 q_copy = q_copy.cpu().float()
                 d_copy = d_copy.cpu().float()
+                # Move implicit_codebook on each FSQ layer — the
+                # codebooks property stacks these dynamically.
                 for mod in q_copy.modules():
-                    for attr_name in list(vars(mod).keys()):
-                        val = getattr(mod, attr_name)
-                        if torch.is_tensor(val) and not isinstance(val, torch.nn.Parameter):
-                            setattr(mod, attr_name, val.data.clone().cpu())
-                for mod in d_copy.modules():
-                    for attr_name in list(vars(mod).keys()):
-                        val = getattr(mod, attr_name)
-                        if torch.is_tensor(val) and not isinstance(val, torch.nn.Parameter):
-                            setattr(mod, attr_name, val.data.clone().cpu())
+                    if hasattr(mod, "implicit_codebook"):
+                        mod.implicit_codebook = (
+                            mod.implicit_codebook.detach().clone().cpu()
+                        )
                 self._lm_hint_quantizer = q_copy
                 self._lm_hint_detokenizer = d_copy
             except Exception as e:
