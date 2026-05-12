@@ -41,7 +41,9 @@ class AudioCodeMaskProcessor(LogitsProcessor):
         self, input_ids: torch.LongTensor, scores: torch.FloatTensor,
     ) -> torch.FloatTensor:
         # Set all non-audio-code positions to -inf
-        scores.masked_fill_(~self.mask.to(scores.device), float("-inf"))
+        # mask is float: 0.0 = allowed, -inf = blocked
+        mask = self.mask.to(scores.device)
+        scores = scores + mask  # add -inf where blocked, 0.0 where allowed
         return scores
 
 
