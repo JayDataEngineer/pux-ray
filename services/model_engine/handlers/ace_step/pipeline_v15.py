@@ -163,6 +163,7 @@ class AceStepV15Pipeline:
         )
 
         # ── Phase 3: Prepare latents ─────────────────────────────────
+        # All latent tensors use [B, T, 64] format (time-first)
         latent_length = round(
             duration_seconds * self.SAMPLE_RATE / self.HOP_LENGTH
         )
@@ -173,32 +174,30 @@ class AceStepV15Pipeline:
         if seed is not None:
             gen.manual_seed(seed)
         noise = torch.randn(
-            1,
-            silence_latent.shape[1],
-            latent_length,
+            silence_latent.shape,
             device=device,
             dtype=dtype,
             generator=gen,
         )
 
-        audio_codes_tensor = None
+        # Pre-compute LM hints from audio codes (on CPU copies)
+        precomputed_lm_hints = None
         if audio_codes is not None:
-            audio_codes_tensor = (
-                torch.tensor(audio_codes, dtype=torch.long, device=device)
-                .unsqueeze(0)
-                .unsqueeze(-1)
+            precomputed_lm_hints = self._decode_audio_codes_to_hints(
+                audio_codes, latent_length, dtype,
             )
 
         # ── Phase 4: Conditioning ────────────────────────────────────
+        # All latents in [B, T, 64] format
         latent_attention_mask = torch.ones(1, latent_length, device=device)
         refer_audio = torch.zeros(
-            1, 64, latent_length, device=device, dtype=dtype,
+            1, latent_length, 64, device=device, dtype=dtype,
         )
         refer_audio_order_mask = torch.ones(1, device=device, dtype=torch.long)
         src_latents = silence_latent.clone()
-        chunk_masks = torch.zeros_like(src_latents)
+        chunk_masks = torch.ones_like(src_latents)
         is_covers = torch.tensor(
-            [1 if audio_codes_tensor is not None else 0],
+            [1 if precomputed_lm_hints is not None else 0],
             device=device,
             dtype=torch.long,
         )
@@ -218,7 +217,7 @@ class AceStepV15Pipeline:
                     src_latents=src_latents,
                     chunk_masks=chunk_masks,
                     is_covers=is_covers,
-                    audio_codes=audio_codes_tensor,
+                    precomputed_lm_hints_25Hz=precomputed_lm_hints,
                 )
             )
 
@@ -249,8 +248,9 @@ class AceStepV15Pipeline:
                     xt = xt - vt * dt
 
         # ── Phase 6: Decode audio ─────────────────────────────────────
+        # Permute [B, T, 64] → [B, 64, T] for VAE (expects channel-first)
         with torch.no_grad():
-            audio_out = self.audio_vae.decode(xt)
+            audio_out = self.audio_vae.decode(xt.permute(0, 2, 1))
         if hasattr(audio_out, "sample"):
             audio_out = audio_out.sample
 
@@ -270,16 +270,25 @@ class AceStepV15Pipeline:
     def _get_silence_latent(
         self, latent_length: int, device: torch.device, dtype: torch.dtype,
     ) -> torch.Tensor:
-        """Get or create silence latent for the target length."""
+        """Get or create silence latent for the target length.
+
+        Always returns [1, T, 64] format.
+        """
         if self.silence_latent is not None:
             sl = self.silence_latent.to(device=device, dtype=dtype)
-            if sl.shape[-1] >= latent_length:
-                return sl[:, :, :latent_length]
-            # Pad by repeating
-            reps = (latent_length // sl.shape[-1]) + 1
-            sl = sl.repeat(1, 1, reps)[:, :, :latent_length]
+            if sl.dim() == 2:
+                sl = sl.unsqueeze(0)
+            # Convert [1, 64, T] → [1, T, 64] if needed
+            if sl.dim() == 3 and sl.shape[1] == 64 and sl.shape[2] != 64:
+                sl = sl.permute(0, 2, 1)
+            # Pad or truncate along time dimension
+            t = sl.shape[1]
+            if t < latent_length:
+                sl = torch.nn.functional.pad(sl, (0, 0, 0, latent_length - t))
+            elif t > latent_length:
+                sl = sl[:, :latent_length, :]
             return sl
-        return torch.zeros(1, 64, latent_length, device=device, dtype=dtype)
+        return torch.zeros(1, latent_length, 64, device=device, dtype=dtype)
 
     def _encode_caption(
         self,
@@ -380,6 +389,30 @@ class AceStepV15Pipeline:
             audio_code_mask=self.audio_code_mask,
             device=device,
         )
+
+    def _decode_audio_codes_to_hints(
+        self,
+        audio_codes: list[int],
+        target_length: int,
+        dtype: torch.dtype,
+    ) -> Optional[torch.Tensor]:
+        """Convert audio code tokens → 25Hz latent hints via CPU quantizer/detokenizer.
+
+        Avoids touching the GPU-loaded transformer's quantizer (which may be
+        quantized by mmgp). Uses the CPU copies made during __init__.
+        """
+        if self._lm_hint_quantizer is None or self._lm_hint_detokenizer is None:
+            return None
+
+        codes = torch.tensor(audio_codes, dtype=torch.long).unsqueeze(0).unsqueeze(-1)
+
+        with torch.no_grad():
+            quantized = self._lm_hint_quantizer.get_output_from_indices(codes)
+            hints = self._lm_hint_detokenizer(quantized.to(dtype))
+
+        # Truncate to target length
+        hints = hints[:, :target_length, :]
+        return hints
 
     @staticmethod
     def _build_t_schedule(num_steps: int, shift: float = 1.0) -> list[float]:
