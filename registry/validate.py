@@ -3,7 +3,7 @@
 Runs in CI (Gitea Actions) and locally (task validate). Checks:
 1. YAML syntax
 2. VRAM budget (model + KV cache + draft < GPU capacity)
-3. Cross-references (LOAD_KWARGS, DEFAULT_MODEL, registry agree)
+3. Cross-references (FORGE_SERVICES, DEFAULT_MODEL, registry agree)
 4. TNAP protocol completeness (services get the fields they need)
 5. No hardcoded model names in deployment code that diverge from registry
 
@@ -93,24 +93,21 @@ def check_yaml_syntax() -> list[ValidationFail]:
 
 
 def _get_autoloaded_models(data: dict) -> set[tuple[str, str]]:
-    """Models that would actually be loaded by services (DEFAULT_MODEL + LOAD_KWARGS)."""
+    """Models that would actually be loaded by services (DEFAULT_MODEL + Forge SERVICE_MAP)."""
     autoloaded = set()
     # 1. DEFAULT_MODEL from deployment files
     for deploy_dir in (_PROJECT_ROOT / "services").rglob("deployment.py"):
         src = deploy_dir.read_text()
         for m in re.finditer(r'DEFAULT_MODEL\s*=\s*"([^"]+)"', src):
-            # Find the service category from the parent dir
-            parts = deploy_dir.relative_to(_PROJECT_ROOT / "services").parts
-            # Guess category from context — LLM is "llm"
             model_name = m.group(1)
             for cat, models in data.items():
                 if isinstance(models, dict) and model_name in models:
                     autoloaded.add((cat, model_name))
 
-    # 2. LOAD_KWARGS from master_router
-    router_path = _PROJECT_ROOT / "services" / "creative" / "master_router.py"
-    if router_path.exists():
-        src = router_path.read_text()
+    # 2. Forge SERVICE_MAP defaults (from services/forge.py)
+    forge_path = _PROJECT_ROOT / "services" / "forge.py"
+    if forge_path.exists():
+        src = forge_path.read_text()
         for m in re.finditer(r'"model_name":\s*"([^"]+)"', src):
             model_name = m.group(1)
             for cat, models in data.items():
@@ -164,32 +161,27 @@ def check_vram_budget(data: dict) -> list[ValidationFail]:
 
 
 def check_cross_references(data: dict) -> list[ValidationFail]:
-    """LOAD_KWARGS and DEFAULT_MODEL reference models that exist in the registry."""
+    """Forge SERVICE_MAP and DEFAULT_MODEL reference models that exist in the registry."""
     failures = []
 
-    # 1. Check master_router LOAD_KWARGS
-    router_path = _PROJECT_ROOT / "services" / "creative" / "master_router.py"
-    if router_path.exists():
-        src = router_path.read_text()
-        # Extract LOAD_KWARGS dict: {"service": {"model_name": "value"}, ...}
-        kwargs_match = re.search(r'LOAD_KWARGS\s*=\s*\{([^}]+)\}', src, re.DOTALL)
-        if kwargs_match:
-            kwargs_block = kwargs_match.group(1)
-            # Find all model_name references
-            for m in re.finditer(r'"model_name":\s*"([^"]+)"', kwargs_block):
-                model_name = m.group(1)
-                # Verify model exists in registry
-                found = False
-                for cat, models in data.items():
-                    if isinstance(models, dict) and model_name in models:
-                        found = True
-                        break
-                if not found:
-                    failures.append(ValidationFail(
-                        "cross_reference",
-                        f"master_router LOAD_KWARGS references '{model_name}' "
-                        f"but it doesn't exist in model_registry.yaml"
-                    ))
+    # 1. Check Forge SERVICE_MAP default models
+    forge_path = _PROJECT_ROOT / "services" / "forge.py"
+    if forge_path.exists():
+        src = forge_path.read_text()
+        # Extract any hardcoded model references
+        for m in re.finditer(r'"model_name":\s*"([^"]+)"', src):
+            model_name = m.group(1)
+            found = False
+            for cat, models in data.items():
+                if isinstance(models, dict) and model_name in models:
+                    found = True
+                    break
+            if not found:
+                failures.append(ValidationFail(
+                    "cross_reference",
+                    f"Forge references model '{model_name}' "
+                    f"but it doesn't exist in model_registry.yaml"
+                ))
 
     # 2. Check deployment DEFAULT_MODEL values
     llm_deploy_path = _PROJECT_ROOT / "services" / "llm" / "deployment.py"
@@ -205,24 +197,8 @@ def check_cross_references(data: dict) -> list[ValidationFail]:
                     f"not found in registry llm section"
                 ))
 
-    # 3. Check LOAD_KWARGS matches DEFAULT_MODEL for LLM
-    if router_path.exists() and llm_deploy_path.exists():
-        router_src = router_path.read_text()
-        deploy_src = llm_deploy_path.read_text()
-
-        kwargs_match = re.search(r'"llm":\s*\{[^}]*"model_name":\s*"([^"]+)"', router_src)
-        default_match = re.search(r'DEFAULT_MODEL\s*=\s*"([^"]+)"', deploy_src)
-
-        if kwargs_match and default_match:
-            kwargs_model = kwargs_match.group(1)
-            default_model = default_match.group(1)
-            if kwargs_model != default_model:
-                failures.append(ValidationFail(
-                    "cross_reference",
-                    f"LLM model mismatch: master_router LOAD_KWARGS='{kwargs_model}' "
-                    f"vs deployment DEFAULT_MODEL='{default_model}'. "
-                    f"These must agree to avoid confusion."
-                ))
+    # 3. No longer need LOAD_KWARGS vs DEFAULT_MODEL mismatch check
+    # The Forge reads default_model from each ForgeService class directly
 
     return failures
 
