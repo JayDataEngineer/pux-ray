@@ -113,108 +113,15 @@ VARIANTS = {
 }
 
 
-# ── Model class loading helpers ───────────────────────────────────────────────
+# ── Model classes (internalized from Wan2GP reference) ────────────────────────
+# Wan2GP ships standalone copies of the ACE-Step model code that don't depend
+# on the acestep package. We internalize them into our handler package.
 
-def _import_module_from_file(py_file: Path, module_name: str):
-    """Import a Python module from a file path."""
-    spec = importlib.util.spec_from_file_location(module_name, str(py_file))
-    mod = importlib.util.module_from_spec(spec)
-    sys.modules[module_name] = mod
-    spec.loader.exec_module(mod)
-    return mod
+from .models.modeling_acestep_v15_turbo import AceStepConditionGenerationModel
+from .models.configuration_acestep_v15 import AceStepConfig
 
-
-def _resolve_model_classes(checkpoint_dir: Path) -> dict[str, type]:
-    """Load custom model classes from the checkpoint directory.
-
-    ACE-Step ships with custom modeling code (modeling_acestep_v15_turbo.py
-    and configuration_acestep_v15.py). We load them dynamically.
-
-    Returns dict with keys: 'Config', 'Model'.
-    """
-    # Load config module first (the modeling file imports from it)
-    config_files = list(checkpoint_dir.glob("configuration_acestep*.py"))
-    if config_files:
-        _import_module_from_file(config_files[0], "acestep_config_tmp")
-
-    # Find the modeling file
-    modeling_files = list(checkpoint_dir.glob("modeling_acestep*.py"))
-    if not modeling_files:
-        raise FileNotFoundError(
-            f"No modeling_acestep*.py found in {checkpoint_dir}"
-        )
-
-    modeling_py = modeling_files[0]
-
-    # Patch relative imports to use our preloaded module
-    code = modeling_py.read_text()
-    patched = code.replace(
-        "from .configuration_acestep",
-        "from acestep_config_tmp",
-    )
-
-    # Execute patched code in a new module
-    import types
-    modeling_mod = types.ModuleType("acestep_modeling_tmp")
-    exec(compile(patched, str(modeling_py), "exec"), modeling_mod.__dict__)
-
-    # Find the main model class
-    model_class = None
-    config_class = None
-    for name in dir(modeling_mod):
-        obj = getattr(modeling_mod, name)
-        if isinstance(obj, type):
-            if name == "AceStepConditionGenerationModel":
-                model_class = obj
-            if name == "AceStepConfig":
-                config_class = obj
-
-    if model_class is None:
-        # Try to find by scanning for the main generation model class
-        for name in dir(modeling_mod):
-            obj = getattr(modeling_mod, name)
-            if (
-                isinstance(obj, type)
-                and hasattr(obj, "prepare_condition")
-                and hasattr(obj, "decoder")
-            ):
-                model_class = obj
-                break
-
-    if model_class is None:
-        raise ImportError(
-            f"Could not find model class in {modeling_py}. "
-            f"Available: {[n for n in dir(modeling_mod) if not n.startswith('_')]}"
-        )
-
-    return {"Model": model_class, "Config": config_class}
-
-
-def _get_vae_class() -> type:
-    """Get the AutoencoderOobleck class.
-
-    Try diffusers first (standard package), then Wan2GP vendor copy.
-    """
-    # Try diffusers
-    try:
-        from diffusers import AutoencoderOobleck
-        return AutoencoderOobleck
-    except ImportError:
-        pass
-
-    # Try Wan2GP vendor copy
-    wan2gp_vae = (
-        Path.home()
-        / "Documents/programs/Wan2GP/models/TTS/ace_step15/models/autoencoder_oobleck.py"
-    )
-    if wan2gp_vae.exists():
-        mod = _import_module_from_file(wan2gp_vae, "autoencoder_oobleck_tmp")
-        return mod.AutoencoderOobleck
-
-    raise ImportError(
-        "AutoencoderOobleck not found. "
-        "Install diffusers>=0.33 or ensure Wan2GP vendor copy is available."
-    )
+# VAE — available in diffusers >= 0.33
+from diffusers import AutoencoderOobleck
 
 
 # ── Handler ────────────────────────────────────────────────────────────────────
@@ -324,10 +231,9 @@ class AceStepHandler(BaseHandler):
         )
         silence_path = self._find_silence_latent(model_path, transformer_dir)
 
-        # ── Load model classes ──────────────────────────────────────
-        model_classes = _resolve_model_classes(transformer_dir)
-        TransformerModel = model_classes["Model"]
-        VaeModel = _get_vae_class()
+        # ── Load model classes (internalized in handler package) ───
+        TransformerModel = AceStepConditionGenerationModel
+        VaeModel = AutoencoderOobleck
 
         from transformers import Qwen3Model, Qwen3ForCausalLM
 
