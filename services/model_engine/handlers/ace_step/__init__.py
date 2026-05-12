@@ -68,6 +68,9 @@ class AceStepHandler(BaseHandler):
     def supported_types(self) -> list[str]:
         return list(VARIANTS.keys())
 
+    def resolve_path(self, model_type: str, models_root: Path) -> Path:
+        return models_root / "audio" / "acestep"
+
     def get_variant(self, model_type: str) -> ModelVariant:
         if model_type not in VARIANTS:
             raise ValueError(

@@ -117,25 +117,45 @@ class AceStepOrchestrator:
         timesignature = int(cs.get("timesignature", DEFAULT_TIMESIGNATURE))
         language = cs.get("language", DEFAULT_LANGUAGE)
 
+        # ── Phase 0: CoT metadata inference (if enabled) ──────────────
+        if model_mode > 0 and self.m.lm_engine is not None:
+            try:
+                meta = self.m.lm_engine.infer_metadata(caption, lyrics, seed)
+                if meta.get("bpm") is not None:
+                    bpm = meta["bpm"]
+                if meta.get("keyscale") is not None:
+                    keyscale = meta["keyscale"]
+                if meta.get("timesignature") is not None:
+                    timesignature = meta["timesignature"]
+                if meta.get("language") is not None:
+                    language = meta["language"]
+                if meta.get("duration") is not None and model_mode in (3, 4):
+                    duration_seconds = float(meta["duration"])
+                if meta.get("caption") is not None and model_mode in (2, 3):
+                    caption = meta["caption"]
+            except Exception as e:
+                logger.warning("CoT inference failed: %s", e)
+
         logger.info(
             "ACE-Step: caption=%r lyrics=%dch dur=%.0fs steps=%d shift=%.1f "
-            "method=%s",
+            "method=%s mode=%d",
             caption[:60], len(lyrics), duration_seconds,
-            num_inference_steps, shift, infer_method,
+            num_inference_steps, shift, infer_method, model_mode,
         )
 
         # ── Phase 1: Audio codes ─────────────────────────────────────
         if audio_codes is not None:
             audio_codes_list = audio_codes
-        elif self.m.lm_model is not None and self.m.audio_code_mask is not None:
-            audio_codes_list = self._generate_audio_codes(
+        elif self.m.lm_engine is not None:
+            min_tokens = max(1, int(duration_seconds)) * 5
+            max_tokens = min_tokens + 50
+            audio_codes_list = self.m.lm_engine.generate_codes(
                 caption=caption, lyrics=lyrics,
                 bpm=bpm, keyscale=keyscale, timesignature=timesignature,
                 language=language, duration_seconds=duration_seconds,
+                min_tokens=min_tokens, max_tokens=max_tokens,
                 temperature=temperature, top_p=top_p, top_k=top_k,
-                cfg_scale=alt_guidance_scale,
-                lm_negative_prompt=lm_negative_prompt,
-                device=device,
+                cfg_scale=alt_guidance_scale, seed=seed,
             )
         else:
             audio_codes_list = None
@@ -275,33 +295,7 @@ class AceStepOrchestrator:
 
         return {"audio": audio_out, "sample_rate": SAMPLE_RATE, "duration_seconds": duration_seconds}
 
-    # ── Audio codes ─────────────────────────────────────────────────────
-
-    def _generate_audio_codes(
-        self, caption, lyrics, bpm, keyscale, timesignature, language,
-        duration_seconds, temperature, top_p, top_k, cfg_scale,
-        lm_negative_prompt, device,
-    ) -> list[int]:
-        """Generate audio codes via LM with CFG."""
-        from .audio_codes import generate_audio_codes
-
-        min_tokens = max(1, int(duration_seconds)) * 5
-        max_tokens = min_tokens + 50
-
-        return generate_audio_codes(
-            lm_model=self.m.lm_model,
-            lm_tokenizer=self.m.lm_tokenizer,
-            caption=caption, lyrics=lyrics,
-            bpm=bpm, keyscale=keyscale, timesignature=timesignature,
-            language=language, duration_seconds=duration_seconds,
-            min_tokens=min_tokens, max_tokens=max_tokens,
-            temperature=temperature, top_p=top_p, top_k=top_k,
-            cfg_scale=cfg_scale,
-            audio_code_token_ids=self.m.audio_code_token_ids,
-            audio_code_token_map=self.m.audio_code_token_map,
-            audio_code_mask=self.m.audio_code_mask,
-            device=device,
-        )
+    # ── Audio codes to latent hints ─────────────────────────────────────────
 
     def _codes_to_hints(
         self, codes: list[int], target_length: int, dtype: torch.dtype,

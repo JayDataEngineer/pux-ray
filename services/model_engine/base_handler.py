@@ -81,3 +81,11 @@ class BaseHandler(ABC):
         """Default inference settings for a model type. Override if needed."""
         variant = self.get_variant(model_type)
         return dict(variant.defaults)
+
+    def resolve_path(self, model_type: str, models_root: Path) -> Path:
+        """Resolve model weights directory. Override for custom paths."""
+        # Default: models_root/<model_type>/
+        path = models_root / model_type
+        if path.is_dir():
+            return path
+        raise FileNotFoundError(f"No model weights found for {model_type}")
