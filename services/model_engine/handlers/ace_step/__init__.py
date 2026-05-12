@@ -209,7 +209,6 @@ class AceStepHandler(BaseHandler):
         builds tokenizers and audio code vocabulary, then constructs
         the pipeline and pipe dict.
         """
-        from mmgp import offload
 
         variant_name = self._resolve_transformer_variant(model_type)
         config_filename = V15_VARIANTS.get(variant_name, V15_VARIANTS["turbo"])
@@ -246,11 +245,8 @@ class AceStepHandler(BaseHandler):
         transformer_weights = self._find_weights(transformer_dir)
         logger.info("Loading transformer from %s (config=%s)", transformer_weights.name, config_path.name)
 
-        transformer = offload.fast_load_transformers_model(
-            str(transformer_weights),
-            modelClass=TransformerModel,
-            defaultConfigPath=str(config_path) if config_path.exists() else None,
-            default_dtype=dtype,
+        transformer = self._fast_load(
+            transformer_weights, TransformerModel, config_path, dtype,
         )
         transformer.eval()
 
@@ -259,12 +255,7 @@ class AceStepHandler(BaseHandler):
         vae_config_path = vae_dir / "config.json"
         logger.info("Loading VAE from %s", vae_weights.name)
 
-        audio_vae = offload.fast_load_transformers_model(
-            str(vae_weights),
-            modelClass=VaeModel,
-            defaultConfigPath=str(vae_config_path) if vae_config_path.exists() else None,
-            default_dtype=dtype,
-        )
+        audio_vae = self._fast_load(vae_weights, VaeModel, vae_config_path, dtype)
         audio_vae.eval()
 
         # ── Load text encoder 2 (Qwen3 0.6B embedding) ────────────
@@ -272,12 +263,7 @@ class AceStepHandler(BaseHandler):
         te2_config_path = te2_dir / "config.json"
         logger.info("Loading text encoder 2 from %s", te2_weights.name)
 
-        text_encoder_2 = offload.fast_load_transformers_model(
-            str(te2_weights),
-            modelClass=Qwen3Model,
-            defaultConfigPath=str(te2_config_path) if te2_config_path.exists() else None,
-            default_dtype=dtype,
-        )
+        text_encoder_2 = self._fast_load(te2_weights, Qwen3Model, te2_config_path, dtype)
         text_encoder_2.eval()
 
         # ── Load LM (optional) ─────────────────────────────────────
@@ -287,11 +273,7 @@ class AceStepHandler(BaseHandler):
             lm_config_path = lm_dir / "config.json"
             logger.info("Loading LM from %s", lm_weights.name)
 
-            lm_model = offload.fast_load_transformers_model(
-                str(lm_weights),
-                modelClass=Qwen3ForCausalLM,
-                defaultConfigPath=str(lm_config_path) if lm_config_path.exists() else None,
-                default_dtype=dtype,
+            lm_model = self._fast_load(lm_weights, Qwen3ForCausalLM, lm_config_path, dtype)
             )
             lm_model.eval()
 
@@ -400,6 +382,38 @@ class AceStepHandler(BaseHandler):
             if matches:
                 return matches[0]
         raise FileNotFoundError(f"No weights file found in {component_dir}")
+
+    @staticmethod
+    def _fast_load(
+        weights_path: Path,
+        model_class: type,
+        config_path: Path,
+        dtype: torch.dtype,
+    ) -> torch.nn.Module:
+        """Load a model via mmgp with trust_remote_code.
+
+        Wraps mmgp's fast_load_transformers_model, handling the
+        trust_remote_code requirement for custom model code.
+        """
+        import os
+        from mmgp import offload
+
+        # Ensure HF doesn't prompt for trust_remote_code
+        old_trust = os.environ.get("HF_TRUST_REMOTE_CODE")
+        os.environ["HF_TRUST_REMOTE_CODE"] = "1"
+        try:
+            model = offload.fast_load_transformers_model(
+                str(weights_path),
+                modelClass=model_class,
+                defaultConfigPath=str(config_path) if config_path.exists() else None,
+                default_dtype=dtype,
+            )
+        finally:
+            if old_trust is not None:
+                os.environ["HF_TRUST_REMOTE_CODE"] = old_trust
+            else:
+                os.environ.pop("HF_TRUST_REMOTE_CODE", None)
+        return model
 
     @staticmethod
     def _find_silence_latent(root: Path, transformer_dir: Path) -> Path | None:
