@@ -22,6 +22,8 @@ import httpx
 from ray import serve
 
 from services.base import BaseGPUDeployment, SubprocessProxyMixin
+from services.forge_base import ForgeService
+from services.forge_subprocess import ForgeSubprocessMixin
 
 logger = logging.getLogger(__name__)
 
@@ -215,6 +217,130 @@ class ComfyUIDeployment(BaseGPUDeployment, SubprocessProxyMixin):
                  "prompt_id": prompt_id, "timeout": timeout_sec},
                 status_code=504,
             )
+
+
+class ComfyUIService(ForgeSubprocessMixin, ForgeService):
+    """Forge-managed ComfyUI service via subprocess proxy."""
+    vram_mb = 14_336
+    service_name = "comfyui"
+    default_model = "comfyui"
+
+    PORT = 18465
+
+    def load(self, model_name: str) -> None:
+        # Symlink model dirs from mounted /models volume
+        subprocess.run(["bash", "-c", """
+            mkdir -p /opt/ComfyUI/models
+            for d in HY-Motion RMBG sams ultralytics; do
+              [ -d /models/image-gen/comfyui/$d ] && [ ! -e /opt/ComfyUI/models/$d ] &&
+                ln -s /models/image-gen/comfyui/$d /opt/ComfyUI/models/$d
+            done
+        """], check=False)
+
+        self.start_subprocess(
+            cmd=["python3", "main.py", "--port", str(self.PORT),
+                 "--listen", "0.0.0.0", "--preview-method", "auto",
+                 "--use-split-cross-attention"],
+            port=self.PORT,
+            health_path="/",
+            timeout=900,
+            cwd="/opt/ComfyUI",
+        )
+        self.model_name = model_name
+        self._loaded = True
+
+    def unload(self) -> None:
+        self.stop_subprocess()
+        self._loaded = False
+
+    def infer(self, payload: dict) -> dict:
+        if "workflow" in payload:
+            return self._handle_workflow_sync(payload)
+
+        if "path" in payload:
+            try:
+                result = self._call(
+                    method=payload.get("method", "GET"),
+                    path=payload["path"],
+                    json=payload.get("body"),
+                    params=payload.get("params"),
+                )
+                return {"status": "ok", "result": result}
+            except Exception as e:
+                return {"status": "error", "error": str(e)}
+
+        return {"status": "error", "error": "payload must contain 'workflow' or 'path'"}
+
+    def _handle_workflow_sync(self, payload: dict) -> dict:
+        """Synchronous workflow submission — queue, poll, return outputs."""
+        import time as _time
+
+        workflow = payload["workflow"]
+        client_id = payload.get("client_id", str(uuid.uuid4()))
+        timeout_sec = payload.get("timeout", 600)
+        poll_interval = payload.get("poll_interval", 1.0)
+
+        try:
+            resp = self._call("POST", "/prompt", timeout=30,
+                              json={"prompt": workflow, "client_id": client_id})
+        except Exception as e:
+            return {"status": "error", "error": f"Failed to queue workflow: {e}"}
+
+        prompt_id = resp.get("prompt_id")
+        logger.info("ComfyUI workflow queued: prompt_id=%s", prompt_id)
+
+        deadline = _time.time() + timeout_sec
+        while _time.time() < deadline:
+            _time.sleep(poll_interval)
+            try:
+                hist_data = self._call("GET", f"/history/{prompt_id}", timeout=10)
+            except Exception:
+                continue
+
+            if prompt_id not in hist_data:
+                continue
+
+            entry = hist_data[prompt_id]
+            status = entry.get("status", {})
+            status_str = status.get("status_str", "")
+
+            if status_str == "success":
+                outputs = entry.get("outputs", {})
+                images = []
+                for node_id, node_out in outputs.items():
+                    for img in node_out.get("images", []):
+                        try:
+                            img_bytes = self._call_raw("GET", "/view", timeout=30, params={
+                                "filename": img["filename"],
+                                "subfolder": img.get("subfolder", ""),
+                                "type": img.get("type", "output"),
+                            })
+                            images.append({
+                                "node_id": node_id,
+                                "filename": img["filename"],
+                                "content_type": "image/png",
+                                "data": base64.b64encode(img_bytes).decode(),
+                            })
+                        except Exception:
+                            pass
+
+                logger.info("ComfyUI workflow done: prompt_id=%s images=%d", prompt_id, len(images))
+                return {
+                    "status": "ok",
+                    "prompt_id": prompt_id,
+                    "outputs": {
+                        k: {kk: vv for kk, vv in v.items() if kk != "images"}
+                        for k, v in outputs.items()
+                    },
+                    "images": images,
+                }
+
+            if status_str == "error":
+                return {"status": "error", "error": "Workflow execution failed",
+                        "prompt_id": prompt_id, "details": entry}
+
+        return {"status": "error", "error": "Workflow timed out",
+                "prompt_id": prompt_id, "timeout": timeout_sec}
 
 
 comfyui = ComfyUIDeployment.bind()
