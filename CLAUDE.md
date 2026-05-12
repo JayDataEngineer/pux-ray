@@ -21,7 +21,7 @@ Reliable, tested, deployed by default. Registered in `infra/k8s/serve_config.py`
 | vibevoice_cpp_gpu | GPU TTS+ASR | vibevoice.cpp GGML quantized TTS + ASR, CUDA backend |
 | vibevoice_cpp_cpu | CPU TTS+ASR | vibevoice.cpp GGML quantized TTS + ASR, CPU backend |
 
-**Master Router services** (exclusive GPU, explicit model swapping via `/forge`):
+**Forge services** (VRAM-aware GPU management via `/forge`):
 
 | Service | Type | Description |
 |---------|------|-------------|
@@ -34,10 +34,10 @@ Reliable, tested, deployed by default. Registered in `infra/k8s/serve_config.py`
 | see_through | GPU Image | See-Through anime layer decomposition |
 | llm | GPU LLM | llama.cpp server (GGUF models via subprocess) |
 
-The **Master Router** (`services/creative/master_router.py`) is infrastructure, not a service — it claims `num_gpus: 1.0` and explicitly `_load()`/`_unload()` heavy GPU models to prevent VRAM collisions on a single RTX 4090. Accessed via route `/forge` with `{"service": "trellis|ace_step|comfyui|hy_motion|moss_soundeffect|anigen|see_through|llm", ...}`.
+The **Forge** (`services/forge.py`) is a VRAM-aware GPU manager that claims `num_gpus: 1.0`, tracks VRAM in MB per service, and allows concurrent GPU services when VRAM permits. Evicts only when needed. Services implement `ForgeService` (3 methods: `load()`, `unload()`, `infer(dict) -> dict`). Accessed via route `/forge` with `{"service": "trellis|ace_step|comfyui|hy_motion|moss_soundeffect|anigen|see_through|llm|wan2gp|vibevoice_microsoft|vibevoice_community_tts|phi4mm", ...}`.
 
 ### Tier 2 — Available via Forge (not auto-deployed)
-Registered in master_router.py HEAVY_SERVICES. Available on demand through `/forge`. Models present on PVC.
+Registered in `services/forge.py` SERVICE_MAP. Available on demand through `/forge`. Models present on PVC.
 
 | Service | Type | Description | Note |
 |---------|------|-------------|------|
@@ -288,21 +288,23 @@ services/       → AI service implementations (Ray Serve deployments)
   tts/          → Kokoro, eSpeak, IndexTTS, FasterQwen3TTS, VibeVoiceCpp
   asr/          → Faster-Whisper
   image/        → ComfyUI (subprocess proxy)
-  creative/     → TRELLIS, ACE-Step, HY-Motion, MasterRouter
+  creative/     → TRELLIS, ACE-Step, HY-Motion, AniGen, SeeThrough
+  forge.py      → VRAM-aware GPU manager (replaces MasterRouter + GPUGovernor)
+  forge_base.py → ForgeService base class (load/unload/infer)
 
 ### GPU Scheduling
 
-Only one heavy GPU model runs at a time (24GB VRAM). The **Master Router** (`services/creative/master_router.py`) claims `num_gpus: 1.0` and explicitly swaps heavy models (trellis, ace_step, comfyui, hy_motion, moss_soundeffect, anigen, see_through) with `_load()`/`_unload()` + `torch.cuda.empty_cache()`. Lightweight GPU services (faster_qwen3_tts, index_tts, vibevoice_cpp_gpu, vibevoice_cpp_cpu) coexist with small VRAM footprints.
+Only one heavy GPU model runs at a time (24GB VRAM), but lightweight services can coexist. The **Forge** (`services/forge.py`) claims `num_gpus: 1.0` and tracks VRAM per service in MB. It allows concurrent GPU services when their combined VRAM fits, and evicts the largest loaded service only when a new service needs more VRAM than free. Services implement `ForgeService` with `load()`, `unload()`, `infer(dict) -> dict`. Self-managed services (vram_mb=0, like Wan2GP) always fit alongside other services.
 
 ## Service Development
 
 ### Adding a new Ray Serve service
 
-1. Create a deployment class in `services/` inheriting `BaseGPUDeployment`
+1. Create a deployment class in `services/` inheriting `ForgeService` from `services/forge_base.py` for GPU services, or a standalone deployment for CPU services
 2. Register it in `infra/k8s/serve_config.py` with `YourDeployment.bind()`
 3. Add entry to `infra/k8s/ray-service.yaml` serveConfigV2 with route_prefix and autoscaling
 4. If it needs models, add entries to `config/model_registry.yaml`
-5. If it's a heavy GPU service (>4GB VRAM), route through the master router instead of a direct deployment
+5. If it's a heavy GPU service (>4GB VRAM), add to `SERVICE_MAP` in `services/forge.py` and register in `services/registry.py`
 
 ### Configuration
 
@@ -331,8 +333,8 @@ All proxied through the ingress at port 18080:
 | `/tts/vibevoice-cpp-gpu/*` | vibevoice.cpp TTS+ASR (GGML quantized, CUDA backend) |
 | `/tts/vibevoice-cpp-cpu/*` | vibevoice.cpp TTS+ASR (GGML quantized, CPU backend) |
 | `/asr/whisper/*` | Faster-Whisper (CPU) |
-### Master Router (exclusive GPU, route `/forge`)
-Heavy GPU services share a single RTX 4090 via explicit model swapping. Send `{"service": "<name>", ...}` to `/forge`.
+### Forge (VRAM-aware GPU, route `/forge`)
+Heavy GPU services share a single RTX 4090 with VRAM-aware scheduling. Send `{"service": "<name>", ...}` to `/forge`.
 
 | Service key | Description |
 |---|---|---|
@@ -356,7 +358,7 @@ Heavy GPU services share a single RTX 4090 via explicit model swapping. Send `{"
 |---|---|
 | `/overflow/*` | Overflow proxy (local → cloud fallback) |
 
-### Tier 2 (via forge master router)
+### Tier 2 (via Forge)
 | Service key | Description |
 |---|---|
 | `vibevoice_microsoft` | VibeVoice Microsoft — microsoft/VibeVoice-ASR 7B ASR with diarization |
