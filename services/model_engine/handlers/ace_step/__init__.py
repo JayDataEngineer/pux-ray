@@ -404,19 +404,36 @@ class AceStepHandler(BaseHandler):
             with open(config_path) as f:
                 config_dict = json.load(f)
             # Strip metadata keys that confuse constructors
-            for key in ["_class_name", "_diffusers_version", "_name_or_path"]:
+            for key in [
+                "_class_name", "_diffusers_version", "_name_or_path",
+                "auto_map", "_transformers_version",
+            ]:
                 config_dict.pop(key, None)
-            # Try model class's config class
+
+            # Try different instantiation patterns
+            # 1. Transformers pattern: model_class(config_class(**dict))
             config_cls = getattr(model_class, "config_class", None)
             if config_cls is not None:
                 try:
                     config = config_cls(**config_dict)
-                except TypeError:
+                    model = model_class(config)
+                except (TypeError, Exception):
                     config = None
 
-        # Instantiate model
-        if config is not None:
-            model = model_class(config)
+            if config is None:
+                # 2. Diffusers pattern: model_class.from_config(dict)
+                if hasattr(model_class, "from_config"):
+                    try:
+                        model = model_class.from_config(config_dict)
+                    except Exception:
+                        model = None
+
+                # 3. Direct kwargs
+                if model is None:
+                    try:
+                        model = model_class(**config_dict)
+                    except TypeError:
+                        model = model_class()
         else:
             model = model_class()
 
