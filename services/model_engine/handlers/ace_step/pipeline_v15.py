@@ -56,17 +56,37 @@ class AceStepV15Pipeline:
         self.audio_code_mask = audio_code_mask
 
         # Deep-copy quantizer + detokenizer to CPU for audio code → latent
-        # conversion without touching GPU-loaded transformer
+        # conversion without touching GPU-loaded transformer.
+        # NOTE: These are deep-copied before mmgp takes over the transformer.
+        # We store the quantizer's state_dict and reconstruct on CPU to avoid
+        # shared storage issues with mmgp's in-place quantization.
+        self._lm_hint_quantizer = None
+        self._lm_hint_detokenizer = None
         if (
             hasattr(transformer, "tokenizer")
             and hasattr(transformer.tokenizer, "quantizer")
         ):
-            self._lm_hint_quantizer = (
-                copy.deepcopy(transformer.tokenizer.quantizer).cpu().float()
-            )
-            self._lm_hint_detokenizer = (
-                copy.deepcopy(transformer.detokenizer).cpu().float()
-            )
+            try:
+                q_copy = copy.deepcopy(transformer.tokenizer.quantizer)
+                d_copy = copy.deepcopy(transformer.detokenizer)
+                # Move to CPU and force-clone all tensors (codebooks etc.)
+                # that may be plain tensor attrs not moved by .to()
+                q_copy = q_copy.cpu().float()
+                d_copy = d_copy.cpu().float()
+                for mod in q_copy.modules():
+                    for attr_name in list(vars(mod).keys()):
+                        val = getattr(mod, attr_name)
+                        if torch.is_tensor(val) and not isinstance(val, torch.nn.Parameter):
+                            setattr(mod, attr_name, val.data.clone().cpu())
+                for mod in d_copy.modules():
+                    for attr_name in list(vars(mod).keys()):
+                        val = getattr(mod, attr_name)
+                        if torch.is_tensor(val) and not isinstance(val, torch.nn.Parameter):
+                            setattr(mod, attr_name, val.data.clone().cpu())
+                self._lm_hint_quantizer = q_copy
+                self._lm_hint_detokenizer = d_copy
+            except Exception as e:
+                logger.warning("Failed to copy quantizer/detokenizer: %s", e)
         else:
             self._lm_hint_quantizer = None
             self._lm_hint_detokenizer = None
@@ -180,12 +200,19 @@ class AceStepV15Pipeline:
             generator=gen,
         )
 
-        # Pre-compute LM hints from audio codes (on CPU copies)
-        precomputed_lm_hints = None
+        # Pre-compute LM hints from audio codes (on CPU copies).
+        # When hints aren't available, pass zeros to prevent the model
+        # from using its internal tokenize/detokenize path which hits
+        # mmgp-quantized module issues.
+        precomputed_lm_hints = torch.zeros(
+            1, latent_length, 64, device=device, dtype=dtype,
+        )
         if audio_codes is not None:
-            precomputed_lm_hints = self._decode_audio_codes_to_hints(
+            hints = self._decode_audio_codes_to_hints(
                 audio_codes, latent_length, dtype,
             )
+            if hints is not None:
+                precomputed_lm_hints = hints.to(device=device, dtype=dtype)
 
         # ── Phase 4: Conditioning ────────────────────────────────────
         # All latents in [B, T, 64] format
@@ -193,11 +220,12 @@ class AceStepV15Pipeline:
         refer_audio = torch.zeros(
             1, latent_length, 64, device=device, dtype=dtype,
         )
-        refer_audio_order_mask = torch.ones(1, device=device, dtype=torch.long)
+        refer_audio_order_mask = torch.tensor([0], device=device, dtype=torch.long)
         src_latents = silence_latent.clone()
         chunk_masks = torch.ones_like(src_latents)
+        has_real_hints = audio_codes is not None and self._lm_hint_quantizer is not None
         is_covers = torch.tensor(
-            [1 if precomputed_lm_hints is not None else 0],
+            [1 if has_real_hints else 0],
             device=device,
             dtype=torch.long,
         )
@@ -238,7 +266,7 @@ class AceStepV15Pipeline:
                     encoder_hidden_states=encoder_hidden_states,
                     encoder_attention_mask=encoder_attention_mask,
                     context_latents=context_latents,
-                )[0]
+                )[0].to(device)
 
                 # ODE update
                 if i == len(t_schedule) - 1:
@@ -396,23 +424,22 @@ class AceStepV15Pipeline:
         target_length: int,
         dtype: torch.dtype,
     ) -> Optional[torch.Tensor]:
-        """Convert audio code tokens → 25Hz latent hints via CPU quantizer/detokenizer.
-
-        Avoids touching the GPU-loaded transformer's quantizer (which may be
-        quantized by mmgp). Uses the CPU copies made during __init__.
-        """
+        """Convert audio code tokens → 25Hz latent hints via CPU quantizer/detokenizer."""
         if self._lm_hint_quantizer is None or self._lm_hint_detokenizer is None:
             return None
 
-        codes = torch.tensor(audio_codes, dtype=torch.long).unsqueeze(0).unsqueeze(-1)
+        try:
+            codes = torch.tensor(audio_codes, dtype=torch.long).unsqueeze(0).unsqueeze(-1)
 
-        with torch.no_grad():
-            quantized = self._lm_hint_quantizer.get_output_from_indices(codes)
-            hints = self._lm_hint_detokenizer(quantized.to(dtype))
+            with torch.no_grad():
+                quantized = self._lm_hint_quantizer.get_output_from_indices(codes)
+                hints = self._lm_hint_detokenizer(quantized.to(dtype))
 
-        # Truncate to target length
-        hints = hints[:, :target_length, :]
-        return hints
+            hints = hints[:, :target_length, :]
+            return hints
+        except Exception as e:
+            logger.warning("LM hint conversion failed: %s — continuing without hints", e)
+            return None
 
     @staticmethod
     def _build_t_schedule(num_steps: int, shift: float = 1.0) -> list[float]:
