@@ -1,7 +1,11 @@
-"""ACE-STEP — Music generation from text prompts (Ray-native).
+"""ACE-STEP — Music generation from text prompts (model engine handler).
 
-Generates music from text descriptions using the ACE-Step diffusion pipeline.
-Conforms to TNAP: unified request/response protocol.
+Uses the Model Engine's AceStepHandler for mmgp-managed VRAM.
+The handler decomposes the model into nn.Module components and
+registers them with mmgp for efficient GPU memory management.
+
+Old approach: vendor AceStepHandler → no mmgp, no pipe dict, static VRAM
+New approach: model_engine AceStepHandler → mmgp profile, pipe dict, dynamic VRAM
 """
 from __future__ import annotations
 
@@ -11,10 +15,8 @@ import json
 import logging
 import os
 import sys
-import tempfile
 import time
 from pathlib import Path
-import time
 
 import numpy as np
 import torch
@@ -241,112 +243,135 @@ class ACEStepDeployment(BaseGPUDeployment):
             return {"data": json.dumps({"error": str(e)}).encode(), "media_type": "application/json"}
 
 
-# ─── Forge Service ────────────────────────────────────────────────────────────
+# ─── Forge Service (model engine handler) ────────────────────────────────────
 
 class ACEStepService(ForgeService):
-    """ACE-Step text-to-music for the Forge. Takes dict, returns dict."""
-    vram_mb = 8_192
+    """ACE-Step text-to-music via the Model Engine handler + mmgp.
+
+    Uses AceStepHandler to decompose the model into a pipe dict,
+    then mmgp manages VRAM. vram_mb=0 signals the Forge that this
+    service manages its own memory (via mmgp).
+    """
+    vram_mb = 0  # mmgp manages VRAM — tell Forge not to track
     service_name = "ace_step"
-    default_model = "ace-step"
+    default_model = "ace_step_v1_5_turbo"
 
     def __init__(self):
         super().__init__()
-        self.handler = None
+        self._load_result = None
+        self._executor = None
 
-    def load(self, model_name: str = "ace-step") -> None:
-        from registry.config import Config
-        from registry.models import ModelRegistry
+    def load(self, model_name: str = "ace_step_v1_5_turbo") -> None:
+        from services.model_engine.executor import ModelExecutor
+        from services.model_engine.handlers.ace_step import AceStepHandler
 
-        cfg = Config()
-        registry = ModelRegistry()
-        model_path = registry.get_path("audio", model_name)
+        handler = AceStepHandler()
 
-        if not model_path.is_dir():
-            raise FileNotFoundError(f"ACE-Step checkpoints not found at {model_path}")
+        # Resolve model path from registry
+        model_path = self._resolve_model_path()
 
-        vendor = str(Path(cfg.project_root) / "vendor")
-        if vendor not in sys.path:
-            sys.path.insert(0, vendor)
-
-        ckpts_dir = str(model_path)
-        os.environ["ACESTEP_CHECKPOINTS_DIR"] = ckpts_dir
-
-        from acestep.handler import AceStepHandler
-
-        self.handler = AceStepHandler()
-        status_msg, success = self.handler.initialize_service(
-            project_root="", config_path="acestep-v15-turbo",
-            device="cuda" if torch.cuda.is_available() else "cpu",
-            use_flash_attention=False, compile_model=False,
-            offload_to_cpu=False, quantization=None,
+        # Create executor with mmgp profile 1 (all VRAM, RTX 4090 24GB)
+        self._executor = ModelExecutor(
+            models_root=model_path.parent,
+            mmgp_profile=1,
         )
-        if not success:
-            raise RuntimeError(f"ACE-Step init failed: {status_msg}")
+        self._executor.register_handler("ace_step", handler)
+
+        # Load the model
+        self._load_result = self._executor.load(model_name)
 
         self.model_name = model_name
         self._loaded = True
-        torch.cuda.empty_cache()
-        gc.collect()
+
+        vram = torch.cuda.memory_allocated(0) / (1024**2) if torch.cuda.is_available() else 0
+        logger.info("ACE-Step loaded via model engine (VRAM=%.0fMB)", vram)
 
     def unload(self) -> None:
-        if self.handler is not None:
-            del self.handler
-            self.handler = None
+        if self._executor is not None:
+            self._executor.unload()
+            self._executor = None
+        self._load_result = None
         self.model_name = None
         self._loaded = False
-        super().unload()
+        gc.collect()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
 
     def infer(self, payload: dict) -> dict:
-        import soundfile as sf
+        """Run inference. Pipeline returns tensor audio, we encode to bytes."""
         import base64
+        import soundfile as sf
 
         prompt = payload.get("prompt", payload.get("caption", ""))
         if not prompt:
             return {"status": "error", "error": "prompt is required"}
 
-        duration = float(payload.get("duration", 30))
-        bpm = int(payload.get("bpm", 120))
-        seed = payload.get("seed", -1)
+        # Map old-style payload to pipeline kwargs
+        pipeline_payload = {
+            "prompt": prompt,
+            "duration": float(payload.get("duration", 30)),
+            "steps": int(payload.get("steps", 8)),
+            "temperature": float(payload.get("temperature", 0.85)),
+            "top_p": float(payload.get("top_p", 0.9)),
+            "seed": payload.get("seed"),
+            "custom_settings": {
+                "bpm": int(payload.get("bpm", 120)),
+                "keyscale": payload.get("keyscale", "C"),
+                "timesignature": int(payload.get("timesignature", 4)),
+                "language": payload.get("language", "unknown"),
+            },
+        }
+
+        result = self._executor.infer(self.model_name, pipeline_payload)
+
+        audio_tensor = result["audio"]
+        sample_rate = result["sample_rate"]
         audio_format = payload.get("audio_format", "wav")
 
-        result = self.handler.generate_music(
-            captions=prompt, audio_duration=duration, bpm=bpm,
-            seed=str(seed), use_random_seed=(seed == -1),
-            inference_steps=8,
-            task_type="text2music",
-        )
+        # Tensor → numpy → bytes
+        waveform = audio_tensor.cpu().numpy()
+        if waveform.ndim == 3:
+            waveform = waveform[0]  # remove batch dim
+        # waveform shape: [channels, samples] → soundfile wants [samples, channels]
+        buf = io.BytesIO()
+        sf.write(buf, waveform.T, sample_rate, format=audio_format.upper())
+        audio_bytes = buf.getvalue()
 
-        if not result.get("success", False):
-            error = result.get("error", result.get("status_message", "unknown"))
-            return {"status": "error", "error": error}
+        media_types = {
+            "wav": "audio/wav",
+            "mp3": "audio/mpeg",
+            "flac": "audio/flac",
+            "ogg": "audio/ogg",
+        }
 
-        audios = result.get("audios", [])
-        if not audios:
-            return {"status": "error", "error": "No audio produced"}
-
-        audio_data = audios[0]
-        if isinstance(audio_data, dict) and "tensor" in audio_data:
-            tensor = audio_data["tensor"]
-            sample_rate = audio_data.get("sample_rate", 48000)
-            waveform = tensor.numpy() if hasattr(tensor, "numpy") else np.asarray(tensor)
-            buf = io.BytesIO()
-            sf.write(buf, waveform.T, sample_rate, format=audio_format.upper())
-            data = buf.getvalue()
-        elif isinstance(audio_data, np.ndarray):
-            sample_rate = result.get("sample_rate", 48000)
-            buf = io.BytesIO()
-            sf.write(buf, audio_data.T, sample_rate, format=audio_format.upper())
-            data = buf.getvalue()
-        elif isinstance(audio_data, bytes):
-            data = audio_data
-        else:
-            return {"status": "error", "error": f"Unexpected audio format: {type(audio_data).__name__}"}
-
-        media_types = {"wav": "audio/wav", "mp3": "audio/mpeg",
-                       "flac": "audio/flac", "ogg": "audio/ogg"}
         return {
             "status": "success",
-            "data": base64.b64encode(data).decode(),
+            "data": base64.b64encode(audio_bytes).decode(),
             "media_type": media_types.get(audio_format, "audio/wav"),
-            "bpm": bpm, "duration": duration,
+            "sample_rate": sample_rate,
+            "duration": result.get("duration_seconds", payload.get("duration", 30)),
         }
+
+    def _resolve_model_path(self) -> Path:
+        """Resolve model weights directory."""
+        try:
+            from registry.config import Config
+            from registry.models import ModelRegistry
+
+            registry = ModelRegistry()
+            model_path = registry.get_path("audio", "acestep")
+            if model_path.is_dir():
+                return model_path
+        except Exception:
+            pass
+
+        # Fallback: standard path on the cluster
+        fallback = Path("/home/user/Documents/models/audio/acestep")
+        if fallback.is_dir():
+            return fallback
+
+        raise FileNotFoundError(
+            "ACE-Step model weights not found. "
+            "Set model_registry.yaml 'audio.acestep' or place weights at "
+            "/home/user/Documents/models/audio/acestep/"
+        )
