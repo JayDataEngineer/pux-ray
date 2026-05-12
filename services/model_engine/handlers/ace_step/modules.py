@@ -64,6 +64,9 @@ class AceStepModules:
     audio_code_token_map: Optional[dict] = None
     audio_code_mask: Optional[torch.Tensor] = None
 
+    # LM engine (CoT + code generation)
+    lm_engine: Optional[Any] = None
+
     # Silence latent (pre-computed)
     silence_latent: Optional[torch.Tensor] = None
 
@@ -128,9 +131,16 @@ class AceStepModules:
         lm_model = None
         if enable_lm and lm_dir is not None and lm_dir.is_dir():
             logger.info("Loading LM from %s", lm_dir)
-            lm_model = _fast_load(
-                _find_weights(lm_dir), Qwen3ForCausalLM, lm_dir / "config.json", dtype,
-            )
+            # Use from_pretrained for LM since _fast_load can't handle
+            # the state dict prefix mismatch safely with strict=False
+            try:
+                lm_model = Qwen3ForCausalLM.from_pretrained(
+                    str(lm_dir), torch_dtype=dtype, trust_remote_code=True,
+                    local_files_only=True,
+                )
+            except Exception:
+                weights_path = _find_weights(lm_dir)
+                lm_model = _fast_load(weights_path, Qwen3ForCausalLM, lm_dir / "config.json", dtype)
             lm_model.eval()
             # Move LM to device explicitly — mmgp's pinning has issues with
             # tied weights (embed_tokens <-> lm_head) and generate() hooks.
@@ -155,6 +165,16 @@ class AceStepModules:
             from .audio_codes import build_audio_code_vocab
             audio_code_token_ids, audio_code_token_map, audio_code_mask = (
                 build_audio_code_vocab(lm_tokenizer)
+            )
+
+        # ── Create LM engine ─────────────────────────────────────────
+        lm_engine = None
+        if lm_model is not None and audio_code_mask is not None:
+            from .lm_engine import LmEngine
+            lm_engine = LmEngine(
+                model=lm_model, tokenizer=lm_tokenizer,
+                audio_code_mask=audio_code_mask,
+                audio_code_token_map=audio_code_token_map,
             )
 
         # ── Extract codebook + projection weights ──────────────────
@@ -197,6 +217,7 @@ class AceStepModules:
             audio_code_token_ids=audio_code_token_ids,
             audio_code_token_map=audio_code_token_map,
             audio_code_mask=audio_code_mask,
+            lm_engine=lm_engine,
             silence_latent=silence_latent,
             pipe=pipe,
             co_tenants=co_tenants,

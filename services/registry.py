@@ -196,9 +196,18 @@ SERVICE_REGISTRY: dict[str, ServiceEntry] = {
     "llm": ServiceEntry(
         deployment="llm", app="llm",
         label="LLM (llama.cpp)", category="llm",
-        needs_gpu=True, default_model="qwen3.6-27b-ud-q4_k_xl",
+        needs_gpu=True, default_model="qwen3.6-27b-q4_k_xl",
         output_type="json",
         description="llama.cpp LLM server — OpenAI-compatible chat completions.",
+    ),
+    # ── Wan2GP Pool ──────────────────────────────────────────────────────────────
+    "wan2gp": ServiceEntry(
+        deployment="forge", app="forge",
+        label="Wan2GP Pool", category="creative",
+        needs_gpu=True, default_model="wan/t2v-14B",
+        output_type="video",
+        model_aliases={"wan-t2v": "wan/t2v-14B", "wan-i2v": "wan/i2v-14B"},
+        description="Wan2GP — 90+ model variants via mmgp pool (video, image, audio).",
     ),
 }
 
