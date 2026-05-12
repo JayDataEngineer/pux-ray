@@ -21,21 +21,6 @@ from gateway.dashboard import (
 from gateway.studio import studio_page, studio_apps, studio_switch, studio_release
 
 
-class _PathParamsRequest:
-    """Wraps a Request to override path_params (Starlette's is read-only)."""
-
-    def __init__(self, request: Request, path_params: dict):
-        self._request = request
-        self._path_params = path_params
-
-    @property
-    def path_params(self):
-        return self._path_params
-
-    def __getattr__(self, name):
-        return getattr(self._request, name)
-
-
 @serve.deployment(
     name="api-ingress",
     num_replicas=1,
@@ -71,16 +56,15 @@ class APIIngressDeployment:
         if path == "/v1/services" and method == "GET":
             return await self._ingress.list_services(request)
         if path.startswith("/v1/services/") and method == "GET":
-            wrapped = _PathParamsRequest(
-                request, {"service": path.split("/v1/services/")[1].rstrip("/")}
-            )
-            return await self._ingress.service_info(wrapped)
+            service = path.split("/v1/services/")[1].rstrip("/")
+            request.path_params = {"service": service}
+            return await self._ingress.service_info(request)
 
         # Generic TNAP generate
         if path.startswith("/v1/") and path.endswith("/generate") and method == "POST":
             service = path.split("/v1/")[1].rstrip("/generate").rstrip("/")
-            wrapped = _PathParamsRequest(request, {"service": service})
-            return await self._ingress.tnap_generate(wrapped)
+            request.path_params = {"service": service}
+            return await self._ingress.tnap_generate(request)
 
         # OpenAI-compatible
         if path == "/v1/models" and method == "GET":

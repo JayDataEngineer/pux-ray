@@ -22,6 +22,7 @@ from ray import serve
 from starlette.responses import JSONResponse
 
 from services.base import BaseGPUDeployment, InferenceConfig
+from services.forge_base import ForgeService
 
 logger = logging.getLogger(__name__)
 
@@ -238,3 +239,114 @@ class ACEStepDeployment(BaseGPUDeployment):
         except Exception as e:
             logger.error("ACE-Step inference failed: %s", e, exc_info=True)
             return {"data": json.dumps({"error": str(e)}).encode(), "media_type": "application/json"}
+
+
+# ─── Forge Service ────────────────────────────────────────────────────────────
+
+class ACEStepService(ForgeService):
+    """ACE-Step text-to-music for the Forge. Takes dict, returns dict."""
+    vram_mb = 8_192
+    service_name = "ace_step"
+    default_model = "ace-step"
+
+    def __init__(self):
+        super().__init__()
+        self.handler = None
+
+    def load(self, model_name: str = "ace-step") -> None:
+        from registry.config import Config
+        from registry.models import ModelRegistry
+
+        cfg = Config()
+        registry = ModelRegistry()
+        model_path = registry.get_path("audio", model_name)
+
+        if not model_path.is_dir():
+            raise FileNotFoundError(f"ACE-Step checkpoints not found at {model_path}")
+
+        vendor = str(Path(cfg.project_root) / "vendor")
+        if vendor not in sys.path:
+            sys.path.insert(0, vendor)
+
+        ckpts_dir = str(model_path)
+        os.environ["ACESTEP_CHECKPOINTS_DIR"] = ckpts_dir
+
+        from acestep.handler import AceStepHandler
+
+        self.handler = AceStepHandler()
+        status_msg, success = self.handler.initialize_service(
+            project_root="", config_path="acestep-v15-turbo",
+            device="cuda" if torch.cuda.is_available() else "cpu",
+            use_flash_attention=False, compile_model=False,
+            offload_to_cpu=False, quantization=None,
+        )
+        if not success:
+            raise RuntimeError(f"ACE-Step init failed: {status_msg}")
+
+        self.model_name = model_name
+        self._loaded = True
+        torch.cuda.empty_cache()
+        gc.collect()
+
+    def unload(self) -> None:
+        if self.handler is not None:
+            del self.handler
+            self.handler = None
+        self.model_name = None
+        self._loaded = False
+        super().unload()
+
+    def infer(self, payload: dict) -> dict:
+        import soundfile as sf
+        import base64
+
+        prompt = payload.get("prompt", payload.get("caption", ""))
+        if not prompt:
+            return {"status": "error", "error": "prompt is required"}
+
+        duration = float(payload.get("duration", 30))
+        bpm = int(payload.get("bpm", 120))
+        seed = payload.get("seed", -1)
+        audio_format = payload.get("audio_format", "wav")
+
+        result = self.handler.generate_music(
+            captions=prompt, audio_duration=duration, bpm=bpm,
+            seed=str(seed), use_random_seed=(seed == -1),
+            inference_steps=8,
+            task_type="text2music",
+        )
+
+        if not result.get("success", False):
+            error = result.get("error", result.get("status_message", "unknown"))
+            return {"status": "error", "error": error}
+
+        audios = result.get("audios", [])
+        if not audios:
+            return {"status": "error", "error": "No audio produced"}
+
+        audio_data = audios[0]
+        if isinstance(audio_data, dict) and "tensor" in audio_data:
+            tensor = audio_data["tensor"]
+            sample_rate = audio_data.get("sample_rate", 48000)
+            waveform = tensor.numpy() if hasattr(tensor, "numpy") else np.asarray(tensor)
+            buf = io.BytesIO()
+            sf.write(buf, waveform.T, sample_rate, format=audio_format.upper())
+            data = buf.getvalue()
+        elif isinstance(audio_data, np.ndarray):
+            sample_rate = result.get("sample_rate", 48000)
+            buf = io.BytesIO()
+            sf.write(buf, audio_data.T, sample_rate, format=audio_format.upper())
+            data = buf.getvalue()
+        elif isinstance(audio_data, bytes):
+            data = audio_data
+        else:
+            return {"status": "error", "error": f"Unexpected audio format: {type(audio_data).__name__}"}
+
+        media_types = {"wav": "audio/wav", "mp3": "audio/mpeg",
+                       "flac": "audio/flac", "ogg": "audio/ogg"}
+        return {
+            "status": "success",
+            "data": base64.b64encode(data).decode(),
+            "media_type": media_types.get(audio_format, "audio/wav"),
+            "bpm": bpm, "duration": duration,
+        }

@@ -22,6 +22,8 @@ from ray import serve
 from starlette.responses import JSONResponse
 
 from services.base import BaseGPUDeployment, SubprocessMixin, _free_cuda_cache
+from services.forge_base import ForgeService
+from services.forge_subprocess import ForgeSubprocessMixin
 
 logger = logging.getLogger(__name__)
 
@@ -492,3 +494,157 @@ class LLMDeployment(BaseGPUDeployment, SubprocessMixin):
         except Exception as e:
             logger.error("llm error: %s", e)
             return JSONResponse(self.handle_error(str(e)), status_code=500)
+
+
+# ─── Forge Service ────────────────────────────────────────────────────────────
+
+class LLMService(ForgeSubprocessMixin, ForgeService):
+    """LLM via llama-server subprocess for the Forge. Takes dict, returns dict."""
+    vram_mb = 20_480
+    service_name = "llm"
+    default_model = "qwen3.6-27b-q5_k_s"
+
+    def __init__(self):
+        ForgeService.__init__(self)
+        self._current_cmd: list[str] | None = None
+        self._session_defaults: dict[str, Any] = {}
+        self._engine: str = "beellama"
+        self.PORT = 18399
+
+    def load(self, model_name: str) -> None:
+        result = self._configure({"model": model_name})
+        if result.get("status") == "error":
+            raise RuntimeError(result["error"])
+
+    def unload(self) -> None:
+        self.stop_subprocess()
+        self._loaded = False
+        self.model_name = None
+
+    def infer(self, payload: dict) -> dict:
+        # Configure action
+        if payload.get("action") == "configure":
+            return self._configure(payload)
+
+        # Chat completion
+        messages = payload.get("messages", [])
+        if not messages:
+            return {"status": "error", "error": "messages required"}
+
+        if not self._loaded:
+            return {"status": "error", "error": "No model loaded"}
+
+        # Merge session defaults with request params
+        request_params = {k: v for k, v in payload.items()
+                         if k not in ("messages", "model", "stream", "action")}
+        api_payload = {"messages": messages, "model": payload.get("model", ""),
+                       "stream": payload.get("stream", False)}
+        api_payload = {**self._session_defaults, **api_payload, **request_params}
+
+        resp = self._call("POST", "/v1/chat/completions", json=api_payload, timeout=120)
+        return {"status": "success", "data": resp}
+
+    def _configure(self, body: dict) -> dict:
+        model_name = body.get("model", self.default_model)
+        engine = body.get("engine")
+        startup_overrides = body.get("startup_overrides", {})
+        session_defaults = body.get("session_defaults", {})
+
+        try:
+            new_cmd = self._build_cmd(model_name, engine, startup_overrides)
+        except (FileNotFoundError, ValueError) as e:
+            return {"status": "error", "error": str(e)}
+
+        # Smart diff — skip restart if nothing changed
+        process_alive = self.is_running()
+        if new_cmd == self._current_cmd and self._loaded and process_alive:
+            changed = False
+        else:
+            changed = True
+            self.stop_subprocess()
+            self._loaded = False
+            self.model_name = None
+
+            logger.info("Starting llama-server (%s): model=%s", self._engine, model_name)
+            self.start_subprocess(new_cmd, port=self.PORT,
+                                  health_path="/v1/models", timeout=300)
+            self._current_cmd = new_cmd
+            self.model_name = model_name
+            self._loaded = True
+
+        # Session defaults
+        from registry.models import ModelRegistry
+        meta = ModelRegistry().get_metadata("llm", model_name)
+        raw_defaults = {}
+        for key in _SESSION_KEY_MAP:
+            val = meta.get(key)
+            if val is not None:
+                raw_defaults[key] = val
+        raw_defaults.update(session_defaults)
+
+        mapped = {}
+        for key, val in raw_defaults.items():
+            if key == "reasoning":
+                if val:
+                    mapped.setdefault("chat_template_kwargs", {})["enable_thinking"] = True
+            elif key in _SESSION_KEY_MAP:
+                mapped[_SESSION_KEY_MAP[key]] = val
+            else:
+                mapped[key] = val
+        self._session_defaults = mapped
+
+        return {
+            "status": "ok", "changed": changed,
+            "engine": self._engine, "model": model_name,
+        }
+
+    def _build_cmd(self, model_name: str, engine: str | None = None,
+                   startup_overrides: dict | None = None) -> list[str]:
+        """Build llama-server command. Reuses the same logic as LLMDeployment."""
+        from registry.config import Config
+        from registry.models import ModelRegistry
+
+        config = Config()
+        registry = ModelRegistry()
+        meta = registry.get_metadata("llm", model_name)
+        overrides = startup_overrides or {}
+
+        engine = engine or meta.get("engine", "beellama")
+        binary = ENGINE_BINARIES.get(engine)
+        if not binary:
+            raise ValueError(f"Unknown engine: {engine}")
+        self._engine = engine
+
+        model_path = registry.get_path("llm", model_name)
+        if not model_path.exists():
+            raise FileNotFoundError(f"Model not found: {model_path}")
+        container_model = f"/models/{model_path.relative_to(config.models_root)}"
+
+        def _val(key, fallback=None):
+            return overrides.get(key) or meta.get(key) or fallback
+
+        cmd = [
+            binary, "-m", container_model,
+            "--port", str(self.PORT), "--host", "0.0.0.0",
+            "-ngl", str(int(_val("n_gpu_layers", 99))),
+            "-c", str(int(_val("ctx_size", 8192))),
+            "--parallel", str(int(_val("parallel", 1))),
+            "--jinja", "--kv-unified", "--no-mmap", "--mlock", "--cache-ram", "0",
+        ]
+
+        if _val("flash_attn"):
+            cmd.extend(["--flash-attn", "on"])
+
+        for flag, key in [("--temp", "temp"), ("--top-p", "top_p"),
+                          ("--top-k", "top_k"), ("--min-p", "min_p"),
+                          ("--presence-penalty", "presence_penalty"),
+                          ("--repeat-penalty", "repeat_penalty")]:
+            val = _val(key)
+            if val is not None:
+                cmd.extend([flag, str(val)])
+
+        if _val("reasoning"):
+            cmd.extend(["--reasoning", "on"])
+            cmd.extend(["--chat-template-kwargs", '{"preserve_thinking":true}'])
+
+        return cmd

@@ -192,52 +192,22 @@ CATEGORY_ORDER = ["Image", "LLM", "3D", "Music", "Creative", "TTS", "ASR", "MCP"
 # ---------------------------------------------------------------------------
 
 def _get_governor():
-    """Get the GPUGovernor named actor, or None."""
+    """Get the Forge deployment handle."""
     try:
-        return ray.get_actor("gpu_governor")
-    except ValueError:
+        return serve.get_deployment_handle("forge", "forge")
+    except Exception:
         return None
 
 
 async def _get_governor_state() -> dict:
-    """Get current governor state (holder service)."""
+    """Get current Forge state (loaded services, VRAM)."""
     governor = _get_governor()
     if not governor:
-        return {"holder": None}
+        return {"loaded": {}}
     try:
         return await governor.status.remote()
     except Exception:
-        return {"holder": None}
-
-
-async def _is_comfyui_running() -> bool:
-    """Check if ComfyUI subprocess is alive."""
-    try:
-        handle = serve.get_deployment_handle("comfyui", "comfyui")
-        return await handle.options(method_name="is_running").remote()
-    except Exception:
-        return False
-
-
-async def _stop_comfyui() -> None:
-    """Stop the ComfyUI subprocess."""
-    try:
-        handle = serve.get_deployment_handle("comfyui", "comfyui")
-        await handle.options(method_name="stop_comfyui").remote()
-        logger.info("Studio: stopped ComfyUI")
-    except Exception as e:
-        logger.warning("Studio: failed to stop ComfyUI: %s", e)
-
-
-async def _start_comfyui() -> bool:
-    """Start the ComfyUI subprocess. Returns True on success."""
-    try:
-        handle = serve.get_deployment_handle("comfyui", "comfyui")
-        result = await handle.options(method_name="start_comfyui").remote()
-        return bool(result)
-    except Exception as e:
-        logger.error("Studio: failed to start ComfyUI: %s", e)
-        return False
+        return {"loaded": {}}
 
 
 # ---------------------------------------------------------------------------
@@ -259,10 +229,11 @@ async def studio_apps(request: Request) -> JSONResponse:
     gov_state = await _get_governor_state()
     comfyui_running = await _is_comfyui_running()
 
-    active_service = gov_state.get("holder")
-    # If ComfyUI is running but governor doesn't track it
-    if comfyui_running and not active_service:
-        active_service = "comfyui"
+    active_service = None
+    loaded = gov_state.get("loaded", {})
+    if loaded:
+        # Show the first loaded service as active
+        active_service = next(iter(loaded))
 
     apps = []
     for name, meta in STUDIO_APPS.items():
@@ -290,8 +261,9 @@ async def studio_apps(request: Request) -> JSONResponse:
     return JSONResponse({
         "apps": apps,
         "active_service": active_service,
-        "active_model": gov_state.get("holder"),
+        "active_model": active_service,
         "comfyui_running": comfyui_running,
+        "vram_free_mb": gov_state.get("vram_free_mb"),
     })
 
 
@@ -310,59 +282,23 @@ async def studio_switch(request: Request) -> JSONResponse:
         )
 
     app_meta = STUDIO_APPS[service_name]
-    governor = _get_governor()
 
-    # --- Unload current ---
-    # Stop ComfyUI if running
-    if await _is_comfyui_running():
-        await _stop_comfyui()
-
-    # Release governor-managed service
-    if governor:
+    # GPU services — route through Forge
+    if app_meta.get("gpu"):
         try:
-            state = await governor.status.remote()
-            holder = state.get("holder")
-            if holder:
-                await governor.release.remote(holder)
-        except Exception as e:
-            logger.warning("Studio: governor release failed: %s", e)
-
-    # --- Load target ---
-    if app_meta["manage_type"] == "subprocess":
-        # Subprocess-managed services (ComfyUI)
-        if service_name == "comfyui":
-            success = await _start_comfyui()
-            if not success:
-                return JSONResponse(
-                    {"error": "Failed to start ComfyUI"},
-                    status_code=500,
-                )
+            forge = _get_governor()
+            if not forge:
+                return JSONResponse({"error": "Forge not available"}, status_code=503)
+            result = await forge.preload.remote(service_name, body.get("model"))
             return JSONResponse({
-                "status": "loaded",
+                "status": result.get("status", "loaded"),
                 "service": service_name,
                 "url": app_meta.get("url"),
+                "vram_free_mb": result.get("vram_free_mb"),
             })
-
-    elif app_meta["manage_type"] == "scheduler":
-        # Governor-managed services (BaseGPUDeployment)
-        if not governor:
-            return JSONResponse(
-                {"error": "GPUGovernor not available"},
-                status_code=503,
-            )
-        try:
-            await governor.acquire.remote(service_name)
         except Exception as e:
-            logger.error("Studio: acquire failed: %s", e)
-            return JSONResponse(
-                {"error": f"Failed to load {service_name}: {e}"},
-                status_code=500,
-            )
-        return JSONResponse({
-            "status": "loaded",
-            "service": service_name,
-            "url": app_meta.get("url"),
-        })
+            logger.error("Studio: forge preload failed for %s: %s", service_name, e)
+            return JSONResponse({"error": str(e)}, status_code=500)
 
     # CPU services or unmanaged
     return JSONResponse({
@@ -374,19 +310,11 @@ async def studio_switch(request: Request) -> JSONResponse:
 
 async def studio_release(request: Request) -> JSONResponse:
     """POST /studio/api/release — unload everything from GPU."""
-    # Stop ComfyUI if running
-    if await _is_comfyui_running():
-        await _stop_comfyui()
-
-    # Release governor-managed service
-    governor = _get_governor()
-    if governor:
-        try:
-            state = await governor.status.remote()
-            holder = state.get("holder")
-            if holder:
-                await governor.release.remote(holder)
-        except Exception as e:
-            logger.warning("Studio: governor release failed: %s", e)
+    try:
+        forge = _get_governor()
+        if forge:
+            await forge.release.remote()
+    except Exception as e:
+        logger.warning("Studio: forge release failed: %s", e)
 
     return JSONResponse({"status": "released"})
