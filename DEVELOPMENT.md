@@ -207,3 +207,67 @@ set `min_replicas: 1` to keep it warm (uses more VRAM).
 2. Add `torch.cuda.empty_cache()` in `_unload()`
 3. Use quantized models (GGUF, GPTQ, AWQ)
 4. Comment out a competing Tier 1 service while debugging
+
+## Wan2GP — Multi-Model Pool with mmgp
+
+Wan2GP is a multi-model pool that uses **mmgp** (Memory Management for GPU Pipelines) to run diffusion models on constrained VRAM. It registers as `vram_mb=0` in the Forge — self-managed, always allowed to load alongside other services.
+
+### How mmgp works
+
+mmgp hooks into every `forward()` call. For each layer:
+
+1. Layer's parameters copy from CPU RAM -> VRAM
+2. Layer computes on GPU
+3. Next layer prefetched via async CUDA stream
+4. Previous layer's params dropped from VRAM
+
+A 14B model that needs ~28GB fits in ~10-12GB active VRAM because only 1-2 transformer blocks are in VRAM at any moment. The rest stays in CPU RAM (pinned for faster DMA).
+
+### Profile system
+
+mmgp auto-detects hardware and picks a profile. The deployment overrides to "balanced" (Profile 2) with explicit budgets to leave headroom for concurrent Forge services.
+
+| Profile | RAM | VRAM | Strategy |
+|---------|-----|------|----------|
+| 1 | 64GB | 24GB | Everything in VRAM, no swapping, full speed |
+| 2 | 64GB | 12GB | Budget-limited per-component, pinned RAM swaps |
+| 4 | 32GB | 12GB | Budget-limited, int8 quantized |
+| 5 | 24GB | 10GB | Minimum, block-by-block, slowest |
+
+Budgets configured in `services/wan2gp/deployment.py`:
+
+```python
+budgets = {"transformer": 250, "text_encoder": 250, "*": 3000}
+```
+
+This means the transformer only occupies 250MB VRAM at a time (rest swapped per-layer), text encoder 250MB, and everything else (VAE, etc.) up to 3GB.
+
+### Model variants
+
+| Model | Type | Estimated VRAM | Unique to Wan2GP? |
+|-------|------|---------------|-------------------|
+| `wan/t2v-14B` | text-to-video | 14GB | Yes |
+| `wan/i2v-14B` | image-to-video | 14GB | Yes |
+| `hunyuan/t2v` | text-to-video | 12GB | Yes |
+| `flux/t2i` | text-to-image | 8GB | Yes |
+| `ace_step/v1_5` | text-to-music | 8GB | **Duplicate** — also standalone Forge service |
+| `index_tts/v2` | text-to-speech | 6GB | **Duplicate** — also standalone Ray deployment |
+
+### Duplicated services
+
+ACE-Step and IndexTTS exist both as standalone services and inside Wan2GP:
+
+- **Standalone**: loads full model into VRAM, fastest inference. Exclusive GPU.
+- **Wan2GP**: loads through mmgp with per-layer swapping. Less active VRAM, slower, but can coexist with other Wan2GP models in the pool.
+
+Use standalone for speed, Wan2GP when you need to run multiple models without GPU eviction.
+
+### Model persistence
+
+Models persist between `infer()` calls. The `_models` dict accumulates loaded variants — calling `wan/t2v-14B` then `flux/t2i` keeps both in CPU RAM. mmgp swaps their subcomponents in/out of VRAM as needed. Models are only fully evicted when the Forge calls `unload()` (eviction for another service, or explicit `/admin/unload`).
+
+**Gap**: no LRU eviction on the `_models` pool. Three 14B models = ~42GB CPU RAM for weight copies. Add cleanup logic if this becomes a problem.
+
+### ComfyUI interaction
+
+Wan2GP and ComfyUI cannot coexist. They're both in the Forge's SERVICE_MAP but the Forge evicts one before loading the other. ComfyUI runs as a subprocess with its own VRAM management. Wan2GP runs in-process with mmgp. No bridge between them.
