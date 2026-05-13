@@ -1,0 +1,32 @@
+# Tech Noir Wan2GP Pool — ALL model variants in one image.
+# Inherits from gpu-all (NGC PyTorch 26.01 + CUDA 13.1.1 + all base services).
+# Adds Wan2GP's 90+ model implementations with mmgp VRAM management.
+#
+# Build:
+#   docker bake wan2gp --push
+
+ARG REGISTRY=forge-reg.local:30500/tech-noir
+
+FROM ${REGISTRY}/gpu-all:latest
+
+# ── Wan2GP vendor code (full repo — model implementations, handlers, shared utils) ──
+COPY vendor/wan2gp/ /opt/wan2gp/
+ENV PYTHONPATH=/opt/wan2gp:${PYTHONPATH}
+
+# ── Wan2GP Python dependencies (filtered — torch/torchaudio/xformers come from NGC) ──
+COPY vendor/wan2gp/requirements.txt /tmp/wan2gp-reqs.txt
+RUN --mount=type=cache,target=/root/.cache/uv \
+    grep -v -i -E '^(torch|torchvision|torchaudio|xformers|flash-attn|mmgp|--extra-index-url|#)' \
+        /tmp/wan2gp-reqs.txt > /tmp/reqs_wan2gp.txt && \
+    uv pip install "mmgp>=3.7.6" && \
+    uv pip install -r /tmp/reqs_wan2gp.txt || true && rm /tmp/reqs_wan2gp.txt
+
+# ── Verify Wan2GP imports ──────────────────────────────────────────────────────
+RUN python3 -c "\
+    import sys; sys.path.insert(0, '/opt/wan2gp'); \
+    import mmgp; \
+    from mmgp import offload, profile_type; \
+    print(f'mmgp OK'); \
+    from models.wan.wan_handler import family_handler as h; \
+    print(f'Wan handler OK: {h.__module__}'); \
+    print('wan2gp image verification passed')"
