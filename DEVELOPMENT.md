@@ -251,16 +251,27 @@ This means the transformer only occupies 250MB VRAM at a time (rest swapped per-
 | `hunyuan/t2v` | text-to-video | 12GB | Yes |
 | `flux/t2i` | text-to-image | 8GB | Yes |
 | `ace_step/v1_5` | text-to-music | 8GB | **Duplicate** — also standalone Forge service |
-| `index_tts/v2` | text-to-speech | 6GB | **Duplicate** — also standalone Ray deployment |
+| `index_tts/v2` | text-to-speech | 6GB | **Blocked** — vendored transformers fork incompatible with >=4.55 |
 
 ### Duplicated services
 
-ACE-Step and IndexTTS exist both as standalone services and inside Wan2GP:
+ACE-Step exists both as standalone service and inside Wan2GP:
 
 - **Standalone**: loads full model into VRAM, fastest inference. Exclusive GPU.
 - **Wan2GP**: loads through mmgp with per-layer swapping. Less active VRAM, slower, but can coexist with other Wan2GP models in the pool.
 
 Use standalone for speed, Wan2GP when you need to run multiple models without GPU eviction.
+
+### Blocked: IndexTTS via Wan2GP
+
+IndexTTS through Wan2GP is blocked. Wan2GP vendors a forked copy of `transformers/generation/utils.py` (as `models/TTS/index_tts2/gpt/transformers_generation_utils.py`) that imports internal symbols removed in transformers >=4.55 (`QuantizedCacheConfig`, `NEED_SETUP_CACHE_CLASSES_MAPPING`, `QUANT_BACKEND_CLASSES_MAPPING`, etc.). Wan2GP pins `transformers==4.54.0` but the rest of our stack uses `4.57.3`.
+
+The standalone IndexTTS deployment (Ray Serve, `services/tts/index_tts.py`) works fine — it uses the IndexTTS-2 model directly without Wan2GP's vendored transformers fork.
+
+**Resolution paths:**
+1. Wait for Wan2GP to update their vendored transformers fork
+2. Pin transformers to 4.54 in a separate Wan2GP Docker image
+3. Shim the missing symbols (fragile, many changes)
 
 ### Model persistence
 

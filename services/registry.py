@@ -75,14 +75,7 @@ SERVICE_REGISTRY: dict[str, ServiceEntry] = {
         model_aliases={"tts-01-index": "index-tts"},
         description="IndexTTS v2 — high-quality neural TTS (12GB model).",
     ),
-    "vibevoice_cpp_gpu": ServiceEntry(
-        deployment="vibevoice_cpp_gpu", app="vibevoice_cpp_gpu",
-        label="VibeVoice CPP GPU", category="tts",
-        needs_gpu=False, default_model="vibevoice-cpp",
-        output_type="audio",
-        model_aliases={"tts-01-vibevoice": "vibevoice-cpp"},
-        description="VibeVoice 7B — multi-speaker synthesis with voice cloning.",
-    ),
+
     "gpt_sovits": ServiceEntry(
         deployment="gpt_sovits", app="gpt_sovits",
         label="GPT-SoVITS", category="tts",

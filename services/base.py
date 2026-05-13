@@ -275,7 +275,7 @@ class BaseGPUDeployment:
     """Base class for Ray Serve deployments with load/unload lifecycle.
 
     Used by CPU services (kokoro, espeak, faster_whisper) and lightweight
-    GPU services (faster_qwen3_tts, index_tts, vibevoice_cpp).
+    GPU services (faster_qwen3_tts, index_tts).
 
     Heavy GPU services use ForgeService instead (services/forge_base.py).
 

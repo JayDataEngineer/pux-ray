@@ -79,16 +79,6 @@ PLAYGROUND_META: dict[str, dict] = {
             {"key": "voice", "label": "Voice", "type": "text", "default": "default"},
         ],
     },
-    "vibevoice_cpp_gpu": {
-        "category": "TTS",
-        "gpu": False,
-        "route": "/tts/vibevoice-cpp-gpu",
-        "format": "tnap",
-        "input_fields": [
-            {"key": "text", "label": "Text to speak", "type": "textarea", "required": True, "placeholder": "Enter text to synthesize..."},
-            {"key": "voice", "label": "Voice", "type": "text", "default": "default"},
-        ],
-    },
     "moss_soundeffect": {
         "category": "Audio",
         "gpu": True,

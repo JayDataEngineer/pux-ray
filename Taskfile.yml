@@ -35,9 +35,14 @@ tasks:
 
   # ── Service lifecycle ────────────────────────────────────────────────────
   build:
-    desc: "Build Ray images (gpu-all) via docker bake and push to Forge Registry"
+    desc: "Build Ray images (gpu-all + wan2gp) via docker bake and push to Forge Registry"
     cmds:
-      - docker bake gpu-all --push
+      - docker bake gpu-all wan2gp --push
+
+  build:wan2gp:
+    desc: "Build Wan2GP image (separate from gpu-all)"
+    cmds:
+      - docker bake wan2gp --push
 
   deploy:
     desc: "Force Ray pods to pick up new image (delete head pod, wait for ready)"

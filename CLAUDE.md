@@ -291,10 +291,35 @@ services/       → AI service implementations (Ray Serve deployments)
   creative/     → TRELLIS, ACE-Step, HY-Motion, AniGen, SeeThrough
   forge.py      → VRAM-aware GPU manager (replaces MasterRouter + GPUGovernor)
   forge_base.py → ForgeService base class (load/unload/infer)
+  model_engine/ → Universal GPU model execution with shared mmgp pool
 
 ### GPU Scheduling
 
 Only one heavy GPU model runs at a time (24GB VRAM), but lightweight services can coexist. The **Forge** (`services/forge.py`) claims `num_gpus: 1.0` and tracks VRAM per service in MB. It allows concurrent GPU services when their combined VRAM fits, and evicts the largest loaded service only when a new service needs more VRAM than free. Services implement `ForgeService` with `load()`, `unload()`, `infer(dict) -> dict`. Self-managed services (vram_mb=0, like Wan2GP) always fit alongside other services.
+
+### Model Engine
+
+Universal GPU model execution framework. Every model family gets a handler that decomposes it into `{name: nn.Module}`. mmgp manages VRAM/CPU/RAM placement. Multiple models share a single GPU through a shared mmgp pool — module-level swapping, not model-level eviction.
+
+**Architecture:** `ModelEngine.md` — full design doc with migration priorities and comparison vs Wan2GP.
+
+**Handler contract:** `services/model_engine/base_handler.py` — `BaseHandler` → `load_model()` → `LoadResult(pipeline, pipe, co_tenants)`.
+
+**Executor:** `services/model_engine/executor.py` — `ModelExecutor` owns the GPU, manages shared mmgp pool, LRU eviction when models exceed VRAM budget.
+
+**Pattern:** Every handler follows the 3-file structure:
+```
+handlers/<family>/
+  __init__.py      # BaseHandler implementation + variant metadata
+  modules.py       # Load nn.Modules, build pipe dict, extract weights
+  orchestrator.py  # Raw forward() calls — the inference logic
+```
+
+**Current handlers:**
+- `ace_step/` — ACE-Step v1.5 text-to-music (proven, 8-phase generation)
+- `wan2gp/` — Wraps Wan2GP vendor handlers (wan, hunyuan, flux — 4 model families)
+
+**Migration targets** (by priority): Wan2GP (done), TRELLIS, MOSS-SoundEffect, HY-Motion, AniGen, See-Through.
 
 ## Service Development
 
