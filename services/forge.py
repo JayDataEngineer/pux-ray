@@ -33,8 +33,6 @@ AVAILABLE_MB = TOTAL_VRAM_MB - RESERVED_MB
 # ─── Service Registry ────────────────────────────────────────────────────────
 
 SERVICE_MAP: dict[str, tuple[str, str]] = {
-    # Wan2GP — unified multi-model pool (ALL models via mmgp nn.Module variants)
-    "wan2gp":    ("services.wan2gp.deployment",       "Wan2GPService"),
     # ComfyUI — subprocess, separate GPU
     "comfyui":   ("services.image.comfyui",          "ComfyUIService"),
     # llama.cpp — subprocess, separate GPU

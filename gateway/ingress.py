@@ -59,9 +59,21 @@ def _get_forge():
     return serve.get_deployment_handle("forge", "forge")
 
 
+def _get_wan2gp():
+    """Get the Wan2GP deployment handle."""
+    return serve.get_deployment_handle("wan2gp", "wan2gp")
+
+
 def _is_forge_service(service_name: str) -> bool:
-    """Check if a service is managed by the Forge (GPU heavy service)."""
+    """Check if a service is managed by the Forge (subprocess GPU services)."""
     return service_name in FORGE_SERVICES
+
+
+def _model_name_for(service_name: str, entry) -> str:
+    """Map a service name to the Wan2GP model name in the dynamic registry."""
+    if service_name == "wan2gp":
+        return entry.default_model
+    return entry.default_model
 
 
 class APIIngress:
@@ -81,14 +93,22 @@ class APIIngress:
                 status_code=404,
             )
 
-        # Forge-managed GPU services — route through Forge with dict payload
+        # Forge-managed subprocess services — route through Forge
         if _is_forge_service(service_name):
             body = await request.json()
             forge = _get_forge()
             result = await forge.invoke.remote(service_name, body)
             return JSONResponse(result)
 
-        # Direct deployments (CPU services, lightweight GPU)
+        # Wan2GP-managed services — route through Wan2GP deployment
+        if entry.deployment == "wan2gp":
+            body = await request.json()
+            body.setdefault("model", _model_name_for(service_name, entry))
+            wan2gp = _get_wan2gp()
+            result = await wan2gp.invoke.remote(body)
+            return JSONResponse(result)
+
+        # Direct deployments (legacy)
         handle = serve.get_deployment_handle(entry.deployment, entry.app)
         return await handle.remote(request)
 
@@ -139,21 +159,32 @@ class APIIngress:
             result = await forge.invoke.remote(service_key, body)
             return JSONResponse(result)
 
+        if entry.deployment == "wan2gp":
+            body.setdefault("model", _model_name_for(service_key, entry))
+            wan2gp = _get_wan2gp()
+            result = await wan2gp.invoke.remote(body)
+            return JSONResponse(result)
+
         handle = serve.get_deployment_handle(entry.deployment, entry.app)
         return await handle.remote(request)
 
     async def audio_transcriptions(self, request: Request) -> Response:
         form = await request.form()
-        model = str(form.get("model", "whisper-1"))
+        model_name_for_service = str(form.get("model", "whisper-1"))
 
-        resolved = resolve_model(model)
+        resolved = resolve_model(model_name_for_service)
         if resolved:
             service_key, entry = resolved
         else:
             service_key, entry = "faster_whisper", get_service("faster_whisper")
 
-        handle = serve.get_deployment_handle(entry.deployment, entry.app)
-        return await handle.remote(request)
+        # Convert form to dict for JSON passthrough
+        body = {k: v for k, v in form.items()}
+        body.setdefault("model", _model_name_for(service_key, entry))
+
+        wan2gp = _get_wan2gp()
+        result = await wan2gp.invoke.remote(body)
+        return JSONResponse(result)
 
     # ── Service discovery ──────────────────────────────────────────────────────
 
