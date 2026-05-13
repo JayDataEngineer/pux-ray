@@ -4,6 +4,7 @@ version = "0.1.0"
 description = "Ray-based AI infrastructure for Tech Noir"
 requires-python = ">=3.12,<3.13"
 dependencies = [
+    # Core framework — boot system, ingress gateway, CLI
     "ray[serve]>=2.40",
     "httpx>=0.27",
     "pyyaml>=6.0",
@@ -11,43 +12,17 @@ dependencies = [
     "starlette>=0.37",
     "python-multipart>=0.0.7",
     "uvicorn>=0.30",
-    "huggingface-hub>=0.24",
     "rich>=13.0",
-    # CPU TTS/ASR services (in-process imports)
-    "kokoro>=0.4",
-    "soundfile>=0.12",
-    "numpy>=1.26",
-    "faster-whisper>=1.0",
-    "phonemizer>=3.0",
-    "misaki[en]>=0.7",
-    # GPU services (torch already installed with CUDA)
-    "torchaudio>=2.1",
-    "transformers>=4.40",
-    "accelerate>=0.30",
-    # ComfyUI VNCCS extension runtime dependencies
-    "opencv-python>=4.8",
-    "timm>=0.9",
-    "transparent-background>=1.3",
-    "kornia>=0.7",
-    "aiohttp>=3.9",
-    "requests>=2.31",
-    # HY-Motion (text-to-3D-motion generation)
-    "torchdiffeq>=0.2",
-    "diffusers>=0.26",
-    "einops>=0.8",
-    "safetensors>=0.4",
-    "bitsandbytes>=0.43",
-    "transforms3d>=0.4",
-    "omegaconf>=2.3",
-    "openai>=1.0",
-    "scipy>=1.10",
-    # TRELLIS.2 (image-to-3D mesh generation)
-    "imageio>=2.35",
-    "trimesh>=4.5",
-    "plyfile>=1.0",
-    "easydict>=1.11",
+    "prometheus-client>=0.18",
+    # Model download CLI (lightweight, used by ray-noir models pull)
+    "huggingface-hub>=0.24",
+    "modelscope>=1.20",
     # Database — PostgreSQL with Apache AGE (graph) extension
     "psycopg[binary,pool]>=3.2",
+    # Heavy AI service deps (kokoro, transformers, torchaudio, diffusers, spconv,
+    # pytorch3d, nvdiffrast, flash_attn, etc.) live in the golden Docker image
+    # (infra/docker/Dockerfile.gpu-all). Service-specific extras (rembg[cpu],
+    # utils3d CUDA, mmgp) live in per-service Dockerfiles extending gpu-all.
 ]
 
 [project.optional-dependencies]
