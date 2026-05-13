@@ -312,18 +312,31 @@ class Wan2GPService(ForgeService):
 
     def _load_model_engine(self, model_name, handler, info):
         from registry.config import Config
-        from registry.models import ModelRegistry
 
-        registry = ModelRegistry()
+        cfg = Config()
+        models_root = Path(cfg.models_root)
+
+        # Resolve model path: registry → handler fallback → see_through fixed path
         registry_path = info.get("registry_path")
+        model_path = None
+
         if registry_path:
-            model_path = registry.get_path(*registry_path)
-        else:
-            # See-Through uses vendored code at a fixed location
-            model_path = Path("/opt/seethrough")
+            try:
+                from registry.models import ModelRegistry
+                registry = ModelRegistry()
+                model_path = registry.get_path(*registry_path)
+            except (KeyError, FileNotFoundError):
+                model_path = None
+
+        if model_path is None or not (model_path := Path(model_path)).is_dir():
+            model_path = handler.resolve_path(model_name, models_root)
 
         if not model_path.is_dir():
-            raise FileNotFoundError(f"Model path not found for {model_name}: {model_path}")
+            # Last resort: see_through uses vendored code at fixed location
+            if registry_path is None:
+                model_path = Path("/opt/seethrough")
+            if not model_path.is_dir():
+                raise FileNotFoundError(f"Model path not found for {model_name}: {model_path}")
 
         model_type = info.get("model_type", model_name)
 
@@ -336,19 +349,21 @@ class Wan2GPService(ForgeService):
         pipe = load_result.pipe
         co_tenants = load_result.co_tenants or {}
 
-        from mmgp import offload
+        # Only run mmgp offload if there are nn.Modules to manage
+        if pipe:
+            from mmgp import offload
 
-        budgets = {"transformer": 250, "text_encoder": 250, "*": 3000}
-        offload.profile(
-            pipe,
-            profile_no=MMGP_PROFILES["balanced"],
-            quantizeTransformer=False,
-            budgets=budgets,
-            loras=[],
-            perc_reserved_mem_max=0.5,
-            vram_safety_coefficient=0.9,
-            coTenantsMap=co_tenants,
-        )
+            budgets = {"transformer": 250, "text_encoder": 250, "*": 3000}
+            offload.profile(
+                pipe,
+                profile_no=MMGP_PROFILES["balanced"],
+                quantizeTransformer=False,
+                budgets=budgets,
+                loras=[],
+                perc_reserved_mem_max=0.5,
+                vram_safety_coefficient=0.9,
+                coTenantsMap=co_tenants,
+            )
 
         self._models[model_name] = {
             "engine": "model_engine",
