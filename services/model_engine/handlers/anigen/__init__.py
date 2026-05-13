@@ -1,5 +1,5 @@
 """AniGen handler — image-to-rigged-3D generation.
-
+ 
 Decomposed into 6 nn.Modules: dinov2 (image encoder), dsine (normal estimation),
 ss_flow_model (sparse structure diffusion), ss_decoder, slat_flow_model
 (structured latent diffusion), slat_decoder (mesh + skin weights).
@@ -12,7 +12,7 @@ from pathlib import Path
 
 import torch
 
-from services.model_engine.base_handler import BaseHandler, LoadResult, ModelVariant
+from services.model_engine.base_handler import BaseHandler, ModelVariant
 
 logger = logging.getLogger(__name__)
 
@@ -45,15 +45,12 @@ class AniGenHandler(BaseHandler):
         model_path: Path,
         dtype: torch.dtype = torch.float32,
         **kwargs,
-    ) -> LoadResult:
+    ) -> tuple:
         from .modules import AniGenModules
         from .orchestrator import AniGenOrchestrator
 
         modules = AniGenModules.load(model_path=model_path)
         orchestrator = AniGenOrchestrator(modules)
 
-        return LoadResult(
-            pipeline=orchestrator,
-            pipe=modules.pipe,
-            co_tenants=modules.co_tenants,
-        )
+        pipe = {"pipe": modules.pipe, "coTenantsMap": modules.co_tenants}
+        return orchestrator, pipe

@@ -1,5 +1,5 @@
 """MOSS-SoundEffect handler — text-to-sound effect generation.
-
+ 
 Decomposed into language_model (Qwen3-8B), emb_ext (16 VQ embeddings),
 lm_heads (17 prediction heads), audio_tokenizer (CPU).
 Note: generate() uses the full model due to delay pattern coupling.
@@ -11,7 +11,7 @@ from pathlib import Path
 
 import torch
 
-from services.model_engine.base_handler import BaseHandler, LoadResult, ModelVariant
+from services.model_engine.base_handler import BaseHandler, ModelVariant
 
 logger = logging.getLogger(__name__)
 
@@ -43,15 +43,12 @@ class MossHandler(BaseHandler):
         model_path: Path,
         dtype: torch.dtype = torch.bfloat16,
         **kwargs,
-    ) -> LoadResult:
+    ) -> tuple:
         from .modules import MossModules
         from .orchestrator import MossOrchestrator
 
         modules = MossModules.load(model_path=model_path, dtype=dtype)
         orchestrator = MossOrchestrator(modules)
 
-        return LoadResult(
-            pipeline=orchestrator,
-            pipe=modules.pipe,
-            co_tenants=modules.co_tenants,
-        )
+        pipe = {"pipe": modules.pipe, "coTenantsMap": modules.co_tenants}
+        return orchestrator, pipe

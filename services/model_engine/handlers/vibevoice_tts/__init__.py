@@ -1,5 +1,5 @@
 """VibeVoice TTS handler — text-to-speech with voice cloning.
-
+ 
 Uses VibeVoiceForConditionalGenerationInference (vibevoice/VibeVoice-7B).
 Sub-modules in mmgp pipe dict, generate() on full model.
 Supports multi-speaker TTS with optional voice cloning.
@@ -11,7 +11,7 @@ from pathlib import Path
 
 import torch
 
-from services.model_engine.base_handler import BaseHandler, LoadResult, ModelVariant
+from services.model_engine.base_handler import BaseHandler, ModelVariant
 
 logger = logging.getLogger(__name__)
 
@@ -44,15 +44,12 @@ class VibeVoiceTTSHandler(BaseHandler):
         model_path: Path,
         dtype: torch.dtype = torch.bfloat16,
         **kwargs,
-    ) -> LoadResult:
+    ) -> tuple:
         from .modules import VibeVoiceTTSModules
         from .orchestrator import VibeVoiceTTSOrchestrator
 
         modules = VibeVoiceTTSModules.load(model_path=model_path, dtype=dtype)
         orchestrator = VibeVoiceTTSOrchestrator(modules)
 
-        return LoadResult(
-            pipeline=orchestrator,
-            pipe=modules.pipe,
-            co_tenants=modules.co_tenants,
-        )
+        pipe = {"pipe": modules.pipe, "coTenantsMap": modules.co_tenants}
+        return orchestrator, pipe

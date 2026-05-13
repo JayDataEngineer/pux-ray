@@ -75,7 +75,9 @@ MODEL_ENGINE_ENTRIES = [
         "handler_cls": "AniGenHandler",
         "registry_path": ("3d", "anigen"),
         "vram_gb": 12,
-        "defaults": {"ss_steps": 25, "slat_steps": 25, "cfg": 3.5},
+        "defaults": {"image": None, "seed": 42, "ss_steps": 25, "slat_steps": 25,
+                     "cfg_scale_ss": 7.5, "cfg_scale_slat": 3.0, "texture_size": 1024,
+                     "simplify_ratio": 0.95, "endpoint": ""},
     },
     {
         "name": "trellis",
@@ -83,7 +85,9 @@ MODEL_ENGINE_ENTRIES = [
         "handler_cls": "TrellisHandler",
         "registry_path": ("3d", "trellis"),
         "vram_gb": 10,
-        "defaults": {"steps": 50, "guidance": 3.0},
+        "defaults": {"image": None, "seed": 1, "steps": 12, "guidance": 7.5,
+                     "resolution": "1024_cascade", "decimation": 50000, "texture_size": 4096},
+        "key_map": {"steps": "steps", "guidance": "guidance"},
     },
     {
         "name": "hy_motion",
@@ -91,7 +95,8 @@ MODEL_ENGINE_ENTRIES = [
         "handler_cls": "HYMotionHandler",
         "registry_path": ("motion", "hy-motion-1.0"),
         "vram_gb": 6,
-        "defaults": {"steps": 50, "cfg": 2.0},
+        "defaults": {"text": "", "guidance": 3.0, "duration": 3.0, "seeds_csv": "42"},
+        "key_map": {"guidance": "guidance", "cfg_scale": "guidance"},
     },
     {
         "name": "moss_soundeffect",
@@ -99,7 +104,8 @@ MODEL_ENGINE_ENTRIES = [
         "handler_cls": "MossHandler",
         "registry_path": ("audio", "moss-soundeffect"),
         "vram_gb": 16,
-        "defaults": {"max_tokens": 4096},
+        "defaults": {"prompt": "", "tokens": None, "max_tokens": 4096},
+        "key_map": {"prompt": "prompt"},
     },
     {
         "name": "see_through",
@@ -107,7 +113,8 @@ MODEL_ENGINE_ENTRIES = [
         "handler_cls": "SeeThroughHandler",
         "registry_path": None,
         "vram_gb": 6,
-        "defaults": {"resolution": 1280, "steps": 30},
+        "defaults": {"image": None, "resolution": 1280, "steps": 30},
+        "key_map": {"steps": "steps"},
     },
     {
         "name": "faster_qwen3_tts",
@@ -115,7 +122,13 @@ MODEL_ENGINE_ENTRIES = [
         "handler_cls": "FasterQwen3TTSHandler",
         "registry_path": ("tts", "qwen3-tts-12hz-1.7b-customvoice"),
         "vram_gb": 6,
-        "defaults": {"voice": "Aiden", "language": "English"},
+        "defaults": {"text": "", "mode": "custom_voice", "voice": "Aiden",
+                     "language": "English", "ref_audio_b64": None,
+                     "instruct": "", "ref_text": "", "xvec_only": False,
+                     "max_tokens": 2048, "min_tokens": 2,
+                     "temperature": 0.9, "top_k": 50, "top_p": 1.0,
+                     "do_sample": True, "repetition_penalty": 1.05},
+        "key_map": {"prompt": "text", "reference_audio": "ref_audio_b64"},
     },
     {
         "name": "vibevoice_asr",
@@ -123,7 +136,9 @@ MODEL_ENGINE_ENTRIES = [
         "handler_cls": "VibeVoiceASRHandler",
         "registry_path": ("asr", "vibevoice-asr"),
         "vram_gb": 16,
-        "defaults": {"language": "english", "max_tokens": 512},
+        "defaults": {"audio_b64": None, "audio_path": None,
+                     "language": "english", "max_tokens": 512},
+        "key_map": {"audio": "audio_b64"},
     },
     {
         "name": "vibevoice_tts",
@@ -131,7 +146,9 @@ MODEL_ENGINE_ENTRIES = [
         "handler_cls": "VibeVoiceTTSHandler",
         "registry_path": ("tts", "vibevoice"),
         "vram_gb": 18,
-        "defaults": {"language": "English", "max_tokens": 4096},
+        "defaults": {"text": "", "language": "English", "ref_audio_b64": None,
+                     "max_tokens": 4096},
+        "key_map": {"prompt": "text", "reference_audio": "ref_audio_b64"},
     },
     {
         "name": "kokoro",
@@ -139,7 +156,8 @@ MODEL_ENGINE_ENTRIES = [
         "handler_cls": "KokoroHandler",
         "registry_path": ("tts", "kokoro"),
         "vram_gb": 0,
-        "defaults": {"voice": "af_bella", "speed": 1.0},
+        "defaults": {"text": "", "voice": "af_bella", "speed": 1.0},
+        "key_map": {"prompt": "text"},
     },
     {
         "name": "espeak",
@@ -147,7 +165,8 @@ MODEL_ENGINE_ENTRIES = [
         "handler_cls": "EspeakHandler",
         "registry_path": None,
         "vram_gb": 0,
-        "defaults": {"voice": "en", "speed": 175, "pitch": 50},
+        "defaults": {"text": "", "voice": "en", "speed": 175, "pitch": 50},
+        "key_map": {"prompt": "text"},
     },
     {
         "name": "faster_whisper",
@@ -155,7 +174,9 @@ MODEL_ENGINE_ENTRIES = [
         "handler_cls": "FasterWhisperHandler",
         "registry_path": ("asr", "faster-whisper"),
         "vram_gb": 0,
-        "defaults": {"language": None, "beam_size": 5},
+        "defaults": {"audio_b64": None, "audio_path": None,
+                     "language": None, "beam_size": 5},
+        "key_map": {"audio": "audio_b64"},
     },
 ]
 
@@ -801,6 +822,7 @@ def _build_generate_kwargs(payload: dict, defaults: dict, key_map: dict | None =
 
     Forwards all safe params, maps known key names, blocks dangerous ones.
     Accepts optional per-model key_map that is merged with the global _KEY_MAP.
+    Any key present in defaults is implicitly safe and forwarded from payload.
     """
     merged_map = dict(_KEY_MAP)
     if key_map:
@@ -810,20 +832,22 @@ def _build_generate_kwargs(payload: dict, defaults: dict, key_map: dict | None =
 
     # Apply defaults first (can be overridden by payload)
     for k, v in defaults.items():
-        if k in _SAFE_PASSTHROUGH or k in merged_map.values():
-            kwargs[k] = v
+        kwargs[k] = v
 
-    # Map known keys from payload
+    # Map known keys from payload (explicit rename)
     for src, dst in merged_map.items():
         if src in payload:
             kwargs[dst] = payload[src]
-        elif src not in payload and dst not in kwargs:
-            kwargs[dst] = defaults.get(src)
 
     # Safe passthrough from payload
     for key in _SAFE_PASSTHROUGH:
         if key in payload:
             kwargs[key] = payload[key]
+
+    # Forward keys present in defaults (implicitly safe — their names match)
+    for k in defaults:
+        if k in payload:
+            kwargs[k] = payload[k]
 
     # Handle seed specially
     if "seed" not in kwargs:

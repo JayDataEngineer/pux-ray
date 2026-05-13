@@ -1,5 +1,5 @@
 """See-Through orchestrator — explicit forward() calls on decomposed nn.Modules.
-
+ 
 Re-implements the three-stage pipeline without pipeline wrapper classes:
 1. stage_layerdiff() — UNet denoising + TransparentVAE decode for body part extraction
 2. stage_marigold()  — 3D UNet depth estimation across all layers
@@ -25,25 +25,26 @@ class SeeThroughOrchestrator:
         self.m = modules
         self._empty_text_embed = None
 
-    def __call__(self, payload: dict) -> dict:
-        return self.generate(payload)
-
-    def generate(self, payload: dict) -> dict:
+    def generate(
+        self,
+        *,
+        image: Any = None,
+        resolution: int = 1280,
+        steps: int = 30,
+        seed: int = -1,
+    ) -> dict:
         import base64
 
-        img_data = payload.get("image")
+        img_data = image
         if isinstance(img_data, str):
             img_data = base64.b64decode(img_data)
         if not img_data:
             raise ValueError("image required")
 
-        resolution = int(payload.get("resolution", 1280))
-        inference_steps = int(payload.get("steps", 30))
-
         img = Image.open(io.BytesIO(img_data)).convert("RGBA")
 
         with torch.no_grad():
-            layer_images = self.stage_layerdiff(img, resolution=resolution, steps=inference_steps)
+            layer_images = self.stage_layerdiff(img, resolution=resolution, steps=steps)
             depth_maps = self.stage_marigold(img, layer_images, resolution=768)
 
         part_dicts = self.stage_post(img, layer_images, depth_maps)
@@ -57,22 +58,16 @@ class SeeThroughOrchestrator:
             "layers": layers,
         }
 
-    # ------------------------------------------------------------------ Stage 1: LayerDiff
-
     def stage_layerdiff(self, fullpage_rgba: Image.Image, resolution: int = 1280, steps: int = 30) -> list[Image.Image]:
-        """Run LayerDiff decomposition stage and return per-tag RGBA images."""
         import numpy as np
         from modules.layerdiffuse.diffusers_kdiffusion_sdxl import sample_dpmpp_2m
         from utils.cv import center_square_pad_resize
 
-        # Preprocess: center crop + pad to square
         input_arr = np.array(fullpage_rgba)
         fullpage, _, _ = center_square_pad_resize(input_arr, resolution, return_pad_info=True)
 
-        # Encode fullpage to condition latent via VAE + TransparentVAE encoder
         c_concat = self._encode_condition_latent(fullpage)
 
-        # Resolve tag list based on UNet version
         tag_version = self.m.ld_unet.get_tag_version()
 
         if tag_version == "v2":
@@ -96,19 +91,17 @@ class SeeThroughOrchestrator:
                 'eyewear', 'ears', 'earwear', 'nose', 'mouth',
             ]
 
-            # Body group
             body_images = self._ld_denoise(
                 tags=body_tags, c_concat=c_concat, fullpage=fullpage,
                 steps=steps, resolution=resolution, group_index=0,
             )
 
-            # Crop head region from the 'head' body part
             head_img_arr = body_images[2]
             head_mask = (np.array(head_img_arr)[..., -1] > 15).astype(np.uint8)
             if np.any(head_mask):
                 import cv2
                 hx0, hy0, hw, hh = cv2.boundingRect(cv2.findNonZero(head_mask))
-                scale = 1.0  # simplified; vendor computes from pad info
+                scale = 1.0
                 hx, hy = int(hx0 * scale), int(hy0 * scale)
                 input_head = input_arr[hy:hy + int(hh * scale), hx:hx + int(hw * scale)]
             else:
@@ -122,18 +115,15 @@ class SeeThroughOrchestrator:
                 steps=steps, resolution=resolution, group_index=1,
             )
 
-            # Place head images on full-resolution canvas
             canvas = np.zeros((resolution, resolution, 4), dtype=np.uint8)
-            images = list(body_images[:2]) + list(body_images[3:])  # skip 'head' body part
-            # Simplified head placement — vendor does per-image smart_resize + crop
-            images = body_images[:3] + head_images  # keep all for now
+            images = list(body_images[:2]) + list(body_images[3:])
+            images = body_images[:3] + head_images
         else:
             raise ValueError(f"Unknown tag_version: {tag_version}")
 
         return images
 
     def _encode_condition_latent(self, fullpage: np.ndarray) -> torch.Tensor:
-        """Encode fullpage image to condition latent (ARGB → VAE + TransparentVAE encoder)."""
         from utils.torch_utils import img2tensor
         from modules.layerdiffuse.vae import vae_encode
 
@@ -149,11 +139,10 @@ class SeeThroughOrchestrator:
             self.m.ld_vae, self.m.ld_trans_vae.encoder, c_concat_t, use_offset=False,
         ).to(device=self.m.ld_unet.device, dtype=self.m.ld_unet.dtype)
 
-        self._page_alpha = page_alpha  # store for decode
+        self._page_alpha = page_alpha
         return c_concat
 
     def _encode_prompt(self, prompt: str) -> tuple[torch.Tensor, torch.Tensor]:
-        """Encode a single prompt using both CLIP text encoders (SDXL-style)."""
         device = self.m.ld_vae.device
         tokenizers = [self.m.ld_tokenizer, self.m.ld_tokenizer_2]
         text_encoders = [self.m.ld_text_encoder, self.m.ld_text_encoder_2]
@@ -188,7 +177,6 @@ class SeeThroughOrchestrator:
         fullpage: np.ndarray, steps: int, resolution: int,
         group_index: int | None,
     ) -> list[Image.Image]:
-        """Run LayerDiff denoising for a list of tags, returning RGBA images."""
         from utils.torch_utils import img2tensor
 
         device = self.m.ld_unet.device
@@ -197,7 +185,6 @@ class SeeThroughOrchestrator:
         lh, lw = c_concat.shape[-2:]
         height, width = lh * 8, lw * 8
 
-        # Cache prompt embeddings (text_encoders unloaded after)
         prompt_embeds_list = []
         pooled_list = []
         for tag in tags:
@@ -212,25 +199,20 @@ class SeeThroughOrchestrator:
         prompt_embeds = torch.cat(prompt_embeds_list, dim=0)
         pooled_embeds = torch.cat(pooled_list, dim=0)
 
-        # Time IDs for SDXL
         add_time_ids = torch.tensor([[height, width, 0, 0, height, width]], dtype=dtype)
         add_time_ids = add_time_ids.expand(prompt_embeds.shape[0], -1).to(device)
 
-        # Expand c_concat to match num_frames for 3D UNet
         if c_concat.ndim == 4:
             c_concat = c_concat[:, None].expand(-1, num_frames, -1, -1, -1)
 
-        # Initial noise
         initial_latent_shape = (1, num_frames, 4, lh, lw)
         noise = torch.randn((1, 1, 4, lh, lw), device=device, dtype=dtype)
         noise = noise.expand(-1, num_frames, -1, -1, -1)
 
-        # DPMPP SDE sampling
         self.m.ld_scheduler.set_timesteps(steps, device=device)
         sigmas = self.m.ld_scheduler.sigmas
         latents = noise * sigmas[0]
 
-        # SDXL-style extra kwargs with guidance_scale=1.0 (no CFG for LayerDiff)
         guidance_scale = 1.0
         do_cfg = guidance_scale > 1.0
 
@@ -257,8 +239,7 @@ class SeeThroughOrchestrator:
 
             latents = self.m.ld_scheduler.step(noise_pred, t, latents, return_dict=False)[0]
 
-        # Decode latents to images via TransparentVAE
-        latents = latents[0]  # remove batch dim
+        latents = latents[0]
         latents = latents.to(dtype=self.m.ld_trans_vae.dtype, device=self.m.ld_trans_vae.device)
         latents = latents / self.m.ld_vae.config.scaling_factor
 
@@ -271,13 +252,10 @@ class SeeThroughOrchestrator:
 
         return images
 
-    # ------------------------------------------------------------------ Stage 2: Marigold
-
     def stage_marigold(
         self, fullpage_rgba: Image.Image, layer_images: list[Image.Image],
         resolution: int = 768,
     ) -> list[np.ndarray]:
-        """Run Marigold depth estimation across all layer images."""
         import numpy as np
         from utils.cv import center_square_pad_resize, smart_resize, img_alpha_blending
         from utils.torch_utils import img2tensor
@@ -287,7 +265,6 @@ class SeeThroughOrchestrator:
         src_h, src_w = fullpage_arr.shape[:2]
         src_rescaled = resolution != src_h or resolution != src_w
 
-        # Build per-tag image arrays with alpha blending for composed tags
         valid_tags = [
             'hair', 'headwear', 'face', 'eyes', 'eyewear', 'ears', 'earwear',
             'nose', 'mouth', 'neck', 'neckwear', 'topwear', 'handwear',
@@ -300,7 +277,6 @@ class SeeThroughOrchestrator:
             arr[..., -1][arr[..., -1] < 15] = 0
             img_arrays.append(arr)
 
-        # Add fullpage as last "layer" (condition image)
         blended_alpha = np.zeros((src_h, src_w), dtype=np.float32)
         for arr in img_arrays:
             blended_alpha += arr[..., -1].astype(np.float32) / 255
@@ -312,11 +288,9 @@ class SeeThroughOrchestrator:
 
         ncls = len(img_arrays)
 
-        # Resize if needed
         if src_rescaled:
             img_arrays = [smart_resize(img, (resolution, resolution)) for img in img_arrays]
 
-        # Encode all images to ARGB → VAE latents
         img_tensors = []
         for arr in img_arrays:
             t = np.concatenate([arr[..., 3:], arr[..., :3]], axis=2).astype(np.float32) / 255.0
@@ -326,7 +300,6 @@ class SeeThroughOrchestrator:
 
         cond_full_page = img_tensor_stack[-1][None]
 
-        # Encode to latents using 3D VAE encode
         from modules.marigold.marigold_depth_pipeline import encode_argb_list
         rgb_latent_list = []
         for img_t in img_tensor_stack:
@@ -336,7 +309,7 @@ class SeeThroughOrchestrator:
                 pad_argb=True, dtype=self.m.mg_vae.dtype,
             )
             rgb_latent_list.append(latent)
-        rgb_latent = torch.cat(rgb_latent_list, dim=1)  # [1, N, 4, h, w]
+        rgb_latent = torch.cat(rgb_latent_list, dim=1)
 
         cond_latent_full = encode_argb_list(
             self.m.mg_vae,
@@ -346,34 +319,24 @@ class SeeThroughOrchestrator:
         cond_latent = torch.cat([
             cond_latent_full.expand(-1, ncls, -1, -1, -1),
             rgb_latent,
-        ], dim=2)  # [1, N, 8, h, w]
-        cond_latent = cond_latent[0]  # [N, 8, h, w]
+        ], dim=2)
+        cond_latent = cond_latent[0]
 
-        # Run single_infer
         depth_tensor = self._mg_single_infer(cond_latent)
 
-        # Post-process
         depth_pred = depth_tensor.to(device="cpu", dtype=torch.float32).numpy()
         if src_rescaled:
             depth_pred = np.array([smart_resize(d, (src_h, src_w)) for d in depth_pred])
 
-        return [d for d in depth_pred[:-1]]  # exclude fullpage depth
+        return [d for d in depth_pred[:-1]]
 
     def _mg_single_infer(self, cond_latent: torch.Tensor, denoising_steps: int = 4) -> torch.Tensor:
-        """Run Marigold single inference (no ensembling) using 3D UNet.
-
-        Args:
-            cond_latent: [N, 8, h, w] — condition + target latent channels stacked
-        Returns:
-            depth: [N, H, W] float32
-        """
         device = self.m.mg_unet.device
         b, c, h, w = cond_latent.shape
 
         self.m.mg_scheduler.set_timesteps(denoising_steps, device=device)
         timesteps = self.m.mg_scheduler.timesteps
 
-        # Encode empty text once
         if self._empty_text_embed is None:
             text_inputs = self.m.mg_tokenizer(
                 "", padding="do_not_pad",
@@ -387,35 +350,31 @@ class SeeThroughOrchestrator:
         target_latent = torch.randn(b, 4, h, w, device=device, dtype=self.m.mg_unet.dtype)
 
         for t in timesteps:
-            unet_input = torch.cat([cond_latent, target_latent], dim=1)  # [N, 8, h, w]
-            unet_input = unet_input[None]  # [1, N, 8, h, w] 3D UNet frame format
+            unet_input = torch.cat([cond_latent, target_latent], dim=1)
+            unet_input = unet_input[None]
 
             noise_pred = self.m.mg_unet(
                 unet_input, t, encoder_hidden_states=batch_empty,
             ).sample
 
-            noise_pred = noise_pred[0]  # [N, 4, h, w]
+            noise_pred = noise_pred[0]
             target_latent = self.m.mg_scheduler.step(
                 noise_pred, t, target_latent,
             ).prev_sample
 
-        # Decode depth
         depth_latent = target_latent.to(device=self.m.mg_vae.device, dtype=self.m.mg_vae.dtype)
-        depth_latent = depth_latent / 0.18215  # latent_scale_factor
+        depth_latent = depth_latent / 0.18215
         z = self.m.mg_vae.post_quant_conv(depth_latent)
         stacked = self.m.mg_vae.decoder(z)
-        depth = stacked.mean(dim=1, keepdim=False)  # [N, H, W]
+        depth = stacked.mean(dim=1, keepdim=False)
         depth = depth.clip(-1.0, 1.0)
         depth = (depth + 1.0) / 2.0
         return depth
-
-    # ------------------------------------------------------------------ Stage 3: Post-processing
 
     def stage_post(
         self, fullpage: Image.Image, layer_images: list[Image.Image],
         depth_maps: list[np.ndarray],
     ) -> list[dict]:
-        """Post-process layers (simplified version of further_extr)."""
         import numpy as np
         from utils.torchcv import cluster_inpaint_part
 
@@ -433,6 +392,5 @@ class SeeThroughOrchestrator:
                 "depth_median": depth_median,
             })
 
-        # Depth-based ordering (back to front)
         parts.sort(key=lambda x: x["depth_median"], reverse=True)
         return parts

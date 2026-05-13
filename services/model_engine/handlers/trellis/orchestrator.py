@@ -1,5 +1,5 @@
 """TRELLIS.2 orchestrator — explicit forward() calls on each nn.Module.
-
+ 
 Inference flow:
 1. preprocess_image() — rembg removes background
 2. get_cond() — dinov3 extracts features at 512 and 1024
@@ -9,7 +9,7 @@ Inference flow:
 6. sample_tex_slat() — tex_slat_flow_1024
 7. decode_tex_slat() — tex_slat_decoder
 8. to_glb() — export mesh
-
+ 
 Each step calls .forward() directly on the module from TrellisModules.
 """
 from __future__ import annotations
@@ -32,15 +32,22 @@ class TrellisOrchestrator:
     def __init__(self, modules):
         self.m = modules
 
-    def __call__(self, payload: dict) -> dict:
-        return self.generate(payload)
-
-    def generate(self, payload: dict) -> dict:
+    def generate(
+        self,
+        *,
+        image: Any = None,
+        seed: int = 1,
+        steps: int = 12,
+        guidance: float = 7.5,
+        resolution: str = "1024_cascade",
+        decimation: int = 50000,
+        texture_size: int = 4096,
+    ) -> dict:
         import base64
         import o_voxel
         from PIL import Image
 
-        img_data = payload.get("image")
+        img_data = image
         if isinstance(img_data, str):
             img_data = base64.b64decode(img_data)
         if not img_data:
@@ -52,39 +59,26 @@ class TrellisOrchestrator:
             img = img.resize((int(img.width * scale), int(img.height * scale)),
                              Image.Resampling.LANCZOS)
 
-        seed = int(payload.get("seed", 1))
-        steps = int(payload.get("steps", 12))
-        guidance = float(payload.get("guidance", 7.5))
-        resolution = payload.get("resolution", "1024_cascade")
-        decimation = int(payload.get("decimation", 50000))
-        texture_size = int(payload.get("texture_size", 4096))
-
         torch.manual_seed(seed)
         device = self.m.device
 
         with torch.inference_mode():
-            # 1. Preprocess — background removal
             if img.mode == "RGBA" and img.getextrema()[3][0] < 255:
                 img = self.m.rembg(img)
 
-            # 2. Conditioning — DINOv3 features
             cond_512 = self._get_cond(img, 512)
             cond_1024 = self._get_cond(img, 1024)
 
-            # 3. Sparse structure sampling
             coords = self._sample_sparse_structure(cond_512, steps, guidance)
 
-            # 4-5. Shape SLat sampling + decode
             shape_slat, subs = self._sample_and_decode_shape(
                 coords, cond_512, cond_1024, steps, resolution,
             )
 
-            # 6-7. Texture SLat sampling + decode
             tex_voxels = self._sample_and_decode_texture(
                 shape_slat, subs, cond_1024, steps,
             )
 
-            # 8. Export GLB
             glb = o_voxel.postprocess.to_glb(
                 vertices=shape_slat.coords if hasattr(shape_slat, 'coords') else coords,
                 faces=None,
@@ -109,11 +103,9 @@ class TrellisOrchestrator:
         }
 
     def _get_cond(self, image, resolution: int) -> dict:
-        """Extract DINOv3 conditioning features."""
         return {"cond": self.m.dinov3([image], resolution=resolution)}
 
     def _sample_sparse_structure(self, cond: dict, steps: int, guidance: float) -> torch.Tensor:
-        """Sample sparse voxel structure using ss_flow_model + ss_decoder."""
         from trellis2.pipelines.samplers import FlowEulerGuidanceIntervalSampler
 
         device = self.m.device
@@ -134,14 +126,12 @@ class TrellisOrchestrator:
             **cond,
         )
 
-        # Decode to coordinates
         z_s = result if isinstance(result, torch.Tensor) else result.get("samples", result)
         occupancy = self.m.ss_decoder(z_s)
         coords = torch.argwhere(occupancy > 0)[:, [0, 2, 3, 4]]
         return coords
 
     def _sample_and_decode_shape(self, coords, cond_512, cond_1024, steps, resolution):
-        """Sample and decode shape SLat."""
         from trellis2.pipelines.samplers import FlowEulerGuidanceIntervalSampler
 
         device = self.m.device
@@ -158,7 +148,6 @@ class TrellisOrchestrator:
         in_channels = _get_in_channels(flow_model)
         noise_feats = torch.randn(coords.shape[0], in_channels, device=device)
 
-        # Create sparse tensor
         import trellis2.utils.sparse as sp
         noise_slat = sp.SparseTensor(feats=noise_feats, coords=coords)
 
@@ -173,14 +162,12 @@ class TrellisOrchestrator:
 
         slat = result if isinstance(result, sp.SparseTensor) else result.get("samples", result)
 
-        # Decode
         decoded, subs = self.m.shape_slat_decoder(slat, return_subs=True)
         torch.cuda.empty_cache()
 
         return decoded, subs
 
     def _sample_and_decode_texture(self, shape_slat, subs, cond, steps):
-        """Sample and decode texture SLat."""
         from trellis2.pipelines.samplers import FlowEulerGuidanceIntervalSampler
         import trellis2.utils.sparse as sp
 
@@ -189,7 +176,6 @@ class TrellisOrchestrator:
         tex_params = self.m.tex_sampler_config.get("params", {})
 
         in_channels = _get_in_channels(self.m.tex_slat_flow_1024)
-        # Subtract shape channels for concat conditioning
         shape_ch = shape_slat.feats.shape[-1] if hasattr(shape_slat, 'feats') else 8
         tex_ch = max(in_channels - shape_ch, in_channels)
 
@@ -208,7 +194,6 @@ class TrellisOrchestrator:
 
         tex_slat = result if isinstance(result, sp.SparseTensor) else result.get("samples", result)
 
-        # Decode with shape guidance
         tex_voxels = self.m.tex_slat_decoder(tex_slat, guide_subs=subs)
         torch.cuda.empty_cache()
 
@@ -216,7 +201,6 @@ class TrellisOrchestrator:
 
 
 def _get_in_channels(model) -> int:
-    """Get input channels from a flow model."""
     for attr in ["in_channels", "input_channels", "num_classes"]:
         val = getattr(model, attr, None)
         if val is not None:

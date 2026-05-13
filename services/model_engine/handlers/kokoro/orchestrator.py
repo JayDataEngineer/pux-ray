@@ -1,5 +1,5 @@
 """Kokoro TTS orchestrator — direct forward() calls on decomposed modules.
-
+ 
 Inference flow:
 1. Pipeline preprocesses text → phonemes (G2P, chunking)
 2. bert(input_ids) → text features
@@ -26,19 +26,11 @@ class KokoroOrchestrator:
     def __init__(self, modules):
         self.m = modules
 
-    def __call__(self, payload: dict) -> dict:
-        return self.generate(payload)
-
-    def generate(self, payload: dict) -> dict:
-        text = payload.get("text") or payload.get("prompt", "")
+    def generate(self, *, text: str = "", voice: str = "af_bella", speed: float = 1.0,
+                 seed: int = -1) -> dict:
         if not text:
             raise ValueError("text required")
 
-        voice = payload.get("voice", "af_bella")
-        speed = float(payload.get("speed", 1.0))
-
-        # Use pipeline for G2P + chunking + voice loading
-        # The pipeline calls our decomposed model's forward() internally
         voice_pack = self.m.pipeline.load_voice(voice)
 
         audio_chunks = []

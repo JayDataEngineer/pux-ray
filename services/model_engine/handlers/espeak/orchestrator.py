@@ -1,5 +1,5 @@
 """eSpeak orchestrator — subprocess call to espeak-ng binary.
-
+ 
 No nn.Modules, no forward() calls. Just subprocess.exec().
 """
 from __future__ import annotations
@@ -19,17 +19,10 @@ class EspeakOrchestrator:
     def __init__(self, bin_path: str = "espeak-ng"):
         self.bin_path = bin_path
 
-    def __call__(self, payload: dict) -> dict:
-        return self.generate(payload)
-
-    def generate(self, payload: dict) -> dict:
-        text = payload.get("text") or payload.get("prompt", "")
+    def generate(self, *, text: str = "", voice: str = "en", speed: int = 175, pitch: int = 50,
+                 seed: int = -1) -> dict:
         if not text:
             raise ValueError("text required")
-
-        voice = payload.get("voice", "en")
-        speed = int(payload.get("speed", 175))
-        pitch = int(payload.get("pitch", 50))
 
         with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
             out_path = tmp.name

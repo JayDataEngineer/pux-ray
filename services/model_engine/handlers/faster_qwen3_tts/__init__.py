@@ -1,5 +1,5 @@
 """FasterQwen3-TTS handler — CUDA graph accelerated TTS.
-
+ 
 Wraps the faster_qwen3_tts pip package. Uses CUDA graphs for 5x speedup.
 Supports CustomVoice (9 speakers), voice cloning, and voice design.
 """
@@ -10,7 +10,7 @@ from pathlib import Path
 
 import torch
 
-from services.model_engine.base_handler import BaseHandler, LoadResult, ModelVariant
+from services.model_engine.base_handler import BaseHandler, ModelVariant
 
 logger = logging.getLogger(__name__)
 
@@ -48,15 +48,12 @@ class FasterQwen3TTSHandler(BaseHandler):
         model_path: Path,
         dtype: torch.dtype = torch.bfloat16,
         **kwargs,
-    ) -> LoadResult:
+    ) -> tuple:
         from .modules import FasterQwen3TTSModules
         from .orchestrator import FasterQwen3TTSOrchestrator
 
         modules = FasterQwen3TTSModules.load(model_path=model_path, dtype=dtype)
         orchestrator = FasterQwen3TTSOrchestrator(modules)
 
-        return LoadResult(
-            pipeline=orchestrator,
-            pipe=modules.pipe,
-            co_tenants=modules.co_tenants,
-        )
+        pipe = {"pipe": modules.pipe, "coTenantsMap": modules.co_tenants}
+        return orchestrator, pipe

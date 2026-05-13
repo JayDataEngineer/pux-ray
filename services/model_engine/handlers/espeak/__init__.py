@@ -1,5 +1,5 @@
 """eSpeak TTS handler — subprocess-based phoneme synthesis.
-
+ 
 No nn.Modules — eSpeak is a C library. The handler provides the same
 BaseHandler interface with an empty pipe dict. One system, one truth.
 """
@@ -14,7 +14,7 @@ from pathlib import Path
 
 import torch
 
-from services.model_engine.base_handler import BaseHandler, LoadResult, ModelVariant
+from services.model_engine.base_handler import BaseHandler, ModelVariant
 
 logger = logging.getLogger(__name__)
 
@@ -44,7 +44,7 @@ class EspeakHandler(BaseHandler):
         model_type: str,
         model_path: Path,
         **kwargs,
-    ) -> LoadResult:
+    ) -> tuple:
         from registry.config import Config
         bin_path = Config().get("binaries.espeak_ng", "espeak-ng")
 
@@ -57,8 +57,4 @@ class EspeakHandler(BaseHandler):
         from .orchestrator import EspeakOrchestrator
         orchestrator = EspeakOrchestrator(bin_path=bin_path)
 
-        return LoadResult(
-            pipeline=orchestrator,
-            pipe={},       # no nn.Modules
-            co_tenants={},
-        )
+        return orchestrator, {}

@@ -1,5 +1,5 @@
 """Kokoro TTS handler — 82M param CPU text-to-speech.
-
+ 
 Decomposes KModel into bert, bert_encoder, predictor, text_encoder, decoder.
 Runs on CPU — no GPU needed. Part of the unified model_engine system.
 """
@@ -10,7 +10,7 @@ from pathlib import Path
 
 import torch
 
-from services.model_engine.base_handler import BaseHandler, LoadResult, ModelVariant
+from services.model_engine.base_handler import BaseHandler, ModelVariant
 
 logger = logging.getLogger(__name__)
 
@@ -41,15 +41,12 @@ class KokoroHandler(BaseHandler):
         model_path: Path,
         dtype: torch.dtype = torch.float32,
         **kwargs,
-    ) -> LoadResult:
+    ) -> tuple:
         from .modules import KokoroModules
         from .orchestrator import KokoroOrchestrator
 
         modules = KokoroModules.load(model_path=model_path, dtype=dtype)
         orchestrator = KokoroOrchestrator(modules)
 
-        return LoadResult(
-            pipeline=orchestrator,
-            pipe=modules.pipe,
-            co_tenants=modules.co_tenants,
-        )
+        pipe = {"pipe": modules.pipe, "coTenantsMap": modules.co_tenants}
+        return orchestrator, pipe

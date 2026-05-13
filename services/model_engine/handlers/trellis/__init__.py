@@ -1,5 +1,5 @@
 """TRELLIS.2 handler — image-to-3D mesh generation.
-
+ 
 Decomposed to raw nn.Modules: 8 flow models + decoders + DINOv3 + BiRefNet.
 Orchestrator calls .forward() directly on each module.
 """
@@ -11,7 +11,7 @@ from typing import Any
 
 import torch
 
-from services.model_engine.base_handler import BaseHandler, LoadResult, ModelVariant
+from services.model_engine.base_handler import BaseHandler, ModelVariant
 
 logger = logging.getLogger(__name__)
 
@@ -45,7 +45,7 @@ class TrellisHandler(BaseHandler):
         dtype: torch.dtype = torch.bfloat16,
         precision: str = "bf16",
         **kwargs,
-    ) -> LoadResult:
+    ) -> tuple:
         from .modules import TrellisModules
         from .orchestrator import TrellisOrchestrator
 
@@ -55,8 +55,5 @@ class TrellisHandler(BaseHandler):
         )
         orchestrator = TrellisOrchestrator(modules)
 
-        return LoadResult(
-            pipeline=orchestrator,
-            pipe=modules.pipe,
-            co_tenants=modules.co_tenants,
-        )
+        pipe = {"pipe": modules.pipe, "coTenantsMap": modules.co_tenants}
+        return orchestrator, pipe
