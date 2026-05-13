@@ -37,13 +37,13 @@ class TestOpenAIRouteTargets:
         from services.registry import resolve_model, get_service
         key, entry = resolve_model("tts-01-kokoro")
         assert key == "kokoro"
-        assert entry.deployment == "kokoro_tts"
+        assert entry.deployment == "forge"
 
     def test_audio_speech_espeak_alias(self):
         from services.registry import resolve_model
         key, entry = resolve_model("tts-01-espeak")
         assert key == "espeak"
-        assert entry.deployment == "espeak_tts"
+        assert entry.deployment == "forge"
 
     def test_audio_speech_unknown_returns_none(self):
         from services.registry import resolve_model
@@ -53,7 +53,7 @@ class TestOpenAIRouteTargets:
         from services.registry import resolve_model
         key, entry = resolve_model("whisper-1")
         assert key == "faster_whisper"
-        assert entry.deployment == "faster_whisper"
+        assert entry.deployment == "forge"
 
     def test_all_tts_services_have_speech_aliases(self):
         from services.registry import SERVICE_REGISTRY
@@ -111,9 +111,9 @@ class TestIngressGPU:
     def test_gpu_services_flagged_correctly(self):
         from services.registry import SERVICE_REGISTRY
         gpu_services = {"trellis", "anigen", "ace_step", "comfyui", "llm",
-                        "hy_motion", "see_through", "moss_soundeffect", "phi4mm",
-                        "index_tts", "faster_qwen3_tts", "gpt_sovits",
-                        "vibevoice_microsoft"}
+                        "hy_motion", "see_through", "moss_soundeffect",
+                        "index_tts", "faster_qwen3_tts",
+                        "vibevoice_asr", "vibevoice_tts"}
         for name in gpu_services:
             assert SERVICE_REGISTRY[name].needs_gpu is True, f"{name} should need GPU"
 

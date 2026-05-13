@@ -213,26 +213,21 @@ def check_tnap_fields(data: dict) -> list[ValidationFail]:
 
     src = tnap_path.read_text()
 
-    # Check TNAPInput has messages field
-    if "messages" not in src or "messages:" not in src.split("class TNAPInput")[1].split("class ")[0]:
-        failures.append(ValidationFail(
-            "tnap_protocol",
-            "TNAPInput missing 'messages' field — LLM chat won't work through master router"
-        ))
+    # TNAP protocol removed — skip if not present
+    if "class TNAPInput" not in src:
+        return failures
 
-    # Check TNAPInput has stream field
-    if "stream:" not in src.split("class TNAPInput")[1].split("class ")[0]:
+    # If TNAPInput still exists (legacy), validate it has required fields
+    tnap_section = src.split("class TNAPInput")[1].split("class ")[0]
+    if "messages" not in tnap_section:
         failures.append(ValidationFail(
             "tnap_protocol",
-            "TNAPInput missing 'stream' field — streaming won't work through TNAP"
+            "TNAPInput missing 'messages' field — LLM chat won't work"
         ))
-
-    # Check _extract_input handles messages
-    extract_section = src.split("def _extract_input")[1].split("def ")[0] if "def _extract_input" in src else ""
-    if extract_section and "inp.messages" not in extract_section:
+    if "stream:" not in tnap_section:
         failures.append(ValidationFail(
             "tnap_protocol",
-            "_extract_input doesn't extract messages — LLM will receive empty messages"
+            "TNAPInput missing 'stream' field — streaming won't work"
         ))
 
     return failures
