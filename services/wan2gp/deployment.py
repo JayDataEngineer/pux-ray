@@ -156,6 +156,32 @@ V2V_MODELS = {
         "defaults": {"language": "English", "max_tokens": 4096},
     },
 
+    # ── CPU services (no mmgp offloading needed) ───────────────────────────
+    "kokoro": {
+        "engine": "model_engine",
+        "handler": "services.model_engine.handlers.kokoro",
+        "handler_cls": "KokoroHandler",
+        "registry_path": ("tts", "kokoro"),
+        "vram_gb": 0,
+        "defaults": {"voice": "af_bella", "speed": 1.0},
+    },
+    "espeak": {
+        "engine": "model_engine",
+        "handler": "services.model_engine.handlers.espeak",
+        "handler_cls": "EspeakHandler",
+        "registry_path": None,  # no model files — subprocess binary
+        "vram_gb": 0,
+        "defaults": {"voice": "en", "speed": 175, "pitch": 50},
+    },
+    "faster_whisper": {
+        "engine": "model_engine",
+        "handler": "services.model_engine.handlers.faster_whisper",
+        "handler_cls": "FasterWhisperHandler",
+        "registry_path": ("asr", "faster-whisper"),
+        "vram_gb": 0,
+        "defaults": {"language": None, "beam_size": 5},
+    },
+
 }
 
 MMGP_PROFILES = {

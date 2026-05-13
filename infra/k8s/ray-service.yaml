@@ -8,37 +8,10 @@ spec:
     http_options:
       port: 8000
     applications:
-      # ─── Tier 1: All services lazy-loaded (scale to zero when idle) ────
-      - name: kokoro_tts
-        import_path: serve_config:kokoro_tts
-        route_prefix: /tts/kokoro
-        deployments:
-          - name: kokoro_tts
-            autoscaling_config: { min_replicas: 0, max_replicas: 1, downscale_delay_s: 60 }
-
-      - name: espeak_tts
-        import_path: serve_config:espeak_tts
-        route_prefix: /tts/espeak
-        deployments:
-          - name: espeak_tts
-            autoscaling_config: { min_replicas: 0, max_replicas: 1, downscale_delay_s: 60 }
-
-      - name: faster_whisper
-        import_path: serve_config:faster_whisper
-        route_prefix: /asr/whisper
-        deployments:
-          - name: faster_whisper
-            autoscaling_config: { min_replicas: 0, max_replicas: 1, downscale_delay_s: 60 }
-
-      # GPU TTS — now handled via Forge/wan2gp model_engine:
-      # faster_qwen3_tts, index_tts, vibevoice_asr, vibevoice_tts
-      # All accessed via /forge with {"service": "wan2gp", "model": "..."}
-
-      # Heavy GPU services — Master Router with exclusive GPU access
-      # All heavy services (trellis, ace_step, comfyui, hy_motion,
-      # moss_soundeffect, anigen, see_through, llm, faster_qwen3_tts,
-      # vibevoice_asr, vibevoice_tts) route through /forge.
-      # The router claims num_gpus: 1.0 and swaps models to prevent VRAM OOM.
+      # ─── All models route through /forge → wan2gp V2V_MODELS ────────────
+      # No standalone service deployments. One system, one truth.
+      # GPU: wan/t2v, wan/i2v, hunyuan, flux, ace_step, anigen, trellis, etc.
+      # CPU: kokoro, espeak, faster_whisper
       - name: forge
         import_path: serve_config:forge
         route_prefix: /forge
