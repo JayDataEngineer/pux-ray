@@ -39,6 +39,10 @@ class AniGenModules:
     dtype: torch.dtype = torch.float32
     device: torch.device = torch.device("cuda")
 
+    pipeline: Any = None
+    ss_config: Any = None
+    slat_config: Any = None
+
     pipe: dict = field(default_factory=dict)
     co_tenants: dict = field(default_factory=dict)
 
@@ -128,6 +132,9 @@ class AniGenModules:
             slat_flow_model=slat_flow,
             slat_decoder=slat_dec,
             device=torch.device(device),
+            pipeline=pipeline,
+            ss_config=pipeline.ss_config if hasattr(pipeline, 'ss_config') else None,
+            slat_config=pipeline.slat_config if hasattr(pipeline, 'slat_config') else None,
             pipe=pipe,
             co_tenants={"ss_flow_model": ["ss_decoder"], "slat_flow_model": ["slat_decoder"]},
         )
@@ -139,6 +146,7 @@ def _apply_patches():
     apply()
 
     os.environ.setdefault("SPCONV_DISABLE_JIT", "1")
+    os.environ.setdefault("SPARSE_ATTN_BACKEND", "xformers")
     os.environ.setdefault("ATTN_BACKEND", "sdpa")
     os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
     os.environ.setdefault("U2NET_DEVICE", "cpu")
