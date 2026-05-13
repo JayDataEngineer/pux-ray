@@ -23,12 +23,9 @@ from services.asr.faster_whisper import FasterWhisperASR
 
 faster_whisper = FasterWhisperASR.bind()
 
-# Lightweight GPU TTS (can coexist on GPU)
-from services.tts.faster_qwen3_tts import FasterQwen3TTSDeployment
-from services.tts.gpu_tts import IndexTTSDeployment
-
-faster_qwen3_tts = FasterQwen3TTSDeployment.bind()
-index_tts = IndexTTSDeployment.bind()
+# GPU TTS — now handled via Forge/wan2gp model_engine:
+# - faster_qwen3_tts → wan2gp model_engine handler (CUDA graphs)
+# - index_tts → wan2gp vendor handler (models.TTS.index_tts2_handler)
 
 # ─── The Forge — VRAM-aware GPU manager ─────────────────────────────────────
 # Replaces the old Master Router + GPU Governor.
@@ -54,8 +51,9 @@ api_ingress = APIIngressDeployment.bind()
 # Wan2GP Pool — video generation, many model variants, mmgp-managed VRAM.
 # Already in SERVICE_MAP in services/forge.py.
 
-# VibeVoice ASR + TTS — managed by Forge (services/forge.py)
-# Decomposed into nn.Modules via model_engine handlers (future)
+# VibeVoice ASR + TTS — now in wan2gp V2V_MODELS (model_engine handlers)
+# vibevoice_asr: services.model_engine.handlers.vibevoice_asr
+# vibevoice_tts: services.model_engine.handlers.vibevoice_tts
 # Phi-4-multimodal — 5.6B omni model (text+vision+speech -> text, 24GB)
 
 # ─── Tier 3: Blocked — needs Docker image changes ────────────────

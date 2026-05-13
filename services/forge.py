@@ -33,18 +33,12 @@ AVAILABLE_MB = TOTAL_VRAM_MB - RESERVED_MB
 # ─── Service Registry ────────────────────────────────────────────────────────
 
 SERVICE_MAP: dict[str, tuple[str, str]] = {
-    "trellis":   ("services.creative.trellis",       "TrellisService"),
-    "ace_step":  ("services.creative.ace_step",      "ACEStepService"),
-    "comfyui":   ("services.image.comfyui",          "ComfyUIService"),
-    "hy_motion": ("services.creative.hy_motion",     "HYMotionService"),
-    "moss_soundeffect": ("services.audio.moss_soundeffect", "MossService"),
-    "anigen":    ("services.creative.anigen",         "AniGenService"),
-    "see_through": ("services.creative.see_through", "SeeThroughService"),
-    "llm":       ("services.llm.deployment",          "LLMService"),
+    # Wan2GP — unified multi-model pool (ALL models via mmgp nn.Module variants)
     "wan2gp":    ("services.wan2gp.deployment",       "Wan2GPService"),
-    "vibevoice_microsoft": ("services.asr.gpu_asr",  "VibeVoiceMicrosoftService"),
-    "vibevoice_community_tts": ("services.tts.vibe_voice", "VibeVoiceCommunityTTSService"),
-    "phi4mm":    ("services.multimodal.phi4mm",       "Phi4MMService"),
+    # ComfyUI — subprocess, separate GPU
+    "comfyui":   ("services.image.comfyui",          "ComfyUIService"),
+    # llama.cpp — subprocess, separate GPU
+    "llm":       ("services.llm.deployment",          "LLMService"),
 }
 
 # ─── GPU Node (multi-node prep) ──────────────────────────────────────────────

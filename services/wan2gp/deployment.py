@@ -1,9 +1,14 @@
-"""Wan2GP Service — 90+ model variants, mmgp-managed VRAM.
+"""Wan2GP Service — unified multi-model pool, mmgp-managed VRAM.
 
 ForgeService-compatible: runs inside the Forge (num_gpus: 1.0).
-Single instance manages a multi-model pool. mmgp handles VRAM via
-per-subcomponent offloading (transformer, text_encoder, VAE swapped
-independently).
+ALL models (vendor + custom nn.Module) load as variants through
+a single service. mmgp manages VRAM via per-subcomponent offloading.
+
+Supports two engine types:
+  vendor       — upstream Wan2GP family_handler (wan t2v/i2v, hunyuan, flux)
+  model_engine — our custom nn.Module decomposition (anigen, trellis,
+                 hy_motion, moss, see_through, faster_qwen3_tts,
+                 vibevoice_asr, vibevoice_tts)
 
 Lifecycle via ForgeService:
     load(model_name)   — load variant + configure mmgp profile
@@ -30,8 +35,12 @@ logger = logging.getLogger(__name__)
 
 WAN2GP_VENDOR = Path(__file__).parents[2] / "vendor" / "wan2gp"
 
+# ─── Variant Registry ─────────────────────────────────────────────────────────
+
 V2V_MODELS = {
+    # ── Vendor: upstream Wan2GP family_handlers ────────────────────────────
     "wan/t2v-14B": {
+        "engine": "vendor",
         "handler": "models.wan.wan_handler",
         "model_type": "t2v",
         "base_model_type": "t2v",
@@ -39,6 +48,7 @@ V2V_MODELS = {
         "defaults": {"width": 1280, "height": 720, "frames": 81, "steps": 50, "guidance": 5.0},
     },
     "wan/i2v-14B": {
+        "engine": "vendor",
         "handler": "models.wan.wan_handler",
         "model_type": "i2v",
         "base_model_type": "i2v",
@@ -46,6 +56,7 @@ V2V_MODELS = {
         "defaults": {"width": 832, "height": 480, "frames": 81, "steps": 50, "guidance": 5.0},
     },
     "hunyuan/t2v": {
+        "engine": "vendor",
         "handler": "models.hyvideo.hunyuan_handler",
         "model_type": "hunyuan",
         "base_model_type": "hunyuan",
@@ -53,6 +64,7 @@ V2V_MODELS = {
         "defaults": {"width": 848, "height": 480, "frames": 125, "steps": 30, "guidance": 6.0},
     },
     "flux/t2i": {
+        "engine": "vendor",
         "handler": "models.flux.flux_handler",
         "model_type": "flux",
         "base_model_type": "flux",
@@ -60,6 +72,7 @@ V2V_MODELS = {
         "defaults": {"width": 1024, "height": 1024, "steps": 28, "guidance": 3.5},
     },
     "ace_step/v1_5": {
+        "engine": "vendor",
         "handler": "models.TTS.ace_step_handler",
         "model_type": "ace_step_v1_5",
         "base_model_type": "ace_step_v1_5",
@@ -67,14 +80,82 @@ V2V_MODELS = {
         "defaults": {"duration": 30, "steps": 8, "guidance": 2.5},
     },
     "index_tts/v2": {
+        "engine": "vendor",
         "handler": "models.TTS.index_tts2_handler",
         "model_type": "index_tts2",
         "base_model_type": "index_tts2",
         "vram_gb": 6,
         "defaults": {},
         "blocked": True,
-        "blocked_reason": "Vendored transformers_generation_utils.py incompatible with transformers>=4.55. Needs Wan2GP to update their fork.",
+        "blocked_reason": "Vendored transformers_generation_utils.py incompatible with transformers>=4.55",
     },
+
+    # ── Model Engine: custom nn.Module decomposition ────────────────────────
+    "anigen": {
+        "engine": "model_engine",
+        "handler": "services.model_engine.handlers.anigen",
+        "handler_cls": "AniGenHandler",
+        "registry_path": ("3d", "anigen"),
+        "vram_gb": 12,
+        "defaults": {"ss_steps": 25, "slat_steps": 25, "cfg": 3.5},
+    },
+    "trellis": {
+        "engine": "model_engine",
+        "handler": "services.model_engine.handlers.trellis",
+        "handler_cls": "TrellisHandler",
+        "registry_path": ("3d", "trellis"),
+        "vram_gb": 10,
+        "defaults": {"steps": 50, "guidance": 3.0},
+    },
+    "hy_motion": {
+        "engine": "model_engine",
+        "handler": "services.model_engine.handlers.hy_motion",
+        "handler_cls": "HYMotionHandler",
+        "registry_path": ("motion", "hy-motion-1.0"),
+        "vram_gb": 6,
+        "defaults": {"steps": 50, "cfg": 2.0},
+    },
+    "moss_soundeffect": {
+        "engine": "model_engine",
+        "handler": "services.model_engine.handlers.moss",
+        "handler_cls": "MossHandler",
+        "registry_path": ("audio", "moss-soundeffect"),
+        "vram_gb": 16,
+        "defaults": {"max_tokens": 4096},
+    },
+    "see_through": {
+        "engine": "model_engine",
+        "handler": "services.model_engine.handlers.see_through",
+        "handler_cls": "SeeThroughHandler",
+        "registry_path": None,  # uses vendored code at /opt/seethrough
+        "vram_gb": 6,
+        "defaults": {"resolution": 1280, "steps": 30},
+    },
+    "faster_qwen3_tts": {
+        "engine": "model_engine",
+        "handler": "services.model_engine.handlers.faster_qwen3_tts",
+        "handler_cls": "FasterQwen3TTSHandler",
+        "registry_path": ("tts", "qwen3-tts-12hz-1.7b-customvoice"),
+        "vram_gb": 6,
+        "defaults": {"voice": "Aiden", "language": "English"},
+    },
+    "vibevoice_asr": {
+        "engine": "model_engine",
+        "handler": "services.model_engine.handlers.vibevoice_asr",
+        "handler_cls": "VibeVoiceASRHandler",
+        "registry_path": ("asr", "vibevoice-asr"),
+        "vram_gb": 16,
+        "defaults": {"language": "english", "max_tokens": 512},
+    },
+    "vibevoice_tts": {
+        "engine": "model_engine",
+        "handler": "services.model_engine.handlers.vibevoice_tts",
+        "handler_cls": "VibeVoiceTTSHandler",
+        "registry_path": ("tts", "vibevoice"),
+        "vram_gb": 18,
+        "defaults": {"language": "English", "max_tokens": 4096},
+    },
+
 }
 
 MMGP_PROFILES = {
@@ -88,9 +169,8 @@ MMGP_PROFILES = {
 class Wan2GPService(ForgeService):
     """Forge adapter for Wan2GP — self-managed VRAM via mmgp.
 
-    vram_mb=0 tells the Forge "I manage my own VRAM" — no lease tracking.
-    mmgp's per-subcomponent budgets (transformer=250MB, text_encoder=250MB,
-    *=3000MB) keep the pool within ~10-12GB active VRAM.
+    Supports both vendor (upstream Wan2GP family_handler) and model_engine
+    (custom nn.Module decomposition) variants.
     """
 
     vram_mb = 0
@@ -105,11 +185,6 @@ class Wan2GPService(ForgeService):
     # ── ForgeService lifecycle ────────────────────────────────────────────────
 
     def load(self, model_name: str | None = None) -> None:
-        """Load a model variant into the mmgp pool.
-
-        If another variant is already loaded, mmgp offloads the previous
-        one's subcomponents to CPU — no explicit unload needed.
-        """
         model_name = model_name or self.default_model
         if model_name in self._models:
             logger.debug("Wan2GP: %s already loaded", model_name)
@@ -120,14 +195,25 @@ class Wan2GPService(ForgeService):
             raise RuntimeError(
                 f"Wan2GP model '{model_name}' is blocked: {info.get('blocked_reason', 'unknown')}"
             )
-        model_type = info["model_type"]
-        base_model_type = info["base_model_type"]
 
+        engine = info.get("engine", "vendor")
+
+        if engine == "model_engine":
+            self._load_model_engine(model_name, handler, info)
+        else:
+            self._load_vendor(model_name, handler, info)
+
+        self.model_name = model_name
+        self._loaded = True
+
+    def _load_vendor(self, model_name, handler, info):
         from registry.config import Config
         from registry.models import ModelRegistry
 
         cfg = Config()
         registry = ModelRegistry()
+        model_type = info["model_type"]
+        base_model_type = info["base_model_type"]
 
         model_key_safe = model_name.replace("/", "-")
         model_path = registry.get_path("wan2gp", model_key_safe) if "wan2gp" in registry.data else None
@@ -135,14 +221,11 @@ class Wan2GPService(ForgeService):
             logger.warning("Model path not found in registry for %s, using default ckpts", model_name)
             model_path = Path(cfg.models_root) / "wan2gp" / model_type
 
-        # Wan2GP's file locator needs the parent dir to find shared deps
-        # (bigvgan, w2v-bert, qwen0.6bemo4-merge live alongside model dirs)
         checkpoint_root = model_path.parent if model_path.parent.name == "wan2gp" else model_path
         from shared.utils import files_locator as fl
         fl.set_checkpoints_paths([str(checkpoint_root)])
 
         model_files = list(model_path.rglob("*.safetensors"))
-        # TTS models: main GPT file lives at parent level
         if not model_files and model_type.endswith("tts"):
             parent_files = list(model_path.parent.glob("*.safetensors"))
             model_files = [f for f in parent_files if model_type in f.name.lower() or "index_tts2" in f.name.lower()]
@@ -156,7 +239,7 @@ class Wan2GPService(ForgeService):
             if te_files:
                 text_encoder_filename = str(te_files[0])
 
-        logger.info("Loading %s from %s (mmgp profile=balanced)", model_name, model_path)
+        logger.info("Loading %s from %s (vendor, mmgp=balanced)", model_name, model_path)
         torch.set_default_device("cpu")
 
         model_def = self._build_model_def(handler, base_model_type, model_path)
@@ -189,21 +272,72 @@ class Wan2GPService(ForgeService):
         )
 
         self._models[model_name] = {
+            "engine": "vendor",
             "model": wan_model,
             "pipe": pipe,
             "info": info,
             "loaded_at": time.time(),
         }
-        self.model_name = model_name
-        self._loaded = True
 
         vram = torch.cuda.memory_allocated(0) / (1024**2) if torch.cuda.is_available() else 0
-        logger.info("Loaded %s (VRAM=%.0fMB, active models=%d)", model_name, vram, len(self._models))
+        logger.info("Loaded %s (VRAM=%.0fMB, active=%d)", model_name, vram, len(self._models))
+        torch.cuda.empty_cache()
+        gc.collect()
+
+    def _load_model_engine(self, model_name, handler, info):
+        from registry.config import Config
+        from registry.models import ModelRegistry
+
+        registry = ModelRegistry()
+        registry_path = info.get("registry_path")
+        if registry_path:
+            model_path = registry.get_path(*registry_path)
+        else:
+            # See-Through uses vendored code at a fixed location
+            model_path = Path("/opt/seethrough")
+
+        if not model_path.is_dir():
+            raise FileNotFoundError(f"Model path not found for {model_name}: {model_path}")
+
+        model_type = info.get("model_type", model_name)
+
+        logger.info("Loading %s (model_engine, nn.Module) from %s", model_name, model_path)
+        torch.set_default_device("cpu")
+
+        load_result = handler.load_model(model_type, model_path=model_path, dtype=torch.bfloat16)
+
+        orchestrator = load_result.pipeline
+        pipe = load_result.pipe
+        co_tenants = load_result.co_tenants or {}
+
+        from mmgp import offload
+
+        budgets = {"transformer": 250, "text_encoder": 250, "*": 3000}
+        offload.profile(
+            pipe,
+            profile_no=MMGP_PROFILES["balanced"],
+            quantizeTransformer=False,
+            budgets=budgets,
+            loras=[],
+            perc_reserved_mem_max=0.5,
+            vram_safety_coefficient=0.9,
+            coTenantsMap=co_tenants,
+        )
+
+        self._models[model_name] = {
+            "engine": "model_engine",
+            "orchestrator": orchestrator,
+            "pipe": pipe,
+            "info": info,
+            "loaded_at": time.time(),
+        }
+
+        vram = torch.cuda.memory_allocated(0) / (1024**2) if torch.cuda.is_available() else 0
+        logger.info("Loaded %s (VRAM=%.0fMB, active=%d)", model_name, vram, len(self._models))
         torch.cuda.empty_cache()
         gc.collect()
 
     def unload(self) -> None:
-        """Evict all models from the pool, flush mmgp + CUDA caches."""
         self._models.clear()
         self._loaded = False
         try:
@@ -212,11 +346,11 @@ class Wan2GPService(ForgeService):
         except ImportError:
             pass
         gc.collect()
-        torch.cuda.empty_cache()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
         super().unload()
 
     def infer(self, payload: dict) -> dict:
-        """Generate from the loaded model. dict in, dict out."""
         model_key = payload.get("model", self.default_model)
         if model_key not in self._models:
             self.load(model_key)
@@ -226,19 +360,24 @@ class Wan2GPService(ForgeService):
             return {"status": "error", "error": f"Model {model_key} not loaded"}
 
         try:
-            result = self._do_generate(entry, payload)
-            return {
-                "status": "ok",
-                "data": base64.b64encode(result["data"]).decode(),
-                "media_type": result["media_type"],
-                "model": model_key,
-            }
+            if entry.get("engine") == "model_engine":
+                result = entry["orchestrator"](payload)
+            else:
+                gen = self._do_generate(entry, payload)
+                result = {
+                    "status": "ok",
+                    "data": base64.b64encode(gen["data"]).decode(),
+                    "media_type": gen["media_type"],
+                }
+
+            result["model"] = model_key
+            return result
         except Exception as e:
             logger.error("Wan2GP %s inference failed: %s", model_key, e, exc_info=True)
             return {"status": "error", "error": str(e)}
 
     def _do_generate(self, entry: dict, payload: dict) -> dict:
-        """Core generation logic. Returns dict with 'data' (bytes) and 'media_type'."""
+        """Vendor path: core generation logic. Returns dict with 'data' (bytes) and 'media_type'."""
         model = entry["model"]
         info = entry["info"]
         defaults = info.get("defaults", {})
@@ -339,7 +478,7 @@ class Wan2GPService(ForgeService):
         media_type = "video/mp4" if frames_np.ndim == 4 and frames_np.shape[0] > 1 else "image/png"
         return {"data": video_bytes, "media_type": media_type}
 
-    # ── Vendor loading ────────────────────────────────────────────────────────
+    # ── Vendor loading helpers ─────────────────────────────────────────────────
 
     def _ensure_vendor(self):
         if self._vendor_loaded:
@@ -348,8 +487,6 @@ class Wan2GPService(ForgeService):
         if vendor not in sys.path:
             sys.path.insert(0, vendor)
         os.environ["WAN2GP_ROOT"] = vendor
-        # Shim: Wan2GP vendor imports QuantizedCacheConfig which was removed in
-        # transformers >= 4.50. Provide a simple stand-in.
         import transformers.cache_utils as _tcu
         if not hasattr(_tcu, "QuantizedCacheConfig"):
             _tcu.QuantizedCacheConfig = type("QuantizedCacheConfig", (), {
@@ -361,7 +498,16 @@ class Wan2GPService(ForgeService):
     def _get_handler(self, model_key: str):
         info = V2V_MODELS.get(model_key)
         if info is None:
-            raise ValueError(f"Unknown model: {model_key}. Available: {list(V2V_MODELS.keys())}")
+            raise ValueError(f"Unknown model: {model_key}. Available: {sorted(V2V_MODELS.keys())}")
+
+        engine = info.get("engine", "vendor")
+        if engine == "model_engine":
+            import importlib
+            mod = importlib.import_module(info["handler"])
+            handler_cls = getattr(mod, info["handler_cls"])
+            handler = handler_cls()
+            return handler, info
+
         self._ensure_vendor()
         import importlib
         mod = importlib.import_module(info["handler"])
