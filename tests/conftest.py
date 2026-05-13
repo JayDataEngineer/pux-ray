@@ -110,21 +110,7 @@ def sample_png_b64(sample_png_bytes) -> str:
     return base64.b64encode(sample_png_bytes).decode()
 
 
-# ─── Deployment fixtures ───────────────────────────────────────────────────
-
-
-@pytest.fixture
-def base_deployment():
-    """BaseGPUDeployment with model pre-loaded (skip _load)."""
-    from services.base import BaseGPUDeployment
-    dep = BaseGPUDeployment()
-    dep.model = True
-    dep.model_name = "test-model"
-    return dep
-
-
-@pytest.fixture
-def ingress_client():
+# ─── Integration fixtures (kept for cluster-dependent tests) ───────────────
     """Starlette TestClient for APIIngress with Ray mocked."""
     from starlette.testclient import TestClient
     from gateway.ingress import create_app
