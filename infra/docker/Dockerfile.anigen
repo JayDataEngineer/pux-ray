@@ -1,0 +1,31 @@
+# Tech Noir AniGen — 3D character generation from a single image.
+# Inherits from gpu-all (NGC PyTorch 26.01 + CUDA 13.1.1 + all base deps).
+# Adds AniGen-specific dependencies that don't belong in the golden image.
+#
+# Build:
+#   docker bake anigen --push
+
+ARG REGISTRY=forge-reg.local:30500/tech-noir
+
+FROM ${REGISTRY}/gpu-all:latest
+
+# ── AniGen-specific Python deps (not in golden image) ────────────────────
+ENV SPARSE_ATTN_BACKEND=flash_attn
+
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv pip install rembg[cpu]
+
+# utils3d is cloned at /opt/utils3d in golden but not pip-installed.
+# Compile CUDA kernels so trilinear_devoxelize, rasterize etc. work.
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv pip install -e /opt/utils3d --no-build-isolation
+
+# ── Verify AniGen imports ───────────────────────────────────────────────
+RUN python3 -c "\
+    import sys; \
+    sys.path.insert(0, '/opt/anigen'); \
+    import spconv; print(f'spconv {spconv.__version__}'); \
+    import rembg; print(f'rembg OK'); \
+    from utils3d.torch_ops import trilinear_devoxelize; print('utils3d CUDA OK'); \
+    from anigen.pipelines import AnigenImageTo3DPipeline; print('AniGen pipeline OK'); \
+    print('anigen image verification passed')"

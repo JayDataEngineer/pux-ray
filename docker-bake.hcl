@@ -17,7 +17,7 @@ variable "REGISTRY" {
 }
 
 group "default" {
-  targets = ["gpu-all", "model-sync"]
+  targets = ["gpu-all", "model-sync", "anigen"]
 }
 
 target "gpu-all" {
@@ -31,5 +31,19 @@ target "model-sync" {
   dockerfile = "infra/docker/Dockerfile.model-sync"
   context    = "."
   tags       = ["${REGISTRY}/model-sync:latest"]
+  platforms  = ["linux/amd64"]
+}
+
+target "anigen" {
+  dockerfile = "infra/docker/Dockerfile.anigen"
+  context    = "."
+  tags       = ["${REGISTRY}/anigen:latest"]
+  platforms  = ["linux/amd64"]
+}
+
+target "wan2gp" {
+  dockerfile = "infra/docker/Dockerfile.wan2gp"
+  context    = "."
+  tags       = ["${REGISTRY}/wan2gp:latest"]
   platforms  = ["linux/amd64"]
 }
