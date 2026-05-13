@@ -155,15 +155,6 @@ STUDIO_APPS: dict[str, dict] = {
         "manage_type": "scheduler",
         "default_model": "vibevoice_microsoft",
     },
-    "qwen_asr": {
-        "label": "Qwen ASR",
-        "url": None,
-        "has_ui": False,
-        "category": "ASR",
-        "gpu": True,
-        "manage_type": "scheduler",
-        "default_model": "qwen_asr",
-    },
     # --- MCP Servers (always-on, CPU, managed outside Ray) ---
     "local_web_mcp": {
         "label": "Local Web MCP",

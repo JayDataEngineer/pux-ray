@@ -75,14 +75,6 @@ SERVICE_REGISTRY: dict[str, ServiceEntry] = {
         model_aliases={"tts-01-index": "index-tts"},
         description="IndexTTS v2 — high-quality neural TTS (12GB model).",
     ),
-    "qwen_tts": ServiceEntry(
-        deployment="qwen_tts", app="qwen_tts",
-        label="Qwen3-TTS", category="tts",
-        needs_gpu=True, default_model="qwen3-tts",
-        output_type="audio",
-        model_aliases={"tts-01-qwen": "qwen3-tts"},
-        description="Qwen3-TTS 1.7B — 9 premium voices with instruction control.",
-    ),
     "vibevoice_cpp_gpu": ServiceEntry(
         deployment="vibevoice_cpp_gpu", app="vibevoice_cpp_gpu",
         label="VibeVoice CPP GPU", category="tts",
@@ -116,14 +108,6 @@ SERVICE_REGISTRY: dict[str, ServiceEntry] = {
         model_aliases={"vibevoice-microsoft": "vibevoice-asr"},
         description="VibeVoice Microsoft — microsoft/VibeVoice-ASR 7B speech recognition.",
     ),
-    "qwen_asr": ServiceEntry(
-        deployment="qwen_asr", app="qwen_asr",
-        label="Qwen ASR", category="asr",
-        needs_gpu=True, default_model="qwen-asr",
-        output_type="json",
-        model_aliases={"qwen-asr": "qwen-asr"},
-        description="Qwen ASR — GPU-accelerated speech recognition.",
-    ),
     # ── Audio Generation ───────────────────────────────────────────────────────
     "moss_soundeffect": ServiceEntry(
         deployment="moss_soundeffect", app="moss_soundeffect",
@@ -131,13 +115,6 @@ SERVICE_REGISTRY: dict[str, ServiceEntry] = {
         needs_gpu=True, default_model="moss-soundeffect",
         output_type="audio",
         description="MOSS-SoundEffect 8B — text-to-sound effects.",
-    ),
-    "tangoflux": ServiceEntry(
-        deployment="tangoflux", app="tangoflux",
-        label="TangoFlux", category="audio",
-        needs_gpu=True, default_model="tangoflux",
-        output_type="audio",
-        description="TangoFlux — flow-matching text-to-audio generation.",
     ),
     "ace_step": ServiceEntry(
         deployment="ace_step", app="ace_step",

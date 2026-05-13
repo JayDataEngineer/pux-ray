@@ -41,9 +41,9 @@ class TestServiceRegistry:
     def test_all_services_present(self):
         from services.registry import SERVICE_REGISTRY
         expected = {
-            "kokoro", "espeak", "faster_qwen3_tts", "index_tts", "qwen_tts",
+            "kokoro", "espeak", "faster_qwen3_tts", "index_tts",
             "vibevoice_cpp_gpu", "gpt_sovits", "faster_whisper",
-            "vibevoice_microsoft", "qwen_asr", "moss_soundeffect", "tangoflux",
+            "vibevoice_microsoft", "moss_soundeffect",
             "ace_step", "trellis", "anigen", "hy_motion", "see_through",
             "phi4mm", "comfyui", "llm", "wan2gp",
         }
@@ -125,19 +125,19 @@ class TestServiceRegistry:
         from services.registry import SERVICE_REGISTRY
         gpu_services = {"trellis", "anigen", "ace_step", "phi4mm",
                         "hy_motion", "see_through", "comfyui", "llm", "index_tts",
-                        "faster_qwen3_tts", "qwen_tts", "gpt_sovits",
-                        "moss_soundeffect", "vibevoice_microsoft", "qwen_asr", "tangoflux"}
+                        "faster_qwen3_tts", "gpt_sovits",
+                        "moss_soundeffect", "vibevoice_microsoft"}
         for name in gpu_services:
             assert SERVICE_REGISTRY[name].needs_gpu is True, f"{name} should be GPU"
 
     def test_tts_services_have_aliases(self):
         from services.registry import SERVICE_REGISTRY
-        for name in ["kokoro", "espeak", "index_tts", "qwen_tts", "vibevoice_cpp_gpu", "gpt_sovits"]:
+        for name in ["kokoro", "espeak", "index_tts", "faster_qwen3_tts", "vibevoice_cpp_gpu", "gpt_sovits"]:
             assert SERVICE_REGISTRY[name].model_aliases, f"{name} needs model_aliases"
 
     def test_asr_services_have_aliases(self):
         from services.registry import SERVICE_REGISTRY
-        for name in ["faster_whisper", "vibevoice_microsoft", "qwen_asr"]:
+        for name in ["faster_whisper", "vibevoice_microsoft"]:
             assert SERVICE_REGISTRY[name].model_aliases, f"{name} needs model_aliases"
 
     def test_model_aliases_unique(self):
@@ -344,9 +344,8 @@ class TestDashboardRegistry:
         from gateway.dashboard import KNOWN_DEPLOYMENTS
         for dep in ["kokoro_tts", "espeak_tts", "faster_whisper", "trellis", "anigen",
                     "hy_motion", "ace_step", "see_through", "phi4mm",
-                    "comfyui", "llm", "index_tts", "qwen_tts", "vibevoice_cpp_gpu",
-                    "gpt_sovits", "vibevoice_microsoft", "qwen_asr", "moss_soundeffect",
-                    "tangoflux"]:
+                    "comfyui", "llm", "index_tts", "faster_qwen3_tts", "vibevoice_cpp_gpu",
+                    "gpt_sovits", "vibevoice_microsoft", "moss_soundeffect"]:
             assert dep in KNOWN_DEPLOYMENTS, f"Missing: {dep}"
 
     def test_external_mcp_services(self):

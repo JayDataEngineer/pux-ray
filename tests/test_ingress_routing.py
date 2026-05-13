@@ -112,8 +112,8 @@ class TestIngressGPU:
         from services.registry import SERVICE_REGISTRY
         gpu_services = {"trellis", "anigen", "ace_step", "comfyui", "llm",
                         "hy_motion", "see_through", "moss_soundeffect", "phi4mm",
-                        "index_tts", "faster_qwen3_tts", "gpt_sovits", "qwen_tts",
-                        "vibevoice_microsoft", "qwen_asr", "tangoflux"}
+                        "index_tts", "faster_qwen3_tts", "gpt_sovits",
+                        "vibevoice_microsoft"}
         for name in gpu_services:
             assert SERVICE_REGISTRY[name].needs_gpu is True, f"{name} should need GPU"
 
