@@ -1,5 +1,5 @@
 """Faster-Whisper orchestrator — CTranslate2 transcribe() call.
-
+ 
 No nn.Modules, no forward() calls. CTranslate2 handles everything internally.
 """
 from __future__ import annotations
@@ -9,6 +9,7 @@ import io
 import logging
 import tempfile
 from pathlib import Path
+from typing import Optional
 
 logger = logging.getLogger(__name__)
 
@@ -19,14 +20,10 @@ class FasterWhisperOrchestrator:
     def __init__(self, model):
         self.model = model
 
-    def __call__(self, payload: dict) -> dict:
-        return self.transcribe(payload)
-
-    def transcribe(self, payload: dict) -> dict:
+    def transcribe(self, *, audio_b64: Optional[str] = None, audio_path: Optional[str] = None,
+                   language: Optional[str] = None, beam_size: int = 5,
+                   seed: int = -1) -> dict:
         import soundfile as sf
-
-        audio_b64 = payload.get("audio_b64") or payload.get("audio")
-        audio_path = payload.get("audio_path")
 
         if audio_b64:
             audio_bytes = base64.b64decode(audio_b64)
@@ -40,9 +37,6 @@ class FasterWhisperOrchestrator:
             tmp_path = tmp.name
 
         try:
-            language = payload.get("language")
-            beam_size = int(payload.get("beam_size", 5))
-
             segments, info = self.model.transcribe(
                 tmp_path,
                 language=language,
@@ -69,3 +63,5 @@ class FasterWhisperOrchestrator:
             }
         finally:
             Path(tmp_path).unlink(missing_ok=True)
+
+    generate = transcribe

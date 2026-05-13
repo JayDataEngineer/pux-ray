@@ -1,5 +1,5 @@
 """Faster-Whisper ASR handler — CTranslate2 backend, CPU inference.
-
+ 
 No nn.Modules — Faster-Whisper uses CTranslate2 (C++ backend).
 The handler provides the same BaseHandler interface with an empty pipe dict.
 One system, one truth.
@@ -11,7 +11,7 @@ from pathlib import Path
 
 import torch
 
-from services.model_engine.base_handler import BaseHandler, LoadResult, ModelVariant
+from services.model_engine.base_handler import BaseHandler, ModelVariant
 
 logger = logging.getLogger(__name__)
 
@@ -41,7 +41,7 @@ class FasterWhisperHandler(BaseHandler):
         model_type: str,
         model_path: Path,
         **kwargs,
-    ) -> LoadResult:
+    ) -> tuple:
         if not model_path.exists() or not any(model_path.iterdir()):
             raise FileNotFoundError(f"Faster-Whisper model not found at {model_path}")
 
@@ -51,8 +51,4 @@ class FasterWhisperHandler(BaseHandler):
         model = WhisperModel(str(model_path), device="cpu", compute_type="int8")
         orchestrator = FasterWhisperOrchestrator(model=model)
 
-        return LoadResult(
-            pipeline=orchestrator,
-            pipe={},       # CTranslate2, no nn.Modules
-            co_tenants={},
-        )
+        return orchestrator, {}

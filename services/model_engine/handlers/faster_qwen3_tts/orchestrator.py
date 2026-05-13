@@ -1,5 +1,5 @@
 """FasterQwen3-TTS orchestrator — direct forward() calls on decomposed modules.
-
+ 
 Inference flow (no CUDA graphs, no model.generate()):
 1. Preprocess: build talker input embeddings via base_model methods
 2. Prefill: talker.forward() → past_kv, past_hidden, first token logits
@@ -26,6 +26,7 @@ import io
 import logging
 import os
 import tempfile
+from typing import Optional
 
 import numpy as np
 import torch
@@ -80,25 +81,53 @@ class FasterQwen3TTSOrchestrator:
     def __init__(self, modules):
         self.m = modules
 
-    def __call__(self, payload: dict) -> dict:
-        return self.generate(payload)
-
-    def generate(self, payload: dict) -> dict:
+    def generate(
+        self,
+        *,
+        text: str = "",
+        mode: str = "custom_voice",
+        ref_audio_b64: Optional[str] = None,
+        voice: str = "Aiden",
+        language: str = "English",
+        instruct: str = "",
+        ref_text: str = "",
+        xvec_only: bool = False,
+        max_tokens: int = 2048,
+        min_tokens: int = 2,
+        temperature: float = 0.9,
+        top_k: int = 50,
+        top_p: float = 1.0,
+        do_sample: bool = True,
+        repetition_penalty: float = 1.05,
+        seed: int = -1,
+    ) -> dict:
         import soundfile as sf
 
-        text = payload.get("text") or payload.get("prompt", "")
         if not text:
             raise ValueError("text required")
 
-        ref_audio_b64 = payload.get("ref_audio_b64") or payload.get("reference_audio")
-        mode = payload.get("mode", "custom_voice")
-
         if ref_audio_b64:
-            audio_list, sr = self._voice_clone(payload, text, ref_audio_b64)
+            audio_list, sr = self._voice_clone(
+                text=text, ref_audio_b64=ref_audio_b64,
+                language=language, ref_text=ref_text, xvec_only=xvec_only,
+                max_tokens=max_tokens, min_tokens=min_tokens,
+                temperature=temperature, top_k=top_k, top_p=top_p,
+                do_sample=do_sample, repetition_penalty=repetition_penalty,
+            )
         elif mode == "voice_design":
-            audio_list, sr = self._voice_design(payload, text)
+            audio_list, sr = self._voice_design(
+                text=text, instruct=instruct, language=language,
+                max_tokens=max_tokens, min_tokens=min_tokens,
+                temperature=temperature, top_k=top_k, top_p=top_p,
+                do_sample=do_sample, repetition_penalty=repetition_penalty,
+            )
         else:
-            audio_list, sr = self._custom_voice(payload, text)
+            audio_list, sr = self._custom_voice(
+                text=text, voice=voice, language=language, instruct=instruct,
+                max_tokens=max_tokens, min_tokens=min_tokens,
+                temperature=temperature, top_k=top_k, top_p=top_p,
+                do_sample=do_sample, repetition_penalty=repetition_penalty,
+            )
 
         buf = io.BytesIO()
         sf.write(buf, audio_list[0], sr, format="WAV")
@@ -111,12 +140,11 @@ class FasterQwen3TTSOrchestrator:
             "media_type": "audio/wav",
         }
 
-    def _custom_voice(self, payload, text):
-        voice = payload.get("voice", "Aiden")
-        language = SPEAKER_LANG.get(voice, payload.get("language", "English"))
-        instruct = payload.get("instruct", "")
+    def _custom_voice(self, *, text, voice, language, instruct,
+                      max_tokens, min_tokens, temperature, top_k, top_p,
+                      do_sample, repetition_penalty):
+        language = SPEAKER_LANG.get(voice, language)
 
-        # Build inputs via base model preprocessing
         m = self.m.base_model.model
         input_texts = [m._build_assistant_text(text)]
         input_ids = m._tokenize_texts(input_texts)
@@ -125,7 +153,6 @@ class FasterQwen3TTSOrchestrator:
         if instruct:
             instruct_ids = [m._tokenize_texts([m._build_instruct_text(instruct)])[0]]
 
-        # Build talker inputs
         tie, tam, tth, tpe = self._build_talker_inputs(
             m=m,
             input_ids=input_ids,
@@ -137,19 +164,24 @@ class FasterQwen3TTSOrchestrator:
             non_streaming_mode=True,
         )
 
-        # Generate codec tokens via forward() loop
-        codec_ids = self._generate_tokens(tie, tam, tth, tpe, payload)
+        codec_ids = self._generate_tokens(
+            tie, tam, tth, tpe,
+            max_tokens=max_tokens, min_tokens=min_tokens,
+            temperature=temperature, top_k=top_k, top_p=top_p,
+            do_sample=do_sample, repetition_penalty=repetition_penalty,
+        )
 
         if codec_ids is None:
             return [np.zeros(1, dtype=np.float32)], self.m.sample_rate
 
-        # Decode codec tokens to audio
         audio_list, sr = self.m.speech_tokenizer.decode(
             {"audio_codes": codec_ids.unsqueeze(0)}
         )
         return [a.flatten().cpu().numpy() if hasattr(a, "cpu") else a.flatten() for a in audio_list], sr
 
-    def _voice_clone(self, payload, text, ref_audio_b64):
+    def _voice_clone(self, *, text, ref_audio_b64, language, ref_text, xvec_only,
+                     max_tokens, min_tokens, temperature, top_k, top_p,
+                     do_sample, repetition_penalty):
         import soundfile as sf
 
         ref_bytes = base64.b64decode(ref_audio_b64)
@@ -158,15 +190,10 @@ class FasterQwen3TTSOrchestrator:
             ref_path = tmp.name
 
         try:
-            ref_text = payload.get("ref_text", "")
-            language = payload.get("language", "English")
-            xvec_only = payload.get("xvec_only", False)
-
             m = self.m.base_model.model
             input_texts = [m._build_assistant_text(text)]
             input_ids = m._tokenize_texts(input_texts)
 
-            # Create voice clone prompt
             if xvec_only:
                 prompt_items = m.create_voice_clone_prompt(
                     ref_audio=ref_path, ref_text="", x_vector_only_mode=True,
@@ -202,12 +229,16 @@ class FasterQwen3TTSOrchestrator:
                 non_streaming_mode=False,
             )
 
-            codec_ids = self._generate_tokens(tie, tam, tth, tpe, payload)
+            codec_ids = self._generate_tokens(
+                tie, tam, tth, tpe,
+                max_tokens=max_tokens, min_tokens=min_tokens,
+                temperature=temperature, top_k=top_k, top_p=top_p,
+                do_sample=do_sample, repetition_penalty=repetition_penalty,
+            )
 
             if codec_ids is None:
                 return [np.zeros(1, dtype=np.float32)], self.m.sample_rate
 
-            # For ICL mode, prepend reference codes
             ref_codes = None
             if not xvec_only and vcp.get("ref_code") and vcp["ref_code"][0] is not None:
                 ref_codes = vcp["ref_code"][0]
@@ -221,7 +252,6 @@ class FasterQwen3TTSOrchestrator:
                 {"audio_codes": codes_for_decode.unsqueeze(0)}
             )
 
-            # Trim reference audio portion
             audio_arrays = []
             for a in audio_list:
                 a = a.flatten().cpu().numpy() if hasattr(a, "cpu") else a.flatten()
@@ -236,10 +266,9 @@ class FasterQwen3TTSOrchestrator:
         finally:
             os.unlink(ref_path)
 
-    def _voice_design(self, payload, text):
-        instruct = payload.get("instruct", "")
-        language = payload.get("language", "English")
-
+    def _voice_design(self, *, text, instruct, language,
+                      max_tokens, min_tokens, temperature, top_k, top_p,
+                      do_sample, repetition_penalty):
         m = self.m.base_model.model
         input_texts = [m._build_assistant_text(text)]
         input_ids = m._tokenize_texts(input_texts)
@@ -256,7 +285,12 @@ class FasterQwen3TTSOrchestrator:
             non_streaming_mode=True,
         )
 
-        codec_ids = self._generate_tokens(tie, tam, tth, tpe, payload)
+        codec_ids = self._generate_tokens(
+            tie, tam, tth, tpe,
+            max_tokens=max_tokens, min_tokens=min_tokens,
+            temperature=temperature, top_k=top_k, top_p=top_p,
+            do_sample=do_sample, repetition_penalty=repetition_penalty,
+        )
         if codec_ids is None:
             return [np.zeros(1, dtype=np.float32)], self.m.sample_rate
 
@@ -267,8 +301,9 @@ class FasterQwen3TTSOrchestrator:
 
     @torch.inference_mode()
     def _generate_tokens(self, talker_input_embeds, attention_mask,
-                         trailing_text_hiddens, tts_pad_embed, payload):
-        """Core generate loop using direct forward() calls on individual modules."""
+                         trailing_text_hiddens, tts_pad_embed,
+                         *, max_tokens, min_tokens, temperature, top_k, top_p,
+                         do_sample, repetition_penalty):
         m = self.m
         config = m.talker_config
         device = m.device
@@ -277,21 +312,12 @@ class FasterQwen3TTSOrchestrator:
         num_code_groups = config.num_code_groups
         vocab_size = config.vocab_size
 
-        max_new_tokens = int(payload.get("max_tokens", 2048))
-        min_new_tokens = int(payload.get("min_tokens", 2))
-        temperature = float(payload.get("temperature", 0.9))
-        top_k = int(payload.get("top_k", 50))
-        top_p = float(payload.get("top_p", 1.0))
-        do_sample = payload.get("do_sample", True)
-        repetition_penalty = float(payload.get("repetition_penalty", 1.05))
-
         suppress_mask = torch.zeros(vocab_size, dtype=torch.bool, device=device)
         suppress_start = max(0, vocab_size - 1024)
         for i in range(suppress_start, vocab_size):
             if i != eos_id:
                 suppress_mask[i] = True
 
-        # ── Step 1: Prefill via talker.forward() ─────────────────────────
         out = m.talker.forward(
             inputs_embeds=talker_input_embeds.to(device),
             attention_mask=attention_mask.to(device),
@@ -310,7 +336,7 @@ class FasterQwen3TTSOrchestrator:
         gen_step = out.generation_step
 
         logits = out.logits[:, -1, :]
-        suppress_eos = min_new_tokens > 0
+        suppress_eos = min_tokens > 0
         token = sample_logits(
             logits,
             temperature=temperature, top_k=top_k, top_p=top_p,
@@ -321,25 +347,20 @@ class FasterQwen3TTSOrchestrator:
 
         prefill_len = talker_input_embeds.shape[1]
 
-        # ── Step 2: Decode loop ──────────────────────────────────────────
         all_codec_ids = []
 
-        for step_idx in range(max_new_tokens):
+        for step_idx in range(max_tokens):
             if token.item() == eos_id:
                 break
 
-            # 2a. Embed last token via codec embedding
             last_id_hidden = m.talker_codec_embed(token.unsqueeze(1).to(device))
 
-            # 2b. Predictor: 15-step codebook prediction via forward() calls
             pred_input = torch.cat((past_hidden, last_id_hidden), dim=1)
             codebook_token_ids = self._predictor_loop(pred_input)
 
-            # 2c. Build full codec: [first_cb, cb1, ..., cb15]
             all_cb = torch.cat([token.view(1), codebook_token_ids])
             all_codec_ids.append(all_cb.detach())
 
-            # 2d. Build codec embedding for talker decode step
             codec_hiddens = [last_id_hidden]
             for i in range(num_code_groups - 1):
                 cb_emb = m.pred_codec_embeds[i](
@@ -353,7 +374,6 @@ class FasterQwen3TTSOrchestrator:
             else:
                 inputs_embeds = inputs_embeds + tts_pad_embed.to(device)
 
-            # 2e. Talker decode: single-step forward() on inner transformer
             current_pos = prefill_len + step_idx
             cache_position = torch.tensor([current_pos], device=device)
 
@@ -364,11 +384,9 @@ class FasterQwen3TTSOrchestrator:
                 use_cache=True,
             )
 
-            # 2f. Get logits via codec_head
             hidden_states = out.last_hidden_state
             logits = m.talker_codec_head(hidden_states[:, -1, :]).unsqueeze(0)
 
-            # 2g. Repetition penalty
             if repetition_penalty != 1.0 and len(all_codec_ids) > 0:
                 history = torch.stack([c[0] for c in all_codec_ids])
                 unique_toks = history.unique()
@@ -379,7 +397,7 @@ class FasterQwen3TTSOrchestrator:
                     tok_logits * repetition_penalty,
                 )
 
-            suppress_eos = len(all_codec_ids) < min_new_tokens
+            suppress_eos = len(all_codec_ids) < min_tokens
             token = sample_logits(
                 logits.squeeze(0),
                 temperature=temperature, top_k=top_k, top_p=top_p,
@@ -396,18 +414,14 @@ class FasterQwen3TTSOrchestrator:
         return None
 
     def _predictor_loop(self, pred_input):
-        """15-step codebook prediction via direct forward() on predictor modules."""
         m = self.m
         device = m.device
 
-        # Project from talker hidden size to predictor hidden size
         h = m.pred_projection(pred_input)
 
-        # Fresh KV cache for each predictor invocation
         from transformers import DynamicCache
         pred_cache = DynamicCache()
 
-        # Prefill predictor: 2 tokens through transformer
         cache_pos = torch.arange(2, device=device)
         out = m.pred_model.forward(
             inputs_embeds=h,
@@ -417,7 +431,6 @@ class FasterQwen3TTSOrchestrator:
         )
         hidden = out.last_hidden_state
 
-        # Codebook 0: logits from last position
         logits = m.pred_lm_heads[0](hidden[:, -1:, :])
         tok = sample_logits(
             logits[:, 0, :],
@@ -425,9 +438,7 @@ class FasterQwen3TTSOrchestrator:
         )
         tokens = [tok]
 
-        # Codebooks 1-14: single-token decode steps
         for cb_idx in range(1, len(m.pred_lm_heads)):
-            # Embed previous token via codebook-specific embedding
             emb = m.pred_codec_embeds[cb_idx - 1](tok.unsqueeze(0))
             emb = m.pred_projection(emb)
 
@@ -452,11 +463,9 @@ class FasterQwen3TTSOrchestrator:
     def _build_talker_inputs(self, m, input_ids, ref_ids, voice_clone_prompt,
                              languages, speakers, instruct_ids,
                              non_streaming_mode):
-        """Build talker input embeddings via base model preprocessing methods."""
-        # Use the faster_qwen3_tts model's _build_talker_inputs_local
         from faster_qwen3_tts.model import FasterQwen3TTS
         tie, tam, tth, tpe = FasterQwen3TTS._build_talker_inputs_local(
-            self=None,  # static-like call, we pass m explicitly
+            self=None,
             m=m,
             input_ids=input_ids,
             ref_ids=ref_ids,

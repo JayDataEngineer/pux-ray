@@ -1,5 +1,5 @@
 """VibeVoice ASR handler — speech-to-text with diarization.
-
+ 
 Uses VibeVoiceASRForConditionalGeneration (microsoft/VibeVoice-ASR 7B).
 Sub-modules in mmgp pipe dict, generate() on full model.
 """
@@ -10,7 +10,7 @@ from pathlib import Path
 
 import torch
 
-from services.model_engine.base_handler import BaseHandler, LoadResult, ModelVariant
+from services.model_engine.base_handler import BaseHandler, ModelVariant
 
 logger = logging.getLogger(__name__)
 
@@ -43,15 +43,12 @@ class VibeVoiceASRHandler(BaseHandler):
         model_path: Path,
         dtype: torch.dtype = torch.bfloat16,
         **kwargs,
-    ) -> LoadResult:
+    ) -> tuple:
         from .modules import VibeVoiceASRModules
         from .orchestrator import VibeVoiceASROrchestrator
 
         modules = VibeVoiceASRModules.load(model_path=model_path, dtype=dtype)
         orchestrator = VibeVoiceASROrchestrator(modules)
 
-        return LoadResult(
-            pipeline=orchestrator,
-            pipe=modules.pipe,
-            co_tenants=modules.co_tenants,
-        )
+        pipe = {"pipe": modules.pipe, "coTenantsMap": modules.co_tenants}
+        return orchestrator, pipe

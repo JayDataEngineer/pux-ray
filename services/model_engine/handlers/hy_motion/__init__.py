@@ -1,5 +1,5 @@
 """HY-Motion handler — text-to-3D human motion generation.
-
+ 
 Decomposed into motion_transformer (HunyuanMotionMMDiT), text_encoder
 (Qwen3-8B + CLIP), body_model (WoodenMesh). Orchestrator runs ODE
 denoising with explicit forward() calls.
@@ -11,7 +11,7 @@ from pathlib import Path
 
 import torch
 
-from services.model_engine.base_handler import BaseHandler, LoadResult, ModelVariant
+from services.model_engine.base_handler import BaseHandler, ModelVariant
 
 logger = logging.getLogger(__name__)
 
@@ -48,15 +48,12 @@ class HYMotionHandler(BaseHandler):
         model_path: Path,
         dtype: torch.dtype = torch.bfloat16,
         **kwargs,
-    ) -> LoadResult:
+    ) -> tuple:
         from .modules import HYMotionModules
         from .orchestrator import HYMotionOrchestrator
 
         modules = HYMotionModules.load(model_path=model_path, model_type=model_type)
         orchestrator = HYMotionOrchestrator(modules)
 
-        return LoadResult(
-            pipeline=orchestrator,
-            pipe=modules.pipe,
-            co_tenants=modules.co_tenants,
-        )
+        pipe = {"pipe": modules.pipe, "coTenantsMap": modules.co_tenants}
+        return orchestrator, pipe

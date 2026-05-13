@@ -1,5 +1,5 @@
 """AniGen orchestrator — explicit forward() calls on decomposed modules.
-
+ 
 Inference flow (all FP32):
 1. preprocess_image() — dsine.forward() → normal map
 2. encode_image() — dinov2.forward() → conditioning features
@@ -12,6 +12,7 @@ from __future__ import annotations
 import gc
 import logging
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 import torch
@@ -28,10 +29,19 @@ class AniGenOrchestrator:
     def __init__(self, modules):
         self.m = modules
 
-    def __call__(self, payload: dict) -> dict:
-        return self.generate(payload)
-
-    def generate(self, payload: dict) -> dict:
+    def generate(
+        self,
+        *,
+        image: Any = None,
+        seed: int = 42,
+        ss_steps: int = 25,
+        slat_steps: int = 25,
+        cfg_scale_ss: float = 7.5,
+        cfg_scale_slat: float = 3.0,
+        texture_size: int = 1024,
+        simplify_ratio: float = 0.95,
+        endpoint: str = "",
+    ) -> dict:
         import base64
         import io
         import json
@@ -44,27 +54,18 @@ class AniGenOrchestrator:
         if vendor not in sys.path:
             sys.path.insert(0, vendor)
 
-        img_data = payload.get("image")
+        img_data = image
         if isinstance(img_data, str):
             img_data = base64.b64decode(img_data)
         if not img_data:
             raise ValueError("image required")
 
         img = Image.open(io.BytesIO(img_data))
-        seed = int(payload.get("seed", 42))
-        ss_steps = int(payload.get("ss_steps", 25))
-        slat_steps = int(payload.get("slat_steps", 25))
-        cfg_scale_ss = float(payload.get("cfg_scale_ss", 7.5))
-        cfg_scale_slat = float(payload.get("cfg_scale_slat", 3.0))
-        texture_size = int(payload.get("texture_size", 1024))
-        simplify_ratio = float(payload.get("simplify_ratio", 0.95))
-
         torch.manual_seed(seed)
         np.random.seed(seed)
         device = self.m.device
 
         with torch.no_grad():
-            # Stage 0: Preprocess image + condition
             from anigen.utils.image_utils import preprocess_image, encode_image
 
             processed_image, processed_normal = preprocess_image(img, self.m.dsine, str(device))
@@ -73,7 +74,6 @@ class AniGenOrchestrator:
             cond_normal = encode_image(processed_normal, self.m.dinov2, device)
             neg_cond = torch.zeros_like(cond_rgb)
 
-            # Stage 1: Sparse Structure sampling
             coords, coords_skl = self._sample_ss(
                 cond=cond_normal,
                 neg_cond=neg_cond,
@@ -81,7 +81,6 @@ class AniGenOrchestrator:
                 steps=ss_steps,
             )
 
-            # Stage 2: Structured Latent sampling
             slat, slat_skl, _, _ = self._sample_slat(
                 cond=cond_rgb,
                 neg_cond=neg_cond,
@@ -95,14 +94,12 @@ class AniGenOrchestrator:
             coords_skl_cpu = coords_skl.cpu()
             del coords, coords_skl, cond_rgb, cond_normal, neg_cond
 
-            # Stage 3: Decode SLat → mesh + skeleton
             meshes, skeletons = self.m.slat_decoder(slat, slat_skl)
             mesh_result = meshes[0]
             skeleton_result = skeletons[0]
             del slat, slat_skl
             _cuda_cleanup()
 
-        # Post-processing (CPU)
         from anigen.utils.skin_utils import repair_skeleton_parents, filter_skinning_weights, smooth_skin_weights_on_mesh
         from anigen.utils.export_utils import _extract_vertex_rgb, convert_to_glb_from_data, visualize_skeleton_as_mesh
         from anigen.utils.postprocessing_utils import postprocess_mesh, barycentric_transfer_attributes, parametrize_mesh, bake_texture
@@ -136,7 +133,7 @@ class AniGenOrchestrator:
         skin_weights = filter_skinning_weights(mesh, skin_weights, joints, parents)
         skin_weights = smooth_skin_weights_on_mesh(mesh, skin_weights, iterations=100, alpha=1.0)
 
-        if payload.get("endpoint", "").endswith("/mesh"):
+        if endpoint.endswith("/mesh"):
             with tempfile.NamedTemporaryFile(suffix=".glb", delete=False) as tmp:
                 convert_to_glb_from_data(
                     mesh, joints, parents, skin_weights,
@@ -160,10 +157,7 @@ class AniGenOrchestrator:
             "media_type": "application/json",
         }
 
-    # ------------------------------------------------------------------ SS Euler ODE
-
     def _sample_ss(self, cond, neg_cond, cfg_strength, steps):
-        """Sparse Structure: Euler ODE flow matching with CFG on dense 3D volume."""
         model = self.m.ss_flow_model
         decoder = self.m.ss_decoder
         device = self.m.device
@@ -181,23 +175,18 @@ class AniGenOrchestrator:
             t_prev = t_seq[i + 1]
             t_scaled = torch.tensor([1000 * t], device=device)
 
-            # Conditional + unconditional forward
             v, v_skl = model(x_t, x_skl_t, t_scaled, cond)
             v_neg, v_skl_neg = model(x_t, x_skl_t, t_scaled, neg_cond)
 
-            # CFG blend
             v_cfg = (1 + cfg_strength) * v - cfg_strength * v_neg
             v_skl_cfg = (1 + cfg_strength) * v_skl - cfg_strength * v_skl_neg
 
-            # Euler step
             dt = t - t_prev
             x_t = x_t - dt * v_cfg
             x_skl_t = x_skl_t - dt * v_skl_cfg
 
-        # Decode
         decoded_ss, decoded_ss_skl = decoder(x_t, x_skl_t)
 
-        # Filter skeleton to largest connected component
         from anigen.utils.general_utils import _keep_largest_connected_component_3d
         bsz, ch, d, h, w = decoded_ss_skl.shape
         for b in range(bsz):
@@ -215,16 +204,12 @@ class AniGenOrchestrator:
         coords_skl = torch.argwhere(decoded_ss_skl > 0)[:, [0, 2, 3, 4]].int()
         return coords, coords_skl
 
-    # ------------------------------------------------------------------ SLat Euler ODE
-
     def _sample_slat(self, cond, neg_cond, coords, coords_skl, cfg_strength, steps):
-        """Structured Latent: Euler ODE flow matching with CFG on sparse 3D features."""
         from anigen.modules import sparse as sp
 
         model = self.m.slat_flow_model
         device = self.m.device
 
-        # Geodesic smooth noise (auto-detect from config)
         gsn_iters = 0
         if self.m.slat_config is not None:
             trainer_args = getattr(getattr(self.m.slat_config, 'trainer', None), 'args', None)
@@ -246,7 +231,6 @@ class AniGenOrchestrator:
         x_t = noise_slat
         x_skl_t = noise_skl
 
-        # Joint count conditioning
         use_joint_num = bool(getattr(model, 'use_joint_num_cond', False))
         joints_num_kwargs = {}
         neg_joints_kwargs = {}
@@ -260,20 +244,16 @@ class AniGenOrchestrator:
             t_prev = t_seq[i + 1]
             t_scaled = torch.tensor([1000 * t], device=device)
 
-            # Conditional + unconditional forward
             v, v_skl = model(x_t, x_skl_t, t_scaled, cond, **joints_num_kwargs)
             v_neg, v_skl_neg = model(x_t, x_skl_t, t_scaled, neg_cond, **neg_joints_kwargs)
 
-            # CFG blend on sparse features
             v_cfg_feats = (1 + cfg_strength) * v.feats - cfg_strength * v_neg.feats
             v_skl_cfg_feats = (1 + cfg_strength) * v_skl.feats - cfg_strength * v_skl_neg.feats
 
-            # Euler step (elementwise on feats)
             dt = t - t_prev
             x_t = x_t.replace(x_t.feats - dt * v_cfg_feats)
             x_skl_t = x_skl_t.replace(x_skl_t.feats - dt * v_skl_cfg_feats)
 
-        # Denormalize from config stats
         slat = x_t
         slat_skl = x_skl_t
 
@@ -285,7 +265,6 @@ class AniGenOrchestrator:
         return slat, slat_skl, slat, slat_skl
 
     def _denorm_sparse(self, tensor, norm_stats, key):
-        """Denormalize sparse tensor features using config stats."""
         if norm_stats is None:
             return tensor
         mean_k = key if key in norm_stats else ('slat_skel' if key == 'slat_skl' and 'slat_skel' in norm_stats else None)
@@ -298,10 +277,6 @@ class AniGenOrchestrator:
         return tensor
 
     def _geodesic_smooth_noise(self, noise_slat, coords, iters, alpha=0.7):
-        """Apply geodesic smooth noise to skin branch of SLat noise.
-
-        Smooths the last in_channels_vert_skin channels using 6-neighbor voxel adjacency.
-        """
         model = self.m.slat_flow_model
         vert_skin_c = model.in_channels_vert_skin
         if vert_skin_c <= 0:
@@ -332,7 +307,6 @@ class AniGenOrchestrator:
 
             skin_feats = new_skin
 
-        # Re-normalize variance
         skin_std = skin_feats.std(dim=0, keepdim=True).clamp_min(0.1)
         skin_feats = skin_feats / skin_std * skin_feats.std(dim=0, unbiased=False).clamp_min(0.1)
 
@@ -341,7 +315,6 @@ class AniGenOrchestrator:
 
 
 def _get_norm_stats(config):
-    """Extract normalization stats from slat_config."""
     try:
         return config.dataset.args.normalization
     except (AttributeError, KeyError):

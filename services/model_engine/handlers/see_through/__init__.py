@@ -1,11 +1,11 @@
 """See-Through handler — anime layer decomposition.
-
+ 
 Decomposed into raw nn.Modules:
 - LayerDiff: UNetFrameConditionModel, AutoencoderKL (SDXL VAE), TransparentVAE,
              CLIPTextModel (2x), CLIPTokenizer (2x), DPMSolverMultistepScheduler
 - Marigold: UNetFrameConditionModel, AutoencoderKL (SDXL VAE), CLIPTextModel,
             CLIPTokenizer, DDIMScheduler
-
+ 
 Architecture: Stage 1 (LayerDiff) → Stage 2 (Marigold depth) → Stage 3 (post-process)
 """
 from __future__ import annotations
@@ -15,7 +15,7 @@ from pathlib import Path
 
 import torch
 
-from services.model_engine.base_handler import BaseHandler, LoadResult, ModelVariant
+from services.model_engine.base_handler import BaseHandler, ModelVariant
 
 logger = logging.getLogger(__name__)
 
@@ -47,15 +47,12 @@ class SeeThroughHandler(BaseHandler):
         model_path: Path,
         dtype: torch.dtype = torch.bfloat16,
         **kwargs,
-    ) -> LoadResult:
+    ) -> tuple:
         from .modules import SeeThroughModules
         from .orchestrator import SeeThroughOrchestrator
 
         modules = SeeThroughModules.load(model_path=model_path)
         orchestrator = SeeThroughOrchestrator(modules)
 
-        return LoadResult(
-            pipeline=orchestrator,
-            pipe=modules.pipe,
-            co_tenants=modules.co_tenants,
-        )
+        pipe = {"pipe": modules.pipe, "coTenantsMap": modules.co_tenants}
+        return orchestrator, pipe
