@@ -253,7 +253,7 @@ def _start_docker_worker(profile: str) -> None:
         raise RuntimeError(f"Failed to start {profile} worker: {result.stderr}")
 
     # Wait for worker to be ready
-    port = {"trellis": 18401, "anigen": 18402, "vibevoice_cpp_gpu": 18403}[profile]
+    port = {"trellis": 18401, "anigen": 18402}[profile]
     for _ in range(30):
         import urllib.request
         try:

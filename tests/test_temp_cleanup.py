@@ -1,4 +1,4 @@
-"""Tests for temp file cleanup — validates try/finally in espeak, vibevoice_cpp, vibe_voice.
+"""Tests for temp file cleanup — validates try/finally in espeak and vibe_voice.
 
 Ensures NamedTemporaryFile(delete=False) files are always unlinked,
 even when subprocess calls fail or timeout.
@@ -58,82 +58,6 @@ class TestEspeakTempCleanup:
         files_after = set(Path(tempfile.gettempdir()).glob("tmp*.wav"))
         new_files = files_after - files_before
         assert len(new_files) == 0, f"Temp files leaked on failure: {new_files}"
-
-
-class TestVibeVoiceCppTempCleanup:
-
-    def _make_service(self):
-        from services.tts.vibevoice_cpp import VibeVoiceCppGpuDeployment
-        cls = VibeVoiceCppGpuDeployment.func_or_class if hasattr(VibeVoiceCppGpuDeployment, 'func_or_class') else VibeVoiceCppGpuDeployment
-        svc = cls.__new__(cls)
-        svc.model = True
-        svc.model_name = "vibevoice-cpp"
-        svc.tts_model = "/models/tts.gguf"
-        svc.asr_model = "/models/asr.gguf"
-        svc.tokenizer = "/models/tokenizer.gguf"
-        svc.default_voice = "/models/voice.gguf"
-        svc.voices_dir = "/models"
-        return svc
-
-    def test_tts_output_cleaned_on_success(self):
-        svc = self._make_service()
-        files_before = set(Path(tempfile.gettempdir()).glob("tmp*.wav"))
-
-        with patch("subprocess.run") as mock_run:
-            def write_output(*args, **kwargs):
-                cmd = args[0]
-                out_path = cmd[cmd.index("--out") + 1]
-                Path(out_path).write_bytes(b"RIFF\x00\x00\x00\x00WAVE")
-                return subprocess.CompletedProcess([], 0, "", "")
-
-            mock_run.side_effect = write_output
-            svc._run_tts("hello")
-
-        files_after = set(Path(tempfile.gettempdir()).glob("tmp*.wav"))
-        new_files = files_after - files_before
-        assert len(new_files) == 0, f"TTS temp files leaked: {new_files}"
-
-    def test_tts_output_cleaned_on_failure(self):
-        svc = self._make_service()
-        files_before = set(Path(tempfile.gettempdir()).glob("tmp*.wav"))
-
-        with patch("subprocess.run") as mock_run:
-            mock_run.side_effect = subprocess.TimeoutExpired("vibevoice-cli", 120)
-            with pytest.raises(subprocess.TimeoutExpired):
-                svc._run_tts("hello")
-
-        files_after = set(Path(tempfile.gettempdir()).glob("tmp*.wav"))
-        new_files = files_after - files_before
-        assert len(new_files) == 0, f"TTS temp files leaked on failure: {new_files}"
-
-    def test_asr_input_cleaned_on_success(self):
-        svc = self._make_service()
-        files_before = set(Path(tempfile.gettempdir()).glob("tmp*.wav"))
-
-        with patch("subprocess.run") as mock_run:
-            mock_run.return_value = subprocess.CompletedProcess(
-                [], 0,
-                '[{"Start":0.0,"End":1.0,"Speaker":0,"Content":"hello"}]',
-                "",
-            )
-            svc._run_asr(b"audio data")
-
-        files_after = set(Path(tempfile.gettempdir()).glob("tmp*.wav"))
-        new_files = files_after - files_before
-        assert len(new_files) == 0, f"ASR temp files leaked: {new_files}"
-
-    def test_asr_input_cleaned_on_failure(self):
-        svc = self._make_service()
-        files_before = set(Path(tempfile.gettempdir()).glob("tmp*.wav"))
-
-        with patch("subprocess.run") as mock_run:
-            mock_run.side_effect = subprocess.TimeoutExpired("vibevoice-cli", 300)
-            with pytest.raises(subprocess.TimeoutExpired):
-                svc._run_asr(b"audio data")
-
-        files_after = set(Path(tempfile.gettempdir()).glob("tmp*.wav"))
-        new_files = files_after - files_before
-        assert len(new_files) == 0, f"ASR temp files leaked on failure: {new_files}"
 
 
 class TestVibeVoiceCommunityTempCleanup:

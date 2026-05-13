@@ -116,12 +116,12 @@ llm:
     download: file
     sha256: null
     size_gb: 18.0
-    vram_estimate_gb: 23.0
+    vram_estimate_gb: 22.0
     device: gpu
-    ctx_size: 200000
+    ctx_size: 102400
     parallel: 1
     n_gpu_layers: 99
-    mmproj_n_gpu_layers: 0
+    mmproj_n_gpu_layers: 99
     temp: 0.6
     top_p: 0.95
     top_k: 20
@@ -138,8 +138,7 @@ llm:
     reasoning: true
     batch_size: 2048
     ubatch_size: 256
-    description: "Q5_K_S 200K + DFlash + TurboQuant + Vision (BF16 mmproj in VRAM).
-      Peak ~130-170 tok/s text, vision capable. BF16 mmproj saves ~870 MiB vs F32."
+    description: "Q5_K_S 100K + DFlash + TurboQuant + Vision (mmproj on GPU). Sacrificed 200K→100K context to fit mmproj in VRAM for faster vision."
   qwen3.6-27b-q5_k_s-32k:
     engine: beellama
     path: llm/Qwen3.6-27B-Q5_K_S.gguf
@@ -1143,6 +1142,36 @@ embeddings:
     vram_estimate_gb: 0.5
     device: gpu
     description: Jina v5 nano retrieval (IQ4_NL GGUF).
+wan2gp:
+  wan-t2v-14B:
+    path: wan2gp/wan/t2v-14B/
+    source: hf://DeepBeepMeep/Wan2.1
+    download: manual
+    sha256: null
+    size_gb: 22.0
+    vram_estimate_gb: 14.0
+    device: gpu
+    description: Wan2.1 Text-to-Video 14B — mmgp-managed. Manual download of main model + text encoder + VAE.
+  wan-i2v-14B:
+    path: wan2gp/wan/i2v-14B/
+    source: hf://DeepBeepMeep/Wan2.1
+    download: manual
+    sha256: null
+    size_gb: 22.0
+    vram_estimate_gb: 14.0
+    device: gpu
+    description: Wan2.1 Image-to-Video 14B — mmgp-managed. Manual download of main model + text encoder + VAE + CLIP.
+  index_tts-v2:
+    path: wan2gp/index_tts2/
+    source: hf://DeepBeepMeep/TTS
+    download: manual
+    sha256: null
+    size_gb: 5.0
+    vram_estimate_gb: 6.0
+    device: gpu
+    description: IndexTTS v2 via Wan2GP mmgp — safetensors format from DeepBeepMeep/TTS.
+      Includes GPT fp16, s2mel, semantic codec, bigvgan vocoder, w2v-bert, qwen-emo.
+
 cache:
   huggingface:
     path: cache/huggingface/

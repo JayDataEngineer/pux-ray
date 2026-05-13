@@ -40,7 +40,6 @@ class TestServiceGETResponses:
 
     @pytest.mark.parametrize("svc_name,import_path,cls_name", [
         ("espeak", "services.tts.espeak", "EspeakTTS"),
-        ("vibevoice_cpp_gpu", "services.tts.vibevoice_cpp", "VibeVoiceCppGpuDeployment"),
     ])
     def test_get_returns_status_ok(self, svc_name, import_path, cls_name):
         import importlib
@@ -101,63 +100,6 @@ class TestEspeakTNAP:
             mock_run.side_effect = subprocess.CalledProcessError(1, "espeak-ng", stderr="fatal error")
             with pytest.raises(subprocess.CalledProcessError):
                 svc.synthesize("hello")
-
-
-# ─── VibeVoice CPP TNAP Tests ──────────────────────────────────────────────
-
-
-class TestVibeVoiceCppTNAP:
-
-    def _make_service(self):
-        from services.tts.vibevoice_cpp import VibeVoiceCppGpuDeployment
-        cls = _unwrap(VibeVoiceCppGpuDeployment)
-        svc = cls.__new__(cls)
-        svc.model = True
-        svc.model_name = "vibevoice-cpp"
-        svc.tts_model = "/models/tts.gguf"
-        svc.asr_model = "/models/asr.gguf"
-        svc.tokenizer = "/models/tokenizer.gguf"
-        svc.default_voice = "/models/voice.gguf"
-        svc.voices_dir = "/models"
-        return svc
-
-    def test_tts_mode_with_text(self):
-        svc = self._make_service()
-        import asyncio
-
-        with patch("subprocess.run") as mock_run:
-            def write_wav(*args, **kwargs):
-                cmd = args[0]
-                out_path = cmd[cmd.index("--out") + 1]
-                Path(out_path).write_bytes(b"RIFF\x00\x00\x00\x00WAVE")
-                return subprocess.CompletedProcess([], 0, "", "")
-
-            mock_run.side_effect = write_wav
-            req = _make_request({"action": "generate", "input": {"text": "hello"}})
-            resp = asyncio.get_event_loop().run_until_complete(svc(req))
-            assert resp.status_code == 200
-
-    def test_asr_mode_with_audio_b64(self, sample_wav_b64):
-        svc = self._make_service()
-        import asyncio
-
-        with patch("subprocess.run") as mock_run:
-            mock_run.return_value = subprocess.CompletedProcess(
-                [], 0,
-                '[{"Start":0.0,"End":1.0,"Speaker":0,"Content":"hello"}]',
-                "",
-            )
-            req = _make_request({"action": "generate", "input": {"audio_b64": sample_wav_b64}})
-            resp = asyncio.get_event_loop().run_until_complete(svc(req))
-            assert resp.status_code == 200
-
-    def test_neither_text_nor_audio_returns_400(self):
-        svc = self._make_service()
-        import asyncio
-
-        req = _make_request({"action": "generate", "input": {}})
-        resp = asyncio.get_event_loop().run_until_complete(svc(req))
-        assert resp.status_code == 400
 
 
 # ─── VibeVoice Community TNAP Tests ────────────────────────────────────────

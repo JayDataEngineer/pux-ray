@@ -42,7 +42,7 @@ class TestServiceRegistry:
         from services.registry import SERVICE_REGISTRY
         expected = {
             "kokoro", "espeak", "faster_qwen3_tts", "index_tts",
-            "vibevoice_cpp_gpu", "gpt_sovits", "faster_whisper",
+            "gpt_sovits", "faster_whisper",
             "vibevoice_microsoft", "moss_soundeffect",
             "ace_step", "trellis", "anigen", "hy_motion", "see_through",
             "phi4mm", "comfyui", "llm", "wan2gp",
@@ -65,7 +65,7 @@ class TestServiceRegistry:
         # Extract bound deployment names from serve_config (e.g. "kokoro_tts = KokoroTTS.bind()")
         bound = set(re.findall(r'^(\w+)\s*=\s*\w+\.bind\(\)', serve_config, re.MULTILINE))
         # Exclude infrastructure deployments (not AI services)
-        infra = {"api_ingress", "playground", "vibevoice_cpp_cpu", "forge"}
+        infra = {"api_ingress", "playground", "forge"}
         unregistered = bound - registry_deployments - infra
         assert not unregistered, f"Deployments in serve_config but not in registry: {unregistered}"
 
@@ -132,7 +132,7 @@ class TestServiceRegistry:
 
     def test_tts_services_have_aliases(self):
         from services.registry import SERVICE_REGISTRY
-        for name in ["kokoro", "espeak", "index_tts", "faster_qwen3_tts", "vibevoice_cpp_gpu", "gpt_sovits"]:
+        for name in ["kokoro", "espeak", "index_tts", "faster_qwen3_tts", "gpt_sovits"]:
             assert SERVICE_REGISTRY[name].model_aliases, f"{name} needs model_aliases"
 
     def test_asr_services_have_aliases(self):
@@ -344,7 +344,7 @@ class TestDashboardRegistry:
         from gateway.dashboard import KNOWN_DEPLOYMENTS
         for dep in ["kokoro_tts", "espeak_tts", "faster_whisper", "trellis", "anigen",
                     "hy_motion", "ace_step", "see_through", "phi4mm",
-                    "comfyui", "llm", "index_tts", "faster_qwen3_tts", "vibevoice_cpp_gpu",
+                    "comfyui", "llm", "index_tts", "faster_qwen3_tts",
                     "gpt_sovits", "vibevoice_microsoft", "moss_soundeffect"]:
             assert dep in KNOWN_DEPLOYMENTS, f"Missing: {dep}"
 

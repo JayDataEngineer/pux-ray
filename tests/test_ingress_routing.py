@@ -57,7 +57,7 @@ class TestOpenAIRouteTargets:
 
     def test_all_tts_services_have_speech_aliases(self):
         from services.registry import SERVICE_REGISTRY
-        for name in ["kokoro", "espeak", "index_tts", "vibevoice_cpp_gpu"]:
+        for name in ["kokoro", "espeak", "index_tts"]:
             entry = SERVICE_REGISTRY[name]
             assert entry.model_aliases, f"{name} missing model_aliases for /v1/audio/speech"
 

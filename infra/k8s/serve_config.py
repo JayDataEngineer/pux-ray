@@ -30,12 +30,6 @@ from services.tts.gpu_tts import IndexTTSDeployment
 faster_qwen3_tts = FasterQwen3TTSDeployment.bind()
 index_tts = IndexTTSDeployment.bind()
 
-# vibevoice.cpp (subprocess — TTS + ASR via quantized GGUF)
-from services.tts.vibevoice_cpp import VibeVoiceCppGpuDeployment, VibeVoiceCppCpuDeployment
-
-vibevoice_cpp_gpu = VibeVoiceCppGpuDeployment.bind()
-vibevoice_cpp_cpu = VibeVoiceCppCpuDeployment.bind()
-
 # ─── The Forge — VRAM-aware GPU manager ─────────────────────────────────────
 # Replaces the old Master Router + GPU Governor.
 # Claims num_gpus: 1.0, tracks VRAM inline, swaps models as needed.
@@ -60,8 +54,8 @@ api_ingress = APIIngressDeployment.bind()
 # Wan2GP Pool — video generation, many model variants, mmgp-managed VRAM.
 # Already in SERVICE_MAP in services/forge.py.
 
-# VibeVoice Microsoft — microsoft/VibeVoice-ASR 7B with native diarization
-# VibeVoice Community TTS — vibevoice/VibeVoice-7B long-form multi-speaker synthesis
+# VibeVoice ASR + TTS — managed by Forge (services/forge.py)
+# Decomposed into nn.Modules via model_engine handlers (future)
 # Phi-4-multimodal — 5.6B omni model (text+vision+speech -> text, 24GB)
 
 # ─── Tier 3: Blocked — needs Docker image changes ────────────────
