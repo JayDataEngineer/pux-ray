@@ -54,29 +54,7 @@ class AceStepOrchestrator:
     def __init__(self, modules):
         self.m = modules
 
-    # ── Public API ─────────────────────────────────────────────────────────
-
-    def __call__(self, payload: dict) -> dict:
-        """Dispatch from executor payload dict."""
-        return self.generate(
-            input_prompt=payload.get("prompt", payload.get("input_prompt", "")),
-            alt_prompt=payload.get("caption", payload.get("alt_prompt", "")),
-            duration_seconds=float(payload.get("duration", payload.get("duration_seconds", DEFAULT_DURATION))),
-            num_inference_steps=int(payload.get("steps", payload.get("num_inference_steps", 8))),
-            seed=payload.get("seed"),
-            temperature=float(payload.get("temperature", 0.85)),
-            top_p=float(payload.get("top_p", 0.9)),
-            top_k=payload.get("top_k"),
-            alt_guidance_scale=float(payload.get("alt_guidance_scale", 2.5)),
-            shift=float(payload.get("shift", 1.0)),
-            infer_method=str(payload.get("infer_method", "ode")),
-            model_mode=int(payload.get("model_mode", 0)),
-            audio_cover_strength=float(payload.get("audio_cover_strength", 1.0)),
-            reference_audio=payload.get("reference_audio"),
-            audio_codes=payload.get("audio_codes"),
-            lm_negative_prompt=str(payload.get("lm_negative_prompt", "")),
-            custom_settings=payload.get("custom_settings"),
-        )
+    # ── Pipeline API ────────────────────────────────────────────────────
 
     def generate(
         self,

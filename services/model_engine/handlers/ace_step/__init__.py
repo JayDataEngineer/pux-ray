@@ -1,7 +1,8 @@
 """ACE-Step handler — text-to-music generation.
 
-Loads raw nn.Modules individually (no pipeline wrapper), orchestrates
-inference via AceStepOrchestrator, and exposes through ForgeService.
+Follows Wan2GP family_handler pattern: load_model() returns
+(model_object, pipe_dict) tuple. Model_object is the AceStepOrchestrator
+which acts as a Pipeline with generate(**kwargs).
 
 Supports v1, v1.5 (7 variants), and v1.5 XL with all Wan2GP features:
 CoT metadata inference, audio code generation, reference audio, cover
@@ -17,7 +18,7 @@ from typing import Any
 
 import torch
 
-from services.model_engine.base_handler import BaseHandler, LoadResult, ModelVariant
+from services.model_engine.base_handler import BaseHandler, ModelVariant
 
 logger = logging.getLogger(__name__)
 
@@ -86,11 +87,13 @@ class AceStepHandler(BaseHandler):
         quantize_transformer: bool = False,
         enable_lm: bool = True,
         **kwargs,
-    ) -> LoadResult:
-        """Load ACE-Step v1.5 as raw modules + orchestrator.
+    ) -> tuple:
+        """Load ACE-Step v1.5 as (Pipeline, pipe) following Wan2GP pattern.
 
-        The pipe dict (for mmgp) contains the raw nn.Modules.
-        The pipeline object is the orchestrator (stateless, no pipeline class).
+        Returns:
+            (pipeline, pipe) — pipeline has generate(**kwargs),
+            pipe dict follows upstream convention for mmgp.
+            Pipe uses double-nesting: {"pipe": pipe, "coTenantsMap": ...}
         """
         if model_type == "ace_step_v1":
             raise NotImplementedError("ACE-Step v1 loading not yet implemented")
@@ -108,14 +111,13 @@ class AceStepHandler(BaseHandler):
 
         orchestrator = AceStepOrchestrator(modules)
 
+        # Follow upstream Wan2GP convention: double-nest pipe
+        pipe = {"pipe": modules.pipe, "coTenantsMap": modules.co_tenants}
+
         vram = torch.cuda.memory_allocated(0) / (1024**2) if torch.cuda.is_available() else 0
         logger.info(
             "ACE-Step loaded: modules=%s VRAM=%.0fMB",
             list(modules.pipe.keys()), vram,
         )
 
-        return LoadResult(
-            pipeline=orchestrator,
-            pipe=modules.pipe,
-            co_tenants=modules.co_tenants,
-        )
+        return orchestrator, pipe

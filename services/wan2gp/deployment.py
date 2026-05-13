@@ -44,7 +44,6 @@ VENDOR_HANDLERS = [
     "models.kandinsky5.kandinsky_handler",
     "models.z_image.z_image_handler",
     "models.magi_human.magi_human_handler",
-    "models.TTS.ace_step_handler",
     "models.TTS.chatterbox_handler",
     "models.TTS.qwen3_handler",
     "models.TTS.yue_handler",
@@ -56,6 +55,20 @@ VENDOR_HANDLERS = [
 # ─── Model Engine Entries (our code) ──────────────────────────────────────────
 
 MODEL_ENGINE_ENTRIES = [
+    {
+        "name": "ace_step",
+        "handler": "services.model_engine.handlers.ace_step",
+        "handler_cls": "AceStepHandler",
+        "registry_path": ("audio", "acestep"),
+        "vram_gb": 7,
+        "defaults": {"num_inference_steps": 8, "alt_guidance_scale": 2.5,
+                     "duration_seconds": 30, "temperature": 0.85, "top_p": 0.9},
+        "key_map": {
+            "steps": "num_inference_steps",
+            "cover_strength": "audio_cover_strength",
+            "ref_audio": "reference_audio",
+        },
+    },
     {
         "name": "anigen",
         "handler": "services.model_engine.handlers.anigen",
@@ -252,29 +265,47 @@ def discover_models(models_root: Path | None = None) -> dict:
 
     # ── 2. Model_engine handlers (our code) ───────────────────────────────
     for entry in MODEL_ENGINE_ENTRIES:
-        name = entry["name"]
-        me_info = {
-            "engine": "model_engine",
-            "handler": entry["handler"],
-            "handler_cls": entry["handler_cls"],
-            "registry_path": entry.get("registry_path"),
-            "vram_gb": entry.get("vram_gb", 0),
-            "defaults": dict(entry.get("defaults", {})),
-        }
+        handler_mod = importlib.import_module(entry["handler"])
+        handler_cls = getattr(handler_mod, entry["handler_cls"])
+        handler = handler_cls()
 
-        # Check if model weights exist
-        if entry.get("registry_path"):
-            try:
-                model_path = registry.get_path(*entry["registry_path"])
-                if Path(model_path).is_dir():
-                    me_info["weight_path"] = str(model_path)
-            except (KeyError, FileNotFoundError):
-                pass
-        elif entry.get("vram_gb", 0) == 0:
-            # CPU services — no weight files needed
-            me_info["weight_path"] = None
+        base_name = entry["name"]
 
-        discovered[name] = me_info
+        for model_type in handler.supported_types():
+            # Derive user-friendly registry key from model_type
+            # e.g., "ace_step_v1_5_turbo" → "ace_step/v1_5_turbo"
+            # For single-type handlers (kokoro, espeak) → "kokoro", "espeak"
+            if model_type == base_name:
+                reg_key = base_name
+            elif model_type.startswith(base_name + "_"):
+                reg_key = base_name + "/" + model_type[len(base_name) + 1:]
+            else:
+                reg_key = model_type
+
+            me_info = {
+                "engine": "model_engine",
+                "handler": entry["handler"],
+                "handler_cls": entry["handler_cls"],
+                "model_type": model_type,
+                "registry_path": entry.get("registry_path"),
+                "vram_gb": entry.get("vram_gb", 0),
+                "defaults": dict(entry.get("defaults", {})),
+                "key_map": dict(entry.get("key_map", {})),
+            }
+
+            # Check if model weights exist
+            if entry.get("registry_path"):
+                try:
+                    model_path = registry.get_path(*entry["registry_path"])
+                    if Path(model_path).is_dir():
+                        me_info["weight_path"] = str(model_path)
+                except (KeyError, FileNotFoundError):
+                    pass
+            elif entry.get("vram_gb", 0) == 0:
+                # CPU services — no weight files needed
+                me_info["weight_path"] = None
+
+            discovered[reg_key] = me_info
 
     return discovered
 
@@ -470,7 +501,15 @@ class Wan2GPService:
                 m = self._models.get(self._loaded_model)
                 if m is None:
                     return {"status": "error", "error": "Model entry not found"}
-                return m["orchestrator"](payload)
+                model = m["model"]
+                # If the model has __call__ (old pattern: dispatch payload → generate),
+                # use it directly. Otherwise use generate(**kwargs) (new Wan2GP pattern).
+                if hasattr(model, "__call__"):
+                    return model(payload)
+                defaults = entry.get("defaults", {})
+                key_map = entry.get("key_map", {})
+                kwargs = _build_generate_kwargs(payload, defaults, key_map)
+                return model.generate(**kwargs)
 
             # Vendor path: build kwargs, call generate
             gen = self._do_generate(self._models[self._loaded_model], payload)
@@ -680,7 +719,6 @@ class Wan2GPService:
 
         if not model_path.is_dir():
             if entry.get("vram_gb", 0) == 0:
-                # CPU service — no weight path needed
                 model_path = models_root
             elif registry_path is None:
                 model_path = Path("/opt/seethrough")
@@ -690,16 +728,27 @@ class Wan2GPService:
                 )
 
         model_type = entry.get("model_type", model_name)
-        logger.info("Loading %s (model_engine, nn.Module) from %s", model_name, model_path)
+        logger.info("Loading %s (model_engine, nn.Module) from %s", model_type, model_path)
         torch.set_default_device("cpu")
 
         load_result = handler.load_model(
             model_type, model_path=model_path, dtype=torch.bfloat16
         )
 
-        orchestrator = load_result.pipeline
-        pipe = load_result.pipe
-        co_tenants = load_result.co_tenants or {}
+        # Handle both old (LoadResult) and new ((model, pipe) tuple) return types
+        if isinstance(load_result, tuple):
+            model, pipe = load_result
+        else:
+            model = load_result.pipeline
+            pipe = {"pipe": load_result.pipe, "coTenantsMap": load_result.co_tenants or {}}
+
+        # Unwrap double-nested pipe following upstream convention
+        pipe_kwargs = {}
+        if isinstance(pipe, dict) and "pipe" in pipe:
+            pipe_kwargs = pipe
+            pipe = pipe_kwargs.pop("pipe", {})
+
+        co_tenants = pipe_kwargs.pop("coTenantsMap", {})
 
         if pipe:
             from mmgp import offload
@@ -717,7 +766,7 @@ class Wan2GPService:
 
         self._models[model_name] = {
             "engine": "model_engine",
-            "orchestrator": orchestrator,
+            "model": model,
             "pipe": pipe,
             "info": entry,
             "loaded_at": time.time(),
@@ -747,21 +796,25 @@ class Wan2GPService:
 
 # ─── Payload Passthrough Helpers ───────────────────────────────────────────────
 
-def _build_generate_kwargs(payload: dict, defaults: dict) -> dict:
+def _build_generate_kwargs(payload: dict, defaults: dict, key_map: dict | None = None) -> dict:
     """Build kwargs for model.generate() with security allowlist.
 
-    Forwards all safe params, maps known key names, blocks dangerous ones,
-    and silences unknown keys (logged at debug level).
+    Forwards all safe params, maps known key names, blocks dangerous ones.
+    Accepts optional per-model key_map that is merged with the global _KEY_MAP.
     """
+    merged_map = dict(_KEY_MAP)
+    if key_map:
+        merged_map.update(key_map)
+
     kwargs = {}
 
     # Apply defaults first (can be overridden by payload)
     for k, v in defaults.items():
-        if k in _SAFE_PASSTHROUGH or k in _KEY_MAP.values():
+        if k in _SAFE_PASSTHROUGH or k in merged_map.values():
             kwargs[k] = v
 
     # Map known keys from payload
-    for src, dst in _KEY_MAP.items():
+    for src, dst in merged_map.items():
         if src in payload:
             kwargs[dst] = payload[src]
         elif src not in payload and dst not in kwargs:
