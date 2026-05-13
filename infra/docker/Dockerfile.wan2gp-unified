@@ -1,0 +1,139 @@
+# Tech Noir Wan2GP Unified Image — ONE image for ALL GPU models.
+# 
+# Builds on Wan2GP's upstream Dockerfile (CUDA 12.8 + PyTorch 2.10 + SageAttention).
+# Adds our model_engine handler dependencies, mmgp, and codebase.
+# ONE image, ONE memory system (mmgp), ALL models.
+#
+# Build:
+#   docker build -f infra/docker/Dockerfile.wan2gp-unified \
+#     --build-arg CUDA_ARCHITECTURES="8.9" \
+#     --build-arg WAN2GP_VERSION=v3.5.2 \
+#     -t forge-reg.local:30500/tech-noir/wan2gp-unified:latest .
+#
+# Update: change WAN2GP_VERSION, rebuild, redeploy.
+# New model types from upstream auto-surface via dynamic registry.
+
+ARG CUDA_ARCHITECTURES="8.9"
+ARG WAN2GP_VERSION=v3.5.2
+
+# ─── Stage 1: Build environment (CUDA devel + SageAttention compile) ──────────
+FROM nvidia/cuda:12.8.1-cudnn-devel-ubuntu22.04 AS builder
+
+ARG CUDA_ARCHITECTURES
+ARG WAN2GP_VERSION
+
+ENV DEBIAN_FRONTEND=noninteractive \
+    TORCH_CUDA_ARCH_LIST="${CUDA_ARCHITECTURES}" \
+    FORCE_CUDA="1" \
+    MAX_JOBS="8"
+
+# System deps — wan2gp base + our model_engine extras
+RUN apt update && apt install -y \
+    python3 python3-pip git wget curl cmake ninja-build \
+    libgl1 libglib2.0-0 ffmpeg \
+    build-essential pkg-config \
+    libsndfile1 libsm6 libxext6 libxrender-dev libjpeg-dev \
+    libspatialindex-dev git-lfs \
+    espeak-ng mecab libmecab-dev \
+    sox libsox-dev libsox-fmt-all \
+    && apt clean
+
+# Clone Wan2GP at pinned version
+RUN git clone --depth 1 --branch ${WAN2GP_VERSION} \
+    https://github.com/deepbeepmeep/Wan2GP.git /opt/wan2gp
+
+# Install PyTorch first (prevents requirements.txt from pulling wrong version)
+RUN pip install --upgrade pip setuptools wheel
+RUN pip install torch==2.10.0+cu128 torchvision==0.25.0+cu128 torchaudio==2.10.0+cu128 \
+    --index-url https://download.pytorch.org/whl/cu128
+
+# Install wan2gp Python dependencies (no || true — hard failure on missing dep)
+RUN pip install -r /opt/wan2gp/requirements.txt
+
+# Build SageAttention from source (patched for headless GPU detection)
+RUN python3 -c "
+import os
+arch_list = os.environ.get('TORCH_CUDA_ARCH_LIST', '8.0;8.6')
+arch_set = '{' + ', '.join([chr(34) + a + chr(34) for a in arch_list.split(';')]) + '}'
+import tempfile, urllib.request
+url = 'https://raw.githubusercontent.com/thu-ml/SageAttention/main/setup.py'
+with urllib.request.urlopen(url) as r:
+    content = r.read().decode()
+old = '''compute_capabilities = set()
+device_count = torch.cuda.device_count()
+for i in range(device_count):
+    major, minor = torch.cuda.get_device_capability(i)
+    if major < 8:
+        warnings.warn(f\"skipping GPU {i} with compute capability {major}.{minor}\")
+        continue
+    compute_capabilities.add(f\"{major}.{minor}\")'''
+new = 'compute_capabilities = ' + arch_set + chr(10) + 'print(f\"Manually set compute capabilities: {compute_capabilities}\")'
+content = content.replace(old, new)
+with open('/tmp/setup_patched.py', 'w') as f:
+    f.write(content)
+print('SageAttention setup.py patched for arch:', arch_set)
+" && \
+    git clone https://github.com/thu-ml/SageAttention.git /tmp/sageattention && \
+    cp /tmp/setup_patched.py /tmp/sageattention/setup.py && \
+    cd /tmp/sageattention && \
+    pip install --no-build-isolation . && \
+    rm -rf /tmp/sageattention /tmp/setup_patched.py
+
+# Install mmgp explicitly (ensure correct version)
+RUN pip install "mmgp>=3.7.6"
+
+# Model engine pip dependencies
+RUN pip install \
+    faster-whisper \
+    kokoro "misaki[en]>=0.7,<0.9" \
+    faster-qwen3-tts qwen-tts \
+    scipy soundfile trimesh pyyaml scikit-image scikit-learn \
+    pygltflib plyfile pyglet pyrr lpips pyvista pymeshfix \
+    xatlas rtree geffnet igraph \
+    kornia onnxruntime mediapipe \
+    phonemizer sox backoff datasets lark numba
+
+# CUDA extensions (source builds)
+RUN pip install nvdiffrast && \
+    git clone https://github.com/NVlabs/nvdiffrec.git /tmp/nvdiffrec && \
+    pip install /tmp/nvdiffrec && rm -rf /tmp/nvdiffrec
+
+RUN pip install "git+https://github.com/facebookresearch/pytorch3d.git@stable" && \
+    pip install spconv-cu128
+
+# ─── Stage 2: Runtime (CUDA runtime, minimal) ─────────────────────────────────
+FROM nvidia/cuda:12.8.1-cudnn-runtime-ubuntu22.04
+
+ENV DEBIAN_FRONTEND=noninteractive \
+    PYTHONPATH=/opt/wan2gp:/opt/tech-noir \
+    WAN2GP_ROOT=/opt/wan2gp
+
+# Runtime system deps (minimal subset of builder deps)
+RUN apt update && apt install -y \
+    python3 python3-pip \
+    libgl1 libglib2.0-0 ffmpeg \
+    libsndfile1 libsm6 libxext6 libxrender-dev libjpeg-dev \
+    libspatialindex-dev \
+    espeak-ng mecab libmecab-dev \
+    sox libsox-dev libsox-fmt-all \
+    && apt clean
+
+# Copy Python packages from builder
+COPY --from=builder /usr/local/lib/python3.*/dist-packages/ /usr/local/lib/python3.*/dist-packages/
+COPY --from=builder /usr/local/bin/ /usr/local/bin/
+
+# Copy Wan2GP source
+COPY --from=builder /opt/wan2gp/ /opt/wan2gp/
+
+# Install Ray Serve
+RUN pip install "ray[serve]>=2.43.0"
+
+# Copy our codebase
+COPY . /opt/tech-noir/
+
+RUN useradd -u 1000 -ms /bin/bash user && \
+    chown -R user:user /opt/tech-noir /opt/wan2gp && \
+    mkdir -p /home/user/.cache && chown -R user:user /home/user/.cache
+
+USER user
+WORKDIR /opt/tech-noir

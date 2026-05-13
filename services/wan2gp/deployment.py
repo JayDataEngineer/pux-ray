@@ -1,24 +1,20 @@
-"""Wan2GP Service — unified multi-model pool, mmgp-managed VRAM.
+"""Wan2GP Service — dynamic model registry, mmgp-managed VRAM.
 
-ForgeService-compatible: runs inside the Forge (num_gpus: 1.0).
-ALL models (vendor + custom nn.Module) load as variants through
-a single service. mmgp manages VRAM via per-subcomponent offloading.
+All GPU models (vendor + model_engine) coexist under one mmgp profile.
+Payload passthrough: security-allowlisted kwargs forwarded to model.generate().
 
-Supports two engine types:
-  vendor       — upstream Wan2GP family_handler (wan t2v/i2v, hunyuan, flux)
-  model_engine — our custom nn.Module decomposition (anigen, trellis,
-                 hy_motion, moss, see_through, faster_qwen3_tts,
-                 vibevoice_asr, vibevoice_tts)
-
-Lifecycle via ForgeService:
-    load(model_name)   — load variant + configure mmgp profile
-    unload()           — evict all models, flush mmgp + CUDA caches
-    infer(payload)     — generate, return dict with b64 data
+Architecture:
+    - 19 vendor handlers auto-discovered via query_supported_types()
+    - 12 model_engine handlers statically registered (our code)
+    - mmgp wraps all nn.Modules for unified GPU/CPU/RAM management
+    - CPU models (espeak, kokoro, faster_whisper) use empty pipe dict
+    - No ForgeService dependency — standalone deployment
 """
 from __future__ import annotations
 
 import base64
 import gc
+import importlib
 import json
 import logging
 import os
@@ -29,160 +25,128 @@ from pathlib import Path
 import numpy as np
 import torch
 
-from services.forge_base import ForgeService
-
 logger = logging.getLogger(__name__)
 
 WAN2GP_VENDOR = Path(__file__).parents[2] / "vendor" / "wan2gp"
 
-# ─── Variant Registry ─────────────────────────────────────────────────────────
+# ─── Vendor Handler Registry ──────────────────────────────────────────────────
 
-V2V_MODELS = {
-    # ── Vendor: upstream Wan2GP family_handlers ────────────────────────────
-    "wan/t2v-14B": {
-        "engine": "vendor",
-        "handler": "models.wan.wan_handler",
-        "model_type": "t2v",
-        "base_model_type": "t2v",
-        "vram_gb": 14,
-        "defaults": {"width": 1280, "height": 720, "frames": 81, "steps": 50, "guidance": 5.0},
-    },
-    "wan/i2v-14B": {
-        "engine": "vendor",
-        "handler": "models.wan.wan_handler",
-        "model_type": "i2v",
-        "base_model_type": "i2v",
-        "vram_gb": 14,
-        "defaults": {"width": 832, "height": 480, "frames": 81, "steps": 50, "guidance": 5.0},
-    },
-    "hunyuan/t2v": {
-        "engine": "vendor",
-        "handler": "models.hyvideo.hunyuan_handler",
-        "model_type": "hunyuan",
-        "base_model_type": "hunyuan",
-        "vram_gb": 12,
-        "defaults": {"width": 848, "height": 480, "frames": 125, "steps": 30, "guidance": 6.0},
-    },
-    "flux/t2i": {
-        "engine": "vendor",
-        "handler": "models.flux.flux_handler",
-        "model_type": "flux",
-        "base_model_type": "flux",
-        "vram_gb": 8,
-        "defaults": {"width": 1024, "height": 1024, "steps": 28, "guidance": 3.5},
-    },
-    "ace_step/v1_5": {
-        "engine": "vendor",
-        "handler": "models.TTS.ace_step_handler",
-        "model_type": "ace_step_v1_5",
-        "base_model_type": "ace_step_v1_5",
-        "vram_gb": 8,
-        "defaults": {"duration": 30, "steps": 8, "guidance": 2.5},
-    },
-    "index_tts/v2": {
-        "engine": "vendor",
-        "handler": "models.TTS.index_tts2_handler",
-        "model_type": "index_tts2",
-        "base_model_type": "index_tts2",
-        "vram_gb": 6,
-        "defaults": {},
-        "blocked": True,
-        "blocked_reason": "Vendored transformers_generation_utils.py incompatible with transformers>=4.55",
-    },
+VENDOR_HANDLERS = [
+    "models.wan.wan_handler",
+    "models.wan.ovi_handler",
+    "models.wan.df_handler",
+    "models.hyvideo.hunyuan_handler",
+    "models.ltx_video.ltxv_handler",
+    "models.ltx2.ltx2_handler",
+    "models.longcat.longcat_handler",
+    "models.flux.flux_handler",
+    "models.qwen.qwen_handler",
+    "models.kandinsky5.kandinsky_handler",
+    "models.z_image.z_image_handler",
+    "models.magi_human.magi_human_handler",
+    "models.TTS.ace_step_handler",
+    "models.TTS.chatterbox_handler",
+    "models.TTS.qwen3_handler",
+    "models.TTS.yue_handler",
+    "models.TTS.heartmula_handler",
+    "models.TTS.kugelaudio_handler",
+    "models.TTS.index_tts2_handler",
+]
 
-    # ── Model Engine: custom nn.Module decomposition ────────────────────────
-    "anigen": {
-        "engine": "model_engine",
+# ─── Model Engine Entries (our code) ──────────────────────────────────────────
+
+MODEL_ENGINE_ENTRIES = [
+    {
+        "name": "anigen",
         "handler": "services.model_engine.handlers.anigen",
         "handler_cls": "AniGenHandler",
         "registry_path": ("3d", "anigen"),
         "vram_gb": 12,
         "defaults": {"ss_steps": 25, "slat_steps": 25, "cfg": 3.5},
     },
-    "trellis": {
-        "engine": "model_engine",
+    {
+        "name": "trellis",
         "handler": "services.model_engine.handlers.trellis",
         "handler_cls": "TrellisHandler",
         "registry_path": ("3d", "trellis"),
         "vram_gb": 10,
         "defaults": {"steps": 50, "guidance": 3.0},
     },
-    "hy_motion": {
-        "engine": "model_engine",
+    {
+        "name": "hy_motion",
         "handler": "services.model_engine.handlers.hy_motion",
         "handler_cls": "HYMotionHandler",
         "registry_path": ("motion", "hy-motion-1.0"),
         "vram_gb": 6,
         "defaults": {"steps": 50, "cfg": 2.0},
     },
-    "moss_soundeffect": {
-        "engine": "model_engine",
+    {
+        "name": "moss_soundeffect",
         "handler": "services.model_engine.handlers.moss",
         "handler_cls": "MossHandler",
         "registry_path": ("audio", "moss-soundeffect"),
         "vram_gb": 16,
         "defaults": {"max_tokens": 4096},
     },
-    "see_through": {
-        "engine": "model_engine",
+    {
+        "name": "see_through",
         "handler": "services.model_engine.handlers.see_through",
         "handler_cls": "SeeThroughHandler",
-        "registry_path": None,  # uses vendored code at /opt/seethrough
+        "registry_path": None,
         "vram_gb": 6,
         "defaults": {"resolution": 1280, "steps": 30},
     },
-    "faster_qwen3_tts": {
-        "engine": "model_engine",
+    {
+        "name": "faster_qwen3_tts",
         "handler": "services.model_engine.handlers.faster_qwen3_tts",
         "handler_cls": "FasterQwen3TTSHandler",
         "registry_path": ("tts", "qwen3-tts-12hz-1.7b-customvoice"),
         "vram_gb": 6,
         "defaults": {"voice": "Aiden", "language": "English"},
     },
-    "vibevoice_asr": {
-        "engine": "model_engine",
+    {
+        "name": "vibevoice_asr",
         "handler": "services.model_engine.handlers.vibevoice_asr",
         "handler_cls": "VibeVoiceASRHandler",
         "registry_path": ("asr", "vibevoice-asr"),
         "vram_gb": 16,
         "defaults": {"language": "english", "max_tokens": 512},
     },
-    "vibevoice_tts": {
-        "engine": "model_engine",
+    {
+        "name": "vibevoice_tts",
         "handler": "services.model_engine.handlers.vibevoice_tts",
         "handler_cls": "VibeVoiceTTSHandler",
         "registry_path": ("tts", "vibevoice"),
         "vram_gb": 18,
         "defaults": {"language": "English", "max_tokens": 4096},
     },
-
-    # ── CPU services (no mmgp offloading needed) ───────────────────────────
-    "kokoro": {
-        "engine": "model_engine",
+    {
+        "name": "kokoro",
         "handler": "services.model_engine.handlers.kokoro",
         "handler_cls": "KokoroHandler",
         "registry_path": ("tts", "kokoro"),
         "vram_gb": 0,
         "defaults": {"voice": "af_bella", "speed": 1.0},
     },
-    "espeak": {
-        "engine": "model_engine",
+    {
+        "name": "espeak",
         "handler": "services.model_engine.handlers.espeak",
         "handler_cls": "EspeakHandler",
-        "registry_path": None,  # no model files — subprocess binary
+        "registry_path": None,
         "vram_gb": 0,
         "defaults": {"voice": "en", "speed": 175, "pitch": 50},
     },
-    "faster_whisper": {
-        "engine": "model_engine",
+    {
+        "name": "faster_whisper",
         "handler": "services.model_engine.handlers.faster_whisper",
         "handler_cls": "FasterWhisperHandler",
         "registry_path": ("asr", "faster-whisper"),
         "vram_gb": 0,
         "defaults": {"language": None, "beam_size": 5},
     },
+]
 
-}
+# ─── mmgp Profiles ────────────────────────────────────────────────────────────
 
 MMGP_PROFILES = {
     "max_speed": 1,
@@ -191,60 +155,444 @@ MMGP_PROFILES = {
     "minimum": 5,
 }
 
+# ─── Payload Passthrough — Security Allowlist ─────────────────────────────────
 
-class Wan2GPService(ForgeService):
-    """Forge adapter for Wan2GP — self-managed VRAM via mmgp.
+# API payload key → upstream generate() kwarg name (naming differences only)
+_KEY_MAP = {
+    "prompt": "input_prompt",
+    "negative_prompt": "n_prompt",
+    "steps": "sampling_steps",
+    "guidance": "guide_scale",
+    "frames": "frame_num",
+}
 
-    Supports both vendor (upstream Wan2GP family_handler) and model_engine
-    (custom nn.Module decomposition) variants.
+# Keys safe to pass through directly (no mapping needed)
+_SAFE_PASSTHROUGH = {
+    "seed", "width", "height", "fps", "batch_size", "shift",
+    "sample_solver", "temperature", "top_p", "top_k",
+    "fit_into_canvas", "joint_pass", "enable_RIFLEx",
+    "cfg_star_switch", "cfg_zero_step", "embedded_guidance_scale",
+    "alt_guide_scale", "guide2_scale", "guide3_scale",
+    "switch_threshold", "switch2_threshold", "guide_phases",
+    "model_switch_phase", "NAG_scale", "NAG_tau", "NAG_alpha",
+    "apg_switch", "overlapped_latents", "return_latent_slice",
+    "overlap_noise", "overlap_size", "conditioning_latents_size",
+    "window_no", "window_start_frame_no",
+    "denoising_strength", "masking_strength", "motion_amplitude",
+    "audio_scale", "audio_cfg_scale", "audio_context_lens",
+    "audio_prompt_type", "audio_proj",
+    "perturbation_switch", "perturbation_layers",
+    "perturbation_start", "perturbation_end",
+    "self_refiner_setting", "self_refiner_plan",
+    "self_refiner_f_uncertainty", "self_refiner_certain_percentage",
+    "color_correction_strength", "prefix_frames_count",
+    "video_prompt_type", "image_mode", "model_mode",
+    "loras_selected", "control_scale_alt",
+    "speakers_bboxes", "pre_video_frame", "prefix_video",
+    "image_refs_relative_size", "image_prompt_type",
+    "duration_seconds", "pause_seconds",
+    # ACE-Step / TTS specific
+    "alt_prompt", "language",
+}
+
+# Blocked for security (filesystem paths, internal config)
+_BLOCKED_KEYS = {
+    "input_custom", "audio_guide", "audio_guide2",
+    "custom_settings", "model_filename", "lora_dir",
+    "output_dir", "input_frames", "input_masks",
+    "input_ref_images", "input_video", "input_faces",
+    "image_start", "image_end",
+}
+
+# ─── Dynamic Model Discovery ──────────────────────────────────────────────────
+
+def discover_models(models_root: Path | None = None) -> dict:
+    """Auto-discover all available models.
+
+    Scans vendor handlers via query_supported_types() and matches against
+    weight files on disk. Model_engine handlers are always registered.
+    Returns a dict of {model_name: entry} compatible with the service registry.
+    """
+    from registry.config import Config
+    from registry.models import ModelRegistry
+
+    cfg = Config()
+    models_root = models_root or Path(cfg.models_root)
+    registry = ModelRegistry()
+
+    discovered = {}
+
+    # ── 1. Vendor handlers (upstream Wan2GP) ──────────────────────────────
+    _ensure_vendor_path()
+
+    for handler_path in VENDOR_HANDLERS:
+        try:
+            handler_mod = importlib.import_module(handler_path)
+            family = handler_mod.family_handler
+            supported = family.query_supported_types()
+
+            for model_type in sorted(supported):
+                model_key = _vendor_key(model_type, handler_path)
+                weight_path = _find_vendor_weights(model_type, registry, models_root)
+
+                discovered[model_key] = {
+                    "engine": "vendor",
+                    "handler_path": handler_path,
+                    "model_type": model_type,
+                    "base_model_type": model_type,
+                    **({"blocked": True, "blocked_reason": "No safetensors found"}
+                       if not weight_path else {}),
+                    "weight_path": str(weight_path) if weight_path else None,
+                    "defaults": {},
+                }
+        except ImportError as e:
+            logger.debug("Vendor handler unavailable: %s (%s)", handler_path, e)
+        except Exception as e:
+            logger.debug("Vendor handler discovery failed: %s (%s)", handler_path, e)
+
+    # ── 2. Model_engine handlers (our code) ───────────────────────────────
+    for entry in MODEL_ENGINE_ENTRIES:
+        name = entry["name"]
+        me_info = {
+            "engine": "model_engine",
+            "handler": entry["handler"],
+            "handler_cls": entry["handler_cls"],
+            "registry_path": entry.get("registry_path"),
+            "vram_gb": entry.get("vram_gb", 0),
+            "defaults": dict(entry.get("defaults", {})),
+        }
+
+        # Check if model weights exist
+        if entry.get("registry_path"):
+            try:
+                model_path = registry.get_path(*entry["registry_path"])
+                if Path(model_path).is_dir():
+                    me_info["weight_path"] = str(model_path)
+            except (KeyError, FileNotFoundError):
+                pass
+        elif entry.get("vram_gb", 0) == 0:
+            # CPU services — no weight files needed
+            me_info["weight_path"] = None
+
+        discovered[name] = me_info
+
+    return discovered
+
+
+def _vendor_key(model_type: str, handler_path: str) -> str:
+    """Derive a stable model key from the model type and handler family."""
+    family = handler_path.split(".")[1]  # e.g., "wan", "hyvideo", "flux"
+    family_map = {
+        "wan": "wan", "hyvideo": "hunyuan", "TTS": "tts",
+        "ltx_video": "ltxv", "ltx2": "ltx2", "longcat": "longcat",
+        "qwen": "qwen", "kandinsky5": "kandinsky",
+        "z_image": "z_image", "magi_human": "magi_human",
+        "flux": "flux",
+    }
+    prefix = family_map.get(family, family)
+    return f"{prefix}/{model_type}"
+
+
+def _find_vendor_weights(model_type: str, registry, models_root: Path) -> Path | None:
+    """Find weight files for a vendor model type."""
+    # Try ModelRegistry first
+    model_key = model_type.replace("/", "-").replace(".", "-")
+    try:
+        path = registry.get_path("wan2gp", model_key)
+        if Path(path).is_dir() and list(Path(path).rglob("*.safetensors")):
+            return Path(path)
+    except (KeyError, FileNotFoundError):
+        pass
+
+    # Fall back to models_root/wan2gp/<model_type>/
+    fallback = models_root / "wan2gp" / model_type
+    if fallback.is_dir() and list(fallback.rglob("*.safetensors")):
+        return fallback
+
+    return None
+
+
+_ven_loaded = False
+
+
+def _ensure_vendor_path():
+    """Add Wan2GP vendor to sys.path (idempotent)."""
+    global _ven_loaded
+    if _ven_loaded:
+        return
+    vendor = str(WAN2GP_VENDOR)
+    if vendor not in sys.path:
+        sys.path.insert(0, vendor)
+    os.environ.setdefault("WAN2GP_ROOT", vendor)
+    _ven_loaded = True
+
+
+def _ensure_quantized_cache():
+    """Monkey-patch QuantizedCacheConfig if missing (transformers compat)."""
+    import transformers.cache_utils as _tcu
+    if not hasattr(_tcu, "QuantizedCacheConfig"):
+        _tcu.QuantizedCacheConfig = type("QuantizedCacheConfig", (), {
+            "__init__": lambda self, **kw: None,
+            "__getattr__": lambda self, name: None,
+        })
+
+
+# ─── Wan2GP Service ───────────────────────────────────────────────────────────
+
+class Wan2GPService:
+    """Standalone Wan2GP service — mmgp-managed VRAM for ALL GPU models.
+
+    Not a ForgeService. Runs as its own Ray Serve deployment with num_gpus: 1.0.
+    mmgp handles all memory management; no external VRAM accounting needed.
     """
 
-    vram_mb = 0
     service_name = "wan2gp"
     default_model = "wan/t2v-14B"
 
-    def __init__(self):
-        super().__init__()
+    def __init__(self, models_root: Path | None = None):
+        self._registry = discover_models(models_root)
+        self._offload = None
+        self._loaded_model: str | None = None
         self._models: dict[str, dict] = {}
-        self._vendor_loaded = False
+        self._vendor_ready = False
 
-    # ── ForgeService lifecycle ────────────────────────────────────────────────
+    # ── Discovery API ─────────────────────────────────────────────────────
+
+    @property
+    def registry(self) -> dict:
+        return dict(self._registry)
+
+    def available_models(self) -> list[str]:
+        """Models that can be loaded (weights exist, not blocked)."""
+        return sorted(k for k, v in self._registry.items()
+                      if not v.get("blocked") or v.get("vram_gb", 0) == 0)
+
+    def blocked_models(self) -> dict[str, str]:
+        """Models that are blocked (missing weights, deps, etc.)."""
+        return {k: v.get("blocked_reason", "unknown")
+                for k, v in self._registry.items() if v.get("blocked")}
+
+    def status(self) -> dict:
+        """Full status: registry, loaded model, VRAM."""
+        gpu = {}
+        try:
+            if torch.cuda.is_available():
+                props = torch.cuda.get_device_properties(0)
+                gpu = {
+                    "device": props.name,
+                    "total_mb": int(props.total_memory / (1024 * 1024)),
+                    "allocated_mb": int(torch.cuda.memory_allocated(0) / (1024 * 1024)),
+                    "reserved_mb": int(torch.cuda.memory_reserved(0) / (1024 * 1024)),
+                }
+        except Exception:
+            pass
+
+        return {
+            "loaded": self._loaded_model,
+            "available": self.available_models(),
+            "blocked": self.blocked_models(),
+            "total_models": len(self._registry),
+            "gpu": gpu,
+        }
+
+    # ── Lifecycle ─────────────────────────────────────────────────────────
 
     def load(self, model_name: str | None = None) -> None:
         model_name = model_name or self.default_model
-        if model_name in self._models:
-            logger.debug("Wan2GP: %s already loaded", model_name)
+
+        if model_name == self._loaded_model:
             return
 
-        handler, info = self._get_handler(model_name)
-        if info.get("blocked"):
+        # Unload current model
+        self.unload()
+
+        entry = self._registry.get(model_name)
+        if entry is None:
+            raise ValueError(
+                f"Unknown model: {model_name}. "
+                f"Available: {self.available_models()}"
+            )
+        if entry.get("blocked"):
             raise RuntimeError(
-                f"Wan2GP model '{model_name}' is blocked: {info.get('blocked_reason', 'unknown')}"
+                f"Model '{model_name}' is blocked: {entry.get('blocked_reason', 'unknown')}"
             )
 
-        engine = info.get("engine", "vendor")
-
+        engine = entry.get("engine", "vendor")
         if engine == "model_engine":
-            self._load_model_engine(model_name, handler, info)
+            self._load_model_engine(model_name, entry)
         else:
-            self._load_vendor(model_name, handler, info)
+            self._load_vendor(model_name, entry)
 
-        self.model_name = model_name
-        self._loaded = True
+        self._loaded_model = model_name
 
-    def _load_vendor(self, model_name, handler, info):
+        vram = torch.cuda.memory_allocated(0) / (1024 ** 2) if torch.cuda.is_available() else 0
+        logger.info("Wan2GP: loaded %s (VRAM=%.0fMB)", model_name, vram)
+
+    def unload(self) -> None:
+        if self._offload is not None:
+            try:
+                self._offload.unload_all()
+            except Exception:
+                pass
+            try:
+                self._offload.release()
+            except Exception:
+                pass
+            self._offload = None
+
+        self._models.clear()
+        self._loaded_model = None
+
+        try:
+            from mmgp import offload
+            offload.flush_torch_caches()
+        except ImportError:
+            pass
+
+        gc.collect()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+
+    # ── Inference ─────────────────────────────────────────────────────────
+
+    def infer(self, payload: dict) -> dict:
+        model_key = payload.get("model", self._loaded_model or self.default_model)
+
+        if model_key != self._loaded_model:
+            self.load(model_key)
+
+        entry = self._registry.get(self._loaded_model)
+        if entry is None:
+            return {"status": "error", "error": f"No model loaded"}
+
+        try:
+            if entry.get("engine") == "model_engine":
+                m = self._models.get(self._loaded_model)
+                if m is None:
+                    return {"status": "error", "error": "Model entry not found"}
+                return m["orchestrator"](payload)
+
+            # Vendor path: build kwargs, call generate
+            gen = self._do_generate(self._models[self._loaded_model], payload)
+            result = {
+                "status": "ok",
+                "data": base64.b64encode(gen["data"]).decode(),
+                "media_type": gen["media_type"],
+            }
+            result["model"] = self._loaded_model
+            return result
+
+        except Exception as e:
+            logger.error("Wan2GP inference failed: %s", e, exc_info=True)
+            return {"status": "error", "error": str(e)}
+
+    def _do_generate(self, entry: dict, payload: dict) -> dict:
+        """Vendor generate with security-allowlisted payload passthrough."""
+        model = entry["model"]
+        info = entry["info"]
+        defaults = info.get("defaults", {})
+        base_model_type = info.get("base_model_type", "")
+
+        # Build kwargs from payload with allowlist
+        kwargs = _build_generate_kwargs(payload, defaults)
+
+        # Handle image for i2v models
+        if base_model_type in ("i2v", "i2v_2_2"):
+            image_b64 = payload.get("image_b64", "")
+            if not image_b64:
+                raise ValueError("image_b64 is required for i2v models")
+            from PIL import Image
+            import io
+            img = Image.open(io.BytesIO(base64.b64decode(image_b64))).convert("RGB")
+            kwargs["image_start"] = img
+
+        logger.info("Wan2GP generate: prompt=%r steps=%d",
+                     kwargs.get("input_prompt", "")[:80],
+                     kwargs.get("sampling_steps", 50))
+
+        output = model.generate(**kwargs)
+
+        from mmgp import offload
+        offload.clear_caches()
+
+        # Extract frames/audio from output
+        if isinstance(output, dict):
+            frames_tensor = output.get("x")
+            audio = output.get("audio")
+        elif isinstance(output, torch.Tensor):
+            frames_tensor = output
+            audio = None
+        else:
+            frames_tensor = output
+            audio = None
+
+        if frames_tensor is None:
+            raise RuntimeError("Model returned no frames")
+
+        frames_np = frames_tensor.cpu().numpy() if isinstance(frames_tensor, torch.Tensor) else frames_tensor
+        if frames_np.dtype != np.uint8:
+            frames_np = ((frames_np * 0.5 + 0.5).clip(0, 1) * 255).astype(np.uint8)
+
+        import tempfile
+        tmp = tempfile.NamedTemporaryFile(suffix=".mp4", delete=False)
+        tmp_path = tmp.name
+        tmp.close()
+
+        if len(frames_np.shape) == 4 and frames_np.shape[0] > 1:
+            import imageio
+            fps = int(payload.get("fps", defaults.get("fps", 16)))
+            writer = imageio.get_writer(tmp_path, fps=fps, codec="libx264", quality=8)
+            for f in frames_np:
+                writer.append_data(f)
+            writer.close()
+        else:
+            from PIL import Image as PILImage
+            img = frames_np[0] if len(frames_np.shape) == 4 else frames_np
+            PILImage.fromarray(img).save(tmp_path, format="PNG")
+
+        with open(tmp_path, "rb") as f:
+            data_bytes = f.read()
+        os.unlink(tmp_path)
+
+        extra = {}
+        if audio is not None:
+            audio_np = audio.cpu().numpy() if isinstance(audio, torch.Tensor) else audio
+            import soundfile as sf
+            import io as audio_io
+            audio_buf = audio_io.BytesIO()
+            sf.write(audio_buf, audio_np, 24000, format="WAV")
+            extra["audio_b64"] = base64.b64encode(audio_buf.getvalue()).decode()
+
+        media_type = "video/mp4" if frames_np.ndim == 4 and frames_np.shape[0] > 1 else "image/png"
+        return {"data": data_bytes, "media_type": media_type, **extra}
+
+    # ── Vendor Loading ────────────────────────────────────────────────────
+
+    def _load_vendor(self, model_name: str, entry: dict) -> None:
+        _ensure_vendor_path()
+        _ensure_quantized_cache()
+
+        handler_path = entry["handler_path"]
+        model_type = entry["model_type"]
+        base_model_type = entry["base_model_type"]
+
+        handler_mod = importlib.import_module(handler_path)
+        handler = handler_mod.family_handler
+
         from registry.config import Config
         from registry.models import ModelRegistry
-
         cfg = Config()
-        registry = ModelRegistry()
-        model_type = info["model_type"]
-        base_model_type = info["base_model_type"]
+        model_registry = ModelRegistry()
 
         model_key_safe = model_name.replace("/", "-")
-        model_path = registry.get_path("wan2gp", model_key_safe) if "wan2gp" in registry.data else None
-        if not model_path or not model_path.is_dir():
-            logger.warning("Model path not found in registry for %s, using default ckpts", model_name)
+        model_path = None
+        try:
+            path = model_registry.get_path("wan2gp", model_key_safe)
+            model_path = Path(path) if Path(path).is_dir() else None
+        except (KeyError, FileNotFoundError):
+            pass
+
+        if model_path is None:
             model_path = Path(cfg.models_root) / "wan2gp" / model_type
 
         checkpoint_root = model_path.parent if model_path.parent.name == "wan2gp" else model_path
@@ -254,7 +602,8 @@ class Wan2GPService(ForgeService):
         model_files = list(model_path.rglob("*.safetensors"))
         if not model_files and model_type.endswith("tts"):
             parent_files = list(model_path.parent.glob("*.safetensors"))
-            model_files = [f for f in parent_files if model_type in f.name.lower() or "index_tts2" in f.name.lower()]
+            model_files = [f for f in parent_files
+                          if model_type in f.name.lower() or "index_tts2" in f.name.lower()]
         if not model_files:
             raise FileNotFoundError(f"No safetensors found for {model_name} in {model_path}")
 
@@ -301,23 +650,20 @@ class Wan2GPService(ForgeService):
             "engine": "vendor",
             "model": wan_model,
             "pipe": pipe,
-            "info": info,
+            "info": entry,
             "loaded_at": time.time(),
         }
 
-        vram = torch.cuda.memory_allocated(0) / (1024**2) if torch.cuda.is_available() else 0
-        logger.info("Loaded %s (VRAM=%.0fMB, active=%d)", model_name, vram, len(self._models))
-        torch.cuda.empty_cache()
-        gc.collect()
+    def _load_model_engine(self, model_name: str, entry: dict) -> None:
+        handler_mod = importlib.import_module(entry["handler"])
+        handler_cls = getattr(handler_mod, entry["handler_cls"])
+        handler = handler_cls()
 
-    def _load_model_engine(self, model_name, handler, info):
         from registry.config import Config
-
         cfg = Config()
         models_root = Path(cfg.models_root)
 
-        # Resolve model path: registry → handler fallback → see_through fixed path
-        registry_path = info.get("registry_path")
+        registry_path = entry.get("registry_path")
         model_path = None
 
         if registry_path:
@@ -325,34 +671,38 @@ class Wan2GPService(ForgeService):
                 from registry.models import ModelRegistry
                 registry = ModelRegistry()
                 model_path = registry.get_path(*registry_path)
+                model_path = Path(model_path)
             except (KeyError, FileNotFoundError):
                 model_path = None
 
-        if model_path is None or not (model_path := Path(model_path)).is_dir():
+        if model_path is None or not model_path.is_dir():
             model_path = handler.resolve_path(model_name, models_root)
 
         if not model_path.is_dir():
-            # Last resort: see_through uses vendored code at fixed location
-            if registry_path is None:
+            if entry.get("vram_gb", 0) == 0:
+                # CPU service — no weight path needed
+                model_path = models_root
+            elif registry_path is None:
                 model_path = Path("/opt/seethrough")
             if not model_path.is_dir():
-                raise FileNotFoundError(f"Model path not found for {model_name}: {model_path}")
+                raise FileNotFoundError(
+                    f"Model path not found for {model_name}: {model_path}"
+                )
 
-        model_type = info.get("model_type", model_name)
-
+        model_type = entry.get("model_type", model_name)
         logger.info("Loading %s (model_engine, nn.Module) from %s", model_name, model_path)
         torch.set_default_device("cpu")
 
-        load_result = handler.load_model(model_type, model_path=model_path, dtype=torch.bfloat16)
+        load_result = handler.load_model(
+            model_type, model_path=model_path, dtype=torch.bfloat16
+        )
 
         orchestrator = load_result.pipeline
         pipe = load_result.pipe
         co_tenants = load_result.co_tenants or {}
 
-        # Only run mmgp offload if there are nn.Modules to manage
         if pipe:
             from mmgp import offload
-
             budgets = {"transformer": 250, "text_encoder": 250, "*": 3000}
             offload.profile(
                 pipe,
@@ -369,191 +719,9 @@ class Wan2GPService(ForgeService):
             "engine": "model_engine",
             "orchestrator": orchestrator,
             "pipe": pipe,
-            "info": info,
+            "info": entry,
             "loaded_at": time.time(),
         }
-
-        vram = torch.cuda.memory_allocated(0) / (1024**2) if torch.cuda.is_available() else 0
-        logger.info("Loaded %s (VRAM=%.0fMB, active=%d)", model_name, vram, len(self._models))
-        torch.cuda.empty_cache()
-        gc.collect()
-
-    def unload(self) -> None:
-        self._models.clear()
-        self._loaded = False
-        try:
-            from mmgp import offload
-            offload.flush_torch_caches()
-        except ImportError:
-            pass
-        gc.collect()
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
-        super().unload()
-
-    def infer(self, payload: dict) -> dict:
-        model_key = payload.get("model", self.default_model)
-        if model_key not in self._models:
-            self.load(model_key)
-
-        entry = self._models.get(model_key)
-        if entry is None:
-            return {"status": "error", "error": f"Model {model_key} not loaded"}
-
-        try:
-            if entry.get("engine") == "model_engine":
-                result = entry["orchestrator"](payload)
-            else:
-                gen = self._do_generate(entry, payload)
-                result = {
-                    "status": "ok",
-                    "data": base64.b64encode(gen["data"]).decode(),
-                    "media_type": gen["media_type"],
-                }
-
-            result["model"] = model_key
-            return result
-        except Exception as e:
-            logger.error("Wan2GP %s inference failed: %s", model_key, e, exc_info=True)
-            return {"status": "error", "error": str(e)}
-
-    def _do_generate(self, entry: dict, payload: dict) -> dict:
-        """Vendor path: core generation logic. Returns dict with 'data' (bytes) and 'media_type'."""
-        model = entry["model"]
-        info = entry["info"]
-        defaults = info.get("defaults", {})
-        base_model_type = info.get("base_model_type", "")
-
-        from mmgp import offload
-
-        prompt = payload.get("prompt", "")
-        if not prompt:
-            raise ValueError("prompt is required")
-
-        seed = int(payload.get("seed", -1))
-        steps = int(payload.get("steps", defaults.get("steps", 50)))
-        guidance = float(payload.get("guidance", defaults.get("guidance", 5.0)))
-        width = int(defaults.get("width", 1280))
-        height = int(defaults.get("height", 720))
-        frames = int(defaults.get("frames", 81))
-
-        gen = torch.Generator("cuda" if torch.cuda.is_available() else "cpu")
-        if seed >= 0:
-            gen.manual_seed(seed)
-
-        logger.info("Wan2GP generate: prompt=%r seed=%d steps=%d", prompt[:80], seed, steps)
-
-        kwargs = {
-            "input_prompt": prompt,
-            "width": width,
-            "height": height,
-            "frame_num": frames,
-            "sampling_steps": steps,
-            "guide_scale": guidance,
-            "seed": gen.initial_seed() if seed >= 0 else -1,
-        }
-
-        if base_model_type in ("t2v", "t2v_2_2"):
-            output = model.generate(**kwargs)
-        elif base_model_type in ("i2v", "i2v_2_2"):
-            image_b64 = payload.get("image_b64", "")
-            if not image_b64:
-                raise ValueError("image_b64 is required for i2v models")
-            from PIL import Image
-            import io
-            img = Image.open(io.BytesIO(base64.b64decode(image_b64))).convert("RGB")
-            kwargs["image_start"] = img
-            output = model.generate(**kwargs)
-        else:
-            raise ValueError(f"Unsupported base_model_type: {base_model_type}")
-
-        offload.clear_caches()
-
-        if isinstance(output, dict):
-            frames_tensor = output.get("x")
-            audio = output.get("audio")
-        elif isinstance(output, torch.Tensor):
-            frames_tensor = output
-            audio = None
-        else:
-            frames_tensor = output
-            audio = None
-
-        if frames_tensor is None:
-            raise RuntimeError("Model returned no frames")
-
-        frames_np = frames_tensor.cpu().numpy() if isinstance(frames_tensor, torch.Tensor) else frames_tensor
-        if frames_np.dtype != np.uint8:
-            frames_np = ((frames_np * 0.5 + 0.5).clip(0, 1) * 255).astype(np.uint8)
-
-        import tempfile
-        tmp = tempfile.NamedTemporaryFile(suffix=".mp4", delete=False)
-        tmp_path = tmp.name
-        tmp.close()
-
-        if len(frames_np.shape) == 4 and frames_np.shape[0] > 1:
-            import imageio
-            fps = payload.get("fps", defaults.get("fps", 16))
-            writer = imageio.get_writer(tmp_path, fps=fps, codec="libx264", quality=8)
-            for f in frames_np:
-                writer.append_data(f)
-            writer.close()
-        else:
-            from PIL import Image as PILImage
-            img = frames_np[0] if len(frames_np.shape) == 4 else frames_np
-            PILImage.fromarray(img).save(tmp_path, format="PNG")
-
-        with open(tmp_path, "rb") as f:
-            video_bytes = f.read()
-        os.unlink(tmp_path)
-
-        extra = {}
-        if audio is not None:
-            audio_np = audio.cpu().numpy() if isinstance(audio, torch.Tensor) else audio
-            import soundfile as sf
-            import io as audio_io
-            audio_buf = audio_io.BytesIO()
-            sf.write(audio_buf, audio_np, 24000, format="WAV")
-            extra["audio_b64"] = base64.b64encode(audio_buf.getvalue()).decode()
-
-        media_type = "video/mp4" if frames_np.ndim == 4 and frames_np.shape[0] > 1 else "image/png"
-        return {"data": video_bytes, "media_type": media_type}
-
-    # ── Vendor loading helpers ─────────────────────────────────────────────────
-
-    def _ensure_vendor(self):
-        if self._vendor_loaded:
-            return
-        vendor = str(WAN2GP_VENDOR)
-        if vendor not in sys.path:
-            sys.path.insert(0, vendor)
-        os.environ["WAN2GP_ROOT"] = vendor
-        import transformers.cache_utils as _tcu
-        if not hasattr(_tcu, "QuantizedCacheConfig"):
-            _tcu.QuantizedCacheConfig = type("QuantizedCacheConfig", (), {
-                "__init__": lambda self, **kw: None,
-                "__getattr__": lambda self, name: None,
-            })
-        self._vendor_loaded = True
-
-    def _get_handler(self, model_key: str):
-        info = V2V_MODELS.get(model_key)
-        if info is None:
-            raise ValueError(f"Unknown model: {model_key}. Available: {sorted(V2V_MODELS.keys())}")
-
-        engine = info.get("engine", "vendor")
-        if engine == "model_engine":
-            import importlib
-            mod = importlib.import_module(info["handler"])
-            handler_cls = getattr(mod, info["handler_cls"])
-            handler = handler_cls()
-            return handler, info
-
-        self._ensure_vendor()
-        import importlib
-        mod = importlib.import_module(info["handler"])
-        handler = mod.family_handler
-        return handler, info
 
     def _build_model_def(self, handler, base_model_type: str, model_path: Path) -> dict:
         text_encoder_folder = None
@@ -575,3 +743,43 @@ class Wan2GPService(ForgeService):
 
         enriched = handler.query_model_def(base_model_type, base)
         return enriched
+
+
+# ─── Payload Passthrough Helpers ───────────────────────────────────────────────
+
+def _build_generate_kwargs(payload: dict, defaults: dict) -> dict:
+    """Build kwargs for model.generate() with security allowlist.
+
+    Forwards all safe params, maps known key names, blocks dangerous ones,
+    and silences unknown keys (logged at debug level).
+    """
+    kwargs = {}
+
+    # Apply defaults first (can be overridden by payload)
+    for k, v in defaults.items():
+        if k in _SAFE_PASSTHROUGH or k in _KEY_MAP.values():
+            kwargs[k] = v
+
+    # Map known keys from payload
+    for src, dst in _KEY_MAP.items():
+        if src in payload:
+            kwargs[dst] = payload[src]
+        elif src not in payload and dst not in kwargs:
+            kwargs[dst] = defaults.get(src)
+
+    # Safe passthrough from payload
+    for key in _SAFE_PASSTHROUGH:
+        if key in payload:
+            kwargs[key] = payload[key]
+
+    # Handle seed specially
+    if "seed" not in kwargs:
+        kwargs["seed"] = -1
+
+    # Log blocked keys for audit
+    for key in _BLOCKED_KEYS:
+        if key in payload:
+            logger.debug("Blocked key in payload: %s", key)
+
+    return kwargs
+

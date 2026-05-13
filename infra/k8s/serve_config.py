@@ -7,7 +7,13 @@ ALL model services go through the Forge → wan2gp → model_engine system.
 No standalone service deployments. One system, one truth.
 """
 
-# ─── The Forge — VRAM-aware GPU manager (all models route here) ──────────────
+# ─── Wan2GP — unified GPU model deployment (all vendor + model_engine models) ──
+# num_gpus: 1.0 — mmgp handles VRAM/CPU/RAM management for ALL models
+# Dynamic registry: auto-discovers models from 19 vendor handlers + 12 model_engine
+# See services/wan2gp/deployment.py for the full dynamic registry system.
+from services.wan2gp.serve_deployment import wan2gp_deployment
+
+# ─── The Forge — VRAM-aware GPU manager (ComfyUI + LLM subprocess services) ────
 from services.forge import forge
 
 # Playground UI (serves interactive HTML page + service metadata API)
@@ -20,9 +26,3 @@ playground = PlaygroundDeployment.bind()
 from gateway.ingress_deployment import APIIngressDeployment
 
 api_ingress = APIIngressDeployment.bind()
-
-# ─── All models route through /forge → wan2gp V2V_MODELS ────────────────────
-# GPU: wan/t2v, wan/i2v, hunyuan, flux, ace_step, index_tts, anigen, trellis,
-#      hy_motion, moss, see_through, faster_qwen3_tts, vibevoice_asr, vibevoice_tts
-# CPU: kokoro, espeak, faster_whisper
-# See services/wan2gp/deployment.py V2V_MODELS for the full registry.

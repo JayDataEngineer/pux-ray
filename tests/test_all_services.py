@@ -1,6 +1,6 @@
 """End-to-end test for ALL services through the Wan2GP unified system.
 
-Tests every entry in V2V_MODELS via Wan2GPService.load() → infer() → unload().
+Tests every entry in the dynamic model registry via Wan2GPService.load() → infer() → unload().
 Skips models that need Docker-only deps (marks clearly).
 Reports pass/fail per model + summary.
 
@@ -12,7 +12,7 @@ import traceback
 
 sys.path.insert(0, "/home/user/Documents/programs/ray")
 
-from services.wan2gp.deployment import V2V_MODELS, Wan2GPService
+from services.wan2gp.deployment import Wan2GPService
 
 
 def vram():
@@ -103,8 +103,8 @@ def main():
     service = Wan2GPService()
     results = {}
 
-    keys = sorted(V2V_MODELS.keys())
-    print(f"Testing {len(keys)} models from V2V_MODELS")
+    keys = service.available_models()
+    print(f"Testing {len(keys)} available models from dynamic registry")
     print(f"Models: {keys}")
 
     for key in keys:
