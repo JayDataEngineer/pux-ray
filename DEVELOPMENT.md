@@ -1,284 +1,124 @@
 # Developing on a Constrained Cluster
 
-Single RTX 4090 (24GB VRAM), single GPU worker pod. Tier 1 services are always running.
-This guide covers how to develop and debug Tier 3 services without disrupting production.
+Single RTX 4090 (24GB VRAM), single GPU worker pod. All services route through
+the unified wan2gp → model_engine system.
 
-## Production State (don't touch carelessly)
+## Architecture: One System, One Truth
 
-10 Tier 1 services are deployed and tested:
+Every model service — GPU and CPU — goes through a single path:
+
+```
+Request → Forge → Wan2GPService → model_engine handler → orchestrator → forward()
+```
+
+- **Forge** (`services/forge.py`): VRAM-aware GPU manager with 3 services: `wan2gp`, `comfyui`, `llm`
+- **Wan2GPService** (`services/wan2gp/deployment.py`): Unified model pool with V2V_MODELS registry (17 entries)
+- **model_engine handlers** (`services/model_engine/handlers/`): nn.Module decomposition + orchestrator
+- **Vendor handlers** (wan, hunyuan, flux, ace_step, index_tts): Upstream Wan2GP family_handler code
+
+### Handler pattern (3-file structure)
+
+```
+handlers/<family>/
+  __init__.py      # BaseHandler implementation + variant metadata
+  modules.py       # Load nn.Modules, build pipe dict, extract weights
+  orchestrator.py  # Raw forward() calls — the inference logic
+```
+
+Exceptions (no nn.Modules):
+- `espeak/` — subprocess binary, no modules.py
+- `faster_whisper/` — CTranslate2 backend, no modules.py
+
+## Service Tiers
+
+### Tier 1 — Forge Services (always available via `/forge`)
 
 | Service | GPU | VRAM |
 |---------|-----|------|
-| kokoro, espeak, faster_whisper | CPU | 0 |
-| faster_qwen3_tts | 0.20 | ~3.5GB |
-| index_tts | 0.10 | ~1.5GB |
-| vibevoice_cpp | 0.10 | ~1.5GB |
-| ace_step | 0.40 | ~8GB |
-| trellis | 0.95 | ~18GB |
-| comfyui | 1.00 | variable |
+| wan2gp | 1.0 (self-managed via mmgp) | varies by model |
+| comfyui | subprocess | exclusive GPU |
+| llm | subprocess | exclusive GPU |
 
-Ray Serve autoscaling has `min_replicas: 0` on all GPU services — they load on first
-request and unload after 30s idle. GPU fractions are soft reservations, not hard limits.
-Multiple services can coexist if their combined VRAM fits in 24GB.
+### Models in V2V_MODELS (wan2gp pool)
 
-## Workflow: Fix a Tier 3 Service
+| Model | Engine | VRAM |
+|-------|--------|------|
+| wan/t2v-14B | vendor | 14GB |
+| wan/i2v-14B | vendor | 14GB |
+| hunyuan/t2v | vendor | 12GB |
+| flux/t2i | vendor | 8GB |
+| ace_step/v1_5 | vendor | 8GB |
+| index_tts/v2 | vendor | 6GB (blocked) |
+| anigen | model_engine | 12GB |
+| trellis | model_engine | 10GB |
+| hy_motion | model_engine | 6GB |
+| moss_soundeffect | model_engine | 16GB |
+| see_through | model_engine | 6GB |
+| faster_qwen3_tts | model_engine | 6GB |
+| vibevoice_asr | model_engine | 16GB |
+| vibevoice_tts | model_engine | 18GB |
+| kokoro | model_engine (CPU) | 0 |
+| espeak | model_engine (CPU) | 0 |
+| faster_whisper | model_engine (CPU) | 0 |
 
-### Step 1: Reproduce the failure
+## Workflow: Debug a Model
 
-Exec into the running GPU worker and test the service code directly:
+### Step 1: Test locally
 
 ```bash
 WORKER=$(kubectl get pods -n ai-services -l ray.io/node-type=worker -o jsonpath='{.items[0].metadata.name}')
 
+# Test through the unified system
 kubectl exec -n ai-services $WORKER -c ray-worker -- python3 -c "
-from services.tts.gpt_sovits import GPTSoVITSDeployment
-d = GPTSoVITSDeployment()
-d._load()
-print('loaded ok')
-"
-```
-
-This runs the service code in the same environment (Python, deps, models) as production
-but without going through Ray Serve. If `_load()` fails, you see the real error immediately.
-
-For subprocess-based services (ComfyUI, vibevoice.cpp), test the binary directly:
-
-```bash
-kubectl exec -n ai-services $WORKER -c ray-worker -- python3 -c "
-import subprocess
-proc = subprocess.Popen(
-    ['python3', 'main.py', '--port', '18465', '--listen', '0.0.0.0'],
-    cwd='/opt/ComfyUI',
-    stdout=open('/tmp/comfyui-test.log', 'w'),
-    stderr=subprocess.STDOUT,
-)
-import time; time.sleep(30)
-proc.kill()
-print(open('/tmp/comfyui-test.log').read()[-2000:])
+from services.wan2gp.deployment import Wan2GPService
+svc = Wan2GPService()
+svc.load('trellis')
+result = svc.infer({'prompt': 'a cat', 'steps': 1, 'image_b64': 'x'})
+print(result.get('status'))
+svc.unload()
 "
 ```
 
 ### Step 2: Fix the code
 
-Edit the service file on the host at `/home/user/Documents/programs/ray/services/...`.
-Then rebuild the image and recycle the pods:
+Handler code lives in `services/model_engine/handlers/<family>/`. The 3-file
+structure means you can usually fix inference logic in `orchestrator.py`
+without touching module loading.
 
 ```bash
+# Rebuild + recycle
 bash infra/k8s/build_and_import.sh
 kubectl delete pods -n ai-services -l ray.io/is-ray-node=yes
 ```
 
-Wait ~90 seconds for pods to come back up. Check with:
+### Step 3: Run the test suite
 
 ```bash
-kubectl get pods -n ai-services -l ray.io/is-ray-node=yes
+python tests/test_all_services.py
 ```
-
-### Step 3: Deploy to Serve (one service at a time)
-
-Uncomment the service in two files:
-
-**`infra/k8s/serve_config.py`** — the Python import:
-```python
-# Uncomment:
-from services.tts.gpt_sovits import GPTSoVITSDeployment
-gpt_sovits = GPTSoVITSDeployment.bind()
-```
-
-**`infra/k8s/ray-service.yaml`** — the Serve config:
-```yaml
-- name: gpt_sovits
-  import_path: serve_config:gpt_sovits
-  route_prefix: /tts/gpt-sovits
-  deployments:
-    - name: gpt_sovits
-      autoscaling_config: { min_replicas: 0, max_replicas: 1, downscale_delay_s: 30 }
-      ray_actor_options: { num_gpus: 0.25 }
-```
-
-Then rebuild + recycle (Step 2). The service registers its route but doesn't load
-until a request arrives (`min_replicas: 0`). If it crashes on load, only that
-deployment fails — the other 10 keep serving.
-
-### Step 4: Test
-
-```bash
-# Port-forward to the Ray Serve proxy
-HEAD=$(kubectl get pods -n ai-services -l ray.io/node-type=head -o jsonpath='{.items[0].metadata.name}')
-kubectl port-forward --address 0.0.0.0 -n ai-services $HEAD 18080:8000 &
-
-# Hit the new service
-curl -s http://localhost:18080/tts/gpt-sovits/ \
-  -d '{"action":"generate","input":{"text":"Hello"}}' --max-time 300
-```
-
-Run the full Tier 1 test suite to verify you didn't break anything:
-
-```bash
-.venv/bin/python scripts/test_services_v2.py --tier1 --timeout 300
-```
-
-### Step 5: Promote to Tier 1
-
-If the service passes reliably (3+ runs, no timeouts), move it to the Tier 1 section
-in `serve_config.py` and `ray-service.yaml`. Update `scripts/test_services_v2.py` to
-include it in the default Tier 1 test run. Update `CLAUDE.md`.
 
 ## GPU Budget
 
-Total VRAM: 24GB. Current Tier 1 GPU allocations sum to ~2.75 fractional, but actual
-VRAM usage depends on which services are loaded simultaneously. Ray Serve autoscaling
-means services share the GPU over time.
+Total VRAM: 24GB. mmgp manages VRAM per-module, not per-model. Multiple
+models can share the GPU through the mmgp pool with per-layer swapping.
 
-If a Tier 3 service needs significant VRAM, you may need to temporarily comment out a
-Tier 1 GPU service (e.g. trellis at 0.95) to make room. This is safe — just uncomment
-it back when done debugging.
-
-**ComfyUI** is special: it uses `num_gpus: 1.0` (exclusive). When ComfyUI is loaded,
-no other GPU service can start. It's safe because `min_replicas: 0` means it only loads
-on demand, and Ray won't schedule it until all other GPU replicas are at zero.
-
-## Useful Commands
-
-```bash
-# Cluster status
-kubectl get pods -n ai-services -l ray.io/is-ray-node=yes -o wide
-
-# Check which Serve routes are registered
-kubectl exec -n ai-services $HEAD -c ray-head -- python3 -c "
-import urllib.request; print(urllib.request.urlopen('http://localhost:8000/-/routes').read().decode())
-"
-
-# Check deployment health
-kubectl exec -n ai-services $HEAD -c ray-head -- python3 -c "
-import urllib.request, json
-data = json.loads(urllib.request.urlopen('http://localhost:8265/api/serve/applications/').read())
-for name, app in data.get('applications', {}).items():
-    for dname, dep in app.get('deployments', {}).items():
-        status = dep.get('status', '?')
-        gpus = dep.get('deployment_config', {}).get('ray_actor_options', {}).get('num_gpus', 0)
-        print(f'{dname:30s} {status:15s} GPUs={gpus}')
-"
-
-# Worker logs (service crashes show up here)
-kubectl logs -n ai-services $WORKER -c ray-worker --tail=100
-
-# Specific service replica logs
-kubectl exec -n ai-services $WORKER -- find /tmp/ray -name "*.log" -path "*SERVICENAME*"
-kubectl exec -n ai-services $WORKER -- tail -50 /tmp/ray/.../replica_name.log
-
-# Subprocess logs (for SubprocessProxyMixin services)
-kubectl exec -n ai-services $WORKER -- cat /tmp/tech-noir/subprocess.log
-
-# Rebuild and redeploy (full cycle)
-bash infra/k8s/build_and_import.sh && kubectl delete pods -n ai-services -l ray.io/is-ray-node=yes
-
-# Run integration tests
-.venv/bin/python scripts/test_services_v2.py --tier1 --timeout 300
-.venv/bin/python scripts/test_services_v2.py --all --timeout 300
-```
-
-## Patterns
-
-### Service won't load (import error, missing dep)
-
-1. `kubectl exec` into worker, try the import manually
-2. If the dep is missing from the image, add to `Dockerfile.gpu-all`
-3. Rebuild + recycle
-
-### Service loads but request fails (API incompat, wrong model)
-
-1. Check the replica log for the traceback
-2. Fix the `_generate()` method in the service file
-3. Rebuild + recycle (code changes need a new image)
-
-### Service times out on first request
-
-This is normal for heavy GPU models. The `_load()` method has to:
-- Download/allocate model weights (~seconds to minutes)
-- Warm up CUDA kernels
-
-If it consistently times out at 300s, increase the timeout in the test or
-set `min_replicas: 1` to keep it warm (uses more VRAM).
-
-### Service OOMs the GPU
-
-1. Reduce `num_gpus` fraction (doesn't actually limit VRAM, just scheduling)
-2. Add `torch.cuda.empty_cache()` in `_unload()`
-3. Use quantized models (GGUF, GPTQ, AWQ)
-4. Comment out a competing Tier 1 service while debugging
-
-## Wan2GP — Multi-Model Pool with mmgp
-
-Wan2GP is a multi-model pool that uses **mmgp** (Memory Management for GPU Pipelines) to run diffusion models on constrained VRAM. It registers as `vram_mb=0` in the Forge — self-managed, always allowed to load alongside other services.
-
-### How mmgp works
-
-mmgp hooks into every `forward()` call. For each layer:
-
-1. Layer's parameters copy from CPU RAM -> VRAM
-2. Layer computes on GPU
-3. Next layer prefetched via async CUDA stream
-4. Previous layer's params dropped from VRAM
-
-A 14B model that needs ~28GB fits in ~10-12GB active VRAM because only 1-2 transformer blocks are in VRAM at any moment. The rest stays in CPU RAM (pinned for faster DMA).
-
-### Profile system
-
-mmgp auto-detects hardware and picks a profile. The deployment overrides to "balanced" (Profile 2) with explicit budgets to leave headroom for concurrent Forge services.
-
-| Profile | RAM | VRAM | Strategy |
-|---------|-----|------|----------|
-| 1 | 64GB | 24GB | Everything in VRAM, no swapping, full speed |
-| 2 | 64GB | 12GB | Budget-limited per-component, pinned RAM swaps |
-| 4 | 32GB | 12GB | Budget-limited, int8 quantized |
-| 5 | 24GB | 10GB | Minimum, block-by-block, slowest |
-
-Budgets configured in `services/wan2gp/deployment.py`:
+Budgets in `services/wan2gp/deployment.py`:
 
 ```python
 budgets = {"transformer": 250, "text_encoder": 250, "*": 3000}
 ```
 
-This means the transformer only occupies 250MB VRAM at a time (rest swapped per-layer), text encoder 250MB, and everything else (VAE, etc.) up to 3GB.
+## Blocked: IndexTTS via Wan2GP
 
-### Model variants
+IndexTTS through Wan2GP is blocked. Wan2GP vendors a forked copy of
+`transformers/generation/utils.py` incompatible with transformers >=4.55.
+Resolution: wait for Wan2GP to update, or shim the missing symbols.
 
-| Model | Type | Estimated VRAM | Unique to Wan2GP? |
-|-------|------|---------------|-------------------|
-| `wan/t2v-14B` | text-to-video | 14GB | Yes |
-| `wan/i2v-14B` | image-to-video | 14GB | Yes |
-| `hunyuan/t2v` | text-to-video | 12GB | Yes |
-| `flux/t2i` | text-to-image | 8GB | Yes |
-| `ace_step/v1_5` | text-to-music | 8GB | **Duplicate** — also standalone Forge service |
-| `index_tts/v2` | text-to-speech | 6GB | **Blocked** — vendored transformers fork incompatible with >=4.55 |
+## Adding a New Model
 
-### Duplicated services
+1. Create handler in `services/model_engine/handlers/<name>/`
+2. Implement `modules.py` (nn.Module decomposition) and `orchestrator.py` (forward() calls)
+3. Register in `V2V_MODELS` in `services/wan2gp/deployment.py`
+4. Add test payload to `tests/test_all_services.py`
 
-ACE-Step exists both as standalone service and inside Wan2GP:
-
-- **Standalone**: loads full model into VRAM, fastest inference. Exclusive GPU.
-- **Wan2GP**: loads through mmgp with per-layer swapping. Less active VRAM, slower, but can coexist with other Wan2GP models in the pool.
-
-Use standalone for speed, Wan2GP when you need to run multiple models without GPU eviction.
-
-### Blocked: IndexTTS via Wan2GP
-
-IndexTTS through Wan2GP is blocked. Wan2GP vendors a forked copy of `transformers/generation/utils.py` (as `models/TTS/index_tts2/gpt/transformers_generation_utils.py`) that imports internal symbols removed in transformers >=4.55 (`QuantizedCacheConfig`, `NEED_SETUP_CACHE_CLASSES_MAPPING`, `QUANT_BACKEND_CLASSES_MAPPING`, etc.). Wan2GP pins `transformers==4.54.0` but the rest of our stack uses `4.57.3`.
-
-The standalone IndexTTS deployment (Ray Serve, `services/tts/index_tts.py`) works fine — it uses the IndexTTS-2 model directly without Wan2GP's vendored transformers fork.
-
-**Resolution paths:**
-1. Wait for Wan2GP to update their vendored transformers fork
-2. Pin transformers to 4.54 in a separate Wan2GP Docker image
-3. Shim the missing symbols (fragile, many changes)
-
-### Model persistence
-
-Models persist between `infer()` calls. The `_models` dict accumulates loaded variants — calling `wan/t2v-14B` then `flux/t2i` keeps both in CPU RAM. mmgp swaps their subcomponents in/out of VRAM as needed. Models are only fully evicted when the Forge calls `unload()` (eviction for another service, or explicit `/admin/unload`).
-
-**Gap**: no LRU eviction on the `_models` pool. Three 14B models = ~42GB CPU RAM for weight copies. Add cleanup logic if this becomes a problem.
-
-### ComfyUI interaction
-
-Wan2GP and ComfyUI cannot coexist. They're both in the Forge's SERVICE_MAP but the Forge evicts one before loading the other. ComfyUI runs as a subprocess with its own VRAM management. Wan2GP runs in-process with mmgp. No bridge between them.
+No changes needed to `serve_config.py`, `ray-service.yaml`, or the Forge.

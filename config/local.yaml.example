@@ -35,58 +35,14 @@ binaries:
   espeak_ng: espeak-ng
 
 # ─── Services ──────────────────────────────────────────────────────────────────
+# All AI models route through the Forge → Wan2GP → model_engine pipeline.
+# No standalone service configs needed — model paths resolved by handlers.
 services:
 
-  # ComfyUI — Docker-based (tech-noir/comfyui:latest) with flash-attn.
-  # Extensions baked into image at build time from config/comfyui_extensions.yaml.
-  # Models mounted from models_root at /models (read-only).
-  # Port 18465 for direct WebUI/MCP access; Ray Serve proxies via docker container.
+  # ComfyUI — subprocess-based image generation
   comfyui:
     port: 18465
 
-  # Creative tools — managed by infra/docker-compose.yml git-sync sidecars.
-  # Each has its own venv (created by infra/setup_venvs.sh).
-  # Called via subprocess, not imported in-process.
-  #
-  # Docker migration (future): build images with infra/docker/Dockerfile.*,
-  # then set docker_image on each tool to use runtime_env["container"].
-  # The venv_python/script/working_dir become optional when docker_image is set.
-  creative:
-
-    # TRELLIS.2 — image-to-3D mesh generation (Docker-based)
-    # Docker image: tech-noir/trellis-spz:latest
-    # Source: https://github.com/microsoft/TRELLIS.2
-    # Docker: infra/docker/Dockerfile.trellis
-    trellis: {}
-
-    # AniGen — animated 3D character generation
-    # Source: https://github.com/VAST-AI-Research/AniGen
-    # Docker: infra/docker/Dockerfile.anigen
-    anigen:
-      venv_python: ${TECH_NOIR_ANIGEN_PYTHON:infra/repos/AniGen/.venv/bin/python}
-      script: infra/repos/AniGen/example.py
-      working_dir: infra/repos/AniGen
-      docker_image: ${TECH_NOIR_ANIGEN_IMAGE:}
-
-    # ACE-Step 1.5 — text-to-music generation
-    # Source: https://github.com/ace-step/ACE-Step-1.5
-    ace_step:
-      venv_python: ${TECH_NOIR_ACE_STEP_PYTHON:infra/repos/ACE-Step-1.5/.venv/bin/python}
-      script: infra/repos/ACE-Step-1.5/cli.py
-      working_dir: infra/repos/ACE-Step-1.5
-
-    # Qwen3-TTS LoRA Trainer — voice cloning / TTS
-    # Source: https://github.com/JayDataEngineer/QwenTTS-Lora-Trainer (private)
-    qwen3_tts:
-      venv_python: ${TECH_NOIR_QWEN_TTS_PYTHON:infra/repos/qwen_img_expert/.venv/bin/python}
-      script: services/creative/wrappers/qwen3_tts_cli.py
-      working_dir: infra/repos/qwen_img_expert
-
-    # See-Through — anime character layer decomposition
-    # Source: https://github.com/shitagaki-lab/see-through
-    # Docker: infra/docker/Dockerfile.seethrough
-    see_through:
-      venv_python: ${TECH_NOIR_SEETHROUGH_PYTHON:infra/repos/see-through/.venv/bin/python}
-      script: infra/repos/see-through/inference/scripts/inference_psd.py
-      working_dir: infra/repos/see-through
-      docker_image: ${TECH_NOIR_SEETHROUGH_IMAGE:}
+  # LLM — llama.cpp subprocess
+  llm:
+    llama_server: ${TECH_NOIR_LLAMACPP:infra/repos/llama.cpp/build/bin/llama-server}
