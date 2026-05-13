@@ -30,25 +30,14 @@ spec:
           - name: faster_whisper
             autoscaling_config: { min_replicas: 0, max_replicas: 1, downscale_delay_s: 60 }
 
-      - name: faster_qwen3_tts
-        import_path: serve_config:faster_qwen3_tts
-        route_prefix: /tts/faster-qwen3-tts
-        deployments:
-          - name: faster_qwen3_tts
-            autoscaling_config: { min_replicas: 0, max_replicas: 1, downscale_delay_s: 30 }
-            ray_actor_options: { num_gpus: 0.20 }
-
-      - name: index_tts
-        import_path: serve_config:index_tts
-        route_prefix: /tts/index-tts
-        deployments:
-          - name: index_tts
-            autoscaling_config: { min_replicas: 0, max_replicas: 1, downscale_delay_s: 30 }
-            ray_actor_options: { num_gpus: 0.10 }
+      # GPU TTS — now handled via Forge/wan2gp model_engine:
+      # faster_qwen3_tts, index_tts, vibevoice_asr, vibevoice_tts
+      # All accessed via /forge with {"service": "wan2gp", "model": "..."}
 
       # Heavy GPU services — Master Router with exclusive GPU access
       # All heavy services (trellis, ace_step, comfyui, hy_motion,
-      # moss_soundeffect, anigen, see_through, llm) route through /forge.
+      # moss_soundeffect, anigen, see_through, llm, faster_qwen3_tts,
+      # vibevoice_asr, vibevoice_tts) route through /forge.
       # The router claims num_gpus: 1.0 and swaps models to prevent VRAM OOM.
       - name: forge
         import_path: serve_config:forge
