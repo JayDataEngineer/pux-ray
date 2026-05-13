@@ -1,11 +1,10 @@
-"""Tests for temp file cleanup — validates try/finally in espeak and vibe_voice.
+"""Tests for temp file cleanup — validates try/finally in espeak orchestrator.
 
 Ensures NamedTemporaryFile(delete=False) files are always unlinked,
 even when subprocess calls fail or timeout.
 """
 from __future__ import annotations
 
-import json
 import os
 import subprocess
 import tempfile
@@ -17,22 +16,16 @@ import pytest
 
 class TestEspeakTempCleanup:
 
-    def _make_service(self):
-        from services.tts.espeak import EspeakTTS
-        cls = EspeakTTS.func_or_class if hasattr(EspeakTTS, 'func_or_class') else EspeakTTS
-        svc = cls.__new__(cls)
-        svc.model = True
-        svc.model_name = "espeak"
-        svc._espeak_bin = "espeak-ng"
-        return svc
+    def _make_orchestrator(self):
+        from services.model_engine.handlers.espeak.orchestrator import EspeakOrchestrator
+        orch = EspeakOrchestrator()
+        return orch
 
     def test_temp_file_removed_on_success(self):
-        svc = self._make_service()
+        orch = self._make_orchestrator()
         files_before = set(Path(tempfile.gettempdir()).glob("tmp*.wav"))
 
         with patch("subprocess.run") as mock_run:
-            mock_run.return_value = subprocess.CompletedProcess([], 0, "", "")
-
             def write_output(*args, **kwargs):
                 cmd = args[0]
                 out_path = cmd[cmd.index("-w") + 1]
@@ -40,46 +33,21 @@ class TestEspeakTempCleanup:
                 return subprocess.CompletedProcess([], 0, "", "")
 
             mock_run.side_effect = write_output
-            svc.synthesize("hello")
+            orch({"text": "hello"})
 
         files_after = set(Path(tempfile.gettempdir()).glob("tmp*.wav"))
         new_files = files_after - files_before
         assert len(new_files) == 0, f"Temp files leaked: {new_files}"
 
     def test_temp_file_removed_on_subprocess_failure(self):
-        svc = self._make_service()
+        orch = self._make_orchestrator()
         files_before = set(Path(tempfile.gettempdir()).glob("tmp*.wav"))
 
         with patch("subprocess.run") as mock_run:
             mock_run.side_effect = subprocess.TimeoutExpired("espeak-ng", 30)
             with pytest.raises(subprocess.TimeoutExpired):
-                svc.synthesize("hello")
+                orch({"text": "hello"})
 
         files_after = set(Path(tempfile.gettempdir()).glob("tmp*.wav"))
         new_files = files_after - files_before
         assert len(new_files) == 0, f"Temp files leaked on failure: {new_files}"
-
-
-class TestVibeVoiceCommunityTempCleanup:
-
-    def test_ref_audio_cleaned_after_tts(self):
-        """Verify ref audio temp file is unlinked even when _generate_audio raises."""
-        from services.tts.vibe_voice import VibeVoiceCommunityTTSDeployment
-        cls = VibeVoiceCommunityTTSDeployment.func_or_class if hasattr(VibeVoiceCommunityTTSDeployment, 'func_or_class') else VibeVoiceCommunityTTSDeployment
-        svc = cls.__new__(cls)
-        svc.model = True
-        svc.model_name = "vibevoice-tts"
-
-        files_before = set(Path(tempfile.gettempdir()).glob("tmp*.wav"))
-
-        with patch.object(cls, "_generate_audio", side_effect=RuntimeError("boom")):
-            import asyncio
-            with pytest.raises(RuntimeError):
-                asyncio.get_event_loop().run_until_complete(
-                    svc._generate_audio("hello", [])
-                )
-
-        # The _generate_audio mock doesn't create the temp file,
-        # so just verify the pattern: check that Path.unlink is called
-        # in the actual __call__ handler's finally block.
-        # Direct test of the cleanup path is in integration tests.
