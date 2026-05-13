@@ -103,7 +103,18 @@ def test_wan2gp_registry():
     discovered = discover_models()
     model_engine_names = {e["name"] for e in MODEL_ENGINE_ENTRIES}
 
-    me_found = {k for k in discovered if discovered[k].get("engine") == "model_engine"}
+    # After expansion by supported_types(), registry keys may differ from entry names.
+    # Entries like "ace_step" expand to "ace_step/v1_5", "ace_step/v1_5_turbo", etc.
+    me_found = set()
+    for k, v in discovered.items():
+        if v.get("engine") == "model_engine":
+            # Check if this registry entry belongs to a known model_engine entry
+            handler = v.get("handler", "")
+            for entry in MODEL_ENGINE_ENTRIES:
+                if entry["handler"] == handler:
+                    me_found.add(entry["name"])
+                    break
+
     vendor_found = {k for k in discovered if discovered[k].get("engine") == "vendor"}
     missing = model_engine_names - me_found
     assert not missing, f"Model engine handlers missing from registry: {missing}"
@@ -111,7 +122,7 @@ def test_wan2gp_registry():
     available = [k for k, v in discovered.items() if not v.get("blocked")]
     print(f"  Registry: {len(discovered)} total ({len(me_found)} me, {len(vendor_found)} vendor)")
     print(f"  Available: {len(available)} models")
-    print(f"  Model engine: {sorted(me_found)}")
+    print(f"  Model engine keys: {sorted(k for k, v in discovered.items() if v.get('engine') == 'model_engine')}")
 
 
 def test_wan2gp_direct_espeak():
