@@ -4,3 +4,4 @@ resources:
   - ray-config.yaml
   - ray-service.yaml
   - ray-serve-proxy.yaml
+  - serve-deploy-job.yaml
