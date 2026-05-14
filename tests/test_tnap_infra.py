@@ -1,6 +1,6 @@
 """Tests for the unified service registry, ingress routing, and SDK client.
 
-All services route through Forge → Wan2GP → model_engine pipeline.
+All services route through Forge → Wan2GP → family_handlers pipeline.
 """
 from __future__ import annotations
 
