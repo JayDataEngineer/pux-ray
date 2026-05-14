@@ -56,6 +56,24 @@ spec:
             - name: ray-head
               image: forge-reg.local:30500/tech-noir/gpu-all:latest
               imagePullPolicy: Always
+              command:
+                - /bin/bash
+                - -c
+                - |
+                  set -euo pipefail
+                  ulimit -n 65536
+                  ray start --head \
+                    --dashboard-agent-listen-port=52365 \
+                    --dashboard-host=0.0.0.0 \
+                    --memory=8589934592 \
+                    --metrics-export-port=8080 \
+                    --num-cpus=4
+                  for i in $(seq 1 30); do
+                    if ray health-check --address 127.0.0.1:6379 >/dev/null 2>&1; then break; fi
+                    sleep 2
+                  done
+                  python3 -u /app/infra/k8s/serve_deploy.py
+                  exec tail -f /dev/null
               ports:
                 - containerPort: 6379
                   name: gcs
