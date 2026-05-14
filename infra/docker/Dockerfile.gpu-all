@@ -193,6 +193,7 @@ RUN git clone https://github.com/EasternJournalist/utils3d.git /opt/utils3d && \
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv pip install \
     transformers==4.57.3 diffusers safetensors peft \
+    mmgp==3.7.6 \
     timm kornia onnxruntime mediapipe \
     opencv-python-headless imageio imageio-ffmpeg \
     scikit-image scikit-learn \
@@ -283,9 +284,9 @@ RUN uv pip install \
     "protobuf>=6,<7" \
     transformers==4.57.3 tokenizers==0.22.2
 
-# thinc Cython ext must be rebuilt against final numpy (pip installs may pull
-# numpy 2.x after thinc was compiled against 1.x headers → dtype size mismatch)
-RUN uv pip install --no-cache-dir --force-reinstall thinc
+# spacy/thinc Cython exts must be rebuilt from source against final numpy
+# (PyPI wheels compiled against numpy 1.x headers; NGC has numpy 2.x)
+RUN uv pip install --no-cache-dir --force-reinstall --no-binary spacy,thinc spacy thinc
 
 # ── spconv pre-warm (bakes JIT kernel cache into image, avoids 10+ min cold start) ──
 RUN python3 -c "import spconv; print(f'spconv {spconv.__version__} pre-warmed')" || \
