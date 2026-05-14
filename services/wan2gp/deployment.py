@@ -184,14 +184,15 @@ _HF_AUTO_DOWNLOAD = {
 }
 
 
+CUSTOM_HANDLERS = ["trellis.trellis_handler", "anigen_handler.anigen_handler"]
+
 def _get_family_handlers() -> list[str]:
-    """Get the family_handlers list from Wan2GP's wgp.py."""
+    """Get the family_handlers list from Wan2GP's wgp.py, plus our custom handlers."""
     try:
         import wgp
-        return wgp.family_handlers
+        base = wgp.family_handlers
     except (ImportError, AttributeError):
-        # Fallback to known list
-        return [
+        base = [
             "models.wan.wan_handler", "models.wan.ovi_handler", "models.wan.df_handler",
             "models.hyvideo.hunyuan_handler", "models.ltx_video.ltxv_handler",
             "models.ltx2.ltx2_handler", "models.longcat.longcat_handler",
@@ -206,12 +207,16 @@ def _get_family_handlers() -> list[str]:
             "models.faster_whisper.faster_whisper_handler", "models.moss.moss_handler",
             "models.vibevoice_asr.vibevoice_asr_handler",
             "models.vibevoice_tts.vibevoice_tts_handler",
-            "trellis.trellis_handler", "anigen_handler.anigen_handler",
             "models.faster_qwen3_tts.faster_qwen3_tts_handler",
             "models.hy_motion.hy_motion_handler",
             "models.see_through.see_through_handler",
             "models.vnccs.vnccs_handler",
         ]
+    # Append our custom handlers living in services/wan2gp/custom_models/
+    for h in CUSTOM_HANDLERS:
+        if h not in base:
+            base.append(h)
+    return base
 
 
 def _derive_key(model_type: str, handler_path: str) -> str:
