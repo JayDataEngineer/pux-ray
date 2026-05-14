@@ -143,9 +143,6 @@ RUN GIT_LFS_SKIP_SMUDGE=1 git clone --depth 1 https://github.com/index-tts/index
     cp -r /tmp/index-tts/indextts $(python3 -c "import site; print(site.getsitepackages()[0])")/ && \
     rm -rf /tmp/index-tts
 
-# GPT-SoVITS (needs full repo structure for internal imports)
-RUN git clone --depth 1 https://github.com/RVC-Boss/GPT-SoVITS.git /opt/gpt-sovits
-
 # HY-Motion (git-lfs for stats/)
 RUN git clone --depth 1 https://github.com/Tencent-Hunyuan/HY-Motion-1.0.git /opt/hymotion && \
     cd /opt/hymotion && git lfs pull
@@ -230,25 +227,6 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv pip install accelerate einops transformers soundfile scipy datasets
 
-# VibeVoice — community fork (multi-speaker TTS, voice cloning, ASR; package: vibevoice-community)
-COPY infra/repos/VibeVoice-Community/ /tmp/vibevoice-community-src/
-RUN --mount=type=cache,target=/root/.cache/uv \
-    uv pip install /tmp/vibevoice-community-src && rm -rf /tmp/vibevoice-community-src
-
-# Original vibevoice needed by community fork internals (schedule.dpm_solver)
-RUN --mount=type=cache,target=/root/.cache/uv \
-    uv pip install vibevoice --no-deps
-
-# GPT-SoVITS deps (needs full repo for requirements.txt)
-RUN --mount=type=cache,target=/root/.cache/uv \
-    cd /opt/gpt-sovits && \
-    uv pip install cmake && \
-    grep -v -i -E '^(torch|torchvision|torchaudio|xformers|flash-attn)' requirements.txt > /tmp/reqs_gptsovits.txt && \
-    uv pip install -r /tmp/reqs_gptsovits.txt && rm /tmp/reqs_gptsovits.txt
-
-# NLTK data for GPT-SoVITS text processing
-RUN python3 -c "import nltk; nltk.download('averaged_perceptron_tagger_eng', quiet=True); nltk.download('averaged_perceptron_tagger', quiet=True)"
-
 # ACE-Step requirements file (for deps install)
 COPY vendor/acestep-requirements.txt /tmp/acestep-reqs.txt
 
@@ -281,15 +259,11 @@ RUN python3 /tmp/setup_comfyui.py && rm /tmp/setup_comfyui.py /tmp/extensions.ya
 COPY infra/docker/patch_conv_flex_gemm.py /opt/patch_conv_flex_gemm.py
 COPY infra/docker/patch_cumesh_fallback.py /opt/patch_cumesh_fallback.py
 
-# ── VibeVoice voice presets ──────────────────────────────────────────────
-COPY infra/repos/VibeVoice-Community/demo/voices/ /opt/vibevoice-community/voices/
-
 # ── API wrappers (only for services still using subprocess) ────────────
 COPY infra/docker/api_hymotion.py /opt/hymotion/api.py
 COPY infra/docker/api_qwen_tts.py /opt/api_qwen_tts.py
 COPY infra/docker/api_vibevoice.py /opt/api_vibevoice.py
 COPY infra/docker/api_trellis_spz.py /opt/api_trellis_spz.py
-COPY infra/docker/api_gptsovits.py /opt/api_gptsovits.py
 
 # ── Project code ────────────────────────────────────────────────────────
 COPY vendor/ /opt/vendor/
@@ -299,7 +273,7 @@ COPY registry/ /app/registry/
 COPY sdk/ /app/sdk/
 COPY pyproject.toml /app/
 COPY infra/k8s/serve_config.py /app/serve_config.py
-COPY infra/k8s/serve_build.py /app/serve_build.py
+COPY infra/k8s/serve_deploy.py /app/serve_deploy.py
 
 WORKDIR /app
 
@@ -308,6 +282,10 @@ WORKDIR /app
 RUN uv pip install \
     "protobuf>=6,<7" \
     transformers==4.57.3 tokenizers==0.22.2
+
+# thinc Cython ext must be rebuilt against final numpy (pip installs may pull
+# numpy 2.x after thinc was compiled against 1.x headers → dtype size mismatch)
+RUN uv pip install --no-cache-dir --force-reinstall thinc
 
 # ── spconv pre-warm (bakes JIT kernel cache into image, avoids 10+ min cold start) ──
 RUN python3 -c "import spconv; print(f'spconv {spconv.__version__} pre-warmed')" || \

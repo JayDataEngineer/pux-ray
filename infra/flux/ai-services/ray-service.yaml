@@ -8,10 +8,17 @@ spec:
     http_options:
       port: 8000
     applications:
-      # Heavy GPU services — Master Router with exclusive GPU access
-      # All heavy services (trellis, ace_step, comfyui, hy_motion,
-      # moss_soundeffect, anigen, see_through, llm) route through /forge.
-      # The router claims num_gpus: 1.0 and swaps models to prevent VRAM OOM.
+      # ─── Wan2GP — unified GPU model pool (mmgp-managed VRAM) ────────────
+      # All vendor + custom family models: wan, flux, hunyuan, ace_step, trellis,
+      # anigen, kokoro, espeak, faster_whisper, index_tts, moss, etc.
+      - name: wan2gp
+        import_path: serve_config:wan2gp_deployment
+        route_prefix: /wan2gp
+        deployments:
+          - name: wan2gp
+            autoscaling_config: { min_replicas: 0, max_replicas: 1, downscale_delay_s: 120 }
+
+      # ─── Forge — subprocess GPU services (ComfyUI + LLM) ────────────────
       - name: forge
         import_path: serve_config:forge
         route_prefix: /forge
@@ -115,6 +122,9 @@ spec:
                 - name: src
                   mountPath: /app/sdk
                   subPath: sdk
+                - name: src
+                  mountPath: /app/vendor
+                  subPath: vendor
                 - name: src
                   mountPath: /app/serve_config.py
                   subPath: infra/k8s/serve_config.py

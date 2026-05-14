@@ -8,10 +8,17 @@ spec:
     http_options:
       port: 8000
     applications:
-      # ─── All models route through /forge → wan2gp V2V_MODELS ────────────
-      # No standalone service deployments. One system, one truth.
-      # GPU: wan/t2v, wan/i2v, hunyuan, flux, ace_step, anigen, trellis, etc.
-      # CPU: kokoro, espeak, faster_whisper
+      # ─── Wan2GP — unified GPU model pool (mmgp-managed VRAM) ────────────
+      # All vendor + custom family models: wan, flux, hunyuan, ace_step, trellis,
+      # anigen, kokoro, espeak, faster_whisper, index_tts, moss, etc.
+      - name: wan2gp
+        import_path: serve_config:wan2gp_deployment
+        route_prefix: /wan2gp
+        deployments:
+          - name: wan2gp
+            autoscaling_config: { min_replicas: 0, max_replicas: 1, downscale_delay_s: 120 }
+
+      # ─── Forge — subprocess GPU services (ComfyUI + LLM) ────────────────
       - name: forge
         import_path: serve_config:forge
         route_prefix: /forge
@@ -116,6 +123,9 @@ spec:
                   mountPath: /app/sdk
                   subPath: sdk
                 - name: src
+                  mountPath: /app/vendor
+                  subPath: vendor
+                - name: src
                   mountPath: /app/serve_config.py
                   subPath: infra/k8s/serve_config.py
           volumes:
@@ -217,6 +227,9 @@ spec:
                   - name: src
                     mountPath: /app/sdk
                     subPath: sdk
+                  - name: src
+                    mountPath: /app/vendor
+                    subPath: vendor
                   - name: src
                     mountPath: /app/serve_config.py
                     subPath: infra/k8s/serve_config.py

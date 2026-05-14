@@ -50,6 +50,9 @@ class Wan2GPDeployment:
         return self._svc.status()
 
     async def __call__(self, request: Request) -> Response:
+        if request.method == "GET":
+            return JSONResponse(self._svc.status())
+
         body = await request.json()
         payload = dict(body)
         model = payload.pop("model", None)

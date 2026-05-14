@@ -151,36 +151,6 @@ def setup_see_through() -> bool:
     return True
 
 
-# ─── GPT-SoVITS — TTS ─────────────────────────────────────────────────────
-
-def setup_gpt_sovits() -> bool:
-    dir_ = REPOS_DIR / "GPT-SoVITS"
-    venv_py = dir_ / ".venv" / "bin" / "python"
-
-    if _can_import(venv_py, "torch"):
-        _log(f"GPT-SoVITS venv OK ({_venv_version(venv_py)})")
-        return True
-
-    if not dir_.is_dir():
-        _warn("GPT-SoVITS not cloned. Run: python -m infra.setup.clone")
-        return False
-
-    _log("Setting up GPT-SoVITS venv...")
-    uv = _uv()
-    if not venv_py.is_file():
-        _run([uv, "venv", "--python", "3.12", "--quiet"], cwd=str(dir_))
-    _uv_install(
-        venv_py,
-        "torch==2.6.0+cu124", "torchvision==0.21.0+cu124", "torchaudio==2.6.0+cu124",
-        "--index-url", "https://download.pytorch.org/whl/cu124",
-    )
-    if (dir_ / "requirements.txt").is_file():
-        _uv_install(venv_py, "-r", str(dir_ / "requirements.txt"))
-
-    _log("GPT-SoVITS venv ready")
-    return True
-
-
 # ─── Qwen Image Expert (Qwen3-TTS LoRA Trainer) ──────────────────────────
 
 def setup_qwen_img() -> bool:
@@ -265,7 +235,6 @@ def setup_llama() -> bool:
 TOOLS = {
     "ace-step": setup_ace_step,
     "see-through": setup_see_through,
-    "gpt-sovits": setup_gpt_sovits,
     "qwen": setup_qwen_img,
     "comfyui": setup_comfyui,
     "llama": setup_llama,

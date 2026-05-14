@@ -15,7 +15,6 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import Any, Optional
 
 import ray
 from ray import serve
@@ -113,15 +112,6 @@ STUDIO_APPS: dict[str, dict] = {
         "manage_type": "scheduler",
         "default_model": "vibevoice_community_tts",
     },
-    "gpt_sovits": {
-        "label": "GPT-SoVITS",
-        "url": None,
-        "has_ui": False,
-        "category": "TTS",
-        "gpu": True,
-        "manage_type": "scheduler",
-        "default_model": "gpt_sovits",
-    },
     "kokoro_tts": {
         "label": "Kokoro TTS",
         "url": None,
@@ -145,15 +135,6 @@ STUDIO_APPS: dict[str, dict] = {
         "category": "ASR",
         "gpu": False,
         "manage_type": "none",
-    },
-    "vibevoice_microsoft": {
-        "label": "VibeVoice Microsoft ASR",
-        "url": None,
-        "has_ui": False,
-        "category": "ASR",
-        "gpu": True,
-        "manage_type": "scheduler",
-        "default_model": "vibevoice_microsoft",
     },
     # --- MCP Servers (always-on, CPU, managed outside Ray) ---
     "local_web_mcp": {

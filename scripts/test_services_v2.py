@@ -87,7 +87,6 @@ def main():
 
     if args.all:
         print("\n--- Tier 3: Experimental ---")
-        test("gpt_sovits", f"{BASE}/tts/gpt-sovits/", {"action": "generate", "input": {"text": "Hello"}}, T)
         test("moss_sfx", f"{BASE}/audio/moss-sfx/", {"action": "generate", "input": {"prompt": "thunder"}}, T)
 
     print(f"\n{'=' * 50}")
