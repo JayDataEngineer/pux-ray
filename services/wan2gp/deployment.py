@@ -373,7 +373,12 @@ class Wan2GPService:
                     f"Model '{model_name}' is blocked: {entry.get('blocked_reason', 'unknown')}"
                 )
 
-        self._load_model(model_name, entry)
+        try:
+            self._load_model(model_name, entry)
+        except Exception as e:
+            logger.error("Failed to load model %s: %s", model_name, e)
+            self._models.pop(model_name, None)
+            raise RuntimeError(f"Failed to load model '{model_name}': {e}") from e
         self._loaded_model = model_name
 
         vram = torch.cuda.memory_allocated(0) / (1024 ** 2) if torch.cuda.is_available() else 0
@@ -410,7 +415,11 @@ class Wan2GPService:
         model_key = payload.get("model", self._loaded_model or self.default_model)
 
         if model_key != self._loaded_model:
-            self.load(model_key)
+            try:
+                self.load(model_key)
+            except Exception as e:
+                self._loaded_model = None
+                return {"status": "error", "error": str(e)}
 
         entry = self._registry.get(self._loaded_model)
         if entry is None:
