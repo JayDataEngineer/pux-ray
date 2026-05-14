@@ -119,6 +119,15 @@ def _ensure_quantized_cache():
         })
 
 
+def _ensure_transformers_compat():
+    """Patch renamed/removed transformers symbols that vendor handlers depend on."""
+    import transformers.generation.configuration_utils as _gcu
+    if not hasattr(_gcu, "NEED_SETUP_CACHE_CLASSES_MAPPING"):
+        _gcu.NEED_SETUP_CACHE_CLASSES_MAPPING = getattr(
+            _gcu, "ALL_CACHE_IMPLEMENTATIONS", ()
+        )
+
+
 # ─── Dynamic Model Discovery ──────────────────────────────────────────────────
 
 def discover_models(models_root: Path | None = None) -> dict:
@@ -483,6 +492,7 @@ class Wan2GPService:
     def _load_model(self, model_name: str, entry: dict) -> None:
         _ensure_vendor_path()
         _ensure_quantized_cache()
+        _ensure_transformers_compat()
 
         handler_path = entry["handler_path"]
         model_type = entry["model_type"]
