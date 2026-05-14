@@ -8,44 +8,6 @@ spec:
     http_options:
       port: 8000
     applications:
-      # ─── Tier 1: All services lazy-loaded (scale to zero when idle) ────
-      - name: kokoro_tts
-        import_path: serve_config:kokoro_tts
-        route_prefix: /tts/kokoro
-        deployments:
-          - name: kokoro_tts
-            autoscaling_config: { min_replicas: 0, max_replicas: 1, downscale_delay_s: 60 }
-
-      - name: espeak_tts
-        import_path: serve_config:espeak_tts
-        route_prefix: /tts/espeak
-        deployments:
-          - name: espeak_tts
-            autoscaling_config: { min_replicas: 0, max_replicas: 1, downscale_delay_s: 60 }
-
-      - name: faster_whisper
-        import_path: serve_config:faster_whisper
-        route_prefix: /asr/whisper
-        deployments:
-          - name: faster_whisper
-            autoscaling_config: { min_replicas: 0, max_replicas: 1, downscale_delay_s: 60 }
-
-      - name: faster_qwen3_tts
-        import_path: serve_config:faster_qwen3_tts
-        route_prefix: /tts/faster-qwen3-tts
-        deployments:
-          - name: faster_qwen3_tts
-            autoscaling_config: { min_replicas: 0, max_replicas: 1, downscale_delay_s: 30 }
-            ray_actor_options: { num_gpus: 0.20 }
-
-      - name: index_tts
-        import_path: serve_config:index_tts
-        route_prefix: /tts/index-tts
-        deployments:
-          - name: index_tts
-            autoscaling_config: { min_replicas: 0, max_replicas: 1, downscale_delay_s: 30 }
-            ray_actor_options: { num_gpus: 0.10 }
-
       # Heavy GPU services — Master Router with exclusive GPU access
       # All heavy services (trellis, ace_step, comfyui, hy_motion,
       # moss_soundeffect, anigen, see_through, llm) route through /forge.
