@@ -284,9 +284,9 @@ RUN uv pip install \
     "protobuf>=6,<7" \
     transformers==4.57.3 tokenizers==0.22.2
 
-# spacy/thinc Cython exts must be rebuilt from source against final numpy
-# (PyPI wheels compiled against numpy 1.x headers; NGC has numpy 2.x)
-RUN uv pip install --no-cache-dir --force-reinstall --no-binary spacy,thinc spacy thinc
+# thinc Cython ext must be rebuilt against final numpy (pip installs may pull
+# numpy 2.x after thinc was compiled against 1.x headers → dtype size mismatch)
+RUN uv pip install --no-cache-dir --force-reinstall thinc
 
 # ── spconv pre-warm (bakes JIT kernel cache into image, avoids 10+ min cold start) ──
 RUN python3 -c "import spconv; print(f'spconv {spconv.__version__} pre-warmed')" || \
