@@ -7,7 +7,7 @@ ARG WAN2GP_BRANCH=main
 FROM nvidia/cuda:12.8.1-cudnn-devel-ubuntu22.04 AS builder
 ARG CUDA_ARCHITECTURES
 ARG WAN2GP_BRANCH
-ENV DEBIAN_FRONTEND=noninteractive TORCH_CUDA_ARCH_LIST="${CUDA_ARCHITECTURES}" FORCE_CUDA="1" MAX_JOBS="8"
+ENV DEBIAN_FRONTEND=noninteractive TORCH_CUDA_ARCH_LIST="${CUDA_ARCHITECTURES}" FORCE_CUDA="1"
 
 RUN apt update && apt install -y python3 python3-pip git wget curl cmake ninja-build libgl1 libglib2.0-0 ffmpeg build-essential pkg-config libsndfile1 libsm6 libxext6 libxrender-dev libjpeg-dev libspatialindex-dev git-lfs espeak-ng mecab libmecab-dev sox libsox-dev libsox-fmt-all && apt clean
 
@@ -62,19 +62,9 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     cd /tmp/nvdiffrast && uv pip install . --no-build-isolation && rm -rf /tmp/nvdiffrast
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv pip install --no-build-isolation "git+https://github.com/facebookresearch/pytorch3d.git@stable"
-# Build spconv from source with CUDA extensions (SPCONV_DISABLE_JIT pre-compiles kernels)
-# Must install cumm first (for pccm codegen), and mock nvidia-smi (GPU not available in builder).
-# cumm's common.py calls nvidia-smi at import time to detect GPU architecture.
-# Patch: add TensorViewBind from cumm into spconv.core_cc so that pybind11 can resolve
-# the tv::Tensor type used as a default argument in GemmTunerSimple.run_with_tuned_result.
+# spconv + cumm (pre-built cu126 wheels — forward-compatible with CUDA 12.8)
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv pip install cumm && \
-    printf '#!/bin/bash\necho "NVIDIA GeForce RTX 4090"\n' > /usr/local/bin/nvidia-smi && chmod +x /usr/local/bin/nvidia-smi && \
-    git clone --depth 1 --branch v2.3.8 --recursive https://github.com/traveller59/spconv.git /tmp/spconv && \
-    cd /tmp/spconv && \
-    python3 /tmp/patch_spconv.py && \
-    SPCONV_DISABLE_JIT=1 uv pip install --no-build-isolation . && \
-    rm -rf /tmp/spconv
+    uv pip install cumm-cu126 spconv-cu126
 
 # o-voxel (CUDA extension — must build in builder with torch available)
 COPY vendor/o-voxel /tmp/o-voxel
@@ -101,6 +91,8 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     uv pip install "ray[serve]>=2.43.0"
 
 COPY . /opt/tech-noir/
+# Patch TRELLIS vendor code for spconv 2.x compatibility (feats setter + replace reshape)
+RUN python3 /opt/tech-noir/infra/docker/patch_trellis_spconv.py /opt/tech-noir/vendor/trellis2/modules/sparse/basic.py
 RUN useradd -u 1000 -ms /bin/bash user && mkdir -p /home/user/.cache && chown -R user:user /home/user/.cache /opt/tech-noir /opt/wan2gp
 USER user
 WORKDIR /opt/tech-noir

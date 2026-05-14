@@ -80,6 +80,7 @@ _SAFE_PASSTHROUGH = {
     "game_name", "additional_caption", "min_size", "target_height",
     "reference_images", "reference_weights", "cfg", "timeout",
     "text", "voice", "audio_b64", "image_b64",
+    "image", "resolution", "steps", "ss_steps", "slat_steps",
 }
 
 _BLOCKED_KEYS = {
@@ -102,6 +103,9 @@ def _ensure_vendor_path():
     vendor = str(WAN2GP_VENDOR)
     if vendor not in sys.path:
         sys.path.insert(0, vendor)
+    custom_models = str(Path(__file__).parent / "custom_models")
+    if os.path.isdir(custom_models) and custom_models not in sys.path:
+        sys.path.insert(0, custom_models)
     os.environ.setdefault("WAN2GP_ROOT", vendor)
     _ven_loaded = True
 
@@ -202,7 +206,7 @@ def _get_family_handlers() -> list[str]:
             "models.faster_whisper.faster_whisper_handler", "models.moss.moss_handler",
             "models.vibevoice_asr.vibevoice_asr_handler",
             "models.vibevoice_tts.vibevoice_tts_handler",
-            "models.anigen.anigen_handler", "models.trellis.trellis_handler",
+            "trellis.trellis_handler", "anigen.anigen_handler",
             "models.faster_qwen3_tts.faster_qwen3_tts_handler",
             "models.hy_motion.hy_motion_handler",
             "models.see_through.see_through_handler",

@@ -15,6 +15,7 @@ import base64
 import importlib
 import logging
 
+sys.path.insert(0, "/home/user/Documents/programs/ray/services/wan2gp/custom_models")
 sys.path.insert(0, "/home/user/Documents/programs/ray")
 sys.path.insert(0, "/opt/wan2gp")
 sys.path.insert(0, "/home/user/Documents/programs/ray/vendor/wan2gp")
@@ -38,11 +39,14 @@ def make_tiny_wav_b64(duration_s=0.5, sr=16000):
     return base64.b64encode(buf.getvalue()).decode()
 
 
-def make_tiny_png_b64():
+def make_tiny_png_b64(size=64):
     from PIL import Image
     buf = io.BytesIO()
-    Image.new("RGBA", (64, 64), (128, 64, 32, 255)).save(buf, format="PNG")
+    Image.new("RGBA", (size, size), (128, 64, 32, 255)).save(buf, format="PNG")
     return base64.b64encode(buf.getvalue()).decode()
+
+
+TINY_PNG_256 = make_tiny_png_b64(256)
 
 
 TINY_WAV = make_tiny_wav_b64()
@@ -131,6 +135,14 @@ def _run_handler(handler_path, model_type, payload, *, timeout=120):
             for v in pipe.values():
                 if isinstance(v, torch.nn.Module):
                     del v
+        # Release mmgp-managed VRAM
+        try:
+            from mmgp import offload
+            offload.unload_all()
+            offload.release()
+            offload.flush_torch_caches()
+        except Exception:
+            pass
         gc.collect()
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
@@ -143,11 +155,11 @@ TESTS = [
     ("models.kokoro.kokoro_handler", "kokoro", {"text": "Hello world", "voice": "af_bella"}),
     ("models.faster_whisper.faster_whisper_handler", "faster_whisper", {"audio_b64": TINY_WAV}),
     ("models.faster_qwen3_tts.faster_qwen3_tts_handler", "faster_qwen3_tts", {"text": "Hello world", "voice": "Aiden"}),
-    ("models.anigen.anigen_handler", "anigen", {"image": TINY_PNG, "ss_steps": 1, "slat_steps": 1}),
-    ("models.trellis.trellis_handler", "trellis", {"image": TINY_PNG, "steps": 1}),
+    ("anigen.anigen_handler", "anigen", {"image": TINY_PNG, "ss_steps": 1, "slat_steps": 1}),
+    ("trellis.trellis_handler", "trellis", {"image": TINY_PNG, "steps": 1}),
     ("models.hy_motion.hy_motion_handler", "hy-motion-1.0", {"text": "a person waves", "duration": 1.0, "cfg_scale": 3.0}),
     ("models.moss.moss_handler", "moss-soundeffect", {"prompt": "gentle rain", "max_tokens": 64}),
-    ("models.see_through.see_through_handler", "see_through", {"image": TINY_PNG, "resolution": 256, "steps": 1}),
+    ("models.see_through.see_through_handler", "see_through", {"image": TINY_PNG_256, "resolution": 256, "steps": 2}),
     ("models.vibevoice_asr.vibevoice_asr_handler", "vibevoice-asr", {"audio_b64": TINY_WAV}),
     ("models.vibevoice_tts.vibevoice_tts_handler", "vibevoice-tts", {"text": "Hello world"}),
     ("models.vnccs.vnccs_handler", "qwen_image_edit_vnccs_20B", {"workflow": "char_sheet"}),

@@ -8,9 +8,20 @@ import base64
 import io
 import wave
 
-sys.path.insert(0, "/home/user/Documents/programs/ray")
-sys.path.insert(0, "/opt/wan2gp")
-sys.path.insert(0, "/home/user/Documents/programs/ray/vendor/wan2gp")
+# Custom handlers (trellis, anigen) are in vendor/wan2gp/models/.
+# Must come before /opt/wan2gp which has its own models/ package.
+for p in ["/opt/tech-noir/vendor/wan2gp", "/opt/tech-noir/vendor",
+          "/home/user/Documents/programs/ray/vendor/wan2gp",
+          "/home/user/Documents/programs/ray/vendor"]:
+    if os.path.isdir(p):
+        sys.path.insert(0, p)
+# Project root for registry.config / registry.models
+for p in ["/opt/tech-noir", "/home/user/Documents/programs/ray"]:
+    if os.path.isdir(p):
+        sys.path.insert(0, p)
+for p in ["/opt/wan2gp"]:
+    if os.path.isdir(p):
+        sys.path.append(p)
 os.environ.setdefault("WAN2GP_ROOT", "/opt/wan2gp")
 
 import numpy as np
@@ -20,7 +31,12 @@ from PIL import Image
 
 def make_tiny_png():
     buf = io.BytesIO()
-    Image.new("RGBA", (64, 64), (128, 64, 32, 255)).save(buf, format="PNG")
+    # 256x256 with gradient — gives TRELLIS enough structure for sparse features
+    img = Image.new("RGB", (256, 256))
+    for y in range(256):
+        for x in range(256):
+            img.putpixel((x, y), (x % 256, y % 256, 128))
+    img.save(buf, format="PNG")
     return base64.b64encode(buf.getvalue()).decode()
 
 
@@ -48,105 +64,114 @@ def report(name, load_s, infer_s, result, vram_mb=0):
         print(f"  {name}: LOAD={load_s:.1f}s INFER={infer_s:.1f}s result={result}")
 
 
-def test_moss():
-    print("\n=== MOSS ===")
-    from models.moss.moss_handler import family_handler
-    md = family_handler.query_model_def("moss-soundeffect", {})
+def load_handler(handler_path, model_type):
+    import importlib
+    mod = importlib.import_module(handler_path)
+    handler = mod.family_handler
+    md = handler.query_model_def(model_type, {})
     t0 = time.time()
-    pipeline, pw = family_handler.load_model(
-        [], "moss-soundeffect", "moss-soundeffect", md,
+    pipeline, pw = handler.load_model(
+        [], model_type, model_type, md,
         quantizeTransformer=False, text_encoder_quantization=None,
         dtype=None, VAE_dtype=None, profile=0,
     )
     load_s = time.time() - t0
+    pipe = pw.get("pipe", pw) if isinstance(pw, dict) else {}
+    vram = torch.cuda.memory_allocated(0) // (1024 * 1024) if torch.cuda.is_available() else 0
+    print(f"  LOAD OK {load_s:.1f}s VRAM={vram}MB pipe={list(pipe.keys())[:5] if pipe else 'empty'}")
+    return pipeline, load_s
+
+
+def cleanup(pipeline, pw):
+    del pipeline
+    if isinstance(pw, dict):
+        pipe = pw.get("pipe", {})
+        if isinstance(pipe, dict):
+            for v in pipe.values():
+                if isinstance(v, torch.nn.Module):
+                    del v
+    gc.collect()
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+
+
+def test_moss():
+    print("\n=== MOSS ===")
+    pipeline, pw = load_handler("models.moss.moss_handler", "moss-soundeffect")
     t0 = time.time()
     r = pipeline.generate(prompt="gentle rain", max_tokens=64)
     infer_s = time.time() - t0
-    report("MOSS", load_s, infer_s, r)
-    del pipeline
-    gc.collect(); torch.cuda.empty_cache()
+    report("MOSS", 0, infer_s, r)
+    cleanup(pipeline, pw)
     return r.get("status") == "success"
 
 
 def test_trellis(test_img):
     print("\n=== TRELLIS ===")
-    from models.trellis.trellis_handler import family_handler
-    md = family_handler.query_model_def("trellis", {})
-    t0 = time.time()
-    pipeline, pw = family_handler.load_model(
-        [], "trellis", "trellis", md,
-        quantizeTransformer=False, text_encoder_quantization=None,
-        dtype=None, VAE_dtype=None, profile=0,
-    )
-    load_s = time.time() - t0
+    pipeline, pw = load_handler("trellis.trellis_handler", "trellis")
     t0 = time.time()
     r = pipeline.generate(image=test_img, steps=12, guidance=7.5)
     infer_s = time.time() - t0
     vram = torch.cuda.memory_allocated(0) // (1024 * 1024)
-    report("TRELLIS", load_s, infer_s, r, vram)
-    del pipeline
-    gc.collect(); torch.cuda.empty_cache()
+    report("TRELLIS", 0, infer_s, r, vram)
+    cleanup(pipeline, pw)
     return r.get("status") == "success"
 
 
 def test_anigen(test_img):
     print("\n=== ANIGEN ===")
-    from models.anigen.anigen_handler import family_handler
-    md = family_handler.query_model_def("anigen", {})
-    t0 = time.time()
-    pipeline, pw = family_handler.load_model(
-        [], "anigen", "anigen", md,
-        quantizeTransformer=False, text_encoder_quantization=None,
-        dtype=None, VAE_dtype=None, profile=0,
-    )
-    load_s = time.time() - t0
+    pipeline, pw = load_handler("anigen.anigen_handler", "anigen")
     t0 = time.time()
     r = pipeline.generate(image=test_img, ss_steps=5, slat_steps=5)
     infer_s = time.time() - t0
     vram = torch.cuda.memory_allocated(0) // (1024 * 1024)
-    report("ANIGEN", load_s, infer_s, r, vram)
-    del pipeline
-    gc.collect(); torch.cuda.empty_cache()
+    report("ANIGEN", 0, infer_s, r, vram)
+    cleanup(pipeline, pw)
     return r.get("status") == "success"
 
 
 def test_vibevoice_asr(test_wav):
     print("\n=== VIBEVOICE ASR ===")
-    from models.vibevoice_asr.vibevoice_asr_handler import family_handler
-    md = family_handler.query_model_def("vibevoice-asr", {})
-    t0 = time.time()
-    pipeline, pw = family_handler.load_model(
-        [], "vibevoice-asr", "vibevoice-asr", md,
-        quantizeTransformer=False, text_encoder_quantization=None,
-        dtype=None, VAE_dtype=None, profile=0,
-    )
-    load_s = time.time() - t0
+    pipeline, pw = load_handler("models.vibevoice_asr.vibevoice_asr_handler", "vibevoice-asr")
     t0 = time.time()
     r = pipeline.generate(audio_b64=test_wav, language="english", max_tokens=128)
     infer_s = time.time() - t0
-    report("VIBEVOICE ASR", load_s, infer_s, r)
-    del pipeline
-    gc.collect(); torch.cuda.empty_cache()
+    report("VIBEVOICE ASR", 0, infer_s, r)
+    cleanup(pipeline, pw)
     return r.get("status") == "success"
 
 
 def test_vibevoice_tts():
     print("\n=== VIBEVOICE TTS ===")
-    from models.vibevoice_tts.vibevoice_tts_handler import family_handler
-    md = family_handler.query_model_def("vibevoice-tts", {})
-    t0 = time.time()
-    pipeline, pw = family_handler.load_model(
-        [], "vibevoice-tts", "vibevoice-tts", md,
-        quantizeTransformer=False, text_encoder_quantization=None,
-        dtype=None, VAE_dtype=None, profile=0,
-    )
-    load_s = time.time() - t0
+    pipeline, pw = load_handler("models.vibevoice_tts.vibevoice_tts_handler", "vibevoice-tts")
     t0 = time.time()
     r = pipeline.generate(text="Hello world", language="English", max_tokens=256)
     infer_s = time.time() - t0
-    report("VIBEVOICE TTS", load_s, infer_s, r)
-    del pipeline
-    gc.collect(); torch.cuda.empty_cache()
+    report("VIBEVOICE TTS", 0, infer_s, r)
+    cleanup(pipeline, pw)
+    return r.get("status") == "success"
+
+
+def test_faster_qwen3_tts():
+    print("\n=== FASTER QWEN3-TTS ===")
+    pipeline, pw = load_handler("models.faster_qwen3_tts.faster_qwen3_tts_handler", "faster-qwen3-tts")
+    t0 = time.time()
+    r = pipeline.generate(text="Hello world", voice="Aiden")
+    infer_s = time.time() - t0
+    report("FASTER QWEN3-TTS", 0, infer_s, r)
+    cleanup(pipeline, pw)
+    return r.get("status") == "success"
+
+
+def test_hy_motion():
+    print("\n=== HY-MOTION ===")
+    pipeline, pw = load_handler("models.hy_motion.hy_motion_handler", "hy-motion-1.0")
+    t0 = time.time()
+    r = pipeline.generate(text="a person waves hello", duration=1.0, cfg_scale=3.0)
+    infer_s = time.time() - t0
+    vram = torch.cuda.memory_allocated(0) // (1024 * 1024)
+    report("HY-MOTION", 0, infer_s, r, vram)
+    cleanup(pipeline, pw)
     return r.get("status") == "success"
 
 
@@ -155,7 +180,7 @@ if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser()
     parser.add_argument("models", nargs="*", default=["all"],
-                        help="Models to test: moss trellis anigen vibevoice_asr vibevoice_tts all")
+                        help="Models: moss trellis anigen vibevoice_asr vibevoice_tts faster_qwen3_tts hy_motion all")
     args = parser.parse_args()
 
     test_all = "all" in args.models
@@ -163,12 +188,19 @@ if __name__ == "__main__":
     wav = make_tiny_wav()
     results = {}
 
+    # Paths for custom models (trellis, anigen) in services/wan2gp/custom_models/
+    custom_models_root = "/opt/tech-noir/services/wan2gp/custom_models"
+    if os.path.isdir(custom_models_root):
+        sys.path.insert(0, custom_models_root)
+
     tests = {
         "moss": lambda: test_moss(),
         "trellis": lambda: test_trellis(png),
         "anigen": lambda: test_anigen(png),
         "vibevoice_asr": lambda: test_vibevoice_asr(wav),
         "vibevoice_tts": lambda: test_vibevoice_tts(),
+        "faster_qwen3_tts": lambda: test_faster_qwen3_tts(),
+        "hy_motion": lambda: test_hy_motion(),
     }
 
     for name, fn in tests.items():
