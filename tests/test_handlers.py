@@ -155,7 +155,7 @@ TESTS = [
     ("models.kokoro.kokoro_handler", "kokoro", {"text": "Hello world", "voice": "af_bella"}),
     ("models.faster_whisper.faster_whisper_handler", "faster_whisper", {"audio_b64": TINY_WAV}),
     ("models.faster_qwen3_tts.faster_qwen3_tts_handler", "faster_qwen3_tts", {"text": "Hello world", "voice": "Aiden"}),
-    ("anigen.anigen_handler", "anigen", {"image": TINY_PNG, "ss_steps": 1, "slat_steps": 1}),
+    ("anigen_handler.anigen_handler", "anigen", {"image": TINY_PNG, "ss_steps": 1, "slat_steps": 1}),
     ("trellis.trellis_handler", "trellis", {"image": TINY_PNG, "steps": 1}),
     ("models.hy_motion.hy_motion_handler", "hy-motion-1.0", {"text": "a person waves", "duration": 1.0, "cfg_scale": 3.0}),
     ("models.moss.moss_handler", "moss-soundeffect", {"prompt": "gentle rain", "max_tokens": 64}),
