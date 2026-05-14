@@ -97,32 +97,24 @@ def test_faster_whisper():
 
 
 def test_wan2gp_registry():
-    """Verify the dynamic model registry discovers all expected models."""
-    from services.wan2gp.deployment import discover_models, MODEL_ENGINE_ENTRIES
-
+    """Verify the dynamic model registry discovers all expected handlers."""
     discovered = discover_models()
-    model_engine_names = {e["name"] for e in MODEL_ENGINE_ENTRIES}
 
-    # After expansion by supported_types(), registry keys may differ from entry names.
-    # Entries like "ace_step" expand to "ace_step/v1_5", "ace_step/v1_5_turbo", etc.
-    me_found = set()
-    for k, v in discovered.items():
-        if v.get("engine") == "model_engine":
-            # Check if this registry entry belongs to a known model_engine entry
-            handler = v.get("handler", "")
-            for entry in MODEL_ENGINE_ENTRIES:
-                if entry["handler"] == handler:
-                    me_found.add(entry["name"])
-                    break
-
-    vendor_found = {k for k in discovered if discovered[k].get("engine") == "vendor"}
-    missing = model_engine_names - me_found
-    assert not missing, f"Model engine handlers missing from registry: {missing}"
+    # Check that all 12 custom family handlers are discovered
+    expected_prefixes = [
+        "espeak", "kokoro", "faster_whisper", "faster_qwen3_tts",
+        "anigen", "trellis", "hy_motion", "moss", "see_through",
+        "vibevoice_asr", "vibevoice_tts", "vnccs",
+    ]
 
     available = [k for k, v in discovered.items() if not v.get("blocked")]
-    print(f"  Registry: {len(discovered)} total ({len(me_found)} me, {len(vendor_found)} vendor)")
-    print(f"  Available: {len(available)} models")
-    print(f"  Model engine keys: {sorted(k for k, v in discovered.items() if v.get('engine') == 'model_engine')}")
+    print(f"  Registry: {len(discovered)} total models, {len(available)} available")
+
+    for prefix in expected_prefixes:
+        found = any(k.endswith(prefix) or prefix in k for k in discovered)
+        assert found, f"Custom handler '{prefix}' not discovered"
+
+    print(f"  PASS: All 12 custom handlers discovered")
 
 
 def test_wan2gp_direct_espeak():

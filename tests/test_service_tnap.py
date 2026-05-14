@@ -1,6 +1,6 @@
-"""Tests for service handlers through the unified model_engine system.
+"""Tests for service handlers through the unified Wan2GP family_handler system.
 
-Tests the orchestrator __call__ method on handlers by mocking subprocess calls
+Tests the _Pipeline.generate() method on handlers by mocking subprocess calls
 and model inference.
 """
 from __future__ import annotations
@@ -15,9 +15,9 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 
-def _make_espeak_orchestrator():
-    from services.model_engine.handlers.espeak.orchestrator import EspeakOrchestrator
-    return EspeakOrchestrator()
+def _make_espeak_pipeline():
+    from models.espeak.espeak_handler import _Pipeline
+    return _Pipeline("espeak-ng")
 
 
 # ─── Espeak Handler Tests ─────────────────────────────────────────────────
@@ -26,7 +26,7 @@ def _make_espeak_orchestrator():
 class TestEspeakHandler:
 
     def test_synthesize_with_text_returns_audio(self):
-        orch = _make_espeak_orchestrator()
+        pipeline = _make_espeak_pipeline()
         with patch("subprocess.run") as mock_run:
             def write_output(*args, **kwargs):
                 cmd = args[0]
@@ -35,13 +35,13 @@ class TestEspeakHandler:
                 return subprocess.CompletedProcess([], 0, "", "")
 
             mock_run.side_effect = write_output
-            result = orch({"text": "hello"})
+            result = pipeline.generate(input_prompt="hello")
             assert result["status"] == "success"
             import base64
             assert base64.b64decode(result["data"])[:4] == b"RIFF"
 
     def test_synthesize_with_voice_param(self):
-        orch = _make_espeak_orchestrator()
+        pipeline = _make_espeak_pipeline()
         with patch("subprocess.run") as mock_run:
             def write_output(*args, **kwargs):
                 cmd = args[0]
@@ -50,13 +50,13 @@ class TestEspeakHandler:
                 return subprocess.CompletedProcess([], 0, "", "")
 
             mock_run.side_effect = write_output
-            orch({"text": "hello", "voice": "en-us"})
+            pipeline.generate(input_prompt="hello", voice="en-us")
             cmd = mock_run.call_args[0][0]
             assert "en-us" in cmd
 
     def test_subprocess_failure_raises(self):
-        orch = _make_espeak_orchestrator()
+        pipeline = _make_espeak_pipeline()
         with patch("subprocess.run") as mock_run:
             mock_run.side_effect = subprocess.CalledProcessError(1, "espeak-ng", stderr="fatal error")
             with pytest.raises(subprocess.CalledProcessError):
-                orch({"text": "hello"})
+                pipeline.generate(input_prompt="hello")

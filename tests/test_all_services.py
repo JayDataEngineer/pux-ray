@@ -83,7 +83,7 @@ PAYLOADS = {
     "flux/t2i": {"prompt": "a landscape", "steps": 1},
     "ace_step/v1_5": {"prompt": "jazz music", "duration": 5, "steps": 2},
     "index_tts/v2": {"text": "hello world"},
-    # GPU model_engine
+    # GPU custom families
     "anigen": {"image_b64": "x", "ss_steps": 1, "slat_steps": 1},
     "trellis": {"image_b64": "x", "steps": 1},
     "hy_motion": {"text": "a person waves", "duration": 1.0, "cfg_scale": 3.0},
@@ -92,7 +92,7 @@ PAYLOADS = {
     "faster_qwen3_tts": {"text": "Hello world", "voice": "Aiden"},
     "vibevoice_asr": {"audio_b64": "x"},
     "vibevoice_tts": {"text": "Hello world"},
-    # CPU model_engine
+    # CPU custom families
     "kokoro": {"text": "Hello world", "voice": "af_bella"},
     "espeak": {"text": "Hello world"},
     "faster_whisper": {"audio_b64": "x"},

@@ -1,6 +1,6 @@
 """Centralized service registry — single source of truth for all deployments.
 
-Every model service routes through the Forge → Wan2GP → model_engine pipeline.
+Every model service routes through the Forge → Wan2GP → family_handlers pipeline.
 The registry maps public service names to metadata for API docs, dashboard, and routing.
 """
 from __future__ import annotations
