@@ -217,10 +217,11 @@ class TestConfigResolves:
         tools = ["trellis", "anigen", "ace_step", "see_through"]
         missing = []
         for tool in tools:
-            venv = config.get(f"services.creative.{tool}.venv_python", "")
-            script = config.get(f"services.creative.{tool}.script", "")
-            if not venv:
-                missing.append(f"{tool}.venv_python")
-            if not script:
-                missing.append(f"{tool}.script")
-        assert missing == [], f"Missing config: {missing}"
+            section = config.get(f"services.creative.{tool}", {})
+            # Tools running through Wan2GP may not need venv/script config
+            # They only need them if configured as standalone subprocesses
+            if section.get("venv_python") and not section.get("script"):
+                missing.append(f"{tool}.script (has venv but no script)")
+            if section.get("script") and not section.get("venv_python"):
+                missing.append(f"{tool}.venv_python (has script but no venv)")
+        assert missing == [], f"Inconsistent config: {missing}"

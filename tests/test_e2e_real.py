@@ -14,7 +14,7 @@ import time
 
 sys.path.insert(0, "/home/user/Documents/programs/ray")
 
-from services.wan2gp.deployment import Wan2GPService
+from services.wan2gp.deployment import Wan2GPService, discover_models
 
 
 def make_wav(sample_rate: int = 16000, duration: float = 1.0, freq: int = 440) -> bytes:
@@ -41,11 +41,11 @@ def test_espeak():
     """eSpeak: real WAV audio from text."""
     svc = Wan2GPService()
     t0 = time.time()
-    svc.load("espeak")
+    svc.load("espeak/espeak")
     load_s = time.time() - t0
 
     t1 = time.time()
-    result = svc.infer({"model": "espeak", "text": "Hello world, testing the unified pipeline"})
+    result = svc.infer({"model": "espeak/espeak", "text": "Hello world, testing the unified pipeline"})
     infer_s = time.time() - t1
 
     assert result["status"] == "success", f"espeak failed: {result}"
@@ -60,10 +60,10 @@ def test_espeak():
 def test_espeak_multilingual():
     """eSpeak: test different voices."""
     svc = Wan2GPService()
-    svc.load("espeak")
+    svc.load("espeak/espeak")
 
     for voice, text in [("en", "Hello"), ("fr", "Bonjour"), ("de", "Hallo")]:
-        result = svc.infer({"model": "espeak", "text": text, "voice": voice})
+        result = svc.infer({"model": "espeak/espeak", "text": text, "voice": voice})
         assert result["status"] == "success", f"espeak {voice} failed"
         audio = base64.b64decode(result["data"])
         assert audio[:4] == b"RIFF"
@@ -76,14 +76,14 @@ def test_faster_whisper():
     """Faster-Whisper: real ASR with model loading."""
     svc = Wan2GPService()
     t0 = time.time()
-    svc.load("faster_whisper")
+    svc.load("faster_whisper/faster_whisper")
     load_s = time.time() - t0
 
     wav_bytes = make_wav()
     audio_b64 = base64.b64encode(wav_bytes).decode()
 
     t1 = time.time()
-    result = svc.infer({"model": "faster_whisper", "audio_b64": audio_b64})
+    result = svc.infer({"model": "faster_whisper/faster_whisper", "audio_b64": audio_b64})
     infer_s = time.time() - t1
 
     assert result["status"] == "success", f"whisper failed: {result}"
@@ -120,7 +120,7 @@ def test_wan2gp_registry():
 def test_wan2gp_direct_espeak():
     """Direct Wan2GP: invoke espeak through the standalone service."""
     svc = Wan2GPService()
-    result = svc.infer({"model": "espeak", "text": "Testing direct invocation"})
+    result = svc.infer({"model": "espeak/espeak", "text": "Testing direct invocation"})
 
     assert result["status"] == "success", f"Direct invoke failed: {result}"
     audio = base64.b64decode(result["data"])
