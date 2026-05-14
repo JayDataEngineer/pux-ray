@@ -126,6 +126,8 @@ def _ensure_transformers_compat():
         _gcu.NEED_SETUP_CACHE_CLASSES_MAPPING = getattr(
             _gcu, "ALL_CACHE_IMPLEMENTATIONS", ()
         )
+    if not hasattr(_gcu, "QUANT_BACKEND_CLASSES_MAPPING"):
+        _gcu.QUANT_BACKEND_CLASSES_MAPPING = {}
 
 
 # ─── Dynamic Model Discovery ──────────────────────────────────────────────────
