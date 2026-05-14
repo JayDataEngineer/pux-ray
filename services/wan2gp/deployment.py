@@ -160,8 +160,11 @@ def discover_models(models_root: Path | None = None) -> dict:
                 if weight_path:
                     entry["weight_path"] = str(weight_path)
                 elif model_type not in _CPU_ONLY_TYPES:
-                    entry["blocked"] = True
-                    entry["blocked_reason"] = "No weights found"
+                    # Vendor handlers (models.*) download weights on first use
+                    is_vendor = handler_path.startswith("models.")
+                    if not is_vendor:
+                        entry["blocked"] = True
+                        entry["blocked_reason"] = "No weights found"
 
                 discovered[model_key] = entry
 
