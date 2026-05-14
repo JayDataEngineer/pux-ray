@@ -1,5 +1,9 @@
-"""Deploy serve applications on Ray cluster startup."""
-import json, os, time
+"""Deploy serve applications on Ray cluster startup.
+
+Can run inside the head pod (default: localhost) or as an external Job
+(point DASHBOARD_URL env at the Ray head service).
+"""
+import os, time
 
 import requests
 import yaml
@@ -29,16 +33,21 @@ applications:
 
 
 def main():
-    dashboard = "http://localhost:8265"
+    dashboard = os.environ.get(
+        "DASHBOARD_URL", "http://localhost:8265"
+    )
 
-    for i in range(30):
+    for i in range(60):
         try:
             r = requests.get(f"{dashboard}/api/serve/applications/", timeout=5)
             if r.status_code < 500:
                 break
         except requests.ConnectionError:
             pass
-        time.sleep(2)
+        time.sleep(5)
+    else:
+        print("timed out waiting for Ray dashboard", flush=True)
+        raise SystemExit(1)
 
     config = yaml.safe_load(CONFIG)
     resp = requests.put(
@@ -49,6 +58,8 @@ def main():
     print(f"serve deploy: {resp.status_code}", flush=True)
     if resp.text:
         print(resp.text[:2000], flush=True)
+    if resp.status_code >= 400:
+        raise SystemExit(1)
 
 
 if __name__ == "__main__":
