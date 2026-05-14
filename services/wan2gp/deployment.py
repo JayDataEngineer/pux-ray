@@ -206,7 +206,7 @@ def _get_family_handlers() -> list[str]:
             "models.faster_whisper.faster_whisper_handler", "models.moss.moss_handler",
             "models.vibevoice_asr.vibevoice_asr_handler",
             "models.vibevoice_tts.vibevoice_tts_handler",
-            "trellis.trellis_handler", "anigen.anigen_handler",
+            "trellis.trellis_handler", "anigen_handler.anigen_handler",
             "models.faster_qwen3_tts.faster_qwen3_tts_handler",
             "models.hy_motion.hy_motion_handler",
             "models.see_through.see_through_handler",
