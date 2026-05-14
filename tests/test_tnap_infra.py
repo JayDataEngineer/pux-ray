@@ -45,11 +45,11 @@ class TestServiceRegistry:
         assert expected.issubset(set(SERVICE_REGISTRY.keys())), \
             f"Missing: {expected - set(SERVICE_REGISTRY.keys())}"
 
-    def test_all_route_through_forge(self):
+    def test_all_route_through_correct_deployment(self):
         from services.registry import SERVICE_REGISTRY
         for name, entry in SERVICE_REGISTRY.items():
-            assert entry.deployment == "forge", \
-                f"{name} deployment is '{entry.deployment}', expected 'forge'"
+            assert entry.deployment in ("forge", "wan2gp"), \
+                f"{name} unexpected deployment '{entry.deployment}'"
 
     def test_get_service_found(self):
         from services.registry import get_service

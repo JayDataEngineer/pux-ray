@@ -19,7 +19,6 @@ sys.path.insert(0, "/home/user/Documents/programs/ray")
 sys.path.insert(0, "/opt/wan2gp")
 sys.path.insert(0, "/home/user/Documents/programs/ray/vendor/wan2gp")
 os.environ.setdefault("WAN2GP_ROOT", "/opt/wan2gp")
-os.environ.setdefault("TECH_NOIR_MODELS_ROOT", "/models")
 
 logging.basicConfig(level=logging.INFO, format="%(name)s: %(message)s")
 logger = logging.getLogger("test_handlers")
@@ -50,7 +49,7 @@ TINY_WAV = make_tiny_wav_b64()
 TINY_PNG = make_tiny_png_b64()
 
 
-def test_handler(handler_path, model_type, payload, *, timeout=120):
+def _run_handler(handler_path, model_type, payload, *, timeout=120):
     """Import handler → load_model → generate → report."""
     print(f"\n{'='*60}")
     print(f"HANDLER: {handler_path}  model_type={model_type}")
@@ -156,9 +155,10 @@ TESTS = [
 
 
 def main():
+    os.environ.setdefault("TECH_NOIR_MODELS_ROOT", "/models")
     results = {}
     for handler_path, model_type, payload in TESTS:
-        ok, msg = test_handler(handler_path, model_type, payload)
+        ok, msg = _run_handler(handler_path, model_type, payload)
         results[handler_path.split(".")[-2]] = (ok, msg)
 
     print(f"\n{'='*60}")

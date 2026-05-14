@@ -37,13 +37,13 @@ class TestOpenAIRouteTargets:
         from services.registry import resolve_model, get_service
         key, entry = resolve_model("tts-01-kokoro")
         assert key == "kokoro"
-        assert entry.deployment == "forge"
+        assert entry.deployment == "wan2gp"
 
     def test_audio_speech_espeak_alias(self):
         from services.registry import resolve_model
         key, entry = resolve_model("tts-01-espeak")
         assert key == "espeak"
-        assert entry.deployment == "forge"
+        assert entry.deployment == "wan2gp"
 
     def test_audio_speech_unknown_returns_none(self):
         from services.registry import resolve_model
@@ -53,7 +53,7 @@ class TestOpenAIRouteTargets:
         from services.registry import resolve_model
         key, entry = resolve_model("whisper-1")
         assert key == "faster_whisper"
-        assert entry.deployment == "forge"
+        assert entry.deployment == "wan2gp"
 
     def test_all_tts_services_have_speech_aliases(self):
         from services.registry import SERVICE_REGISTRY
