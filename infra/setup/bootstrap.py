@@ -20,6 +20,9 @@ DOCKER_DAEMON_PATH = Path("/etc/docker/daemon.json")
 REGISTRIES_EXAMPLE = REPO_ROOT / "config" / "registries.yaml.example"
 FLUX_KUSTOMIZATION = REPO_ROOT / "infra/flux/clusters/forge/kustomization.yaml"
 
+# Binaries needed by this bootstrap
+REQUIRED_BINS = ["kubectl", "flux", "curl", "age-keygen", "sops"]
+
 REGISTRY_HOST = "forge-reg.local"
 REGISTRY_PORT = 30500
 
@@ -103,6 +106,29 @@ def check_docker_insecure_registry(fix: bool) -> bool:
     return True
 
 
+def check_k3s_installed(fix: bool) -> bool:
+    r = _run(["kubectl", "get", "node"])
+    if r.returncode == 0:
+        _log("k3s is running (kubectl works)")
+        return True
+    if not fix:
+        _warn("k3s not detected — install with: curl -sfL https://get.k3s.io | sh")
+        return False
+    _warn("k3s not installed — installing now...")
+    r = _run(["sh", "-c", "curl -sfL https://get.k3s.io | sh"])
+    if r.returncode != 0:
+        _err(f"k3s install failed: {r.stderr}")
+        return False
+    import time
+    time.sleep(10)
+    r2 = _run(["kubectl", "wait", "--for=condition=Ready", "node", "--all", "--timeout=60s"])
+    if r2.returncode != 0:
+        _err("k3s node not ready within 60s")
+        return False
+    _log("k3s installed and node Ready")
+    return True
+
+
 def check_flux_controllers(fix: bool) -> bool:
     r = _run(["kubectl", "get", "deploy", "source-controller", "-n", "flux-system"])
     if r.returncode == 0:
@@ -111,11 +137,11 @@ def check_flux_controllers(fix: bool) -> bool:
     if not fix:
         _warn("Flux controllers not installed")
         return False
-    r = _run(["flux", "install", "--components=source-controller,kustomize-controller"])
+    r = _run(["flux", "install", "--components=source-controller,kustomize-controller,helm-controller,notification-controller"])
     if r.returncode != 0:
         _err(f"Flux install failed: {r.stderr}")
         return False
-    _log("Flux controllers installed")
+    _log("Flux controllers installed (source, kustomize, helm, notification)")
     return True
 
 
@@ -206,7 +232,22 @@ def main() -> int:
     print(f"Tech Noir Host Bootstrap {'(fix mode)' if fix else '(check mode)'}")
     print()
 
+    # Prerequisite binaries
+    missing = [b for b in REQUIRED_BINS if shutil.which(b) is None]
+    if missing:
+        _err(f"Missing required binaries: {', '.join(missing)}")
+        _err("Install with:")
+        for b in missing:
+            match b:
+                case "kubectl": print("  curl -sfL https://get.k3s.io | sh  (includes kubectl)")
+                case "flux": print("  curl -s https://fluxcd.io/install.sh | sudo bash")
+                case "sops": print("  sudo curl -L https://github.com/getsops/sops/releases/download/v3.9.0/sops-v3.9.0.linux.amd64 -o /usr/local/bin/sops && sudo chmod +x /usr/local/bin/sops")
+                case "age-keygen": print("  sudo apt install age")
+                case _: print(f"  apt install {b}")
+        return 1
+
     checks = [
+        ("k3s installed", check_k3s_installed),
         ("Hosts entry", check_hosts_entry),
         ("K3s registries", check_k3s_registries),
         ("Docker insecure registry", check_docker_insecure_registry),

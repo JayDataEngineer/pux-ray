@@ -254,11 +254,19 @@ tasks:
       - kubectl get secrets -n mcp
       - kubectl get secrets -n ai-services
 
+  # ── Cluster Bootstrap ──────────────────────────────────────────────────
+  k3s:install:
+    desc: "Install k3s on this machine"
+    cmds:
+      - curl -sfL https://get.k3s.io | sh
+      - sleep 10
+      - kubectl wait --for=condition=Ready node --all --timeout=60s
+
   # ── Flux CD ─────────────────────────────────────────────────────────────
   flux:install:
-    desc: "Install Flux controllers (source + kustomize)"
+    desc: "Install Flux controllers (source + kustomize + helm)"
     cmds:
-      - flux install --components=source-controller,kustomize-controller
+      - flux install --components=source-controller,kustomize-controller,helm-controller,notification-controller
 
   flux:check:
     desc: "Check Flux installation health"
@@ -277,6 +285,7 @@ tasks:
       - flux reconcile kustomization namespaces --with-source
       - flux reconcile kustomization infra-storage --with-source
       - flux reconcile kustomization infra-secrets --with-source
+      - flux reconcile kustomization helm --with-source
       - flux reconcile kustomization git --with-source
       - flux reconcile kustomization infra-services --with-source
       - flux reconcile kustomization ai-services --with-source
