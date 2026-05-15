@@ -107,6 +107,11 @@ class family_handler:
         for k, v in list(pipe.items()):
             if isinstance(v, torch.nn.Module):
                 pipe[k] = v.to(dev)
+            elif hasattr(v, 'to') and callable(v.to):
+                try:
+                    v.to(str(dev))
+                except Exception:
+                    pass
 
         co_tenants = {
             "ss_flow_model": ["ss_decoder"],

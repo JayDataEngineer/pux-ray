@@ -73,7 +73,8 @@ def sparse_conv3d_forward(self, x: SparseTensor) -> SparseTensor:
                 x.coords,
                 torch.Size([*x.shape, *x.spatial_shape]),
                 (Kw, Kh, Kd),
-                self.dilation
+                self.dilation,
+                False
             )
             neighbor_map = neighbor_cache['neighbor_map'].cpu()
             del neighbor_cache
@@ -86,7 +87,8 @@ def sparse_conv3d_forward(self, x: SparseTensor) -> SparseTensor:
                 x.coords,
                 torch.Size([*x.shape, *x.spatial_shape]),
                 (Kw, Kh, Kd),
-                self.dilation
+                self.dilation,
+                False
             )
             x.register_spatial_cache(neighbor_cache_key, neighbor_cache)
             neighbor_map = neighbor_cache['neighbor_map']
