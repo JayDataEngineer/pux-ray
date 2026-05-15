@@ -20,8 +20,8 @@ DOCKER_DAEMON_PATH = Path("/etc/docker/daemon.json")
 REGISTRIES_EXAMPLE = REPO_ROOT / "config" / "registries.yaml.example"
 FLUX_KUSTOMIZATION = REPO_ROOT / "infra/flux/clusters/forge/kustomization.yaml"
 
-# Binaries needed by this bootstrap
-REQUIRED_BINS = ["kubectl", "flux", "curl", "age-keygen", "sops"]
+# Binaries needed after k3s installs kubectl
+POST_K3S_BINS = ["flux", "sops", "age-keygen"]
 
 REGISTRY_HOST = "forge-reg.local"
 REGISTRY_PORT = 30500
@@ -232,14 +232,13 @@ def main() -> int:
     print(f"Tech Noir Host Bootstrap {'(fix mode)' if fix else '(check mode)'}")
     print()
 
-    # Prerequisite binaries
-    missing = [b for b in REQUIRED_BINS if shutil.which(b) is None]
+    # Check prerequisite binaries (kubectl comes with k3s — checked after k3s install)
+    missing = [b for b in POST_K3S_BINS if shutil.which(b) is None]
     if missing:
         _err(f"Missing required binaries: {', '.join(missing)}")
         _err("Install with:")
         for b in missing:
             match b:
-                case "kubectl": print("  curl -sfL https://get.k3s.io | sh  (includes kubectl)")
                 case "flux": print("  curl -s https://fluxcd.io/install.sh | sudo bash")
                 case "sops": print("  sudo curl -L https://github.com/getsops/sops/releases/download/v3.9.0/sops-v3.9.0.linux.amd64 -o /usr/local/bin/sops && sudo chmod +x /usr/local/bin/sops")
                 case "age-keygen": print("  sudo apt install age")
