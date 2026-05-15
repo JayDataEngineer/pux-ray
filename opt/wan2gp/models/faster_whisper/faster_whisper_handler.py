@@ -30,14 +30,9 @@ class family_handler:
                    quantizeTransformer=False, text_encoder_quantization=None,
                    dtype=None, VAE_dtype=None, profile=0, **kwargs):
         from faster_whisper import WhisperModel
-        model_path = "deepdml/faster-whisper-large-v3-turbo-ct2"
-        try:
-            from registry.models import ModelRegistry
-            local = ModelRegistry().get_path("asr", "faster-whisper")
-            if Path(local).is_dir():
-                model_path = str(local)
-        except (KeyError, FileNotFoundError):
-            pass
+        paths = (model_def or {}).get("model_paths", {})
+        local = paths.get("faster_whisper", "")
+        model_path = str(local) if local and Path(local).is_dir() else "deepdml/faster-whisper-large-v3-turbo-ct2"
         model = WhisperModel(model_path, device="cpu", compute_type="int8")
         return _Pipeline(model), {}
 
