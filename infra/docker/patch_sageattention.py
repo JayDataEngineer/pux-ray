@@ -3,16 +3,16 @@
 Replaces the runtime GPU capability detection with a static architecture
 list from $TORCH_CUDA_ARCH_LIST so SageAttention compiles in Docker
 build environments where no GPU is available.
+
+Usage: cd /tmp/sageattention && python3 /tmp/patch_sageattention.py
 """
 import os
-import urllib.request
 
-arch_list = os.environ.get("TORCH_CUDA_ARCH_LIST", "8.0;8.6")
+arch_list = os.environ.get("TORCH_CUDA_ARCH_LIST", "8.9")
 arch_set = "{" + ", ".join(f'"{a}"' for a in arch_list.split(";")) + "}"
 
-url = "https://raw.githubusercontent.com/thu-ml/SageAttention/main/setup.py"
-with urllib.request.urlopen(url) as r:
-    content = r.read().decode()
+with open("setup.py", "r") as f:
+    content = f.read()
 
 old = (
     "compute_capabilities = set()\n"
@@ -32,7 +32,7 @@ new = (
 
 content = content.replace(old, new)
 
-with open("/tmp/setup_patched.py", "w") as f:
+with open("setup.py", "w") as f:
     f.write(content)
 
 print(f"SageAttention setup.py patched for arch: {arch_set}")
