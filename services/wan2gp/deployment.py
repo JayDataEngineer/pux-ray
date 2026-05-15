@@ -1,10 +1,12 @@
 """Wan2GP Service — Wan2GP-native model discovery, mmgp-managed VRAM.
 
-All models (vendor + custom families) discovered via Wan2GP's refresh_model_defs()
-and map_family_handlers(). No parallel model_engine system.
+All models (vendor + custom families) discovered via Wan2GP fork's
+refresh_model_defs() and map_family_handlers(). Custom model families live
+as first-class citizens under opt/wan2gp/models/.
 
 Architecture:
-    - 19 vendor handlers + 12 custom family handlers in family_handlers list
+    - Vendor handlers from the fork's wgp.py family_handlers list
+    - Custom handlers appended via CUSTOM_HANDLERS below
     - Wan2GP scans defaults/*.json → discovers all models
     - handler.load_model() → (pipeline, pipe_dict) → offload.profile() for mmgp
     - CPU models use empty pipe dict (no mmgp)
@@ -27,7 +29,7 @@ import torch
 
 logger = logging.getLogger(__name__)
 
-WAN2GP_VENDOR = Path(__file__).parents[2] / "vendor" / "wan2gp"
+WAN2GP_VENDOR = Path(__file__).parents[2] / "opt" / "wan2gp"
 
 # ─── mmgp Profiles ────────────────────────────────────────────────────────────
 
@@ -103,9 +105,6 @@ def _ensure_vendor_path():
     vendor = str(WAN2GP_VENDOR)
     if vendor not in sys.path:
         sys.path.insert(0, vendor)
-    custom_models = str(Path(__file__).parent / "custom_models")
-    if os.path.isdir(custom_models) and custom_models not in sys.path:
-        sys.path.insert(0, custom_models)
     os.environ.setdefault("WAN2GP_ROOT", vendor)
     _ven_loaded = True
 
@@ -198,17 +197,16 @@ _HF_AUTO_DOWNLOAD = {
 
 
 CUSTOM_HANDLERS = [
-    "trellis.trellis_handler",
-    "anigen_handler.anigen_handler",
-    "see_through.see_through_handler",
-    "hy_motion.hy_motion_handler",
-    "kokoro.kokoro_handler",
-    "moss.moss_handler",
-    "espeak.espeak_handler",
-    "faster_whisper.faster_whisper_handler",
-    "vibevoice_asr.vibevoice_asr_handler",
-    "vibevoice_tts.vibevoice_tts_handler",
-    "faster_qwen3_tts.faster_qwen3_tts_handler",
+    "models.anigen.anigen_handler",
+    "models.see_through.see_through_handler",
+    "models.hy_motion.hy_motion_handler",
+    "models.kokoro.kokoro_handler",
+    "models.moss.moss_handler",
+    "models.espeak.espeak_handler",
+    "models.faster_whisper.faster_whisper_handler",
+    "models.vibevoice_asr.vibevoice_asr_handler",
+    "models.vibevoice_tts.vibevoice_tts_handler",
+    "models.faster_qwen3_tts.faster_qwen3_tts_handler",
 ]
 
 def _get_family_handlers() -> list[str]:
@@ -230,7 +228,7 @@ def _get_family_handlers() -> list[str]:
             "models.TTS.index_tts2_handler",
             "models.vnccs.vnccs_handler",
         ]
-    # Append our custom handlers living in services/wan2gp/custom_models/
+    # Append our custom handlers living in opt/wan2gp/models/
     for h in CUSTOM_HANDLERS:
         if h not in base:
             base.append(h)
@@ -258,7 +256,6 @@ def _derive_key(model_type: str, handler_path: str) -> str:
 
 _WEIGHT_SEARCH = {
     "faster-qwen3-tts": [("tts", "qwen3-tts")],
-    "trellis": [("3d", "trellis")],
     "anigen": [("3d", "anigen")],
     "moss-soundeffect": [("audio", "moss-soundeffect")],
     "see-through": [("image", "see-through-layerdiff"), ("image", "see-through-marigold")],

@@ -56,7 +56,7 @@ spec:
           containers:
             - name: ray-head
               image: forge-reg.local:30500/tech-noir/gpu-all:latest
-              imagePullPolicy: Always
+              imagePullPolicy: IfNotPresent
               ports:
                 - containerPort: 6379
                   name: gcs
@@ -160,7 +160,7 @@ spec:
             containers:
               - name: ray-worker
                 image: forge-reg.local:30500/tech-noir/gpu-all:latest
-                imagePullPolicy: Always
+                imagePullPolicy: IfNotPresent
                 readinessProbe:
                   exec:
                     command:
