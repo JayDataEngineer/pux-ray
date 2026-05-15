@@ -7,7 +7,7 @@ spec:
   interval: 5m
   chart:
     spec:
-      chart: ./infra/charts/overflow-gateway
+      chart: ./infra/flux/charts/overflow-gateway
       sourceRef:
         kind: GitRepository
         name: tech-noir

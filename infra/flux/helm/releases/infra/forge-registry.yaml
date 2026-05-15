@@ -7,7 +7,7 @@ spec:
   interval: 5m
   chart:
     spec:
-      chart: ./infra/charts/forge-registry
+      chart: ./infra/flux/charts/forge-registry
       sourceRef:
         kind: GitRepository
         name: tech-noir

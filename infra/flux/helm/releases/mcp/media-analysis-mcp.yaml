@@ -7,7 +7,7 @@ spec:
   interval: 5m
   chart:
     spec:
-      chart: ./infra/charts/media-analysis-mcp
+      chart: ./infra/flux/charts/media-analysis-mcp
       sourceRef:
         kind: GitRepository
         name: tech-noir
