@@ -5,7 +5,6 @@ resources:
   - repositories/gitea.yaml
   - repositories/grafana.yaml
   - repositories/prometheus-community.yaml
-  - repositories/bitnami.yaml
   - repositories/victoriametrics.yaml
   # Helm releases
   - releases/infra/victoriametrics.yaml
@@ -14,4 +13,3 @@ resources:
   - releases/infra/node-exporter.yaml
   - releases/infra/kube-state-metrics.yaml
   - releases/git/gitea.yaml
-  - releases/mcp/redis.yaml
