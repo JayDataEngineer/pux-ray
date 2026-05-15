@@ -1,0 +1,21 @@
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: overflow-gateway
+  namespace: infra
+spec:
+  interval: 5m
+  chart:
+    spec:
+      chart: ./infra/charts/overflow-gateway
+      sourceRef:
+        kind: GitRepository
+        name: tech-noir
+        namespace: flux-system
+  values:
+    image:
+      repository: python
+      tag: "3.12-slim-bookworm"
+    env:
+      LOCAL_RAY_URL: http://tech-noir-ray-serve-svc.ai-services.svc.cluster.local:8000
+    hostPath: /home/user/Documents/programs/ray

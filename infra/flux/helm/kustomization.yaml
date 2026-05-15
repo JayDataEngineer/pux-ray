@@ -13,3 +13,7 @@ resources:
   - releases/infra/node-exporter.yaml
   - releases/infra/kube-state-metrics.yaml
   - releases/git/gitea.yaml
+  # Custom charts (in-repo GitRepository-based)
+  - releases/infra/forge-registry.yaml
+  - releases/infra/overflow-gateway.yaml
+  - releases/mcp/media-analysis-mcp.yaml

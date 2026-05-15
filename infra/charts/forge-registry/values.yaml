@@ -1,0 +1,33 @@
+image:
+  repository: registry
+  tag: "2"
+  pullPolicy: IfNotPresent
+
+replicas: 1
+
+service:
+  type: NodePort
+  port: 5000
+  nodePort: 30500
+
+persistence:
+  size: 20Gi
+  storageClass: local-path
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 256Mi
+  limits:
+    cpu: 500m
+    memory: 512Mi
+
+probes:
+  readiness:
+    path: /v2/
+    initialDelaySeconds: 5
+    periodSeconds: 10
+  liveness:
+    path: /v2/
+    initialDelaySeconds: 15
+    periodSeconds: 30
