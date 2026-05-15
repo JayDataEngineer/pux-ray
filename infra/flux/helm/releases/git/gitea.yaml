@@ -57,7 +57,6 @@ spec:
       enabled: true
       size: 20Gi
       storageClassName: local-path
-      size: 20Gi
     service:
       http:
         type: ClusterIP
