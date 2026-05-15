@@ -10,10 +10,21 @@ jobs:
     runs-on: code-exec
     steps:
       - uses: actions/checkout@v4
+      - name: Fetch Renovate token from k8s secret
+        run: |
+          RENOVATE_TOKEN=$(kubectl get secret shared-infra -n git \
+            -o jsonpath='{.data.RENOVATE_TOKEN}' | base64 -d)
+          echo "RENOVATE_TOKEN=$RENOVATE_TOKEN" >> /dev/stderr 2>/dev/null || true
+          echo "::set-env name=RENOVATE_TOKEN::$RENOVATE_TOKEN"
+        shell: bash
       - name: Run Renovate
         run: |
-          docker run --rm \
-            -e RENOVATE_TOKEN=${{ secrets.RENOVATE_TOKEN }} \
-            -e LOG_LEVEL=info \
+          GH_PAT_VAL=$(kubectl get secret shared-infra -n git \
+            -o jsonpath='{.data.GH_PAT}' 2>/dev/null | base64 -d 2>/dev/null || echo "")
+          ARGS="-e RENOVATE_TOKEN=$RENOVATE_TOKEN"
+          if [ -n "$GH_PAT_VAL" ]; then
+            ARGS="$ARGS -e GITHUB_COM_TOKEN=$GH_PAT_VAL"
+          fi
+          docker run --rm $ARGS \
             -v $(pwd)/renovate.json:/opt/renovate/config.json \
             renovate/renovate:latest

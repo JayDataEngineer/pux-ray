@@ -299,6 +299,40 @@ tasks:
     cmds:
       - flux resume kustomization namespaces infra-storage infra-secrets git infra-services ai-services mcp networking
 
+  flux:ui:
+    desc: "Show Capacitor URL for visual Flux dashboard"
+    cmds:
+      - 'echo "Capacitor: http://100.86.69.57:30080/flux"'
+
+  # ── Hooks ──────────────────────────────────────────────────────────────────
+  hooks:install:
+    desc: "Install pre-commit hooks (kubeconform, yamllint, detect-secrets)"
+    cmds:
+      - command -v pre-commit >/dev/null 2>&1 || pip install pre-commit
+      - pre-commit install
+      - 'echo "Hooks installed. Run: pre-commit run --all-files"'
+
+  hooks:run:
+    desc: "Run all pre-commit hooks against the repo"
+    cmds:
+      - pre-commit run --all-files
+
+  # ── Renovate ───────────────────────────────────────────────────────────────
+  renovate:run:
+    desc: "Run Renovate dependency check manually (reads token from k8s secret)"
+    cmds:
+      - |
+        RENOVATE_TOKEN=$(kubectl get secret shared-infra -n git \
+          -o jsonpath='{.data.RENOVATE_TOKEN}' 2>/dev/null | base64 -d)
+        if [ -z "$RENOVATE_TOKEN" ]; then
+          echo "ERROR: RENOVATE_TOKEN not set. Add to config/secrets.env and run: task secrets:sync"
+          exit 1
+        fi
+        docker run --rm \
+          -e RENOVATE_TOKEN=$RENOVATE_TOKEN \
+          -v $(pwd)/renovate.json:/opt/renovate/config.json \
+          renovate/renovate:latest
+
   # ── Gitea ────────────────────────────────────────────────────────────────
   gitea:setup:
     desc: "Deploy Gitea + runners via Flux reconciliation"
