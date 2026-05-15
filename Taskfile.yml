@@ -233,7 +233,7 @@ tasks:
     desc: "Generate AGE key, encrypt secrets with SOPS, commit for Flux"
     cmds:
       - "{{.VENV_PYTHON}} -m infra.setup sops --fix"
-      - git add infra/flux/infra-secrets/shared-infra.enc.yaml .sops.yaml
+      - git add infra/flux/infra-secrets/ .sops.yaml
       - |
         if git diff --cached --quiet; then
           echo "No changes to commit"
