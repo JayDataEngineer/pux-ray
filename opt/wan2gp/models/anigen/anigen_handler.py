@@ -99,16 +99,14 @@ class family_handler:
         quantizeTransformer=False, text_encoder_quantization=None,
         dtype=None, VAE_dtype=None, profile=0, **kwargs,
     ):
-        from registry.config import Config
-        from registry.models import ModelRegistry
-
-        cfg = Config()
-        registry = ModelRegistry()
-        model_path = Path(registry.get_path("3d", "anigen"))
-
-        vendor = str(Path(cfg.project_root) / "vendor")
-        if vendor not in sys.path:
+        paths = (model_def or {}).get("model_paths", {})
+        vendor = paths.get("vendor_root", "")
+        if vendor and vendor not in sys.path:
             sys.path.insert(0, vendor)
+
+        model_path = Path(paths.get("anigen", ""))
+        if not model_path.is_dir():
+            raise FileNotFoundError(f"anigen model path not found: {model_path}")
 
         ckpts_dir = model_path / "ckpts"
         os.environ.setdefault("TORCH_HOME", str(model_path.parent))
