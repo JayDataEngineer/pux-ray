@@ -156,17 +156,17 @@ kubectl apply -f infra/k8s/mcp/            # Re-apply manifests only
 
 **Ray orchestration:** KubeRay Operator manages Ray head + worker pods from declarative RayService YAML.
 
-**Image standard:** All GPU images inherit from `tech-noir/ray-base:latest` (CUDA 12.4.1 + Python 3.12 + PyTorch 2.6.0 + ray 2.55.1 + vllm-flash-attn + nvdiffrast + torchaudio). CPU images use `python:3.12-slim-bookworm`. Host Python (3.13) is only for `kubectl`.
+**Image standard:** GPU image `tech-noir/gpu-all:latest` is a multi-stage build with Wan2GP base (CUDA 12.8 + PyTorch 2.10+cu128 + Python 3.10). Stage 2 (`wan2gp-base`) replicates Wan2GP's Dockerfile using `uv` for speed. Stage 3 adds Ray + CUDA extensions + our services. CPU images use `python:3.12-slim-bookworm`. Host Python (3.13) is only for `kubectl`.
 
-**Golden Base Image:** `tech-noir/ray-base:latest` contains the expensive-to-compile dependencies (nvdiffrast ~10min) so downstream service images are thin layers that build in seconds. All GPU Dockerfiles use `FROM tech-noir/ray-base:latest`. Flash attention via `vllm-flash-attn` (open source, ABI-compatible with PyPI torch). The official `flash-attn` wheels have CXX11 ABI mismatch with PyPI torch — do NOT use them.
+**GPU Image Architecture:** `Dockerfile.gpu-all` has three stages: (1a/1b) llama.cpp CUDA 12.8 builders, (2) Wan2GP base with curated deps (mmgp, spacy, misaki, insightface, etc.), (3) final image with Ray, CUDA extensions, git repos, vendor code, project code. All pip installs use `uv` (not pip). torchaudio comes as a binary wheel (no source build needed with stock PyTorch).
 
 **Storage:** `local-path` provisioner (ships with k3s). Single PVC for models, shared across all pods.
 
 **No more:** HTTPToolMixin, subprocess container management, `runtime_env["container"]`, `compose.workers.yaml`, GPUScheduler, duplicate torch/flash-attn builds.
 
 ### Conventions
-- Python 3.12 for all Ray worker images (CUDA 12.4 standard)
-- `tech-noir/ray-base:latest` is the golden base — all GPU images inherit from it
+- Python 3.10 for GPU worker (Wan2GP base on Ubuntu 22.04), Python 3.12 for CPU images
+- `tech-noir/gpu-all:latest` uses Wan2GP's curated deps — do NOT duplicate packages Wan2GP already provides
 - Downstream images MUST NOT reinstall torch/torchaudio/flash-attn (use `grep -v` to filter requirements)
 - Ray Service YAML is the source of truth (not Python scripts)
 - Autoscaling: idle GPU pods killed after 5min to free VRAM
@@ -460,7 +460,7 @@ to see cloud fallback rate over time.
 
 ## Conventions
 
-- Python 3.12 for Ray worker images (CUDA 12.4 standard), host uses Python 3.13 + **uv** for kubectl
+- Python 3.10 for GPU worker (Wan2GP base), host uses Python 3.13 + **uv** for kubectl
 - No co-authored-by in git commits
 - Tests preferred — integration style, "prove" over "assert"
 - `config/local.yaml` is git-ignored; never commit secrets
