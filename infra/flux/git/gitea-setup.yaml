@@ -22,7 +22,7 @@ data:
     import urllib.error
     import base64
 
-    GITEA_URL = os.environ.get("GITEA_URL", "http://gitea.git.svc.cluster.local:3000")
+    GITEA_URL = os.environ.get("GITEA_URL", "http://gitea-http.git.svc.cluster.local:3000")
     ADMIN_USER = "forge"
     ADMIN_PASS = os.environ["GITEA_ADMIN_PASSWORD"]
     ORG = "JayDataEngineer"

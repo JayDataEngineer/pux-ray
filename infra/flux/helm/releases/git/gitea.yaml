@@ -55,7 +55,7 @@ spec:
           TYPE: channel
     persistence:
       enabled: true
-      existingClaim: gitea-data
+      size: 20Gi
       storageClassName: local-path
       size: 20Gi
     service:

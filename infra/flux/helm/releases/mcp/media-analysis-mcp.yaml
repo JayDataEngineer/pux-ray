@@ -5,6 +5,7 @@ metadata:
   namespace: mcp
 spec:
   interval: 5m
+  suspend: true
   chart:
     spec:
       chart: ./infra/flux/charts/media-analysis-mcp
