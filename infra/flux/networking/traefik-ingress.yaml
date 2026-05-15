@@ -307,8 +307,8 @@ spec:
       middlewares:
         - name: capacitor-rewrite
       services:
-        - name: capacitor
-          port: 9000
+        - name: capacitor-next
+          port: 80
 
 ---
 apiVersion: traefik.io/v1alpha1
