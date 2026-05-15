@@ -1,0 +1,76 @@
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: victoriametrics
+  namespace: infra
+spec:
+  interval: 5m
+  suspend: true
+  chart:
+    spec:
+      chart: victoria-metrics-single
+      version: "0.38.0"
+      sourceRef:
+        kind: HelmRepository
+        name: victoriametrics
+        namespace: flux-system
+  values:
+    server:
+      retentionPeriod: 30d
+      persistentVolume:
+        enabled: true
+        size: 5Gi
+        storageClassName: local-path
+      resources:
+        limits:
+          memory: 512Mi
+          cpu: "1"
+        requests:
+          memory: 256Mi
+          cpu: "250m"
+      extraArgs:
+        selfScrapeInterval: 15s
+    rbac:
+      create: true
+    serviceAccount:
+      create: true
+    scrapeConfigs:
+      enabled: true
+      config:
+        - job_name: victoriametrics
+          static_configs:
+            - targets: ["localhost:8428"]
+        - job_name: node-exporter
+          kubernetes_sd_configs:
+            - role: endpoints
+              namespaces:
+                names: [infra]
+          relabel_configs:
+            - source_labels: [__meta_kubernetes_service_name]
+              action: keep
+              regex: node-exporter
+        - job_name: kube-state-metrics
+          kubernetes_sd_configs:
+            - role: endpoints
+              namespaces:
+                names: [infra]
+          relabel_configs:
+            - source_labels: [__meta_kubernetes_service_name]
+              action: keep
+              regex: kube-state-metrics
+        - job_name: ray
+          kubernetes_sd_configs:
+            - role: endpoints
+              namespaces:
+                names: [ai-services]
+          relabel_configs:
+            - source_labels: [__meta_kubernetes_service_name]
+              action: keep
+              regex: tech-noir-ray-head-svc
+        - job_name: vmalert
+          static_configs:
+            - targets: ["vmalert.infra.svc.cluster.local:8880"]
+        - job_name: tech-noir-webapp
+          scrape_interval: 30s
+          static_configs:
+            - targets: ["192.168.1.117:8000"]

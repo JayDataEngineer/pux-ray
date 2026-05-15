@@ -1,0 +1,17 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  # Helm repositories (must be indexed before releases)
+  - repositories/gitea.yaml
+  - repositories/grafana.yaml
+  - repositories/prometheus-community.yaml
+  - repositories/bitnami.yaml
+  - repositories/victoriametrics.yaml
+  # Helm releases
+  - releases/infra/victoriametrics.yaml
+  - releases/infra/grafana.yaml
+  - releases/infra/loki.yaml
+  - releases/infra/node-exporter.yaml
+  - releases/infra/kube-state-metrics.yaml
+  - releases/git/gitea.yaml
+  - releases/mcp/redis.yaml

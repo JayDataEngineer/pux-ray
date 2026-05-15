@@ -1,0 +1,86 @@
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: grafana
+  namespace: infra
+spec:
+  interval: 5m
+  suspend: true
+  chart:
+    spec:
+      chart: grafana
+      version: "10.5.15"
+      sourceRef:
+        kind: HelmRepository
+        name: grafana
+        namespace: flux-system
+  values:
+    adminUser: admin
+    adminPassword: admin
+    service:
+      type: NodePort
+      nodePort: 30031
+    persistence:
+      enabled: true
+      size: 1Gi
+      storageClassName: local-path
+    env:
+      GF_SERVER_ROOT_URL: "http://100.86.69.57:30080/grafana"
+      GF_SERVER_SERVE_FROM_SUB_PATH: "true"
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: "Admin"
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+    resources:
+      limits:
+        memory: 256Mi
+        cpu: "500m"
+      requests:
+        memory: 128Mi
+        cpu: "100m"
+    datasources:
+      datasources.yaml:
+        apiVersion: 1
+        datasources:
+          - name: VictoriaMetrics
+            type: prometheus
+            url: http://victoriametrics.infra.svc.cluster.local:8428
+            access: proxy
+            isDefault: true
+          - name: Loki
+            type: loki
+            url: http://loki.infra.svc.cluster.local:3100
+            access: proxy
+    dashboardProviders:
+      dashboardproviders.yaml:
+        apiVersion: 1
+        providers:
+          - name: default
+            orgId: 1
+            folder: ""
+            type: file
+            disableDeletion: false
+            updateIntervalSeconds: 30
+            options:
+              path: /var/lib/grafana/dashboards
+    dashboards:
+      default:
+        node-exporter-full:
+          gnetId: 1860
+          revision: 37
+          datasource: VictoriaMetrics
+        k8s-cluster:
+          gnetId: 7249
+          revision: 1
+          datasource: VictoriaMetrics
+        k8s-pods:
+          gnetId: 6336
+          revision: 1
+          datasource: VictoriaMetrics
+        ray-serve:
+          gnetId: 16110
+          revision: 2
+          datasource: VictoriaMetrics
+        postgres:
+          gnetId: 9628
+          revision: 1
+          datasource: VictoriaMetrics

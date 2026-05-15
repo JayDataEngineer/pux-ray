@@ -1,0 +1,72 @@
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: gitea
+  namespace: git
+spec:
+  interval: 5m
+  suspend: true
+  chart:
+    spec:
+      chart: gitea
+      version: "12.6.0"
+      sourceRef:
+        kind: HelmRepository
+        name: gitea
+        namespace: flux-system
+  values:
+    gitea:
+      admin:
+        existingSecret: shared-infra
+        existingSecretKey: GITEA_ADMIN_PASSWORD
+        username: forge
+        email: forge@tech-noir.local
+      config:
+        APP_NAME: Tech Noir Forge
+        RUN_MODE: prod
+        server:
+          ROOT_URL: http://100.86.69.57:30080/git/
+          HTTP_PORT: 3000
+          SSH_DOMAIN: 100.86.69.57
+          SSH_PORT: 30222
+          SSH_LISTEN_PORT: 2222
+          LFS_START_SERVER: true
+          OFFLINE_MODE: true
+          LOCAL_ROOT_URL: http://localhost:3000/
+        service:
+          DISABLE_REGISTRATION: true
+          REQUIRE_SIGNIN_VIEW: false
+        repository:
+          DEFAULT_PRIVATE: private
+        security:
+          INSTALL_LOCK: true
+        actions:
+          ENABLED: true
+          DEFAULT_ACTIONS_URL: https://gitea.com
+        log:
+          LEVEL: Info
+      additionalConfigSources:
+        - secret:
+            name: shared-infra
+    persistence:
+      enabled: true
+      existingClaim: gitea-data
+      storageClassName: local-path
+      size: 20Gi
+    service:
+      http:
+        type: ClusterIP
+        port: 3000
+      ssh:
+        type: NodePort
+        port: 2222
+        nodePort: 30222
+    resources:
+      requests:
+        cpu: 250m
+        memory: 300Mi
+      limits:
+        cpu: "1"
+        memory: 1Gi
+    ingress:
+      enabled: false
