@@ -70,25 +70,19 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 # SageAttention from source (patch GPU detection for CUDA_ARCH override)
 RUN git clone https://github.com/thu-ml/SageAttention.git /tmp/sageattention && \
     cd /tmp/sageattention && \
-    python3 -c "
+    python3 << 'PYEOF' && \
 import os
 with open('setup.py', 'r') as f:
     content = f.read()
 arch_list = os.environ.get('TORCH_CUDA_ARCH_LIST', '8.9')
-arch_set = '{' + ', '.join([f'\"{a}\"' for a in arch_list.split(';')]) + '}'
-old = '''compute_capabilities = set()
-device_count = torch.cuda.device_count()
-for i in range(device_count):
-    major, minor = torch.cuda.get_device_capability(i)
-    if major < 8:
-        warnings.warn(f\"skipping GPU {i} with compute capability {major}.{minor}\")
-        continue
-    compute_capabilities.add(f\"{major}.{minor}\")'''
-new = 'compute_capabilities = ' + arch_set + '\nprint(f\"Manually set compute capabilities: {compute_capabilities}\")'
+arch_set = '{' + ', '.join(['"'+a+'"' for a in arch_list.split(';')]) + '}'
+old = 'compute_capabilities = set()\ndevice_count = torch.cuda.device_count()\nfor i in range(device_count):\n    major, minor = torch.cuda.get_device_capability(i)\n    if major < 8:\n        warnings.warn(f"skipping GPU {i} with compute capability {major}.{minor}")\n        continue\n    compute_capabilities.add(f"{major}.{minor}")'
+new = 'compute_capabilities = ' + arch_set + '\nprint(f"Manually set compute capabilities: {compute_capabilities}")'
 content = content.replace(old, new)
 with open('setup.py', 'w') as f:
     f.write(content)
-" && \
+PYEOF
+RUN cd /tmp/sageattention && \
     uv pip install --no-build-isolation . && \
     rm -rf /tmp/sageattention
 
