@@ -61,9 +61,9 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     torch==2.10.0+cu128 torchvision==0.25.0+cu128 torchaudio==2.10.0+cu128 \
     --index-url https://download.pytorch.org/whl/cu128
 
-# Wan2GP requirements — covers mmgp, transformers, diffusers, spacy, misaki,
-# insightface, speechbrain, gradio, opencv, decord, timm, gguf, etc.
-COPY vendor/wan2gp/requirements.txt /tmp/wan2gp-requirements.txt
+# Wan2GP requirements from our fork — covers mmgp, transformers, diffusers, spacy,
+# misaki, insightface, speechbrain, gradio, opencv, decord, timm, gguf, etc.
+COPY opt/wan2gp/requirements.txt /tmp/wan2gp-requirements.txt
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv pip install --index-strategy unsafe-best-match -r /tmp/wan2gp-requirements.txt
 
@@ -92,9 +92,11 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     uv pip install "ray[serve]==2.55.1"
 
 # ── Flash attention ──────────────────────────────────────────────────────
-# Some services import flash_attn directly. vllm-flash-attn provides the API.
+# Build from source to match PyTorch 2.10 ABI (~30min, only runs on image rebuild).
+# vllm-flash-attn removed — ABI mismatch (undefined symbol errors).
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv pip install --no-deps vllm-flash-attn || true
+    MAX_JOBS=7 uv pip install flash-attn --no-build-isolation
+
 
 # ── Extra Python packages (NOT in Wan2GP requirements) ────────────────
 RUN --mount=type=cache,target=/root/.cache/uv \
@@ -205,13 +207,12 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     uv pip install -r /tmp/reqs_seethrough.txt || true && \
     uv pip install ./common ./annotators || true && rm /tmp/reqs_seethrough.txt
 
-# ── Stripped vendor code (COPY from vendor/, no git clone) ─────────────
+# ── Wan2GP fork (our custom models registered as native families) ────────
+COPY opt/wan2gp/ /opt/wan2gp/
 
-# TRELLIS.2 — trellis2 Python code
-COPY vendor/trellis2/ /tmp/trellis2-src/
-RUN SITE_PACKAGES=$(python3 -c "import site; print(site.getsitepackages()[0])") && \
-    cp -r /tmp/trellis2-src "${SITE_PACKAGES}/trellis2" && \
-    rm -rf /tmp/trellis2-src
+# TRELLIS.2 trellis2 package lives inside the Wan2GP fork at
+# opt/wan2gp/models/trellis/trellis2/ — with sage attention built-in.
+# The handler adds its own directory to sys.path at load time.
 
 # AniGen — stripped inference code (no training, no datasets)
 COPY vendor/anigen/ /opt/anigen/anigen/
@@ -236,7 +237,7 @@ COPY config/comfyui_extensions.yaml /tmp/extensions.yaml
 COPY infra/docker/setup_comfyui.py /tmp/setup_comfyui.py
 RUN python3 /tmp/setup_comfyui.py && rm /tmp/setup_comfyui.py /tmp/extensions.yaml
 
-# ── TRELLIS runtime patches ──
+# ── TRELLIS runtime patches (flex_gemm conv + cumesh fallback) ──
 COPY infra/docker/patch_conv_flex_gemm.py /opt/patch_conv_flex_gemm.py
 COPY infra/docker/patch_cumesh_fallback.py /opt/patch_cumesh_fallback.py
 
@@ -273,7 +274,7 @@ RUN python3 -c "import spconv; print(f'spconv {spconv.__version__} pre-warmed')"
     echo "spconv pre-warm skipped (needs GPU at runtime)"
 
 # ── Env defaults (overridden per-deployment) ────────────────────────────
-ENV PYTHONPATH=/app:/opt/utils3d:/opt/hymotion:/opt/anigen:/opt/seethrough:/opt/vendor \
+ENV PYTHONPATH=/app:/opt/wan2gp:/opt/utils3d:/opt/hymotion:/opt/anigen:/opt/seethrough:/opt/vendor \
     HF_HOME=/tmp/huggingface \
     HF_HUB_CACHE=/tmp/huggingface \
     ATTN_BACKEND=flash_attn
@@ -286,5 +287,6 @@ RUN python3 -c "import torch; print(f'torch {torch.__version__}, CUDA {torch.cud
     python3 -c "import google.protobuf; print(f'protobuf {google.protobuf.__version__}')" && \
     python3 -c "import nvdiffrast; print('nvdiffrast OK')" && \
     python3 -c "import pytorch3d; print('pytorch3d OK')" && \
-    python3 -c "import trellis2; print('trellis2 OK')" && \
+    python3 -c "import sys; sys.path.insert(0, '/opt/wan2gp/models/trellis'); import trellis2; print('trellis2 OK')" && \
+    python3 -c "from models.trellis.trellis_handler import family_handler; print(f'TRELLIS handler OK: {family_handler.query_supported_types()}')" && \
     echo "gpu-all image verification passed"
