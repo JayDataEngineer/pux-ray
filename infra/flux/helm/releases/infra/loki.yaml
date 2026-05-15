@@ -71,3 +71,9 @@ spec:
         enabled: false
         grafanaAgent:
           installOperator: false
+      lokiCanary:
+        enabled: false
+    chunksCache:
+      enabled: false
+    resultsCache:
+      enabled: false
