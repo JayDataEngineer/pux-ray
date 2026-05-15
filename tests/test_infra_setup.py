@@ -45,7 +45,7 @@ class TestSetupModule:
     def test_venvs_module_lists_tools(self):
         from infra.setup.venvs import TOOLS
         # Bare-metal tools only (Docker tools built via `python -m infra.setup docker`)
-        expected = {"ace-step", "see-through", "gpt-sovits", "qwen", "comfyui", "llama"}
+        expected = {"ace-step", "see-through", "qwen", "comfyui", "llama"}
         assert set(TOOLS.keys()) == expected, f"Got: {set(TOOLS.keys())}"
 
     def test_all_repos_have_valid_urls(self):
