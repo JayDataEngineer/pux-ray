@@ -3,7 +3,8 @@
 Unit tests run WITHOUT a Ray cluster. All Ray interactions are mocked
 at the session level so no test hangs on cluster connection.
 
-Integration tests (in tests/integration/) still use the ray_cluster fixture.
+Integration tests (in tests/integration/) use the ray_cluster fixture
+and require a live GPU server.
 """
 from __future__ import annotations
 
@@ -13,11 +14,23 @@ import math
 import os
 import struct
 import subprocess
+import sys
 import zlib
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+
+
+# ─── Marker Registration ────────────────────────────────────────────────────
+
+
+def pytest_configure(config):
+    config.addinivalue_line("markers", "unit: fast tests, no GPU/network needed")
+    config.addinivalue_line("markers", "integration: needs live Ray cluster")
+    config.addinivalue_line("markers", "gpu: needs CUDA GPU with drivers")
+    config.addinivalue_line("markers", "slow: takes >5 seconds")
+    config.addinivalue_line("markers", "handler: tests a specific family_handler")
 
 
 # ─── Session-scoped Ray mocking ────────────────────────────────────────────
@@ -45,7 +58,24 @@ def _mock_ray_core():
         p.stop()
 
 
-# ─── Binary test data ──────────────────────────────────────────────────────
+# ─── Handler sys.path setup ────────────────────────────────────────────────
+
+
+@pytest.fixture(autouse=True, scope="session")
+def _setup_custom_models_path():
+    """Add custom_models/ and vendor/ to sys.path for handler imports."""
+    project_root = Path(__file__).resolve().parent.parent
+    custom_models = project_root / "services" / "wan2gp" / "custom_models"
+    vendor_wan2gp = project_root / "vendor" / "wan2gp"
+
+    for p in [str(custom_models), str(vendor_wan2gp)]:
+        if os.path.isdir(p) and p not in sys.path:
+            sys.path.insert(0, p)
+    os.environ.setdefault("WAN2GP_ROOT", str(vendor_wan2gp))
+    yield
+
+
+# ─── Binary test data generators ────────────────────────────────────────────
 
 
 def _make_png(width: int = 64, height: int = 64) -> bytes:
@@ -90,6 +120,9 @@ def _make_wav(duration_s: float = 0.5, sample_rate: int = 16000,
     return buf.getvalue()
 
 
+# ─── Binary data fixtures ───────────────────────────────────────────────────
+
+
 @pytest.fixture(scope="session")
 def sample_wav_bytes() -> bytes:
     return _make_wav()
@@ -110,14 +143,28 @@ def sample_png_b64(sample_png_bytes) -> str:
     return base64.b64encode(sample_png_bytes).decode()
 
 
-# ─── Integration fixtures (kept for cluster-dependent tests) ───────────────
-    """Starlette TestClient for APIIngress with Ray mocked."""
-    from starlette.testclient import TestClient
-    from gateway.ingress import create_app
-    return TestClient(create_app())
+# ─── Handler import fixture ─────────────────────────────────────────────────
 
 
-# ─── Integration fixtures (kept for cluster-dependent tests) ───────────────
+@pytest.fixture(scope="session")
+def custom_handler_paths() -> list[str]:
+    """All custom family_handler import paths from CUSTOM_HANDLERS."""
+    return [
+        "trellis.trellis_handler",
+        "anigen_handler.anigen_handler",
+        "see_through.see_through_handler",
+        "hy_motion.hy_motion_handler",
+        "kokoro.kokoro_handler",
+        "moss.moss_handler",
+        "espeak.espeak_handler",
+        "faster_whisper.faster_whisper_handler",
+        "vibevoice_asr.vibevoice_asr_handler",
+        "vibevoice_tts.vibevoice_tts_handler",
+        "faster_qwen3_tts.faster_qwen3_tts_handler",
+    ]
+
+
+# ─── Integration fixtures ───────────────────────────────────────────────────
 
 
 @pytest.fixture(scope="session")
@@ -149,3 +196,18 @@ def free_vram_mb() -> int:
     except Exception:
         pass
     return 0
+
+
+def pytest_collection_modifyitems(items):
+    """Auto-skip gpu-marked tests when CUDA is unavailable."""
+    try:
+        import torch
+        has_cuda = torch.cuda.is_available()
+    except Exception:
+        has_cuda = False
+
+    if not has_cuda:
+        skip_gpu = pytest.mark.skip(reason="No CUDA GPU available")
+        for item in items:
+            if "gpu" in item.keywords:
+                item.add_marker(skip_gpu)
