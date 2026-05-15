@@ -17,7 +17,7 @@ variable "REGISTRY" {
 }
 
 group "default" {
-  targets = ["gpu-all", "model-sync", "anigen"]
+  targets = ["gpu-all", "model-sync", "anigen", "postgres-age-vector", "mcp-web-research", "mcp-media-analysis"]
 }
 
 target "gpu-all" {
@@ -45,5 +45,26 @@ target "wan2gp" {
   dockerfile = "infra/docker/Dockerfile.wan2gp"
   context    = "."
   tags       = ["${REGISTRY}/wan2gp:latest"]
+  platforms  = ["linux/amd64"]
+}
+
+target "postgres-age-vector" {
+  dockerfile = "infra/docker/Dockerfile.postgres-age"
+  context    = "."
+  tags       = ["${REGISTRY}/postgres-age-vector:latest"]
+  platforms  = ["linux/amd64"]
+}
+
+target "mcp-web-research" {
+  dockerfile = "mcp/web-research/Dockerfile"
+  context    = "mcp/web-research"
+  tags       = ["${REGISTRY}/mcp-web-research:latest"]
+  platforms  = ["linux/amd64"]
+}
+
+target "mcp-media-analysis" {
+  dockerfile = "mcp/media-analysis/Dockerfile"
+  context    = "mcp/media-analysis"
+  tags       = ["${REGISTRY}/mcp-media-analysis:latest"]
   platforms  = ["linux/amd64"]
 }
