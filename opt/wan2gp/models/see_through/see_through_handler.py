@@ -48,17 +48,16 @@ class family_handler:
     def load_model(model_filename, model_type, base_model_type, model_def,
                    quantizeTransformer=False, text_encoder_quantization=None,
                    dtype=None, VAE_dtype=None, profile=0, **kwargs):
-        paths = (model_def or {}).get("model_paths", {})
-        vendor = paths.get("vendor_root", "")
+        vendor = (model_def or {}).get("vendor_root", "")
         if vendor and vendor not in sys.path:
             sys.path.insert(0, vendor)
         seethrough_common = str(Path(vendor) / "seethrough" / "common") if vendor else ""
         if seethrough_common and seethrough_common not in sys.path:
             sys.path.insert(0, seethrough_common)
 
-        ld_path = Path(paths.get("see_through_layerdiff", ""))
-        mg_path = Path(paths.get("see_through_marigold", ""))
-        sched_path = Path(paths.get("see_through_scheduler", ""))
+        ld_path = Path((model_def or {}).get("see_through_layerdiff_path", ""))
+        mg_path = Path((model_def or {}).get("see_through_marigold_path", ""))
+        sched_path = Path((model_def or {}).get("see_through_scheduler_path", ""))
 
         from modules.layerdiffuse.diffusers_kdiffusion_sdxl import KDiffusionStableDiffusionXLPipeline
         from modules.layerdiffuse.vae import TransparentVAE

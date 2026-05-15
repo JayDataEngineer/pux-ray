@@ -61,12 +61,11 @@ class family_handler:
     def load_model(model_filename, model_type, base_model_type, model_def,
                    quantizeTransformer=False, text_encoder_quantization=None,
                    dtype=None, VAE_dtype=None, profile=0, **kwargs):
-        paths = (model_def or {}).get("model_paths", {})
-        vendor = paths.get("vendor_root", "")
+        vendor = (model_def or {}).get("vendor_root", "")
         if vendor and vendor not in sys.path:
             sys.path.insert(0, vendor)
 
-        model_path = Path(paths.get("hy_motion", ""))
+        model_path = Path((model_def or {}).get("hy_motion_path", ""))
         if not model_path.is_dir():
             raise FileNotFoundError(f"HY-Motion path not found: {model_path}")
 
@@ -82,13 +81,13 @@ class family_handler:
         ckpts_dir = workspace / "ckpts"
         ckpts_dir.mkdir()
 
-        qwen_src = Path(paths.get("hy_motion_Qwen3_8B", ""))
+        qwen_src = Path((model_def or {}).get("hy_motion_Qwen3_8B_path", ""))
         if not qwen_src.is_dir():
             qwen_src = model_path / "ckpts" / "Qwen3-8B"
         if qwen_src.is_dir():
             (ckpts_dir / "Qwen3-8B").symlink_to(qwen_src)
 
-        clip_src = Path(paths.get("hy_motion_clip_vit_large_patch14", ""))
+        clip_src = Path((model_def or {}).get("hy_motion_clip_vit_large_patch14_path", ""))
         if not clip_src.is_dir():
             clip_src = model_path / "ckpts" / "clip-vit-large-patch14"
         if clip_src.is_dir():
