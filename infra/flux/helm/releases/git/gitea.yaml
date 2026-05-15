@@ -5,7 +5,6 @@ metadata:
   namespace: git
 spec:
   interval: 5m
-  suspend: true
   chart:
     spec:
       chart: gitea
