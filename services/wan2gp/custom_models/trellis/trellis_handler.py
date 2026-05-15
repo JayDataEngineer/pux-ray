@@ -1,8 +1,9 @@
 """TRELLIS.2 family handler — image-to-3D mesh with texture.
 
 Follows Wan2GP handler pattern: extract nn.Modules → pipe dict → mmgp VRAM.
-Modules are converted to float16 for mmgp dtype uniformity.
-Pipeline.run() delegates to the pipeline's own inference logic.
+Modules are converted to bfloat16 for mmgp dtype uniformity.
+pipeline.run() wrapped in autocast('cuda', bf16) so the sampler's float32
+timestep tensors are automatically cast to match the model weights.
 
 Modules: ss_flow, ss_decoder, slat_flow_512, slat_flow_1024,
          tex_slat_flow_512, tex_slat_flow_1024, shape_decoder, tex_decoder, image_cond
@@ -99,24 +100,25 @@ class family_handler:
         if hasattr(pipeline, 'image_cond_model') and pipeline.image_cond_model is not None:
             pipe['image_cond'] = pipeline.image_cond_model
 
-        # Normalize all modules to float16 for mmgp dtype uniformity.
-        # TRELLIS ships mixed bf16/fp16/f32. First bf16→fp16 via pipeline method
-        # (also fixes internal self.dtype attrs), then convert remaining f32→fp16.
-        pipeline._convert_bf16_to_fp16_if_needed()
-
+        # Normalize all modules to bfloat16 for mmgp dtype uniformity.
+        # TRELLIS ships mixed bf16/fp16/f32 — convert everything to bf16
+        # to match the system convention (deployment.py passes dtype=bfloat16).
         for name in list(pipe.keys()):
             mod = pipe[name]
             if not isinstance(mod, torch.nn.Module):
                 continue
-            has_non_fp16 = any(p.dtype != torch.float16 for p in mod.parameters())
-            if not has_non_fp16:
+            has_non_bf16 = any(p.dtype != torch.bfloat16 for p in mod.parameters())
+            if not has_non_bf16:
                 continue
-            pipe[name] = mod.to(torch.float16)
+            pipe[name] = mod.to(torch.bfloat16)
             # Also handle unregistered tensor attrs (e.g. rope_phases)
+            # and internal dtype references
             for sub in mod.modules():
                 for attr_key, val in list(vars(sub).items()):
-                    if isinstance(val, torch.Tensor) and val.dtype != torch.float16:
-                        setattr(sub, attr_key, val.to(torch.float16))
+                    if isinstance(val, torch.Tensor) and val.dtype != torch.bfloat16:
+                        setattr(sub, attr_key, val.to(torch.bfloat16))
+                    elif attr_key == "dtype" and isinstance(val, torch.dtype):
+                        setattr(sub, attr_key, torch.bfloat16)
 
         # Co-tenants: flow models always run with their decoder
         co_tenants = {
@@ -162,16 +164,24 @@ class _Pipeline:
             'guidance_strength': guidance,
         }
 
-        results = self.pipeline.run(
-            image=img,
-            num_samples=1,
-            seed=seed,
-            sparse_structure_sampler_params=sampler_params,
-            shape_slat_sampler_params=sampler_params,
-            tex_slat_sampler_params={'steps': steps},
-            preprocess_image=True,
-            pipeline_type=pipeline_type,
-        )
+        # Preprocess image outside autocast — BiRefNet outputs bf16 under
+        # autocast and ToPILImage() cannot convert bf16 to numpy.
+        img = self.pipeline.preprocess_image(img)
+
+        # autocast('cuda', bf16) so the sampler's float32 timestep tensors
+        # are automatically cast to match the model weights (bf16).
+        # Also makes manual_cast() a no-op, avoiding double-cast issues.
+        with torch.autocast('cuda', dtype=torch.bfloat16):
+            results = self.pipeline.run(
+                image=img,
+                num_samples=1,
+                seed=seed,
+                sparse_structure_sampler_params=sampler_params,
+                shape_slat_sampler_params=sampler_params,
+                tex_slat_sampler_params={'steps': steps},
+                preprocess_image=False,
+                pipeline_type=pipeline_type,
+            )
 
         if not results:
             return {"status": "error", "error": "Pipeline produced no output"}
