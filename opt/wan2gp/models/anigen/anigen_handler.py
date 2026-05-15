@@ -99,12 +99,11 @@ class family_handler:
         quantizeTransformer=False, text_encoder_quantization=None,
         dtype=None, VAE_dtype=None, profile=0, **kwargs,
     ):
-        paths = (model_def or {}).get("model_paths", {})
-        vendor = paths.get("vendor_root", "")
+        vendor = (model_def or {}).get("vendor_root", "")
         if vendor and vendor not in sys.path:
             sys.path.insert(0, vendor)
 
-        model_path = Path(paths.get("anigen", ""))
+        model_path = Path((model_def or {}).get("anigen_path", ""))
         if not model_path.is_dir():
             raise FileNotFoundError(f"anigen model path not found: {model_path}")
 

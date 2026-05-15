@@ -30,8 +30,7 @@ class family_handler:
                    quantizeTransformer=False, text_encoder_quantization=None,
                    dtype=None, VAE_dtype=None, profile=0, **kwargs):
         from faster_whisper import WhisperModel
-        paths = (model_def or {}).get("model_paths", {})
-        local = paths.get("faster_whisper", "")
+        local = (model_def or {}).get("faster_whisper_path", "")
         model_path = str(local) if local and Path(local).is_dir() else "deepdml/faster-whisper-large-v3-turbo-ct2"
         model = WhisperModel(model_path, device="cpu", compute_type="int8")
         return _Pipeline(model), {}

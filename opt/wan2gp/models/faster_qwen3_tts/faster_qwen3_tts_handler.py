@@ -54,8 +54,7 @@ class family_handler:
     def load_model(model_filename, model_type, base_model_type, model_def,
                    quantizeTransformer=False, text_encoder_quantization=None,
                    dtype=None, VAE_dtype=None, profile=0, **kwargs):
-        paths = (model_def or {}).get("model_paths", {})
-        model_path = Path(paths.get("faster_qwen3_tts", ""))
+        model_path = Path((model_def or {}).get("faster_qwen3_tts_path", ""))
 
         from faster_qwen3_tts.utils import suppress_flash_attn_warning
         with suppress_flash_attn_warning():

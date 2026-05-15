@@ -44,8 +44,7 @@ class family_handler:
     def load_model(model_filename, model_type, base_model_type, model_def,
                    quantizeTransformer=False, text_encoder_quantization=None,
                    dtype=None, VAE_dtype=None, profile=0, **kwargs):
-        paths = (model_def or {}).get("model_paths", {})
-        model_path = Path(paths.get("moss_soundeffect", ""))
+        model_path = Path((model_def or {}).get("moss_soundeffect_path", ""))
 
         if not (model_path / "modeling_moss_tts.py").exists():
             raise FileNotFoundError(
@@ -136,7 +135,7 @@ class family_handler:
         # Load audio tokenizer separately
         audio_tok_path = model_path / "audio_tokenizer"
         if not audio_tok_path.is_dir():
-            audio_tok_path = Path(paths.get("moss_audio_tokenizer", ""))
+            audio_tok_path = Path((model_def or {}).get("moss_audio_tokenizer_path", ""))
         audio_tokenizer = None
         if audio_tok_path.is_dir():
             audio_tokenizer = AutoModel.from_pretrained(
