@@ -1,14 +1,14 @@
 # Tech Noir Unified GPU Worker — ALL services in ONE image.
-# NGC PyTorch 26.01 (CUDA 13.1.1 + PyTorch 2.10.0a0 + cuDNN + NCCL + TensorRT).
+# Wan2GP base (CUDA 12.8 + PyTorch 2.10+cu128) replaces NGC PyTorch.
 # Every GPU service (TTS, ASR, 3D, music, vision, creative, image) lives here.
 #
 # Build:
 #   docker bake gpu-all --push
 
-# ── Stage 1a: Build BeeLlama.cpp with CUDA 13.1 ────────────────────────
+# ── Stage 1a: Build BeeLlama.cpp with CUDA 12.8 ────────────────────────
 # BeeLlama.cpp = llama.cpp fork with DFlash speculative decoding, TurboQuant/TCQ KV cache,
 # adaptive draft-max, and reasoning-loop protection.
-FROM nvidia/cuda:13.1.1-devel-ubuntu24.04 AS beellama-builder
+FROM nvidia/cuda:12.8.1-devel-ubuntu22.04 AS beellama-builder
 RUN apt-get update && apt-get install -y --no-install-recommends git cmake build-essential && rm -rf /var/lib/apt/lists/*
 RUN git clone --depth 1 https://github.com/Anbeeld/beellama.cpp.git /tmp/beellama && \
     cd /tmp/beellama && \
@@ -21,10 +21,10 @@ RUN git clone --depth 1 https://github.com/Anbeeld/beellama.cpp.git /tmp/beellam
         -DCMAKE_SHARED_LINKER_FLAGS="-L/usr/local/cuda/lib64/stubs -lcuda" && \
     cmake --build build -j$(nproc) --target llama-server llama-cli
 
-# ── Stage 1b: Build upstream llama.cpp with CUDA 13.1 ──────────────────
+# ── Stage 1b: Build upstream llama.cpp with CUDA 12.8 ──────────────────
 # Stable upstream release, no DFlash. Installed as ``llama-server-upstream``
 # so both binaries coexist in the final image.
-FROM nvidia/cuda:13.1.1-devel-ubuntu24.04 AS upstream-builder
+FROM nvidia/cuda:12.8.1-devel-ubuntu22.04 AS upstream-builder
 RUN apt-get update && apt-get install -y --no-install-recommends git cmake build-essential && rm -rf /var/lib/apt/lists/*
 RUN git clone --depth 1 https://github.com/ggml-org/llama.cpp.git /tmp/upstream && \
     cd /tmp/upstream && \
@@ -36,62 +36,101 @@ RUN git clone --depth 1 https://github.com/ggml-org/llama.cpp.git /tmp/upstream 
         -DCMAKE_EXE_LINKER_FLAGS="-L/usr/local/cuda/lib64/stubs -lcuda" && \
     cmake --build build -j$(nproc) --target llama-server
 
-# ── Stage 2: Main image (NGC PyTorch 26.01) ──────────────────────────────
-FROM nvcr.io/nvidia/pytorch:26.01-py3
+# ── Stage 2: Wan2GP base (replicate Wan2GP Dockerfile with uv) ────────
+FROM nvidia/cuda:12.8.1-cudnn-devel-ubuntu22.04 AS wan2gp-base
 
-# ── uv (must be before any uv pip install) ───────────────────────────────
+# uv for fast installs
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
-ENV UV_SYSTEM_PYTHON=1 UV_BREAK_SYSTEM_PACKAGES=1 UV_PRERELEASE=allow
+ENV UV_SYSTEM_PYTHON=1 UV_BREAK_SYSTEM_PACKAGES=1
 
-ENV DEBIAN_FRONTEND=noninteractive PYTHONUNBUFFERED=1 \
-    LANG=C.UTF-8 \
-    CUDA_HOME=/usr/local/cuda \
-    TORCH_CUDA_ARCH_LIST="8.9" \
+ARG CUDA_ARCHITECTURES="8.9"
+ENV DEBIAN_FRONTEND=noninteractive \
+    TORCH_CUDA_ARCH_LIST="${CUDA_ARCHITECTURES}" \
+    FORCE_CUDA=1 \
     MAX_JOBS=20
 
-# Remove only conflicting entries from NGC pip constraints.
-# Keep torch/torchaudio/torchvision pinned to NGC versions — PyPI versions break ABI.
-RUN sed -i '/^transformers==/d; /^tokenizers==/d' /etc/pip/constraint.txt
-ENV UV_CONSTRAINT=/etc/pip/constraint.txt
-
-# Pin NGC torchvision in constraints to prevent PyPI overwrite
-RUN TORCHVISION_VER=$(python3 -c "import torchvision; print(torchvision.__version__)") && \
-    echo "torchvision==${TORCHVISION_VER}" >> /etc/pip/constraint.txt
-
-# Build torchaudio from source against NGC torch (NGC 26.01 doesn't ship it;
-# PyPI torchaudio is ABI-incompatible due to custom NGC torch symbols like
-# torch_dtype_float4_e2m1fn_x2)
+# System deps (from Wan2GP Dockerfile)
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    sox libsox-dev libsox-fmt-all && rm -rf /var/lib/apt/lists/*
+    python3 python3-pip git wget curl cmake ninja-build \
+    libgl1 libglib2.0-0 ffmpeg && \
+    rm -rf /var/lib/apt/lists/*
+
+# Install PyTorch with CUDA 12.8 via uv (faster than pip)
 RUN --mount=type=cache,target=/root/.cache/uv \
-    git clone --depth 1 --branch v2.9.1 https://github.com/pytorch/audio.git /tmp/torchaudio && \
-    cd /tmp/torchaudio && \
-    uv pip install --no-build-isolation --no-deps . && \
-    rm -rf /tmp/torchaudio
-# ── Ray (must install before CUDA extensions so they link to NGC torch) ──
+    uv pip install \
+    torch==2.10.0+cu128 torchvision==0.25.0+cu128 torchaudio==2.10.0+cu128 \
+    --index-url https://download.pytorch.org/whl/cu128
+
+# Wan2GP requirements — covers mmgp, transformers, diffusers, spacy, misaki,
+# insightface, speechbrain, gradio, opencv, decord, timm, gguf, etc.
+COPY vendor/wan2gp/requirements.txt /tmp/wan2gp-requirements.txt
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv pip install -r /tmp/wan2gp-requirements.txt
+
+# SageAttention from source (patch GPU detection for CUDA_ARCH override)
+RUN git clone https://github.com/thu-ml/SageAttention.git /tmp/sageattention && \
+    cd /tmp/sageattention && \
+    python3 -c "
+import os
+with open('setup.py', 'r') as f:
+    content = f.read()
+arch_list = os.environ.get('TORCH_CUDA_ARCH_LIST', '8.9')
+arch_set = '{' + ', '.join([f'\"{a}\"' for a in arch_list.split(';')]) + '}'
+old = '''compute_capabilities = set()
+device_count = torch.cuda.device_count()
+for i in range(device_count):
+    major, minor = torch.cuda.get_device_capability(i)
+    if major < 8:
+        warnings.warn(f\"skipping GPU {i} with compute capability {major}.{minor}\")
+        continue
+    compute_capabilities.add(f\"{major}.{minor}\")'''
+new = 'compute_capabilities = ' + arch_set + '\nprint(f\"Manually set compute capabilities: {compute_capabilities}\")'
+content = content.replace(old, new)
+with open('setup.py', 'w') as f:
+    f.write(content)
+" && \
+    uv pip install --no-build-isolation . && \
+    rm -rf /tmp/sageattention
+
+# ── Stage 3: Final image — add Ray + our extras on top of Wan2GP base ──
+FROM wan2gp-base
+
+# Extra system packages (beyond Wan2GP base)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    git-lfs pkg-config build-essential \
+    libsm6 libxext6 libxrender-dev \
+    libjpeg-dev libspatialindex-dev libsndfile1 \
+    mecab libmecab-dev espeak-ng \
+    sox libsox-dev libsox-fmt-all && \
+    rm -rf /var/lib/apt/lists/*
+
+# ── Ray (must install before CUDA extensions so they link to this torch) ──
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv pip install "ray[serve]==2.55.1"
 
-# ── System packages (union of all service needs) ────────────────────────
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    git git-lfs cmake ninja-build build-essential pkg-config \
-    libgl1 libglib2.0-0 libsm6 libxext6 libxrender-dev \
-    libjpeg-dev libspatialindex-dev libsndfile1 \
-    ffmpeg mecab libmecab-dev espeak-ng \
-    && rm -rf /var/lib/apt/lists/*
-
-# ── Build tools ──────────────────────────────────────────────────────────
-RUN --mount=type=cache,target=/root/.cache/uv \
-    uv pip install wheel ninja packaging
-
 # ── Flash attention ──────────────────────────────────────────────────────
-# NGC PyTorch has SDPA flash attention built in, but some services import
-# the flash_attn module directly. Install vllm-flash-attn for the Python API.
-# If ABI-incompatible with NGC's torch, services/compat.py provides a fallback shim.
+# Some services import flash_attn directly. vllm-flash-attn provides the API.
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv pip install --no-deps vllm-flash-attn || true
 
-# ── CUDA extensions (source builds — torch ABI changed from 2.6 → 2.10) ─
+# ── Extra Python packages (NOT in Wan2GP requirements) ────────────────
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv pip install \
+    phonemizer faster-whisper faster-qwen3-tts \
+    safetensors kornia mediapipe \
+    scikit-image scikit-learn \
+    trimesh lpips plyfile pygltflib pyvista pymeshfix xatlas rtree igraph \
+    h5py pandas \
+    starlette aiohttp httpx \
+    openai huggingface-hub \
+    pyyaml click rich \
+    "protobuf>=6,<7" packaging
+
+# qwen-tts (no-deps to avoid accelerate version conflict)
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv pip install --no-deps qwen-tts
+
+# ── CUDA extensions (source builds — torch ABI must match) ────────────
 
 # nvdiffrast (CUDA rasterizer, ~10min)
 RUN git clone --depth 1 https://github.com/NVlabs/nvdiffrast.git /tmp/nvdiffrast && \
@@ -128,7 +167,7 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     uv pip install --no-build-isolation . && \
     rm -rf /tmp/pytorch3d
 
-# spconv (no cu131 pre-built wheel, build from source)
+# spconv (source build for CUDA 12.8)
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv pip install spconv --no-build-isolation
 
@@ -167,6 +206,21 @@ COPY --from=beellama-builder /tmp/beellama/build/bin/lib* /usr/local/lib/
 COPY --from=upstream-builder /tmp/upstream/build/bin/llama-server /usr/local/bin/llama-server-upstream
 RUN ldconfig
 
+# ── ACE-Step deps (from copied requirements, filtered) ──────────────────
+COPY vendor/acestep-requirements.txt /tmp/acestep-reqs.txt
+RUN --mount=type=cache,target=/root/.cache/uv \
+    grep -v -i -E '^(torch|torchvision|torchaudio|xformers|flash-attn)' \
+        /tmp/acestep-reqs.txt > /tmp/reqs_acestep.txt && \
+    uv pip install -r /tmp/reqs_acestep.txt || true && rm /tmp/reqs_acestep.txt
+
+# ── See-Through deps (filtered) ─────────────────────────────────────────
+RUN --mount=type=cache,target=/root/.cache/uv \
+    cd /opt/seethrough && \
+    grep -v -i -E '^(torch|torchvision|torchaudio|xformers|flash-attn|-e )' requirements.txt | \
+    grep -v -E 'PyQt|qtpy|natsort|py7zr|ipykernel|Cython|pytest' > /tmp/reqs_seethrough.txt && \
+    uv pip install -r /tmp/reqs_seethrough.txt || true && \
+    uv pip install ./common ./annotators || true && rm /tmp/reqs_seethrough.txt
+
 # ── Stripped vendor code (COPY from vendor/, no git clone) ─────────────
 
 # TRELLIS.2 — trellis2 Python code
@@ -187,65 +241,7 @@ RUN git clone https://github.com/EasternJournalist/utils3d.git /opt/utils3d && \
     cd /opt/utils3d && \
     git checkout 9a4eb15e4021b67b12c460c7057d642626897ec8
 
-# ── Python packages — ALL services ──────────────────────────────────────
-
-# Core ML
-RUN --mount=type=cache,target=/root/.cache/uv \
-    uv pip install \
-    transformers==4.57.3 diffusers safetensors peft \
-    mmgp==3.7.6 \
-    timm kornia onnxruntime mediapipe \
-    opencv-python-headless imageio imageio-ffmpeg decord \
-    scikit-image scikit-learn \
-    av gguf lark numba \
-    librosa phonemizer \
-    trimesh lpips plyfile pyglet pyrr \
-    pandas h5py tqdm psutil easydict \
-    openai huggingface-hub \
-    omegaconf click rich \
-    pyyaml pydantic starlette aiohttp httpx requests \
-    pygltflib geffnet igraph pymeshfix pyvista xatlas rtree \
-    gradio==4.44.1 gradio_litmodel3d==0.0.1 \
-    matplotlib tensorboard
-
-# TTS/ASR specific (avoid tangoflux vs qwen-tts accelerate conflict)
-RUN --mount=type=cache,target=/root/.cache/uv \
-    uv pip install \
-    kokoro "misaki[en]>=0.7,<0.9" faster-whisper \
-    cn2an g2p-en jieba munch \
-    json5 modelscope textstat WeTextProcessing ffmpeg-python \
-    descript-audiotools \
-    torchdiffeq transforms3d \
-    diffusers backoff datasets sox
-
-RUN --mount=type=cache,target=/root/.cache/uv \
-    uv pip install --no-deps qwen-tts
-
-# faster-qwen3-tts (CUDA graph capture, 5x speedup over baseline qwen-tts)
-RUN --mount=type=cache,target=/root/.cache/uv \
-    uv pip install faster-qwen3-tts
-
-RUN --mount=type=cache,target=/root/.cache/uv \
-    uv pip install accelerate einops transformers soundfile scipy datasets
-
-# ACE-Step requirements file (for deps install)
-COPY vendor/acestep-requirements.txt /tmp/acestep-reqs.txt
-
-# ACE-Step deps (from copied requirements)
-RUN --mount=type=cache,target=/root/.cache/uv \
-    grep -v -i -E '^(torch|torchvision|torchaudio|xformers|flash-attn)' \
-        /tmp/acestep-reqs.txt > /tmp/reqs_acestep.txt && \
-    uv pip install -r /tmp/reqs_acestep.txt || true && rm /tmp/reqs_acestep.txt
-
-# See-Through deps (filtered)
-RUN --mount=type=cache,target=/root/.cache/uv \
-    cd /opt/seethrough && \
-    grep -v -i -E '^(torch|torchvision|torchaudio|xformers|flash-attn|-e )' requirements.txt | \
-    grep -v -E 'PyQt|qtpy|natsort|py7zr|ipykernel|Cython|pytest' > /tmp/reqs_seethrough.txt && \
-    uv pip install -r /tmp/reqs_seethrough.txt || true && \
-    uv pip install ./common ./annotators || true && rm /tmp/reqs_seethrough.txt
-
-# ComfyUI deps (filtered)
+# ── ComfyUI deps (filtered) ─────────────────────────────────────────────
 RUN --mount=type=cache,target=/root/.cache/uv \
     grep -v -E "^(torch==|torchvision==|torchaudio|xformers|flash-attn)" \
         /opt/ComfyUI/requirements.txt > /tmp/reqs_comfyui.txt && \
@@ -279,7 +275,7 @@ COPY infra/k8s/serve_deploy.py /app/serve_deploy.py
 WORKDIR /app
 
 # ── Final version pins ───────────────────────────────────────────────────
-# Pin transformers (ComfyUI deps may upgrade to 5.x, but many services need 4.x)
+# Upgrade transformers from Wan2GP's 4.54.0 — some services need 4.57.x
 RUN uv pip install \
     "protobuf>=6,<7" \
     transformers==4.57.3 tokenizers==0.22.2
@@ -297,13 +293,6 @@ ENV PYTHONPATH=/app:/opt/utils3d:/opt/hymotion:/opt/anigen:/opt/seethrough:/opt/
     HF_HOME=/tmp/huggingface \
     HF_HUB_CACHE=/tmp/huggingface \
     ATTN_BACKEND=flash_attn
-
-# ── Reinstall torchaudio from source (pip deps may overwrite with PyPI version) ──
-RUN --mount=type=cache,target=/root/.cache/uv \
-    git clone --depth 1 --branch v2.9.1 https://github.com/pytorch/audio.git /tmp/torchaudio && \
-    cd /tmp/torchaudio && \
-    uv pip install --no-build-isolation --no-deps --force-reinstall . && \
-    rm -rf /tmp/torchaudio
 
 # ── Verify ──────────────────────────────────────────────────────────────
 RUN python3 -c "import torch; print(f'torch {torch.__version__}, CUDA {torch.cuda.is_available()}')" && \

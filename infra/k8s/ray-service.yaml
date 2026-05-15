@@ -8,17 +8,11 @@ spec:
     http_options:
       port: 8000
     applications:
-      # ─── Wan2GP — unified GPU model pool (mmgp-managed VRAM) ────────────
+      # ─── Forge — unified GPU manager (Wan2GP + ComfyUI + LLM) ──────────
+      # Wan2GP registered as forge service (vram_mb=0, mmgp self-manages).
+      # Forge's eviction logic handles model swapping across all services.
       # All vendor + custom family models: wan, flux, hunyuan, ace_step, trellis,
       # anigen, kokoro, espeak, faster_whisper, index_tts, moss, etc.
-      - name: wan2gp
-        import_path: serve_config:wan2gp_deployment
-        route_prefix: /wan2gp
-        deployments:
-          - name: wan2gp
-            autoscaling_config: { min_replicas: 0, max_replicas: 1, downscale_delay_s: 120 }
-
-      # ─── Forge — subprocess GPU services (ComfyUI + LLM) ────────────────
       - name: forge
         import_path: serve_config:forge
         route_prefix: /forge

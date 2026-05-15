@@ -33,6 +33,10 @@ AVAILABLE_MB = TOTAL_VRAM_MB - RESERVED_MB
 # ─── Service Registry ────────────────────────────────────────────────────────
 
 SERVICE_MAP: dict[str, tuple[str, str]] = {
+    # Wan2GP — unified model pool (mmgp-managed VRAM, vram_mb=0)
+    # All vendor + custom family models: wan, flux, hunyuan, trellis, anigen,
+    # kokoro, index_tts, ace_step, moss, etc.
+    "wan2gp":    ("services.wan2gp.forge_adapter",    "Wan2GPForgeService"),
     # ComfyUI — subprocess, separate GPU
     "comfyui":   ("services.image.comfyui",          "ComfyUIService"),
     # llama.cpp — subprocess, separate GPU
@@ -312,7 +316,7 @@ class Forge:
             )
 
         payload = {k: v for k, v in body.items() if k != "service"}
-        model = payload.pop("model", None)
+        model = payload.get("model", None)
         result = await self.invoke(service, payload, model)
         return JSONResponse(result)
 
