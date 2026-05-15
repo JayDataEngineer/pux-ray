@@ -193,12 +193,23 @@ _CPU_ONLY_TYPES = {
 }
 
 _HF_AUTO_DOWNLOAD = {
-    "see-through",
     "qwen_image_edit_vnccs_20B",
 }
 
 
-CUSTOM_HANDLERS = ["trellis.trellis_handler", "anigen_handler.anigen_handler"]
+CUSTOM_HANDLERS = [
+    "trellis.trellis_handler",
+    "anigen_handler.anigen_handler",
+    "see_through.see_through_handler",
+    "hy_motion.hy_motion_handler",
+    "kokoro.kokoro_handler",
+    "moss.moss_handler",
+    "espeak.espeak_handler",
+    "faster_whisper.faster_whisper_handler",
+    "vibevoice_asr.vibevoice_asr_handler",
+    "vibevoice_tts.vibevoice_tts_handler",
+    "faster_qwen3_tts.faster_qwen3_tts_handler",
+]
 
 def _get_family_handlers() -> list[str]:
     """Get the family_handlers list from Wan2GP's wgp.py, plus our custom handlers."""
@@ -217,13 +228,6 @@ def _get_family_handlers() -> list[str]:
             "models.TTS.qwen3_handler", "models.TTS.yue_handler",
             "models.TTS.heartmula_handler", "models.TTS.kugelaudio_handler",
             "models.TTS.index_tts2_handler",
-            "models.kokoro.kokoro_handler", "models.espeak.espeak_handler",
-            "models.faster_whisper.faster_whisper_handler", "models.moss.moss_handler",
-            "models.vibevoice_asr.vibevoice_asr_handler",
-            "models.vibevoice_tts.vibevoice_tts_handler",
-            "models.faster_qwen3_tts.faster_qwen3_tts_handler",
-            "models.hy_motion.hy_motion_handler",
-            "models.see_through.see_through_handler",
             "models.vnccs.vnccs_handler",
         ]
     # Append our custom handlers living in services/wan2gp/custom_models/
@@ -257,7 +261,7 @@ _WEIGHT_SEARCH = {
     "trellis": [("3d", "trellis")],
     "anigen": [("3d", "anigen")],
     "moss-soundeffect": [("audio", "moss-soundeffect")],
-    "see-through": [],
+    "see-through": [("image", "see-through-layerdiff"), ("image", "see-through-marigold")],
     "hy-motion-1.0": [("motion", "hy-motion-1.0")],
     "hy-motion-1.0-lite": [("motion", "hy-motion-1.0-lite")],
     "vibevoice-asr": [("asr", "vibevoice-asr")],

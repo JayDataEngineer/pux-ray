@@ -1027,6 +1027,37 @@ multimodal:
     description: Phi-4-multimodal-instruct 5.6B omni model. Text+vision+speech input,
       text output. ASR, speech translation, image understanding, OCR, multimodal QA.
 
+image:
+  see-through-layerdiff:
+    path: image/see-through/layerdiff3d/
+    source: hf://layerdifforg/seethroughv0.0.2_layerdiff3d
+    download: snapshot
+    sha256: null
+    size_gb: 7.0
+    vram_estimate_gb: 10.0
+    device: gpu
+    description: See-Through LayerDiff 3D pipeline. SDXL UNet + TransparentVAE + text
+      encoders for anime layer decomposition.
+  see-through-marigold:
+    path: image/see-through/marigold/
+    source: hf://24yearsold/seethroughv0.0.1_marigold
+    download: snapshot
+    sha256: null
+    size_gb: 5.0
+    vram_estimate_gb: 5.0
+    device: gpu
+    description: See-Through Marigold depth estimation pipeline. UNet + VAE + text encoder
+      for per-layer depth prediction.
+  see-through-scheduler:
+    path: image/see-through/scheduler/
+    source: hf://frankjoshua/juggernautXL_version6Rundiffusion
+    download: snapshot
+    sha256: null
+    size_gb: 0.01
+    vram_estimate_gb: 0.0
+    device: cpu
+    description: Juggernaut XL v6 scheduler config for See-Through LayerDiff denoising.
+
 vision_models:
   florence2-large-ft:
     path: vision/florence-2-large-ft/

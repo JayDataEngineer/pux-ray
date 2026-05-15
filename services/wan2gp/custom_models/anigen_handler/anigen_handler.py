@@ -11,6 +11,9 @@ import os
 os.environ.setdefault("ATTN_BACKEND", "xformers")
 os.environ.setdefault("SPARSE_ATTN_BACKEND", "xformers")
 
+import contextlib
+import sys
+
 import base64
 import io
 import logging
@@ -22,6 +25,51 @@ import torch
 from PIL import Image
 
 logger = logging.getLogger(__name__)
+
+
+@contextlib.contextmanager
+def _isolated_import(dominant_path, hidden_prefixes=("models",)):
+    """Temporarily hide Wan2GP's sys.modules entries so a conflicting package resolves.
+
+    DSINE's hubconf.py does ``from models import dsine`` which collides with
+    Wan2GP's ``models`` package.  This context manager briefly removes the
+    colliding entries from ``sys.modules`` and ``sys.path`` so that the
+    *dominant_path* wins during the managed block, then restores everything
+    in the ``finally`` — safe because model loading is single-threaded.
+    """
+    dominant_path = str(dominant_path)
+
+    # Save sys.modules entries that conflict
+    saved_modules = {}
+    for prefix in hidden_prefixes:
+        for key in list(sys.modules.keys()):
+            if key == prefix or key.startswith(prefix + "."):
+                saved_modules[key] = sys.modules.pop(key)
+
+    # Save and reorder sys.path: inject dominant, remove wan2gp vendor paths
+    saved_path = sys.path.copy()
+    wan2gp_paths = [p for p in sys.path
+                    if p.endswith("/vendor/wan2gp") or p == "/opt/wan2gp"]
+    for p in wan2gp_paths:
+        sys.path.remove(p)
+    if dominant_path not in sys.path:
+        sys.path.insert(0, dominant_path)
+
+    try:
+        yield
+    finally:
+        # Restore sys.path
+        sys.path[:] = saved_path
+
+        # Purge anything new that was imported during the managed block
+        for key in list(sys.modules.keys()):
+            for prefix in hidden_prefixes:
+                if key == prefix or key.startswith(prefix + "."):
+                    if key not in saved_modules:
+                        del sys.modules[key]
+
+        # Restore original entries
+        sys.modules.update(saved_modules)
 
 
 class family_handler:
@@ -58,7 +106,6 @@ class family_handler:
         registry = ModelRegistry()
         model_path = Path(registry.get_path("3d", "anigen"))
 
-        import sys
         vendor = str(Path(cfg.project_root) / "vendor")
         if vendor not in sys.path:
             sys.path.insert(0, vendor)
@@ -90,40 +137,19 @@ class family_handler:
                 break
 
         # DSINE's hubconf.py does `from models import dsine` which conflicts
-        # with Wan2GP's `models` package. Temporarily hide Wan2GP's models.
+        # with Wan2GP's `models` package. Use isolated import context.
+        dsine_hub_dir = model_path / "hub" / "hugoycj_DSINE-hub_main"
         prev_cwd = os.getcwd()
         os.chdir(str(model_path))
-        saved_models_mod = sys.modules.pop("models", None)
-        saved_submods = {k: v for k, v in list(sys.modules.items()) if k.startswith("models.")}
-        for k in saved_submods:
-            del sys.modules[k]
-        wan2gp_paths = [p for p in sys.path if p.endswith("/vendor/wan2gp") or p == "/opt/wan2gp"]
-        for p in wan2gp_paths:
-            sys.path.remove(p)
-        dsine_hub_dir = str(model_path / "hub" / "hugoycj_DSINE-hub_main")
-        if os.path.isdir(dsine_hub_dir) and dsine_hub_dir not in sys.path:
-            sys.path.insert(0, dsine_hub_dir)
-
         try:
-            pipeline = AnigenImageTo3DPipeline.from_pretrained(
-                ss_flow_path=ss_flow_path,
-                slat_flow_path=slat_flow_path,
-                device="cuda",
-            )
+            with _isolated_import(dsine_hub_dir):
+                pipeline = AnigenImageTo3DPipeline.from_pretrained(
+                    ss_flow_path=ss_flow_path,
+                    slat_flow_path=slat_flow_path,
+                    device="cpu",
+                )
         finally:
             os.chdir(prev_cwd)
-            sys.path = [p for p in sys.path if p != dsine_hub_dir]
-            for p in wan2gp_paths:
-                if p not in sys.path:
-                    sys.path.insert(0, p)
-            sys.modules.pop("models", None)
-            for k in list(sys.modules.keys()):
-                if k.startswith("models.") and k not in saved_submods:
-                    del sys.modules[k]
-            if saved_models_mod is not None:
-                sys.modules["models"] = saved_models_mod
-            for k, v in saved_submods.items():
-                sys.modules[k] = v
 
         # Extract nn.Modules for mmgp
         pipe = {
