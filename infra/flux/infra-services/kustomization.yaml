@@ -3,10 +3,8 @@ kind: Kustomization
 resources:
   - postgres.yaml
   - garage.yaml
-  - forge-registry.yaml
   - vector.yaml
   - infisical.yaml
   - langfuse.yaml
-  - overflow-gateway.yaml
   - alerting.yaml
   - capacitor.yaml
