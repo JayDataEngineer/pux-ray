@@ -72,9 +72,9 @@ class TestIngressAdminRoutes:
              patch("gateway.ingress._get_forge") as mock_forge:
             mock_handle = AsyncMock()
             mock_handle.preload.remote = AsyncMock(
-                return_value={"status": "loaded", "service": "trellis"})
+                return_value={"status": "loaded", "service": "anigen"})
             mock_forge.return_value = mock_handle
-            r = client.post("/admin/load", json={"service": "trellis"})
+            r = client.post("/admin/load", json={"service": "anigen"})
             assert r.status_code == 200
             assert r.json()["status"] == "loaded"
 
@@ -82,7 +82,7 @@ class TestIngressAdminRoutes:
         with _make_client() as client, \
              patch("gateway.ingress._get_forge") as mock_forge:
             mock_forge.side_effect = Exception("no cluster")
-            r = client.post("/admin/load", json={"service": "trellis"})
+            r = client.post("/admin/load", json={"service": "anigen"})
             assert r.status_code == 503
 
     def test_admin_unload_with_forge(self):
@@ -110,7 +110,7 @@ class TestIngressGPU:
 
     def test_gpu_services_flagged_correctly(self):
         from services.registry import SERVICE_REGISTRY
-        gpu_services = {"trellis", "anigen", "ace_step", "comfyui", "llm",
+        gpu_services = {"anigen", "ace_step", "comfyui", "llm",
                         "hy_motion", "see_through", "moss_soundeffect",
                         "index_tts", "faster_qwen3_tts",
                         "vibevoice_asr", "vibevoice_tts"}

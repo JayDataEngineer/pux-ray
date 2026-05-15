@@ -172,7 +172,7 @@ class TestEspeakEdgeCases:
 
     @pytest.fixture
     def pipeline(self):
-        from espeak.espeak_handler import _Pipeline
+        from models.espeak.espeak_handler import _Pipeline
         return _Pipeline("espeak-ng")
 
     @pytest.mark.unit

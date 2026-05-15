@@ -19,8 +19,8 @@ def project_root():
 
 
 @pytest.fixture
-def custom_models_dir(project_root):
-    return project_root / "services" / "wan2gp" / "custom_models"
+def fork_models_dir(project_root):
+    return project_root / "opt" / "wan2gp" / "models"
 
 
 # ─── Handler files on disk vs CUSTOM_HANDLERS ───────────────────────────────
@@ -29,25 +29,36 @@ def custom_models_dir(project_root):
 class TestHandlerFilesMatchRegistry:
 
     @pytest.mark.unit
-    def test_all_custom_handlers_have_files(self, custom_models_dir):
+    def test_all_custom_handlers_have_files(self, fork_models_dir):
         from services.wan2gp.deployment import CUSTOM_HANDLERS
         for handler_path in CUSTOM_HANDLERS:
-            parts = handler_path.split(".")
-            mod_file = custom_models_dir.joinpath(*parts[:-1]) / (parts[-1] + ".py")
+            # Strip "models." prefix to resolve against fork_models_dir
+            rel = handler_path
+            if rel.startswith("models."):
+                rel = rel[len("models."):]
+            parts = rel.split(".")
+            mod_file = fork_models_dir.joinpath(*parts[:-1]) / (parts[-1] + ".py")
             assert mod_file.exists(), (
                 f"CUSTOM_HANDLERS entry '{handler_path}' has no file at {mod_file}"
             )
 
     @pytest.mark.unit
-    def test_all_handler_files_in_custom_models_registered(self, custom_models_dir):
-        """Every *_handler.py in custom_models/ should be in CUSTOM_HANDLERS."""
+    def test_all_handler_files_in_fork_registered(self, fork_models_dir):
+        """Every *_handler.py in our custom model dirs should be in CUSTOM_HANDLERS."""
         from services.wan2gp.deployment import CUSTOM_HANDLERS
         handler_files = set()
-        for f in custom_models_dir.rglob("*_handler.py"):
-            rel = f.relative_to(custom_models_dir)
-            parts = list(rel.parts)
-            parts[-1] = parts[-1].removesuffix(".py")
-            handler_files.add(".".join(parts))
+
+        custom_dirs = {
+            "anigen", "see_through", "hy_motion", "kokoro", "espeak",
+            "faster_whisper", "moss", "vibevoice_asr", "vibevoice_tts",
+            "faster_qwen3_tts",
+        }
+        for d in custom_dirs:
+            dir_path = fork_models_dir / d
+            if dir_path.is_dir():
+                for f in dir_path.glob("*_handler.py"):
+                    rel = f"models.{d}.{f.stem}"
+                    handler_files.add(rel)
 
         unregistered = handler_files - set(CUSTOM_HANDLERS)
         assert unregistered == set(), (
@@ -87,7 +98,7 @@ class TestServiceRegistryForgeConsistency:
         from services.forge import SERVICE_MAP
         forge_services = set(SERVICE_MAP.keys())
         # wan2gp handles many GPU models through Wan2GPForgeService
-        wan2gp_handled = {"trellis", "anigen", "ace_step", "hy_motion",
+        wan2gp_handled = {"anigen", "ace_step", "hy_motion",
                           "moss_soundeffect", "see_through", "index_tts",
                           "faster_qwen3_tts", "vibevoice_asr", "vibevoice_tts",
                           "wan2gp"}
@@ -111,17 +122,16 @@ class TestServiceRegistryCompleteness:
 
         # Handler family names → registry service names
         handler_to_service = {
-            "trellis.trellis_handler": "trellis",
-            "anigen_handler.anigen_handler": "anigen",
-            "see_through.see_through_handler": "see_through",
-            "hy_motion.hy_motion_handler": "hy_motion",
-            "kokoro.kokoro_handler": "kokoro",
-            "moss.moss_handler": "moss_soundeffect",
-            "espeak.espeak_handler": "espeak",
-            "faster_whisper.faster_whisper_handler": "faster_whisper",
-            "vibevoice_asr.vibevoice_asr_handler": "vibevoice_asr",
-            "vibevoice_tts.vibevoice_tts_handler": "vibevoice_tts",
-            "faster_qwen3_tts.faster_qwen3_tts_handler": "faster_qwen3_tts",
+            "models.anigen.anigen_handler": "anigen",
+            "models.see_through.see_through_handler": "see_through",
+            "models.hy_motion.hy_motion_handler": "hy_motion",
+            "models.kokoro.kokoro_handler": "kokoro",
+            "models.moss.moss_handler": "moss_soundeffect",
+            "models.espeak.espeak_handler": "espeak",
+            "models.faster_whisper.faster_whisper_handler": "faster_whisper",
+            "models.vibevoice_asr.vibevoice_asr_handler": "vibevoice_asr",
+            "models.vibevoice_tts.vibevoice_tts_handler": "vibevoice_tts",
+            "models.faster_qwen3_tts.faster_qwen3_tts_handler": "faster_qwen3_tts",
         }
 
         for handler_path, service_name in handler_to_service.items():
@@ -176,7 +186,7 @@ class TestTierClassification:
         tier1 = {
             "kokoro", "espeak", "faster_whisper", "faster_qwen3_tts",
             "index_tts", "vibevoice_asr", "vibevoice_tts",
-            "trellis", "ace_step", "comfyui", "hy_motion",
+            "ace_step", "comfyui", "hy_motion",
             "moss_soundeffect", "anigen", "see_through", "llm",
             "wan2gp",
         }
