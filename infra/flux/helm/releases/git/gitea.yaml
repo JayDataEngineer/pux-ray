@@ -45,9 +45,6 @@ spec:
           DEFAULT_ACTIONS_URL: https://gitea.com
         log:
           LEVEL: Info
-      additionalConfigSources:
-        - secret:
-            name: shared-infra
     persistence:
       enabled: true
       existingClaim: gitea-data
