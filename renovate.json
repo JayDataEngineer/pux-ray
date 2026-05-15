@@ -1,0 +1,51 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": [
+    "config:recommended",
+    "docker:enableMajor",
+    ":pinDigestsDisabled"
+  ],
+  "platform": "gitea",
+  "endpoint": "http://gitea.git.svc.cluster.local:3000/api/v1",
+  "autodiscover": true,
+  "schedule": ["every weekend"],
+  "timezone": "America/New_York",
+  "labels": ["renovate"],
+  "dockerfile": {
+    "enabled": true
+  },
+  "kubernetes": {
+    "enabled": true,
+    "fileMatch": ["infra/flux/.*\\.yaml$", "infra/k8s/.*\\.yaml$"],
+    "packageRules": [
+      {
+        "matchPackagePatterns": ["^forge-reg\\.local"],
+        "enabled": false
+      }
+    ]
+  },
+  "pip_requirements": {
+    "enabled": true,
+    "fileMatch": ["requirements.*\\.txt$"]
+  },
+  "pyproject": {
+    "enabled": true
+  },
+  "packageRules": [
+    {
+      "matchManagers": ["dockerfile"],
+      "matchPackagePatterns": ["nvidia/cuda", "python", "ghcr.io/astral-sh/uv"],
+      "groupName": "base-images",
+      "schedule": ["every month"]
+    },
+    {
+      "matchManagers": ["kubernetes"],
+      "groupName": "k8s-images",
+      "separateMajorMinor": true
+    }
+  ],
+  "ignorePaths": [
+    "vendor/",
+    "infra/repos/"
+  ]
+}

@@ -24,7 +24,7 @@ spec:
       hostPID: true
       containers:
         - name: node-exporter
-          image: prom/node-exporter:latest
+          image: prom/node-exporter:v1.11.1
           args:
             - "--path.rootfs=/host"
             - "--path.procfs=/hostproc"

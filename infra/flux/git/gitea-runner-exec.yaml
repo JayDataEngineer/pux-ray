@@ -42,7 +42,7 @@ spec:
     spec:
       containers:
         - name: runner
-          image: gitea/act_runner:latest
+          image: gitea/act_runner:0.2.12
           command: ["act_runner", "daemon"]
           env:
             - name: GITEA_INSTANCE_URL

@@ -124,7 +124,7 @@ spec:
                       - "true"
       containers:
         - name: vm
-          image: victoriametrics/victoria-metrics:latest
+          image: victoriametrics/victoria-metrics:v1.143.0
           args:
             - "-storageDataPath=/data"
             - "-retentionPeriod=30d"
