@@ -38,13 +38,18 @@ class family_handler:
     def load_model(model_filename, model_type, base_model_type, model_def,
                    quantizeTransformer=False, text_encoder_quantization=None,
                    dtype=None, VAE_dtype=None, profile=0, **kwargs):
-        model_path = Path((model_def or {}).get("vibevoice_asr_path", ""))
+        # Import vibevoice from the fork's shared library
+        _lib = str(Path(__file__).parents[2] / "_lib")
+        if _lib not in sys.path:
+            sys.path.insert(0, _lib)
 
         from vibevoice.modular.configuration_vibevoice import VibeVoiceConfig
         from vibevoice.modular.modeling_vibevoice import VibeVoiceForConditionalGeneration
         from transformers import AutoConfig, AutoModel
         AutoConfig.register("vibevoice", VibeVoiceConfig)
         AutoModel.register(VibeVoiceConfig, VibeVoiceForConditionalGeneration)
+
+        model_path = Path((model_def or {}).get("vibevoice_asr_path", ""))
 
         model = AutoModel.from_pretrained(
             str(model_path), torch_dtype=dtype or torch.bfloat16,
