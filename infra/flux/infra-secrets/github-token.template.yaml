@@ -1,0 +1,17 @@
+# GitHub token for Flux GitRepository authentication
+#
+# To activate:
+#   1. Copy: cp github-token.template.yaml github-token.yaml
+#   2. Fill in real token from GitHub Settings > Developer settings > PAT
+#   3. Encrypt: sops -e -i github-token.yaml
+#   4. Rename: mv github-token.yaml github-token.enc.yaml
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: github-token
+  namespace: flux-system
+type: Opaque
+stringData:
+  username: CHANGE_ME
+  password: CHANGE_ME
