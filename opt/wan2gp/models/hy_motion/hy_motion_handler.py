@@ -61,9 +61,9 @@ class family_handler:
     def load_model(model_filename, model_type, base_model_type, model_def,
                    quantizeTransformer=False, text_encoder_quantization=None,
                    dtype=None, VAE_dtype=None, profile=0, **kwargs):
-        vendor = (model_def or {}).get("vendor_root", "")
-        if vendor and vendor not in sys.path:
-            sys.path.insert(0, vendor)
+        _src = str(Path(__file__).parent / "_src")
+        if _src not in sys.path:
+            sys.path.insert(0, _src)
 
         model_path = Path((model_def or {}).get("hy_motion_path", ""))
         if not model_path.is_dir():

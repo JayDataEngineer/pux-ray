@@ -670,13 +670,6 @@ class Wan2GPService:
         need to import registry.* themselves — keeps the fork self-contained.
         """
         paths = {}
-        models_root = Path(cfg.models_root)
-
-        try:
-            root = str(Path(cfg.project_root) / "vendor")
-            paths["vendor_root"] = root
-        except Exception:
-            pass
 
         if model_type == "anigen":
             try:

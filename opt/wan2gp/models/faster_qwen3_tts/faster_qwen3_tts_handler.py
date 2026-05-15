@@ -15,7 +15,17 @@ import tempfile
 from pathlib import Path
 from typing import Optional
 
-import numpy as np
+import contextlib
+
+
+@contextlib.contextmanager
+def suppress_flash_attn_warning():
+    """Suppress the annoying 'This model uses FlashAttention' warning."""
+    import warnings
+    with warnings.catch_warnings():
+        warnings.filterwarnings("ignore", message=".*FlashAttention.*")
+        warnings.filterwarnings("ignore", message=".*torch.utils.checkpoint.*")
+        yield
 import torch
 import torch.nn.functional as F
 
@@ -56,7 +66,10 @@ class family_handler:
                    dtype=None, VAE_dtype=None, profile=0, **kwargs):
         model_path = Path((model_def or {}).get("faster_qwen3_tts_path", ""))
 
-        from faster_qwen3_tts.utils import suppress_flash_attn_warning
+        _src = str(Path(__file__).parent / "_src")
+        if _src not in sys.path:
+            sys.path.insert(0, _src)
+
         with suppress_flash_attn_warning():
             from qwen_tts import Qwen3TTSModel
 
