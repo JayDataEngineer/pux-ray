@@ -38,7 +38,7 @@ class TestServiceRegistry:
         expected = {
             "kokoro", "espeak", "faster_qwen3_tts", "faster_whisper",
             "moss_soundeffect", "ace_step",
-            "trellis", "anigen", "hy_motion", "see_through",
+            "anigen", "hy_motion", "see_through",
             "comfyui", "llm", "wan2gp",
             "index_tts", "vibevoice_asr", "vibevoice_tts",
         }
@@ -152,9 +152,9 @@ class TestIngressRoutes:
         with patch("gateway.ingress._get_forge") as mock_forge:
             mock_handle = AsyncMock()
             mock_handle.preload.remote = AsyncMock(
-                return_value={"status": "loaded", "service": "trellis"})
+                return_value={"status": "loaded", "service": "anigen"})
             mock_forge.return_value = mock_handle
-            r = client.post("/admin/load", json={"service": "trellis", "model": "trellis"})
+            r = client.post("/admin/load", json={"service": "anigen", "model": "anigen"})
             assert r.status_code == 200
 
     def test_admin_unload(self, client):

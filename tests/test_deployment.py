@@ -19,9 +19,9 @@ import pytest
 class TestCustomHandlersList:
 
     @pytest.mark.unit
-    def test_all_11_handlers_registered(self):
+    def test_all_10_handlers_registered(self):
         from services.wan2gp.deployment import CUSTOM_HANDLERS
-        assert len(CUSTOM_HANDLERS) == 11
+        assert len(CUSTOM_HANDLERS) == 10
 
     @pytest.mark.unit
     def test_no_duplicate_handlers(self):
@@ -30,17 +30,16 @@ class TestCustomHandlersList:
 
     @pytest.mark.unit
     def test_all_handler_modules_exist(self):
-        """Every import path in CUSTOM_HANDLERS maps to a real file."""
+        """Every import path in CUSTOM_HANDLERS maps to a real file in the fork."""
         from services.wan2gp.deployment import CUSTOM_HANDLERS
         project_root = Path(__file__).resolve().parent.parent
-        custom_models = project_root / "services" / "wan2gp" / "custom_models"
+        fork_models = project_root / "opt" / "wan2gp" / "models"
         for handler_path in CUSTOM_HANDLERS:
-            parts = handler_path.split(".")
-            # Last part is the module, second-to-last is the package
-            if len(parts) == 2:
-                mod_file = custom_models / parts[0] / (parts[1] + ".py")
-            else:
-                mod_file = custom_models / handler_path.replace(".", "/") + ".py"
+            # Strip "models." prefix to get the path within models/
+            rel = handler_path
+            if rel.startswith("models."):
+                rel = rel[len("models."):]
+            mod_file = fork_models / (rel.replace(".", "/") + ".py")
             assert mod_file.exists(), f"Handler file missing: {mod_file} (from {handler_path})"
 
 
@@ -54,9 +53,9 @@ class TestDeriveKey:
         "model_type,handler_path,expected",
         [
             ("t2v-14B", "models.wan.wan_handler", "wan/t2v-14B"),
-            ("trellis", "trellis.trellis_handler", "trellis_handler/trellis"),
             ("ace-step-v1", "models.TTS.ace_step_handler", "tts/ace-step-v1"),
-            ("faster_whisper", "faster_whisper.faster_whisper_handler", "faster_whisper_handler/faster_whisper"),
+            ("anigen", "models.anigen.anigen_handler", "anigen/anigen"),
+            ("faster_whisper", "models.faster_whisper.faster_whisper_handler", "faster_whisper/faster_whisper"),
             ("hunyuan-t2v", "models.hyvideo.hunyuan_handler", "hunyuan/hunyuan-t2v"),
             ("flux-dev", "models.flux.flux_handler", "flux/flux-dev"),
             ("i2v-14B", "models.wan.ovi_handler", "wan/i2v-14B"),
@@ -195,7 +194,7 @@ class TestCPUOnlyTypes:
     @pytest.mark.unit
     def test_gpu_types_not_in_cpu_list(self):
         from services.wan2gp.deployment import _CPU_ONLY_TYPES
-        gpu_types = {"trellis", "anigen", "hy-motion-1.0", "moss-soundeffect"}
+        gpu_types = {"anigen", "hy-motion-1.0", "moss-soundeffect"}
         assert not gpu_types & _CPU_ONLY_TYPES
 
 
@@ -209,7 +208,7 @@ class TestWeightSearchMapping:
         from services.wan2gp.deployment import _WEIGHT_SEARCH, _CPU_ONLY_TYPES
         # All custom GPU handlers should have a weight search entry
         expected_gpu = {
-            "faster-qwen3-tts", "trellis", "anigen", "moss-soundeffect",
+            "faster-qwen3-tts", "anigen", "moss-soundeffect",
             "see-through", "hy-motion-1.0",
             "vibevoice-asr", "vibevoice-tts",
         }
@@ -234,12 +233,12 @@ class TestWeightSearchMapping:
 class TestEnsureVendorPath:
 
     @pytest.mark.unit
-    def test_adds_custom_models_to_sys_path(self):
+    def test_adds_fork_to_sys_path(self):
         from services.wan2gp.deployment import _ensure_vendor_path
         # Reset so it actually runs
         import services.wan2gp.deployment as dep
         dep._ven_loaded = False
         _ensure_vendor_path()
         project_root = Path(__file__).resolve().parent.parent
-        custom_models = str(project_root / "services" / "wan2gp" / "custom_models")
-        assert custom_models in sys.path
+        fork_root = str(project_root / "opt" / "wan2gp")
+        assert fork_root in sys.path

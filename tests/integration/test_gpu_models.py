@@ -53,24 +53,10 @@ class TestMOSS:
     @pytest.mark.slow
     @pytest.mark.handler
     def test_moss_generate(self):
-        pipeline, pw = _load_handler("moss.moss_handler", "moss-soundeffect")
+        pipeline, pw = _load_handler("models.moss.moss_handler", "moss-soundeffect")
         try:
             result = pipeline.generate(prompt="gentle rain", max_tokens=64)
             assert result["status"] == "success"
-        finally:
-            _cleanup(pipeline, pw)
-
-
-class TestTRELLIS:
-    @pytest.mark.gpu
-    @pytest.mark.slow
-    @pytest.mark.handler
-    def test_trellis_generate(self, sample_png_b64):
-        pipeline, pw = _load_handler("trellis.trellis_handler", "trellis")
-        try:
-            result = pipeline.generate(image=sample_png_b64, steps=1)
-            assert result["status"] == "success"
-            assert "data" in result
         finally:
             _cleanup(pipeline, pw)
 
@@ -80,7 +66,7 @@ class TestAniGen:
     @pytest.mark.slow
     @pytest.mark.handler
     def test_anigen_generate(self, sample_png_b64):
-        pipeline, pw = _load_handler("anigen_handler.anigen_handler", "anigen")
+        pipeline, pw = _load_handler("models.anigen.anigen_handler", "anigen")
         try:
             result = pipeline.generate(image=sample_png_b64, ss_steps=1, slat_steps=1)
             assert result.get("status") in ("success", "error")
@@ -94,7 +80,7 @@ class TestVibeVoiceASR:
     @pytest.mark.handler
     def test_vibevoice_asr_generate(self, sample_wav_b64):
         pipeline, pw = _load_handler(
-            "vibevoice_asr.vibevoice_asr_handler", "vibevoice-asr"
+            "models.vibevoice_asr.vibevoice_asr_handler", "vibevoice-asr"
         )
         try:
             result = pipeline.generate(
@@ -111,7 +97,7 @@ class TestVibeVoiceTTS:
     @pytest.mark.handler
     def test_vibevoice_tts_generate(self):
         pipeline, pw = _load_handler(
-            "vibevoice_tts.vibevoice_tts_handler", "vibevoice-tts"
+            "models.vibevoice_tts.vibevoice_tts_handler", "vibevoice-tts"
         )
         try:
             result = pipeline.generate(text="Hello world", language="English")
@@ -126,7 +112,7 @@ class TestFasterQwen3TTS:
     @pytest.mark.handler
     def test_faster_qwen3_tts_generate(self):
         pipeline, pw = _load_handler(
-            "faster_qwen3_tts.faster_qwen3_tts_handler", "faster-qwen3-tts"
+            "models.faster_qwen3_tts.faster_qwen3_tts_handler", "faster-qwen3-tts"
         )
         try:
             result = pipeline.generate(text="Hello world", voice="Aiden")
@@ -141,7 +127,7 @@ class TestHYMotion:
     @pytest.mark.handler
     def test_hy_motion_generate(self):
         pipeline, pw = _load_handler(
-            "hy_motion.hy_motion_handler", "hy-motion-1.0"
+            "models.hy_motion.hy_motion_handler", "hy-motion-1.0"
         )
         try:
             result = pipeline.generate(
@@ -158,7 +144,7 @@ class TestSeeThrough:
     @pytest.mark.handler
     def test_see_through_generate(self, sample_png_b64):
         pipeline, pw = _load_handler(
-            "see_through.see_through_handler", "see-through"
+            "models.see_through.see_through_handler", "see-through"
         )
         try:
             result = pipeline.generate(

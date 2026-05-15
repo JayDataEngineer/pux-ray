@@ -16,20 +16,23 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 
-_CUSTOM_MODELS_DIR = Path(__file__).resolve().parent.parent / "services" / "wan2gp" / "custom_models"
+_FORK_MODELS_DIR = Path(__file__).resolve().parent.parent / "opt" / "wan2gp" / "models"
 
 
 def _import_handler(import_path: str):
-    """Import handler with pip package collision handling."""
+    """Import handler from the fork's models/ package."""
     try:
         mod = importlib.import_module(import_path)
         mod_file = getattr(mod, "__file__", "") or ""
-        if "custom_models" in mod_file:
+        if "opt/wan2gp/models" in mod_file:
             return mod
     except (ImportError, ModuleNotFoundError):
         pass
-    parts = import_path.split(".")
-    mod_file = _CUSTOM_MODELS_DIR.joinpath(*parts[:-1]) / (parts[-1] + ".py")
+    rel_path = import_path
+    if rel_path.startswith("models."):
+        rel_path = rel_path[len("models."):]
+    parts = rel_path.split(".")
+    mod_file = _FORK_MODELS_DIR.joinpath(*parts[:-1]) / (parts[-1] + ".py")
     if not mod_file.exists():
         raise ImportError(f"Handler file not found: {mod_file}")
     spec = importlib.util.spec_from_file_location(import_path, str(mod_file))
@@ -45,7 +48,7 @@ class TestEspeakGenerate:
 
     @pytest.fixture
     def espeak_pipeline(self):
-        from espeak.espeak_handler import _Pipeline
+        from models.espeak.espeak_handler import _Pipeline
         return _Pipeline("espeak-ng")
 
     @pytest.mark.unit
@@ -167,7 +170,7 @@ class TestFasterWhisperContract:
     @pytest.mark.unit
     @pytest.mark.handler
     def test_handler_contract(self):
-        mod = _import_handler("faster_whisper.faster_whisper_handler")
+        mod = _import_handler("models.faster_whisper.faster_whisper_handler")
         fh = mod.family_handler
         types = fh.query_supported_types()
         assert "faster_whisper" in types
@@ -180,7 +183,7 @@ class TestFasterWhisperContract:
     @pytest.mark.unit
     @pytest.mark.handler
     def test_pipeline_has_generate(self):
-        mod = _import_handler("faster_whisper.faster_whisper_handler")
+        mod = _import_handler("models.faster_whisper.faster_whisper_handler")
         pipeline_cls = mod._Pipeline
         assert hasattr(pipeline_cls, "generate")
         assert callable(getattr(pipeline_cls, "generate"))

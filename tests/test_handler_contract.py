@@ -28,42 +28,42 @@ import pytest
 # ─── Handler fixtures ───────────────────────────────────────────────────────
 
 ALL_HANDLERS = [
-    ("trellis.trellis_handler", "trellis"),
-    ("anigen_handler.anigen_handler", "anigen"),
-    ("see_through.see_through_handler", "see-through"),
-    ("hy_motion.hy_motion_handler", "hy-motion-1.0"),
-    ("kokoro.kokoro_handler", "kokoro"),
-    ("moss.moss_handler", "moss-soundeffect"),
-    ("espeak.espeak_handler", "espeak"),
-    ("faster_whisper.faster_whisper_handler", "faster_whisper"),
-    ("vibevoice_asr.vibevoice_asr_handler", "vibevoice-asr"),
-    ("vibevoice_tts.vibevoice_tts_handler", "vibevoice-tts"),
-    ("faster_qwen3_tts.faster_qwen3_tts_handler", "faster-qwen3-tts"),
+    ("models.anigen.anigen_handler", "anigen"),
+    ("models.see_through.see_through_handler", "see-through"),
+    ("models.hy_motion.hy_motion_handler", "hy-motion-1.0"),
+    ("models.kokoro.kokoro_handler", "kokoro"),
+    ("models.moss.moss_handler", "moss-soundeffect"),
+    ("models.espeak.espeak_handler", "espeak"),
+    ("models.faster_whisper.faster_whisper_handler", "faster_whisper"),
+    ("models.vibevoice_asr.vibevoice_asr_handler", "vibevoice-asr"),
+    ("models.vibevoice_tts.vibevoice_tts_handler", "vibevoice-tts"),
+    ("models.faster_qwen3_tts.faster_qwen3_tts_handler", "faster-qwen3-tts"),
 ]
 
 
-_CUSTOM_MODELS_DIR = Path(__file__).resolve().parent.parent / "services" / "wan2gp" / "custom_models"
+_FORK_MODELS_DIR = Path(__file__).resolve().parent.parent / "opt" / "wan2gp" / "models"
 
 
 def _import_handler(import_path: str):
-    """Import a handler module, handling pip package name collisions.
+    """Import a handler module from the fork's models/ package.
 
-    Some handler packages (e.g. kokoro) collide with installed pip packages.
     Falls back to loading by file path when the standard import fails or
-    resolves to the wrong module.
+    resolves to the wrong module (e.g. kokoro collides with pip package).
     """
     try:
         mod = importlib.import_module(import_path)
-        # Verify it's our handler, not a pip package
         mod_file = getattr(mod, "__file__", "") or ""
-        if "custom_models" in mod_file:
+        if "opt/wan2gp/models" in mod_file:
             return mod
     except (ImportError, ModuleNotFoundError):
         pass
 
-    # Fallback: load directly from file path
-    parts = import_path.split(".")
-    mod_file = _CUSTOM_MODELS_DIR.joinpath(*parts[:-1]) / (parts[-1] + ".py")
+    # Fallback: strip "models." prefix, load from fork models/ dir
+    rel_path = import_path
+    if rel_path.startswith("models."):
+        rel_path = rel_path[len("models."):]
+    parts = rel_path.split(".")
+    mod_file = _FORK_MODELS_DIR.joinpath(*parts[:-1]) / (parts[-1] + ".py")
     if not mod_file.exists():
         raise ImportError(f"Handler file not found: {mod_file}")
     spec = importlib.util.spec_from_file_location(import_path, str(mod_file))

@@ -63,15 +63,13 @@ def _mock_ray_core():
 
 @pytest.fixture(autouse=True, scope="session")
 def _setup_custom_models_path():
-    """Add custom_models/ and vendor/ to sys.path for handler imports."""
+    """Add opt/wan2gp to sys.path for handler imports from the fork."""
     project_root = Path(__file__).resolve().parent.parent
-    custom_models = project_root / "services" / "wan2gp" / "custom_models"
-    vendor_wan2gp = project_root / "vendor" / "wan2gp"
+    fork_root = project_root / "opt" / "wan2gp"
 
-    for p in [str(custom_models), str(vendor_wan2gp)]:
-        if os.path.isdir(p) and p not in sys.path:
-            sys.path.insert(0, p)
-    os.environ.setdefault("WAN2GP_ROOT", str(vendor_wan2gp))
+    if os.path.isdir(str(fork_root)) and str(fork_root) not in sys.path:
+        sys.path.insert(0, str(fork_root))
+    os.environ.setdefault("WAN2GP_ROOT", str(fork_root))
     yield
 
 
@@ -150,17 +148,16 @@ def sample_png_b64(sample_png_bytes) -> str:
 def custom_handler_paths() -> list[str]:
     """All custom family_handler import paths from CUSTOM_HANDLERS."""
     return [
-        "trellis.trellis_handler",
-        "anigen_handler.anigen_handler",
-        "see_through.see_through_handler",
-        "hy_motion.hy_motion_handler",
-        "kokoro.kokoro_handler",
-        "moss.moss_handler",
-        "espeak.espeak_handler",
-        "faster_whisper.faster_whisper_handler",
-        "vibevoice_asr.vibevoice_asr_handler",
-        "vibevoice_tts.vibevoice_tts_handler",
-        "faster_qwen3_tts.faster_qwen3_tts_handler",
+        "models.anigen.anigen_handler",
+        "models.see_through.see_through_handler",
+        "models.hy_motion.hy_motion_handler",
+        "models.kokoro.kokoro_handler",
+        "models.moss.moss_handler",
+        "models.espeak.espeak_handler",
+        "models.faster_whisper.faster_whisper_handler",
+        "models.vibevoice_asr.vibevoice_asr_handler",
+        "models.vibevoice_tts.vibevoice_tts_handler",
+        "models.faster_qwen3_tts.faster_qwen3_tts_handler",
     ]
 
 

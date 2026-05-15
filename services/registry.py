@@ -117,13 +117,6 @@ SERVICE_REGISTRY: dict[str, ServiceEntry] = {
         output_type="audio",
         description="ACE-STEP 1.5 — text-to-music generation.",
     ),
-    "trellis": ServiceEntry(
-        deployment="wan2gp", app="wan2gp",
-        label="TRELLIS.2", category="creative",
-        needs_gpu=True, default_model="trellis",
-        output_type="model_3d",
-        description="TRELLIS.2 4B — image-to-3D mesh generation.",
-    ),
     "anigen": ServiceEntry(
         deployment="wan2gp", app="wan2gp",
         label="AniGen", category="creative",

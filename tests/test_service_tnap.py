@@ -16,7 +16,7 @@ import pytest
 
 
 def _make_espeak_pipeline():
-    from espeak.espeak_handler import _Pipeline
+    from models.espeak.espeak_handler import _Pipeline
     return _Pipeline("espeak-ng")
 
 

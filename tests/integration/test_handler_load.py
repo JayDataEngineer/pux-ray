@@ -17,34 +17,36 @@ import pytest
 
 
 ALL_HANDLERS = [
-    ("trellis.trellis_handler", "trellis"),
-    ("anigen_handler.anigen_handler", "anigen"),
-    ("see_through.see_through_handler", "see-through"),
-    ("hy_motion.hy_motion_handler", "hy-motion-1.0"),
-    ("kokoro.kokoro_handler", "kokoro"),
-    ("moss.moss_handler", "moss-soundeffect"),
-    ("espeak.espeak_handler", "espeak"),
-    ("faster_whisper.faster_whisper_handler", "faster_whisper"),
-    ("vibevoice_asr.vibevoice_asr_handler", "vibevoice-asr"),
-    ("vibevoice_tts.vibevoice_tts_handler", "vibevoice-tts"),
-    ("faster_qwen3_tts.faster_qwen3_tts_handler", "faster-qwen3-tts"),
+    ("models.anigen.anigen_handler", "anigen"),
+    ("models.see_through.see_through_handler", "see-through"),
+    ("models.hy_motion.hy_motion_handler", "hy-motion-1.0"),
+    ("models.kokoro.kokoro_handler", "kokoro"),
+    ("models.moss.moss_handler", "moss-soundeffect"),
+    ("models.espeak.espeak_handler", "espeak"),
+    ("models.faster_whisper.faster_whisper_handler", "faster_whisper"),
+    ("models.vibevoice_asr.vibevoice_asr_handler", "vibevoice-asr"),
+    ("models.vibevoice_tts.vibevoice_tts_handler", "vibevoice-tts"),
+    ("models.faster_qwen3_tts.faster_qwen3_tts_handler", "faster-qwen3-tts"),
 ]
 
 
-_CUSTOM_MODELS_DIR = Path(__file__).resolve().parent.parent.parent / "services" / "wan2gp" / "custom_models"
+_FORK_MODELS_DIR = Path(__file__).resolve().parent.parent.parent / "opt" / "wan2gp" / "models"
 
 
 def _import_handler(import_path: str):
-    """Import handler with pip package collision handling."""
+    """Import handler from the fork's models/ package."""
     try:
         mod = importlib.import_module(import_path)
         mod_file = getattr(mod, "__file__", "") or ""
-        if "custom_models" in mod_file:
+        if "opt/wan2gp/models" in mod_file:
             return mod
     except (ImportError, ModuleNotFoundError):
         pass
-    parts = import_path.split(".")
-    mod_file = _CUSTOM_MODELS_DIR.joinpath(*parts[:-1]) / (parts[-1] + ".py")
+    rel_path = import_path
+    if rel_path.startswith("models."):
+        rel_path = rel_path[len("models."):]
+    parts = rel_path.split(".")
+    mod_file = _FORK_MODELS_DIR.joinpath(*parts[:-1]) / (parts[-1] + ".py")
     if not mod_file.exists():
         raise ImportError(f"Handler file not found: {mod_file}")
     spec = importlib.util.spec_from_file_location(import_path, str(mod_file))
