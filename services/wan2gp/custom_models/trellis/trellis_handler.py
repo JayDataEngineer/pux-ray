@@ -118,8 +118,17 @@ class family_handler:
                     if isinstance(val, torch.Tensor) and val.dtype != torch.float16:
                         setattr(sub, attr_key, val.to(torch.float16))
 
+        # Co-tenants: flow models always run with their decoder
+        co_tenants = {
+            "ss_flow": ["ss_decoder"],
+            "slat_flow_512": ["shape_decoder"],
+            "slat_flow_1024": ["shape_decoder"],
+            "tex_slat_flow_512": ["tex_decoder"],
+            "tex_slat_flow_1024": ["tex_decoder"],
+        }
+
         pl = _Pipeline(pipeline)
-        return pl, {"pipe": pipe, "coTenantsMap": {}}
+        return pl, {"pipe": pipe, "coTenantsMap": co_tenants}
 
     @staticmethod
     def update_default_settings(base_model_type, model_def, ui_defaults):
