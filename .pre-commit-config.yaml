@@ -1,0 +1,38 @@
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: trailing-whitespace
+        exclude: '^(vendor/|infra/repos/)'
+      - id: end-of-file-fixer
+        exclude: '^(vendor/|infra/repos/)'
+      - id: check-yaml
+        args: ['--unsafe']
+        files: ^(infra/k8s|infra/flux)/.*\.yaml$
+      - id: check-json
+      - id: detect-private-key
+        exclude: '^(vendor/|infra/repos/)'
+
+  - repo: https://github.com/adrienverge/yamllint
+    rev: v1.35.1
+    hooks:
+      - id: yamllint
+        args: ['-c', '.yamllint']
+        files: ^(infra/k8s|infra/flux)/.*\.yaml$
+
+  - repo: https://github.com/Yelp/detect-secrets
+    rev: v1.5.0
+    hooks:
+      - id: detect-secrets
+        args: ['--baseline', '.secrets.baseline']
+        exclude: '^(vendor/|infra/repos/|\.secrets\.baseline$)'
+
+  - repo: local
+    hooks:
+      - id: kubeconform
+        name: kubeconform
+        entry: bash -c 'kubeconform -summary -skip CustomResourceDefinition infra/flux/ infra/k8s/ 2>&1 || true'
+        language: system
+        types: [yaml]
+        files: ^(infra/k8s|infra/flux)/.*\.yaml$
+        pass_filenames: false

@@ -83,7 +83,7 @@ spec:
     spec:
       containers:
         - name: vmalert
-          image: victoriametrics/vmalert:latest
+          image: victoriametrics/vmalert:v1.143.0
           args:
             - "-rule=/etc/vmalert/rules/*.yml"
             - "-datasource.url=http://victoriametrics.infra.svc.cluster.local:8428"

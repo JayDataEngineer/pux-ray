@@ -468,3 +468,16 @@ to see cloud fallback rate over time.
 - `vendor/` = upstream git clones (NEVER EDIT) — all adaptation in `services/`
 - Source mount (`hostPath`) makes code changes instant on pods, but requires pod restart for Python to pick up changes
 - All setup is idempotent — safe to re-run
+
+## Flux Tooling
+
+**Capacitor** — Visual Flux dashboard at `http://100.86.69.57:30080/flux`. Shows Kustomization dependency graph, click-to-reconcile, inline logs. Deployed in `flux-system` namespace.
+
+**Renovate** — Automated dependency updates (Docker images, Python deps). Runs weekly via Gitea Actions (`.gitea/workflows/renovate.yaml`). Config in `renovate.json`. Custom `forge-reg` images are excluded. Setup: create Gitea token with `repo` scope, add as `RENOVATE_TOKEN` secret. Optional `GH_PAT` for GitHub changelogs.
+
+**Pre-commit** — Validates K8s manifests on commit: kubeconform (schema), yamllint, detect-secrets. Config in `.pre-commit-config.yaml`. Run `pre-commit run --all-files` to validate manually.
+
+```bash
+pre-commit install           # Install hooks
+pre-commit run --all-files   # Validate all K8s manifests
+```
