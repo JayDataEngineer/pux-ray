@@ -1,9 +1,13 @@
 """TRELLIS.2 family handler — image-to-3D mesh with texture.
 
-Follows Wan2GP handler pattern: extract nn.Modules → pipe dict → mmgp VRAM.
-Modules are converted to bfloat16 for mmgp dtype uniformity.
-pipeline.run() wrapped in autocast('cuda', bf16) so the sampler's float32
-timestep tensors are automatically cast to match the model weights.
+Follows Wan2GP handler pattern: pipeline object + pipe dict for mmgp.
+TRELLIS's pipeline.run() has built-in low_vram VRAM management, so we
+return an empty pipe dict — no mmgp interference. The pipeline handles
+its own model swapping via .to(device)/.cpu() calls.
+
+The sampler creates float32 timestep tensors that must be cast to match
+model weights (bf16 flow models, fp16 decoders). We wrap pipeline.run()
+in autocast('cuda', float16) which handles all mixed-precision casts.
 
 Modules: ss_flow, ss_decoder, slat_flow_512, slat_flow_1024,
          tex_slat_flow_512, tex_slat_flow_1024, shape_decoder, tex_decoder, image_cond
@@ -77,60 +81,14 @@ class family_handler:
         os.environ["TRELLIS_PIPELINE_ROOT"] = str(pipeline_json)
         pipeline = Trellis2ImageTo3DPipeline.from_pretrained(str(pipeline_json))
 
-        # Keep pipeline on CPU — mmgp handles device movement.
-        # Set device pointer so pipeline.run() targets CUDA for tensor ops.
+        # Pipeline manages its own VRAM via low_vram mode (default=True).
+        # Set device so it creates CUDA tensors for inference.
         pipeline._device = torch.device("cuda")
 
-        # Extract nn.Modules into pipe dict — same pattern as index_tts2/kokoro
-        key_map = {
-            "ss_flow": "sparse_structure_flow_model",
-            "ss_decoder": "sparse_structure_decoder",
-            "slat_flow_512": "shape_slat_flow_model_512",
-            "slat_flow_1024": "shape_slat_flow_model_1024",
-            "tex_slat_flow_512": "tex_slat_flow_model_512",
-            "tex_slat_flow_1024": "tex_slat_flow_model_1024",
-            "shape_decoder": "shape_slat_decoder",
-            "tex_decoder": "tex_slat_decoder",
-        }
-        pipe = {}
-        for short, full in key_map.items():
-            if full in pipeline.models:
-                pipe[short] = pipeline.models[full]
-
-        if hasattr(pipeline, 'image_cond_model') and pipeline.image_cond_model is not None:
-            pipe['image_cond'] = pipeline.image_cond_model
-
-        # Normalize all modules to bfloat16 for mmgp dtype uniformity.
-        # TRELLIS ships mixed bf16/fp16/f32 — convert everything to bf16
-        # to match the system convention (deployment.py passes dtype=bfloat16).
-        for name in list(pipe.keys()):
-            mod = pipe[name]
-            if not isinstance(mod, torch.nn.Module):
-                continue
-            has_non_bf16 = any(p.dtype != torch.bfloat16 for p in mod.parameters())
-            if not has_non_bf16:
-                continue
-            pipe[name] = mod.to(torch.bfloat16)
-            # Also handle unregistered tensor attrs (e.g. rope_phases)
-            # and internal dtype references
-            for sub in mod.modules():
-                for attr_key, val in list(vars(sub).items()):
-                    if isinstance(val, torch.Tensor) and val.dtype != torch.bfloat16:
-                        setattr(sub, attr_key, val.to(torch.bfloat16))
-                    elif attr_key == "dtype" and isinstance(val, torch.dtype):
-                        setattr(sub, attr_key, torch.bfloat16)
-
-        # Co-tenants: flow models always run with their decoder
-        co_tenants = {
-            "ss_flow": ["ss_decoder"],
-            "slat_flow_512": ["shape_decoder"],
-            "slat_flow_1024": ["shape_decoder"],
-            "tex_slat_flow_512": ["tex_decoder"],
-            "tex_slat_flow_1024": ["tex_decoder"],
-        }
-
+        # Empty pipe dict — TRELLIS pipeline.run() manages its own VRAM.
+        # mmgp hooks would conflict with the pipeline's .to(device)/.cpu() calls.
         pl = _Pipeline(pipeline)
-        return pl, {"pipe": pipe, "coTenantsMap": co_tenants}
+        return pl, {"pipe": {}, "coTenantsMap": {}}
 
     @staticmethod
     def update_default_settings(base_model_type, model_def, ui_defaults):
@@ -168,10 +126,11 @@ class _Pipeline:
         # autocast and ToPILImage() cannot convert bf16 to numpy.
         img = self.pipeline.preprocess_image(img)
 
-        # autocast('cuda', bf16) so the sampler's float32 timestep tensors
-        # are automatically cast to match the model weights (bf16).
-        # Also makes manual_cast() a no-op, avoiding double-cast issues.
-        with torch.autocast('cuda', dtype=torch.bfloat16):
+        # autocast('cuda', float16) so the sampler's float32 timestep tensors
+        # are cast to match model weights. Flow models are bf16, decoders fp16 —
+        # autocast handles mixed-precision for all eligible ops.
+        # Note: spconv CUDA kernels require fp16 inputs (custom_fwd cast_inputs=fp16).
+        with torch.autocast('cuda', dtype=torch.float16):
             results = self.pipeline.run(
                 image=img,
                 num_samples=1,
@@ -186,7 +145,6 @@ class _Pipeline:
         if not results:
             return {"status": "error", "error": "Pipeline produced no output"}
 
-        data = b""
         result = results[0]
         import trimesh
         mesh = trimesh.Trimesh(

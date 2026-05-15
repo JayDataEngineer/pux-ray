@@ -51,7 +51,7 @@ ENV DEBIAN_FRONTEND=noninteractive \
 
 # System deps (from Wan2GP Dockerfile)
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    python3 python3-pip git wget curl cmake ninja-build \
+    python3 python3-dev python3-pip git wget curl cmake ninja-build \
     libgl1 libglib2.0-0 ffmpeg && \
     rm -rf /var/lib/apt/lists/*
 
@@ -65,26 +65,15 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 # insightface, speechbrain, gradio, opencv, decord, timm, gguf, etc.
 COPY vendor/wan2gp/requirements.txt /tmp/wan2gp-requirements.txt
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv pip install -r /tmp/wan2gp-requirements.txt
+    uv pip install --index-strategy unsafe-best-match -r /tmp/wan2gp-requirements.txt
 
 # SageAttention from source (patch GPU detection for CUDA_ARCH override)
-RUN git clone https://github.com/thu-ml/SageAttention.git /tmp/sageattention && \
-    cd /tmp/sageattention && \
-    python3 << 'PYEOF' && \
-import os
-with open('setup.py', 'r') as f:
-    content = f.read()
-arch_list = os.environ.get('TORCH_CUDA_ARCH_LIST', '8.9')
-arch_set = '{' + ', '.join(['"'+a+'"' for a in arch_list.split(';')]) + '}'
-old = 'compute_capabilities = set()\ndevice_count = torch.cuda.device_count()\nfor i in range(device_count):\n    major, minor = torch.cuda.get_device_capability(i)\n    if major < 8:\n        warnings.warn(f"skipping GPU {i} with compute capability {major}.{minor}")\n        continue\n    compute_capabilities.add(f"{major}.{minor}")'
-new = 'compute_capabilities = ' + arch_set + '\nprint(f"Manually set compute capabilities: {compute_capabilities}")'
-content = content.replace(old, new)
-with open('setup.py', 'w') as f:
-    f.write(content)
-PYEOF
+RUN git clone https://github.com/thu-ml/SageAttention.git /tmp/sageattention
+COPY infra/docker/patch_sageattention.py /tmp/patch_sageattention.py
 RUN cd /tmp/sageattention && \
+    python3 /tmp/patch_sageattention.py && \
     uv pip install --no-build-isolation . && \
-    rm -rf /tmp/sageattention
+    rm -rf /tmp/sageattention /tmp/patch_sageattention.py
 
 # ── Stage 3: Final image — add Ray + our extras on top of Wan2GP base ──
 FROM wan2gp-base
@@ -161,8 +150,9 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     uv pip install --no-build-isolation . && \
     rm -rf /tmp/pytorch3d
 
-# spconv (source build for CUDA 12.8)
+# spconv (source build for CUDA 12.8 — needs FORCE_CUDA=1)
 RUN --mount=type=cache,target=/root/.cache/uv \
+    FORCE_CUDA=1 SPCONV_CUDA_ARCHITECTURES=8.9 \
     uv pip install spconv --no-build-isolation
 
 # ── Clone git repos (for services that need full repo structure) ──────
