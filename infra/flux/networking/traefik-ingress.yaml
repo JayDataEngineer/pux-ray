@@ -34,7 +34,7 @@ spec:
       middlewares:
         - name: gitea-rewrite
       services:
-        - name: gitea
+        - name: gitea-http
           port: 3000
 
 ---
