@@ -31,8 +31,11 @@
   "pyproject": {
     "enabled": true
   },
+  "helm-values": {
+    "enabled": true,
+    "fileMatch": ["infra/flux/helm/releases/.+\\.yaml$"]
+  },
   "packageRules": [
-    {
       "matchManagers": ["dockerfile"],
       "matchPackagePatterns": ["nvidia/cuda", "python", "ghcr.io/astral-sh/uv"],
       "groupName": "base-images",
@@ -41,6 +44,11 @@
     {
       "matchManagers": ["kubernetes"],
       "groupName": "k8s-images",
+      "separateMajorMinor": true
+    },
+    {
+      "matchManagers": ["helm-values"],
+      "groupName": "helm-charts",
       "separateMajorMinor": true
     }
   ],

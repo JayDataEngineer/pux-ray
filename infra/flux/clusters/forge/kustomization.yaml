@@ -88,7 +88,24 @@ spec:
       name: sops-age
 
 ---
-# Layer 3.5: Git services — Gitea + Act Runners (depends on storage + secrets)
+# Layer 3.5: Helm — HelmRepositories + HelmReleases (depends on secrets)
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: helm
+  namespace: flux-system
+spec:
+  interval: 5m
+  path: ./infra/flux/helm
+  prune: true
+  sourceRef:
+    kind: GitRepository
+    name: tech-noir
+  dependsOn:
+    - name: infra-secrets
+
+---
+# Layer 4: Git services — Gitea + Act Runners (depends on helm for Gitea chart)
 apiVersion: kustomize.toolkit.fluxcd.io/v1
 kind: Kustomization
 metadata:
@@ -104,9 +121,7 @@ spec:
   dependsOn:
     - name: infra-storage
     - name: infra-secrets
-
----
-# Layer 4: Infrastructure services (depends on storage + secrets)
+    - name: helm
 apiVersion: kustomize.toolkit.fluxcd.io/v1
 kind: Kustomization
 metadata:
@@ -122,9 +137,7 @@ spec:
   dependsOn:
     - name: infra-storage
     - name: infra-secrets
-
----
-# Layer 5: AI services — Ray cluster (depends on namespaces + storage)
+    - name: helm
 apiVersion: kustomize.toolkit.fluxcd.io/v1
 kind: Kustomization
 metadata:
