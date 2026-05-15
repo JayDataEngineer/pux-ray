@@ -129,7 +129,6 @@ spec:
             - "-storageDataPath=/data"
             - "-retentionPeriod=30d"
             - "-promscrape.config=/etc/vm/scrape.yml"
-            - "-promscrape.kubernetesSD=true"
             - "-selfScrapeInterval=15s"
             - "-httpListenAddr=:8428"
           ports:
