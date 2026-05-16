@@ -10,7 +10,7 @@ spec:
   persistentVolumeReclaimPolicy: Retain
   storageClassName: local-models
   local:
-    path: /home/user/Documents/models
+    path: /mnt/data/models
   nodeAffinity:
     required:
       nodeSelectorTerms:

@@ -358,8 +358,7 @@ spec:
       - /comfyui
 
 ---
-# llama.cpp — browser-accessible OpenAI-compatible API on the GPU worker
-# Only available when the Forge has loaded llm service.
+# llama.cpp — routed through Ray Serve (auto-loads via Forge on first request)
 # URL: http://100.86.69.57:30080/llm/
 
 apiVersion: traefik.io/v1alpha1
@@ -373,19 +372,6 @@ spec:
   routes:
     - match: PathPrefix(`/llm`)
       kind: Rule
-      middlewares:
-        - name: llm-rewrite
       services:
-        - name: gpu-worker-subprocess
-          port: 18399
-
----
-apiVersion: traefik.io/v1alpha1
-kind: Middleware
-metadata:
-  name: llm-rewrite
-  namespace: ai-services
-spec:
-  stripPrefix:
-    prefixes:
-      - /llm
+        - name: ray-serve-proxy
+          port: 8000

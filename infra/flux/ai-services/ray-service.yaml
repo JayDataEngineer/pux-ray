@@ -8,17 +8,7 @@ spec:
     http_options:
       port: 8000
     applications:
-      # ─── Wan2GP — unified GPU model pool (mmgp-managed VRAM) ────────────
-      # All vendor + custom family models: wan, flux, hunyuan, ace_step, trellis,
-      # anigen, kokoro, espeak, faster_whisper, index_tts, moss, etc.
-      - name: wan2gp
-        import_path: serve_config:wan2gp_deployment
-        route_prefix: /wan2gp
-        deployments:
-          - name: wan2gp
-            autoscaling_config: { min_replicas: 0, max_replicas: 1, downscale_delay_s: 120 }
-
-      # ─── Forge — subprocess GPU services (ComfyUI + LLM) ────────────────
+      # ─── Forge — VRAM-aware GPU manager (Wan2GP + ComfyUI + LLM + all models) ──
       - name: forge
         import_path: serve_config:forge
         route_prefix: /forge
@@ -62,7 +52,7 @@ spec:
           containers:
             - name: ray-head
               image: forge-reg.local:30500/tech-noir/gpu-all:latest
-              imagePullPolicy: Always
+              imagePullPolicy: IfNotPresent
               ports:
                 - containerPort: 6379
                   name: gcs
@@ -169,7 +159,7 @@ spec:
             containers:
               - name: ray-worker
                 image: forge-reg.local:30500/tech-noir/gpu-all:latest
-                imagePullPolicy: Always
+                imagePullPolicy: IfNotPresent
                 ports:
                   - containerPort: 18465
                     name: comfyui

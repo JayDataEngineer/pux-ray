@@ -8,13 +8,13 @@ from __future__ import annotations
 import gc
 import logging
 import os
-import signal
 import subprocess
 import time
 from typing import Optional
 
 import httpx
 
+from services.base import kill_process_tree, _free_cuda_cache
 from services.forge_base import ForgeService
 
 logger = logging.getLogger(__name__)
@@ -91,13 +91,7 @@ class ForgeSubprocessMixin:
 
         pid = self._process.pid
         if self._process.poll() is None:
-            try:
-                os.killpg(os.getpgid(pid), signal.SIGKILL)
-            except (ProcessLookupError, PermissionError):
-                try:
-                    os.kill(pid, signal.SIGKILL)
-                except (ProcessLookupError, PermissionError):
-                    pass
+            kill_process_tree(pid)
             try:
                 self._process.wait(timeout=5)
             except subprocess.TimeoutExpired:
@@ -105,61 +99,32 @@ class ForgeSubprocessMixin:
 
         self._process = None
         self._base_url = ""
-
-        try:
-            import torch
-            if torch.cuda.is_available():
-                torch.cuda.empty_cache()
-        except ImportError:
-            pass
+        _free_cuda_cache()
         gc.collect()
         logger.info("Subprocess stopped (PID %d)", pid)
 
     def is_running(self) -> bool:
         return self._process is not None and self._process.poll() is None
 
-    def _call(
-        self,
-        method: str,
-        path: str,
-        timeout: int = 600,
-        **kwargs,
-    ) -> dict:
+    def _url(self, path: str) -> str:
+        return f"{self._base_url}{path}"
+
+    def _call(self, method: str, path: str, timeout: int = 600, **kwargs) -> dict:
         """Synchronous HTTP call to the subprocess. Returns parsed JSON."""
-        url = f"{self._base_url}{path}"
-        resp = httpx.request(method, url, timeout=timeout, **kwargs)
+        resp = httpx.request(method, self._url(path), timeout=timeout, **kwargs)
         resp.raise_for_status()
         return resp.json()
 
-    def _call_raw(
-        self,
-        method: str,
-        path: str,
-        timeout: int = 600,
-        **kwargs,
-    ) -> bytes:
+    def _call_raw(self, method: str, path: str, timeout: int = 600, **kwargs) -> bytes:
         """Synchronous HTTP call. Returns raw bytes."""
-        url = f"{self._base_url}{path}"
-        resp = httpx.request(method, url, timeout=timeout, **kwargs)
+        resp = httpx.request(method, self._url(path), timeout=timeout, **kwargs)
         resp.raise_for_status()
         return resp.content
 
-    def _call_raw_full(
-        self,
-        method: str,
-        path: str,
-        timeout: int = 600,
-        **kwargs,
-    ) -> dict:
-        """Full HTTP response from subprocess. Returns dict with body + metadata.
-
-        Returns:
-            {status_code, content_type, body (base64)} — suitable for proxying
-            through Ray Serve (which requires serializable return values).
-        """
+    def _call_raw_full(self, method: str, path: str, timeout: int = 600, **kwargs) -> dict:
+        """Full HTTP response as dict with base64 body for Ray Serve proxying."""
         import base64
-        url = f"{self._base_url}{path}"
-        resp = httpx.request(method, url, timeout=timeout, **kwargs)
+        resp = httpx.request(method, self._url(path), timeout=timeout, **kwargs)
         return {
             "status": "ok",
             "raw_response": True,
@@ -168,30 +133,16 @@ class ForgeSubprocessMixin:
             "body": base64.b64encode(resp.content).decode(),
         }
 
-    async def _async_call(
-        self,
-        method: str,
-        path: str,
-        timeout: int = 600,
-        **kwargs,
-    ) -> dict:
+    async def _async_call(self, method: str, path: str, timeout: int = 600, **kwargs) -> dict:
         """Async HTTP call to the subprocess. Returns parsed JSON."""
-        url = f"{self._base_url}{path}"
         async with httpx.AsyncClient(timeout=timeout) as client:
-            resp = await client.request(method, url, **kwargs)
+            resp = await client.request(method, self._url(path), **kwargs)
             resp.raise_for_status()
             return resp.json()
 
-    async def _async_call_raw(
-        self,
-        method: str,
-        path: str,
-        timeout: int = 600,
-        **kwargs,
-    ) -> bytes:
+    async def _async_call_raw(self, method: str, path: str, timeout: int = 600, **kwargs) -> bytes:
         """Async HTTP call. Returns raw bytes."""
-        url = f"{self._base_url}{path}"
         async with httpx.AsyncClient(timeout=timeout) as client:
-            resp = await client.request(method, url, **kwargs)
+            resp = await client.request(method, self._url(path), **kwargs)
             resp.raise_for_status()
             return resp.content

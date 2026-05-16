@@ -309,6 +309,9 @@ class Forge:
         return await self._core.status()
 
     async def __call__(self, request: Request) -> Response:
+        if request.method == "GET":
+            return JSONResponse(await self.status())
+
         body = await request.json()
         service = body.get("service")
         if not service or service not in SERVICE_MAP:

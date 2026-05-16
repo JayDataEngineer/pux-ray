@@ -65,7 +65,7 @@ class LLMDeployment(BaseGPUDeployment, SubprocessMixin):
     vram_mb = 20_480
     _service_name = "llm"
     PORT = 18399
-    DEFAULT_MODEL = "qwen3.6-27b-q5_k_s"
+    DEFAULT_MODEL = "qwen3.6-27b-q5_k_s-32k"
 
     def __init__(self):
         super().__init__()
@@ -522,6 +522,17 @@ class LLMService(ForgeSubprocessMixin, ForgeService):
         self.model_name = None
 
     def infer(self, payload: dict) -> dict:
+        # Raw proxy mode — used by /llm ingress proxy
+        if payload.get("raw"):
+            method = payload.get("method", "GET")
+            path = payload.get("path", "/")
+            params = payload.get("params", {})
+            kwargs: dict = {"params": params}
+            body = payload.get("body")
+            if body is not None:
+                kwargs["json"] = body
+            return self._call_raw_full(method, path, timeout=600, **kwargs)
+
         # Configure action
         if payload.get("action") == "configure":
             return self._configure(payload)

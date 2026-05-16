@@ -10,15 +10,11 @@ import os
 import signal
 import subprocess
 import time
-from pathlib import Path
 from typing import Optional
 
 import ray
 
 logger = logging.getLogger(__name__)
-
-PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-MODELS_ROOT = os.environ.get("TECH_NOIR_MODELS_ROOT", "/home/user/Documents/models")
 
 
 # ─── GPU Memory ────────────────────────────────────────────────────────────────
@@ -202,73 +198,3 @@ class SubprocessMixin:
             time.sleep(2)
         return False
 
-
-# ─── SubprocessProxyMixin ─────────────────────────────────────────────────────
-
-class SubprocessProxyMixin(SubprocessMixin):
-    """Start an API server as a subprocess within the Ray worker pod.
-
-    Used by ComfyUI — runs its own server inside the pod, Ray Serve
-    proxies requests to it.
-    """
-
-    _proxy_base_url: str = ""
-    _proxy_default_endpoint: str = ""
-
-    def _start_proxy(
-        self,
-        cmd: list[str],
-        port: int,
-        health_path: str = "/health",
-        timeout: int = 300,
-        cwd: str | None = None,
-        env: dict | None = None,
-        default_endpoint: str = "",
-    ) -> None:
-        self._proxy_default_endpoint = default_endpoint
-        self.start_process(cmd, cwd=cwd, env=env)
-        self._proxy_base_url = f"http://127.0.0.1:{port}"
-        if not self.wait_for_health(f"{self._proxy_base_url}{health_path}", timeout=timeout):
-            self.stop_process()
-            raise TimeoutError(f"Subprocess not healthy after {timeout}s")
-
-    def _stop_proxy(self) -> None:
-        self.stop_process()
-        self._proxy_base_url = ""
-
-    async def _ensure_loaded(self, model_name: str) -> None:
-        if self.is_loaded():
-            return
-        import asyncio
-        await asyncio.to_thread(self.load_model, model_name)
-
-    async def _proxy_request(self, request) -> "Response":
-        import httpx
-        from starlette.responses import Response
-
-        path = request.url.path
-        for prefix in ["/comfyui", "/image/comfyui"]:
-            if path.startswith(prefix):
-                path = path[len(prefix):]
-                if path in ("", "/"):
-                    path = self._proxy_default_endpoint or "/"
-                break
-
-        target = f"{self._proxy_base_url}{path}"
-        if request.url.query:
-            target += f"?{request.url.query}"
-
-        body = await request.body()
-        async with httpx.AsyncClient(timeout=600) as client:
-            resp = await client.request(
-                method=request.method,
-                url=target,
-                headers={k: v for k, v in request.headers.items()
-                         if k.lower() not in ("host",)},
-                content=body,
-            )
-        return Response(
-            content=resp.content,
-            status_code=resp.status_code,
-            media_type=resp.headers.get("content-type", "application/json"),
-        )

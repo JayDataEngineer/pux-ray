@@ -221,6 +221,33 @@ class APIIngress:
             "description": entry.description,
         })
 
+    # ── LLM proxy ──────────────────────────────────────────────────────────────
+
+    async def llm_proxy(self, request: Request) -> Response:
+        """Route to LLM via Forge — auto-loads on first request."""
+        forge = _get_forge()
+        payload: dict[str, Any] = {
+            "method": request.method,
+            "path": request.url.path.replace("/llm", "") or "/",
+            "params": dict(request.query_params),
+            "raw": True,
+        }
+        if request.method in ("POST", "PUT", "PATCH"):
+            ct = request.headers.get("content-type", "")
+            if "application/json" in ct:
+                try:
+                    payload["body"] = await request.json()
+                except Exception:
+                    pass
+        result = await forge.invoke.remote("llm", payload)
+        if isinstance(result, dict) and result.get("raw_response"):
+            return Response(
+                content=base64.b64decode(result["body"]),
+                status_code=result.get("status_code", 200),
+                media_type=result.get("content_type", "text/html"),
+            )
+        return JSONResponse(result)
+
     # ── ComfyUI proxy ──────────────────────────────────────────────────────────
 
     async def comfyui_proxy(self, request: Request) -> Response:
@@ -307,6 +334,9 @@ def create_app() -> Starlette:
         Route("/v1/llm/configure", ingress.llm_configure, methods=["POST"]),
         Route("/v1/audio/speech", ingress.audio_speech, methods=["POST"]),
         Route("/v1/audio/transcriptions", ingress.audio_transcriptions, methods=["POST"]),
+        # LLM proxy (auto-loads via Forge on first request)
+        Route("/llm/{path:path}", ingress.llm_proxy, methods=["GET", "POST", "PUT", "DELETE"]),
+        Route("/llm", ingress.llm_proxy, methods=["GET", "POST"]),
         # ComfyUI (proxy all paths — ComfyUI has its own routing)
         Route("/comfyui/{path:path}", ingress.comfyui_proxy, methods=["GET", "POST", "PUT", "DELETE"]),
         Route("/comfyui", ingress.comfyui_proxy, methods=["GET", "POST", "PUT", "DELETE"]),

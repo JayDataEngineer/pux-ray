@@ -12,7 +12,7 @@ import struct
 # Add the wan2gp models path
 sys.path.insert(0, str(os.path.join(os.path.dirname(__file__), "..", "opt", "wan2gp")))
 
-MODELS_ROOT = os.environ.get("TECH_NOIR_MODELS_ROOT", "/home/user/Documents/models")
+MODELS_ROOT = os.environ.get("TECH_NOIR_MODELS_ROOT", "/mnt/data/models")
 MOSS_PATH = os.path.join(MODELS_ROOT, "audio", "moss-soundeffect", "bf16")
 TOKENIZER_PATH = os.path.join(MODELS_ROOT, "audio", "moss-audio-tokenizer")
 

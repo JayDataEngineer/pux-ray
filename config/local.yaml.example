@@ -8,8 +8,9 @@
 #   1. cp config/local.yaml.example config/local.yaml
 
 # Root directory for all model files.
-# Must be set via env var or in local.yaml. No hardcoded default.
-models_root: ${TECH_NOIR_MODELS_ROOT}
+# On the Forge server, models live on the dedicated data NVMe (/mnt/data/models).
+# K8s pods use TECH_NOIR_MODELS_ROOT=/models (PVC mount); host scripts use this path.
+models_root: ${TECH_NOIR_MODELS_ROOT:/mnt/data/models}
 
 # API keys — referenced via Config().get("secrets.xxx").
 # Set env vars or paste values directly in local.yaml (git-ignored).

@@ -124,12 +124,19 @@ MCP servers run as standard K8s Deployments in the `mcp` namespace — completel
 |---------|------|-------------|
 | media-analysis-mcp | CPU Vision | YOLOv8, Florence-2, SAM2, InsightFace, transcription, OCR |
 | web-research-mcp | CPU Search | Web scraping, search, crawling, structured extraction |
+| equibles-mcp | CPU Finance | SEC filings, stock prices, insider trades, congressional trades, economic indicators, VIX (scale-to-zero via KEDA) |
 
 **Web Research dependencies** (all in `mcp` namespace):
 - Redis 7 (Celery broker/cache)
 - SearXNG (metasearch engine)
 - Celery worker + beat (background scraping tasks)
 - PostgreSQL provided by shared infra (`DATABASE_URL` env var)
+
+**Equibles dependencies** (all in `mcp` namespace):
+- ParadeDB (dedicated Postgres with `pg_search` + `pgvector` — BM25 indexes require ParadeDB-specific extension)
+- Equibles Worker (scrapers: SEC EDGAR, Yahoo Finance, FINRA, FRED, CFTC, Congress)
+- KEDA v2 (scale-to-zero operator, ~100MB RAM)
+- Source: `vendor/equibles/` (upstream clone, never edited — pull updates with `git pull`)
 
 **Build & deploy:**
 ```bash
@@ -171,7 +178,7 @@ kubectl apply -f infra/k8s/mcp/            # Re-apply manifests only
 - Ray Service YAML is the source of truth (not Python scripts)
 - Autoscaling: idle GPU pods killed after 5min to free VRAM
 - Custom Ray resources pin deployments to specific worker groups
-- SubprocessProxyMixin services use port 9000 (Ray Serve proxy uses 8000)
+- ForgeSubprocessMixin services use port 9000 (Ray Serve proxy uses 8000)
 - Async `_ensure_loaded()` runs model loading in a thread to avoid blocking the event loop
 - Images do NOT set ENTRYPOINT — Ray Serve starts the process
 
@@ -239,9 +246,9 @@ From a dev PC, you can:
 - **Call APIs** directly: `curl http://100.86.69.57:18080/llm/v1/chat/completions`
 - **Use Ray Client**: `ray.init(address="ray://100.86.69.57:10001")`
 - **Monitor** via Ray Dashboard at port 18265
-- **Transfer models**: `rsync -avP ./model.gguf user@100.86.69.57:/home/user/Documents/models/LLM/`
+- **Transfer models**: `rsync -avP ./model.gguf user@100.86.69.57:/mnt/data/models/LLM/`
 
-The project lives at `/home/user/Documents/programs/ray/` on the server. Models are at `/home/user/Documents/models/`.
+The project lives at `/home/user/Documents/programs/ray/` on the server. Models are at `/mnt/data/models/` (dedicated NVMe).
 
 ## Quick Commands
 
@@ -284,7 +291,7 @@ python scripts/test_services_v2.py  # Integration tests against live cluster
 ```
 gateway/        → API ingress (Starlette port 18080), ComfyUI manager
 services/       → AI service implementations (Ray Serve deployments)
-  base.py       → BaseGPUDeployment, SubprocessProxyMixin
+  base.py       → BaseGPUDeployment, SubprocessMixin
   tts/          → Kokoro, eSpeak, IndexTTS, FasterQwen3TTS, VibeVoiceCpp
   asr/          → Faster-Whisper
   image/        → ComfyUI (subprocess proxy)
@@ -344,6 +351,19 @@ api_key = Config().get("secrets.api_key", "")
 
 Env vars override config: `TECH_NOIR_MODELS_ROOT`, `HF_TOKEN`, `TECH_NOIR_API_KEY`, etc.
 
+**ComfyUI workflows** (`config/workflows/comfyui/`): Source-tracked workflow JSON files with a `manifest.yaml` catalog.
+
+```
+config/workflows/comfyui/
+├── manifest.yaml      # All workflows cataloged with descriptions, upstream names, categories
+├── wdc/               # WhatDreamsCost — LTX Director video workflows (5)
+├── vnccs/             # VNCCS character pipeline — QWEN + SDXL variants (9)
+│   └── sdxl/          # SDXL-only variants (no QWEN guidance)
+└── vnccs_utils/       # VNCCS utilities — pose studio, detailer, camera (4)
+```
+
+Custom nodes declared in `config/comfyui_extensions.yaml`. To update workflows from upstream: clone repo, copy JSON files, update manifest.
+
 ## API Routes
 
 All proxied through the ingress at port 18080:
@@ -377,6 +397,7 @@ Heavy GPU services share a single RTX 4090 with VRAM-aware scheduling. Send `{"s
 |---|---|
 | `/mcp/media/*` | Media Analysis MCP (CPU, YOLOv8/Florence-2/SAM2) |
 | `/mcp/web/*` | Web Research MCP (CPU, search/scrape/extract) |
+| `/mcp/equibles/*` | Equibles Financial MCP (CPU, SEC/stock/insider/economic data, scale-to-zero) |
 
 ### Cloud Burst (SkyPilot/SkyServe)
 | Route | Service |

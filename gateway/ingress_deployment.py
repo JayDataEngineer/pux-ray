@@ -78,6 +78,10 @@ class APIIngressDeployment:
         if path == "/v1/audio/transcriptions" and method == "POST":
             return await self._ingress.audio_transcriptions(request)
 
+        # LLM proxy (auto-loads via Forge on first request)
+        if path == "/llm" or path.startswith("/llm/"):
+            return await self._ingress.llm_proxy(request)
+
         # ComfyUI proxy
         if path == "/comfyui" or path.startswith("/comfyui/"):
             return await self._ingress.comfyui_proxy(request)
@@ -90,7 +94,7 @@ class APIIngressDeployment:
 
         # Dashboard
         if path == "/dashboard":
-            return dashboard_page(request)
+            return await dashboard_page(request)
         if path == "/dashboard/api/gpu":
             return await dashboard_gpu_current(request)
         if path == "/dashboard/api/gpu/history":
@@ -100,7 +104,7 @@ class APIIngressDeployment:
 
         # Studio
         if path == "/studio":
-            return studio_page(request)
+            return await studio_page(request)
         if path == "/studio/api/apps":
             return await studio_apps(request)
         if path == "/studio/api/switch" and method == "POST":
