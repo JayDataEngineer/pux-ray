@@ -11,6 +11,7 @@ on:
       - 'sdk/**'
       - 'vendor/**'
       - 'mcp/**'
+      - 'infra/flux/mcp/**'
       - 'pyproject.toml'
 
 concurrency:
@@ -70,15 +71,28 @@ jobs:
         include:
           - dockerfile: mcp/media-analysis/Dockerfile
             tag: mcp-media-analysis
+            context: mcp/media-analysis
           - dockerfile: mcp/web-research/Dockerfile
             tag: mcp-web-research
+            context: mcp/web-research
+          - dockerfile: vendor/equibles/src/Equibles.Mcp.Server/Dockerfile
+            tag: mcp-equibles
+            context: vendor/equibles
+          - dockerfile: vendor/equibles/src/Equibles.Worker.Host/Dockerfile
+            tag: mcp-equibles-worker
+            context: vendor/equibles
+          - dockerfile: vendor/equibles/src/Equibles.Web/Dockerfile
+            tag: mcp-equibles-web
+            context: vendor/equibles
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: true
       - name: Build ${{ matrix.tag }}
         run: |
           docker build -f ${{ matrix.dockerfile }} \
             -t ${REGISTRY}/${{ matrix.tag }}:latest \
-            $(dirname ${{ matrix.dockerfile }})
+            ${{ matrix.context }}
       - name: Push ${{ matrix.tag }}
         run: docker push ${REGISTRY}/${{ matrix.tag }}:latest
 
@@ -88,6 +102,7 @@ jobs:
     if: always() && (needs.build-gpu-all.result == 'success' || needs.build-model-sync.result == 'success' || needs.build-mcp.result == 'success')
     steps:
       - name: Save current image as rollback target
+        if: needs.build-gpu-all.result == 'success'
         run: |
           CURRENT=$(kubectl get pod -n ai-services -l app.kubernetes.io/name=tech-noir-ray-head \
             -o jsonpath='{.items[0].spec.containers[0].image}' 2>/dev/null || echo "")
@@ -99,10 +114,12 @@ jobs:
           fi
 
       - name: Restart Ray head pod
+        if: needs.build-gpu-all.result == 'success'
         run: |
           kubectl delete pod -n ai-services -l app.kubernetes.io/name=tech-noir-ray-head
 
       - name: Wait for head pod readiness
+        if: needs.build-gpu-all.result == 'success'
         run: |
           echo "Waiting 90s for head pod to start..."
           sleep 90
@@ -118,6 +135,12 @@ jobs:
           done
           echo "ERROR: Head pod did not become ready in time"
           exit 1
+
+      - name: Restart MCP deployments
+        if: needs.build-mcp.result == 'success'
+        run: |
+          kubectl rollout restart deployment -n mcp -l app.kubernetes.io/part-of=mcp
+          echo "MCP deployments restarted"
 
       - name: Health check
         run: |
