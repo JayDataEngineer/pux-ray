@@ -51,16 +51,6 @@ class family_handler:
     def load_model(model_filename, model_type, base_model_type, model_def,
                    quantizeTransformer=False, text_encoder_quantization=None,
                    dtype=None, VAE_dtype=None, profile=0, **kwargs):
-        import sys
-
-        # Add this handler's directory to sys.path so trellis2 package resolves locally
-        handler_dir = Path(__file__).parent
-        trellis2_pkg = str(handler_dir / "trellis2")
-        if handler_dir not in sys.path:
-            sys.path.insert(0, str(handler_dir))
-        if trellis2_pkg not in sys.path:
-            sys.path.insert(0, trellis2_pkg)
-
         # Try spec registry first
         model_root = Path(TRELLIS_MODEL_ROOT)
         try:
@@ -86,7 +76,7 @@ class family_handler:
         if pipeline_json is None:
             raise FileNotFoundError(f"pipeline.json not found under {model_root}")
 
-        from trellis2.pipelines.trellis2_image_to_3d import Trellis2ImageTo3DPipeline
+        from .trellis2.pipelines.trellis2_image_to_3d import Trellis2ImageTo3DPipeline
         os.environ["TRELLIS_PIPELINE_ROOT"] = str(pipeline_json)
         pipeline = Trellis2ImageTo3DPipeline.from_pretrained(str(pipeline_json))
         dev = torch.device("cuda")
@@ -164,7 +154,7 @@ class _Pipeline:
                  texture_size=4096, **kwargs):
         from PIL import Image
         import numpy as np
-        from trellis2.modules.sparse.basic import SparseTensor
+        from .trellis2.modules.sparse.basic import SparseTensor
 
         img_data = image
         if isinstance(img_data, str):
@@ -285,7 +275,7 @@ class _Pipeline:
         return {'cond': cond, 'neg_cond': neg_cond}
 
     def _sample_sparse_structure(self, cond, resolution, steps, guidance):
-        from trellis2.modules.sparse.basic import SparseTensor
+        from .trellis2.modules.sparse.basic import SparseTensor
 
         ss_flow = self.m['ss_flow_model']
         reso = ss_flow.resolution
@@ -310,7 +300,7 @@ class _Pipeline:
         return coords
 
     def _sample_shape_slat(self, cond, flow_key, coords, steps, guidance):
-        from trellis2.modules.sparse.basic import SparseTensor
+        from .trellis2.modules.sparse.basic import SparseTensor
 
         flow_model = self.m[flow_key]
         noise = SparseTensor(
@@ -331,7 +321,7 @@ class _Pipeline:
     def _sample_shape_slat_cascade(self, lr_cond, cond, lr_flow_key, hr_flow_key,
                                     lr_res, target_res, coords, steps, guidance,
                                     max_tokens=49152):
-        from trellis2.modules.sparse.basic import SparseTensor
+        from .trellis2.modules.sparse.basic import SparseTensor
 
         lr_flow = self.m[lr_flow_key]
         noise = SparseTensor(
@@ -407,7 +397,7 @@ class _Pipeline:
         return slat * std + mean
 
     def _decode_latent(self, shape_slat, tex_slat, resolution):
-        from trellis2.representations.mesh import MeshWithVoxel
+        from .trellis2.representations.mesh import MeshWithVoxel
 
         tex_slat = tex_slat.to('cpu')
         torch.cuda.empty_cache()

@@ -203,6 +203,9 @@ CUSTOM_HANDLERS = [
     "models.faster_whisper.faster_whisper_handler",
     "models.vibevoice_asr.vibevoice_asr_handler",
     "models.vibevoice_tts.vibevoice_tts_handler",
+    "models.anigen.anigen_handler",
+    "models.see_through.see_through_handler",
+    "models.hy_motion.hy_motion_handler",
 ]
 
 def _get_family_handlers() -> list[str]:

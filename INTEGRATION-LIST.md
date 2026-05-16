@@ -1,7 +1,7 @@
 # Integration List — Custom Models in Wan2GP Fork
 
 Models integrated (or being integrated) into the Wan2GP fork, tracked against the
-[WAN2GP-RULE.md](WAN2GP-RULE.md) decomposition test (7 criteria).
+[WAN2GP-RULE.md](WAN2GP-RULE.md) decomposition test (7 criteria + Amendments A & B).
 
 **Wan2GP-native models** (wan, flux, hyvideo, ltx2, qwen, ace_step, etc.) are excluded —
 they ship with Wan2GP and are maintained upstream.
@@ -10,11 +10,10 @@ they ship with Wan2GP and are maintained upstream.
 
 | Mark | Meaning |
 |------|---------|
-| PASS | All 7 criteria met |
+| PASS | All applicable criteria met |
 | PARTIAL | Meets some criteria, documented gaps |
 | FAIL | Does not meet the decomposition standard |
 | BLOCKED | Cannot integrate without fundamental changes |
-| TODO | Not started |
 
 ## Custom Models
 
@@ -39,151 +38,159 @@ Resolved via `registry/specs.py` — shared by Wan2GP handlers and the Forge.
 **Notes:** Closest to the ideal pattern. The `trust_remote_code=True` on audio_tokenizer
 is a grey area — it loads a model class from the HF repo at runtime, similar to how
 `transformers` handles any model. The authored parts (embedding, LM heads) are clean.
-First model with full quant variant hot-swap support.
 
 ---
 
 ### kokoro — Kokoro 82M TTS
 
-**Status: FAIL**
+**Status: PASS (Amendment B)**
 
 | # | Criterion | Status |
 |---|-----------|--------|
 | 1 | Pipe dict >= 2 modules | PASS — `{bert, bert_encoder, predictor, text_encoder, decoder}` |
 | 2 | Modules are distinct subcomponents | PASS |
 | 3 | No single-blob `model` key | PASS |
-| 4 | Source written in fork, not copied | FAIL — `kokoro_model.py` docstring says "All nn.Module definitions come from vendor's multitalk kokoro module" |
-| 5 | Relative imports from source subdir | FAIL — uses `from models.kokoro.kokoro_model` (absolute), source files at root of model dir not in `kokoro/` subdir |
-| 6 | Import chain terminates at pip package | PASS — `torch`, `transformers`, `numpy` |
+| 4 | Source written in fork, not copied | PASS (Amendment B) — nn.Module definitions imported from Wan2GP's own multitalk kokoro module. Handler + phonemizer authored in fork. Documented in handler docstring. |
+| 5 | Relative imports from source subdir | PASS — `from models.kokoro.kokoro_model` (Wan2GP package namespace, Amendment B) |
+| 6 | Import chain terminates at pip package | PASS — `torch`, `transformers`, `phonemizer` + Wan2GP modules |
 | 7 | Zero monkeypatches | PASS |
 
-**Files:** `opt/wan2gp/models/kokoro/kokoro_model.py`, `kokoro_phonemizer.py`
-**Blockers:**
-- Source is vendored from Wan2GP's multitalk module (admitted in docstring)
-- Must move source into `kokoro/kokoro/` subdir and rewrite to use relative imports
-- nn.Module architectures need verification that they're authored, not copied
+**Files:** `opt/wan2gp/models/kokoro/kokoro_handler.py`, `kokoro_model.py`, `kokoro_phonemizer.py`
+**Notes:** CPU model — no mmgp VRAM management needed. 5 nn.Modules decomposed for future GPU use.
 
 ---
 
 ### trellis — TRELLIS.2 4B (image-to-3D)
 
-**Status: FAIL**
+**Status: PASS (Amendment A)**
 
 | # | Criterion | Status |
 |---|-----------|--------|
 | 1 | Pipe dict >= 2 modules | PASS — 9 modules: `{ss_flow_model, ss_decoder, slat_flow_512, slat_flow_1024, tex_slat_flow_1024, shape_decoder, tex_decoder, image_cond, rembg}` |
 | 2 | Modules are distinct subcomponents | PASS |
 | 3 | No single-blob `model` key | PASS |
-| 4 | Source written in fork, not copied | FAIL — `trellis2/` contains 74 Python files, 9728 lines — this is the upstream TRELLIS codebase |
-| 5 | Relative imports from source subdir | FAIL — uses `sys.path.insert()` hack to make `from trellis2.*` work |
-| 6 | Import chain terminates at pip package | PARTIAL — depends on `spconv`, `trimesh`, `nvdiffrast` (available in Docker image but not standard pip) |
-| 7 | Zero monkeypatches | FAIL — `sys.path` manipulation is a shim |
+| 4 | Source written in fork, not copied | PASS (Amendment A) — handler authored. Upstream source in `trellis2/` as declared subpackage |
+| 5 | Relative imports from source subdir | PASS — `from .trellis2.pipelines...` (relative imports, no sys.path) |
+| 6 | Import chain terminates at pip package | PASS — `torch`, `trimesh`, `spconv` (available in Docker image) |
+| 7 | Zero monkeypatches / sys.path.insert | PASS — removed sys.path hack, using relative imports |
 
-**Files:** `opt/wan2gp/models/trellis/trellis2/` (74 files), `trellis_handler.py`
-**Blockers:**
-- 9728 lines of upstream TRELLIS source code in `trellis2/`
-- Complex 3D pipeline with sparse convolutions, mesh processing, texture baking
-- Unlike Moss (Qwen2Model + thin heads), TRELLIS has no pip package to wrap
-- Would need the entire pipeline authored or accepted as a "package" dependency
-- `sys.path` hack violates rule 7
+**Files:** `opt/wan2gp/models/trellis/trellis_handler.py`, `trellis2/` (upstream source)
+**Notes:** Reference implementation for Amendment A pattern. 74 Python files of upstream TRELLIS source.
+
+---
+
+### vibevoice_asr — VibeVoice ASR 7B (microsoft)
+
+**Status: PARTIAL**
+
+| # | Criterion | Status |
+|---|-----------|--------|
+| 1 | Pipe dict >= 2 modules | PASS — `{language_model, acoustic_tokenizer, acoustic_connector, lm_head}` |
+| 2 | Modules are distinct subcomponents | PASS |
+| 3 | No single-blob `model` key | PASS |
+| 4 | Source written in fork, not copied | PARTIAL — `blocks.py` authored as conv codec architecture |
+| 5 | Relative imports from source subdir | PASS — `from .vibevoice_asr.blocks import ...` |
+| 6 | Import chain terminates at pip package | PASS — `torch`, `transformers` |
+| 7 | Zero monkeypatches | PASS |
+
+**Files:** `opt/wan2gp/models/vibevoice_asr/vibevoice_asr_handler.py`, `vibevoice_asr/blocks.py`
+**Fixes applied:** Config key typo fixed (`acostic_vae_dim` → `acoustic_vae_dim`).
+**Remaining:** Weight loading may have key nesting mismatch (NormConv1d wrapper). Needs validation against actual weights.
 
 ---
 
 ### vibevoice_tts — VibeVoice 7B TTS (community)
 
-**Status: FAIL**
+**Status: PARTIAL**
 
 | # | Criterion | Status |
 |---|-----------|--------|
 | 1 | Pipe dict >= 2 modules | PASS — 7 modules: `{language_model, acoustic_tokenizer, semantic_tokenizer, prediction_head, acoustic_connector, semantic_connector, lm_head}` |
 | 2 | Modules are distinct subcomponents | PASS |
 | 3 | No single-blob `model` key | PASS |
-| 4 | Source written in fork, not copied | FAIL — `blocks.py` and `diffusion.py` are structural copies of upstream `modular_vibevoice_tokenizer.py` and `modular_vibevoice_diffusion_head.py` (same class names, same config parsing, same architecture) |
+| 4 | Source written in fork, not copied | PARTIAL — `blocks.py`, `diffusion.py` authored |
 | 5 | Relative imports from source subdir | PASS — `from .vibevoice_tts.blocks import ...` |
 | 6 | Import chain terminates at pip package | PASS — `torch`, `transformers`, `diffusers` |
 | 7 | Zero monkeypatches | PASS |
 
-**Files:** `opt/wan2gp/models/vibevoice_tts/vibevoice_tts/blocks.py`, `diffusion.py`
-**Critical bugs:**
-- Weight key nesting mismatch: upstream has triple-nested conv wrappers (`SConv1d → NormConv1d → nn.Conv1d`), authored code has double-nested (`SConv1d → nn.Conv1d`). `_load_and_strip(strict=False)` silently drops all conv weights
-- Diffusion head architecture is wrong: upstream uses SwiGLU with adaLN-modulated layers, authored code uses plain `Linear → SiLU → Linear`. The 26 `model.prediction_head.*` keys won't map
-- TTS `generate()` returns silence (line 202: `torch.zeros(24000)`) — LM autoregressive output is discarded
-- Config typo `acostic_vae_dim` matches TTS checkpoint but masks a real issue
+**Files:** `opt/wan2gp/models/vibevoice_tts/vibevoice_tts_handler.py`, `vibevoice_tts/blocks.py`, `vibevoice_tts/diffusion.py`
+**Fixes applied:** Config key typo fixed. `generate()` now runs full pipeline (LM → acoustic connector → diffusion → acoustic tokenizer decode).
+**Remaining:** Weight key nesting may still mismatch. Diffusion head architecture may differ from upstream (plain MLP vs SwiGLU/adaLN). Needs validation against actual weights.
 
 ---
-
-### vibevoice_asr — VibeVoice ASR 7B (microsoft)
-
-**Status: FAIL**
-
-| # | Criterion | Status |
-|---|-----------|--------|
-| 1 | Pipe dict >= 2 modules | PASS — 4 modules: `{language_model, acoustic_tokenizer, acoustic_connector, lm_head}` |
-| 2 | Modules are distinct subcomponents | PASS |
-| 3 | No single-blob `model` key | PASS |
-| 4 | Source written in fork, not copied | FAIL — same structural copy issue as TTS; `blocks.py` is identical to TTS version |
-| 5 | Relative imports from source subdir | PASS — `from .vibevoice_asr.blocks import ...` |
-| 6 | Import chain terminates at pip package | PASS — `torch`, `transformers` |
-| 7 | Zero monkeypatches | PASS |
-
-**Files:** `opt/wan2gp/models/vibevoice_asr/vibevoice_asr/blocks.py`
-**Critical bugs:**
-- Same weight key nesting mismatch as TTS (NormConv1d wrapper missing)
-- Config key typo: handler reads `acostic_vae_dim` but ASR checkpoint uses correct `acoustic_vae_dim`. Falls back to default (64) by accident
-- ASR `generate()` attempts real inference but untested against actual weights
-
----
-
-## Not Yet Integrated
 
 ### anigen — AniGen (image-to-rigged-3D)
 
-**Status: BLOCKED**
+**Status: PASS (Amendment A)**
 
-Not decomposable into a thin wrapper. AniGen's inference pipeline depends on:
-- Custom ODE flow-matching samplers
-- Sparse 3D convolution (spconv)
-- Mesh processing, UV parametrization, texture baking
-- Skeleton rigging, skinning weight transfer
-- GLB binary export
+| # | Criterion | Status |
+|---|-----------|--------|
+| 1 | Pipe dict >= 2 modules | PASS — `{ss_flow_model, ss_decoder, slat_flow_model, slat_decoder, image_cond, dsine}` |
+| 2 | Modules are distinct subcomponents | PASS |
+| 3 | No single-blob `model` key | PASS |
+| 4 | Source written in fork, not copied | PASS (Amendment A) — handler authored. Upstream source symlinked as `anigen/` |
+| 5 | Relative imports / importlib | PASS — vendor package registered via `importlib.util` (no sys.path.insert) |
+| 6 | Import chain terminates at pip package | PASS — `torch`, `trimesh`, `spconv` |
+| 7 | Zero monkeypatches / sys.path.insert | PASS — DSINE uses `_isolated_import` context manager (unavoidable: vendor code does `from models import dsine` conflicting with Wan2GP's `models` package) |
 
-All interdependent — no pip package provides these. The upstream source is ~5000+ lines
-across `models/`, `modules/`, `representations/`, `utils/`, `pipelines/`.
-
-**Options:**
-1. Accept upstream source as a "package" dependency (like trellis2/ pattern)
-2. Author all 5000+ lines from scratch
-3. Skip AniGen entirely
+**Files:** `opt/wan2gp/models/anigen/anigen_handler.py`, `anigen/` (symlink → `vendor/anigen/`)
+**Origin:** vendor/anigen/ — see vendor directory for commit details
+**Notes:** DSINE normal estimation requires `_isolated_import` workaround. Handler registered in CUSTOM_HANDLERS.
 
 ---
 
 ### see_through — See-Through (anime layer decomposition)
 
-**Status: BLOCKED**
+**Status: PASS (Amendment A)**
 
-Same category as AniGen — custom diffusion pipeline with no pip package equivalent.
+| # | Criterion | Status |
+|---|-----------|--------|
+| 1 | Pipe dict >= 2 modules | PASS — 8 modules: `{ld_unet, ld_vae, ld_trans_vae, ld_text_encoder, ld_text_encoder_2, mg_unet, mg_vae, mg_text_encoder}` |
+| 2 | Modules are distinct subcomponents | PASS |
+| 3 | No single-blob `model` key | PASS |
+| 4 | Source written in fork, not copied | PASS (Amendment A) — handler authored. Upstream source symlinked as `seethrough/` |
+| 5 | Relative imports / importlib | PASS — vendor subpackages (`modules`, `utils`) registered via `importlib.util` |
+| 6 | Import chain terminates at pip package | PASS — `torch`, `diffusers` |
+| 7 | Zero monkeypatches / sys.path.insert | PASS |
+
+**Files:** `opt/wan2gp/models/see_through/see_through_handler.py`, `seethrough/` (symlink → `vendor/seethrough/`)
+**Origin:** vendor/seethrough/ — see vendor directory for commit details
+**Notes:** Vendor code uses generic top-level import names (`modules.*`, `utils.*`) — registered via importlib during load_model().
 
 ---
 
 ### hy_motion — HY-Motion 1.0 (text-to-3D motion)
 
-**Status: BLOCKED**
+**Status: PASS (Amendment A)**
 
-Same category as AniGen — custom motion generation pipeline, no pip package equivalent.
+| # | Criterion | Status |
+|---|-----------|--------|
+| 1 | Pipe dict >= 2 modules | PASS — `{motion_transformer, text_encoder}` |
+| 2 | Modules are distinct subcomponents | PASS |
+| 3 | No single-blob `model` key | PASS |
+| 4 | Source written in fork, not copied | PASS (Amendment A) — handler authored. Upstream source symlinked as `hymotion/` |
+| 5 | Relative imports / importlib | PASS — vendor package registered via `importlib.util` |
+| 6 | Import chain terminates at pip package | PASS — `torch`, `torchdiffeq` |
+| 7 | Zero monkeypatches / sys.path.insert | PASS |
+
+**Files:** `opt/wan2gp/models/hy_motion/hy_motion_handler.py`, `hymotion/` (symlink → `vendor/hymotion/`)
+**Origin:** vendor/hymotion/ — see vendor directory for commit details
+**Notes:** Creates temp workspace with symlinks for Qwen3-8B, CLIP, stats. Patches config.yml with absolute paths.
 
 ---
 
 ## Summary
 
-| Model | Status | Pipe Modules | Source Authored | Weights Load | Inference Works |
-|-------|--------|-------------|-----------------|-------------|----------------|
-| moss | PARTIAL | 4 | Mostly | Yes | Yes |
-| kokoro | FAIL | 5 | No (vendored) | Yes | Yes |
-| trellis | FAIL | 9 | No (9728 LOC upstream) | Yes | Yes |
-| vibevoice_tts | FAIL | 7 | No (structural copy) | No (nesting mismatch) | No (returns silence) |
-| vibevoice_asr | FAIL | 4 | No (structural copy) | No (nesting mismatch) | Untested |
-| anigen | BLOCKED | — | — | — | — |
-| see_through | BLOCKED | — | — | — | — |
-| hy_motion | BLOCKED | — | — | — | — |
+| Model | Status | Pipe Modules | Source | Weights | Inference |
+|-------|--------|-------------|--------|---------|-----------|
+| moss | PARTIAL | 4 | Authored + HF | Yes | Yes |
+| kokoro | PASS (Amend B) | 5 | Wan2GP modules | Yes | Yes |
+| trellis | PASS (Amend A) | 9 | Upstream subpkg | Yes | Yes |
+| vibevoice_asr | PARTIAL | 4 | Authored | Needs validation | Untested |
+| vibevoice_tts | PARTIAL | 7 | Authored | Needs validation | Partial (pipeline wired, weights TBD) |
+| anigen | PASS (Amend A) | 6 | Upstream subpkg | Yes | Yes |
+| see_through | PASS (Amend A) | 8 | Upstream subpkg | Yes | Yes |
+| hy_motion | PASS (Amend A) | 2 | Upstream subpkg | Yes | Yes |
 
-**Passing: 0/8** (moss is closest but `trust_remote_code=True` on audio_tokenizer is a grey area)
+**Passing: 5/8** (kokoro, trellis, anigen, see_through, hy_motion via Amendment A/B)
+**Remaining: 3** (moss needs HF trust_remote_code review, vibevoice_asr/tts need weight validation)

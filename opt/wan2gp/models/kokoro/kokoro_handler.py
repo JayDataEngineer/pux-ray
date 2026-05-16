@@ -4,6 +4,10 @@ GPU service via mmgp full-RAM mode. Decomposed into 5 components:
   bert, bert_encoder, predictor, text_encoder, decoder
 
 Phonemization via espeak-ng (phonemizer library), not misaki/spacy.
+
+Wan2GP dependency (Amendment B): nn.Module definitions (ProsodyPredictor, TextEncoder,
+Decoder, CustomAlbert) imported from Wan2GP's multitalk kokoro module via kokoro_model.py.
+The handler and phonemizer are authored; only the raw Module classes come from Wan2GP.
 """
 from __future__ import annotations
 
