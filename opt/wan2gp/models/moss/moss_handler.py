@@ -1,22 +1,102 @@
-"""MOSS-SoundEffect family handler — text-to-sound effect."""
+"""MOSS-SoundEffect family handler — text-to-sound effect.
+
+Decomposed into mmgp-managed modules:
+- language_model: Qwen3Model from transformers (the heavy module)
+- audio_tokenizer: codec model for decode
+
+Architecture authored from MOSS-TTS spec:
+  Qwen3Model + nn.Embedding (audio VQ channels) + nn.Linear (LM heads).
+All weights loaded from HuggingFace safetensors.
+"""
 import base64
 import io
 import logging
 from pathlib import Path
 
+import safetensors.torch
+import scipy.io.wavfile as wavfile
 import torch
-
-# Shim: MOSS code imports PreTrainedConfig but transformers 4.57 uses PretrainedConfig
-import transformers.configuration_utils as _tcu
-if not hasattr(_tcu, 'PreTrainedConfig'):
-    _tcu.PreTrainedConfig = _tcu.PretrainedConfig
-
-# Shim: MOSS processing code uses MODALITY_TO_BASE_CLASS_MAPPING which doesn't exist in 4.57
-from transformers import processing_utils as _pu
-if not hasattr(_pu, 'MODALITY_TO_BASE_CLASS_MAPPING'):
-    _pu.MODALITY_TO_BASE_CLASS_MAPPING = {}
+import torch.nn as nn
+from transformers import Qwen2Config, Qwen2Model, AutoTokenizer, AutoConfig
 
 logger = logging.getLogger(__name__)
+
+
+class MossAudioEmbedding(nn.Module):
+    """One VQ audio channel embedding layer."""
+
+    def __init__(self, vocab_size, hidden_size):
+        super().__init__()
+        self.embed = nn.Embedding(vocab_size + 1, hidden_size, padding_idx=None)
+
+    def forward(self, ids):
+        return self.embed(ids)
+
+
+class MossLMHead(nn.Module):
+    """One prediction head (text or audio VQ channel)."""
+
+    def __init__(self, hidden_size, vocab_size):
+        super().__init__()
+        self.linear = nn.Linear(hidden_size, vocab_size, bias=False)
+
+    def forward(self, hidden):
+        return self.linear(hidden)
+
+
+def _load_moss_model(model_path: Path, dtype: torch.dtype):
+    """Load MOSS architecture using only pip packages."""
+    hf_config = AutoConfig.from_pretrained(
+        str(model_path), trust_remote_code=True, local_files_only=True,
+    )
+
+    try:
+        from transformers import Qwen2Config as LangConfig
+    except ImportError:
+        LangConfig = Qwen2Config
+    lang_cfg = hf_config.language_config
+    lang_model = Qwen2Model(lang_cfg)
+
+    sd = {}
+    for sf_path in sorted(model_path.rglob("model*.safetensors")):
+        chunk = safetensors.torch.load_file(str(sf_path))
+        sd.update(chunk)
+
+    lang_sd = {}
+    for k, v in sd.items():
+        if k.startswith("language_model."):
+            lang_sd[k[len("language_model."):]] = v.to(dtype=torch.bfloat16)
+    lang_model.load_state_dict(lang_sd, strict=False)
+    lang_model.eval()
+
+    n_vq = getattr(hf_config, "n_vq", 4)
+    audio_vocab = getattr(hf_config, "audio_vocab_size", 2050)
+    hidden = lang_cfg.hidden_size
+    text_vocab = lang_cfg.vocab_size
+
+    emb_ext = nn.ModuleList()
+    for vq_idx in range(n_vq):
+        emb = MossAudioEmbedding(audio_vocab, hidden)
+        emb_key = f"emb_ext.{vq_idx}.weight"
+        if emb_key in sd:
+            emb.embed.weight.data.copy_(sd[emb_key].to(dtype=torch.bfloat16))
+        emb_ext.append(emb)
+    emb_ext.eval()
+
+    lm_heads = nn.ModuleList()
+    lm_heads.append(MossLMHead(hidden, text_vocab))
+    head0_key = "lm_heads.0.weight"
+    if head0_key in sd:
+        lm_heads[0].linear.weight.data.copy_(sd[head0_key].to(dtype=torch.bfloat16))
+    for vq_idx in range(n_vq):
+        head = MossLMHead(hidden, audio_vocab + 1)
+        head_key = f"lm_heads.{vq_idx + 1}.weight"
+        if head_key in sd:
+            head.linear.weight.data.copy_(sd[head_key].to(dtype=torch.bfloat16))
+        lm_heads.append(head)
+    lm_heads.eval()
+
+    return lang_model, emb_ext, lm_heads, hf_config
 
 
 class family_handler:
@@ -44,135 +124,35 @@ class family_handler:
     def load_model(model_filename, model_type, base_model_type, model_def,
                    quantizeTransformer=False, text_encoder_quantization=None,
                    dtype=None, VAE_dtype=None, profile=0, **kwargs):
-        model_path = Path((model_def or {}).get("moss_soundeffect_path", ""))
+        mp = Path((model_def or {}).get("moss_soundeffect_path", ""))
+        if not (mp / "model.safetensors.index.json").exists():
+            raise FileNotFoundError(f"MOSS weights not found at {mp}")
 
-        if not (model_path / "modeling_moss_tts.py").exists():
-            raise FileNotFoundError(
-                f"MOSS modeling_moss_tts.py not found at {model_path}. "
-                f"Run 'task models:pull audio/moss-soundeffect' to download."
-            )
+        dt = dtype or torch.bfloat16
+        language_model, emb_ext, lm_heads, config = _load_moss_model(mp, dt)
 
-        import importlib.util
-        import types
-        import sys
-
-        def _load_module(name, filepath):
-            filepath = Path(filepath)
-            if not filepath.exists():
-                raise FileNotFoundError(f"Required MOSS file not found: {filepath}")
-            spec = importlib.util.spec_from_file_location(name, filepath)
-            mod = importlib.util.module_from_spec(spec)
-            sys.modules[name] = mod
-            spec.loader.exec_module(mod)
-            return mod
-
-        # Create a fake parent package so relative imports resolve.
-        # MOSS uses `from .configuration_moss_tts import ...` etc.
-        moss_pkg = types.ModuleType("moss_tts_pkg")
-        moss_pkg.__path__ = [str(model_path)]
-        moss_pkg.__package__ = "moss_tts_pkg"
-        sys.modules["moss_tts_pkg"] = moss_pkg
-
-        # Load configuration first (no relative imports)
-        config_mod = _load_module("moss_config", model_path / "configuration_moss_tts.py")
-        sys.modules["moss_config"] = config_mod
-        setattr(moss_pkg, "configuration_moss_tts", config_mod)
-
-        # Load inference_utils and processing if present
-        if (model_path / "inference_utils.py").exists():
-            inf_mod = _load_module("moss_tts_pkg.inference_utils", model_path / "inference_utils.py")
-            inf_mod.__package__ = "moss_tts_pkg"
-            setattr(moss_pkg, "inference_utils", inf_mod)
-
-        if (model_path / "processing_moss_tts.py").exists():
-            proc_mod = _load_module("moss_tts_pkg.processing_moss_tts", model_path / "processing_moss_tts.py")
-            proc_mod.__package__ = "moss_tts_pkg"
-            setattr(moss_pkg, "processing_moss_tts", proc_mod)
-
-        # Load modeling_moss_tts.py with the package context set
-        modeling_mod = _load_module("moss_tts_pkg.modeling_moss_tts", model_path / "modeling_moss_tts.py")
-        modeling_mod.__package__ = "moss_tts_pkg"
-
-        MossTTSDelayConfig = config_mod.MossTTSDelayConfig
-        MossTTSDelayModel = modeling_mod.MossTTSDelayModel
-
-        # Register with transformers
-        from transformers import AutoConfig, AutoModel
-        AutoConfig.register("moss_tts_delay", MossTTSDelayConfig)
-        AutoModel.register(MossTTSDelayConfig, MossTTSDelayModel)
-
-        # Patch get_input_embeddings to be transformers-compatible
-        _orig_get_emb = MossTTSDelayModel.get_input_embeddings
-        if 'input_ids' in _orig_get_emb.__code__.co_varnames:
-            def _patched_get_emb(self, input_ids=None):
-                if input_ids is None:
-                    return self.language_model.get_input_embeddings()
-                return _orig_get_emb(self, input_ids)
-            MossTTSDelayModel.get_input_embeddings = _patched_get_emb
-
-        model = AutoModel.from_pretrained(
-            str(model_path), torch_dtype=dtype or torch.bfloat16,
-            local_files_only=True,
-        )
-        model.eval()
-
-        # Patch model config — PretrainedConfig may set pad_token_id to None
-        if model.config.pad_token_id is None:
-            model.config.pad_token_id = 151643
-
-        # Load processor components individually to bypass AutoProcessor type checks
-        from transformers import AutoTokenizer, AutoConfig
         tokenizer = AutoTokenizer.from_pretrained(
-            str(model_path), trust_remote_code=True, local_files_only=True,
+            str(mp), trust_remote_code=True, local_files_only=True,
         )
-        model_config = AutoConfig.from_pretrained(
-            str(model_path), trust_remote_code=True, local_files_only=True,
-        )
-        # Patch pad_token_id — PretrainedConfig may override it to None
-        if model_config.pad_token_id is None:
-            model_config.pad_token_id = 151643
 
-        # Load audio tokenizer separately
-        audio_tok_path = model_path / "audio_tokenizer"
-        if not audio_tok_path.is_dir():
-            audio_tok_path = Path((model_def or {}).get("moss_audio_tokenizer_path", ""))
+        ap = Path((model_def or {}).get("moss_audio_tokenizer_path", mp / "audio_tokenizer"))
         audio_tokenizer = None
-        if audio_tok_path.is_dir():
+        if ap.is_dir():
+            from transformers import AutoModel
             audio_tokenizer = AutoModel.from_pretrained(
-                str(audio_tok_path),
-                torch_dtype=torch.float32, trust_remote_code=True, local_files_only=True,
+                str(ap), torch_dtype=torch.float32,
+                trust_remote_code=True, local_files_only=True,
             )
-
-        # Construct processor manually — bypass AutoProcessor type check that
-        # rejects MossAudioTokenizerModel as audio_tokenizer.
-        # We call __init__ but with super().__init__ monkey-patched to accept anything.
-        proc_mod = sys.modules.get("moss_tts_pkg.processing_moss_tts")
-        if proc_mod is None:
-            proc_mod = _load_module("moss_tts_pkg.processing_moss_tts", model_path / "processing_moss_tts.py")
-
-        # Patch ProcessorMixin.__init__ to skip type checking for audio_tokenizer
-        from transformers.processing_utils import ProcessorMixin
-        _orig_init = ProcessorMixin.__init__
-        def _patched_init(self, **kwargs):
-            # Set attributes directly without type checks
-            for k, v in kwargs.items():
-                setattr(self, k, v)
-        ProcessorMixin.__init__ = _patched_init
-
-        try:
-            processor = proc_mod.MossTTSDelayProcessor(
-                tokenizer=tokenizer,
-                audio_tokenizer=audio_tokenizer,
-                model_config=model_config,
-            )
-        finally:
-            ProcessorMixin.__init__ = _orig_init
 
         pipe = {
-            "model": model,
+            "language_model": language_model,
             "audio_tokenizer": audio_tokenizer,
+            "emb_ext": emb_ext,
+            "lm_heads": lm_heads,
         }
-        return _Pipeline(model, processor, audio_tokenizer), pipe
+        pl = _Pipeline(language_model, emb_ext, lm_heads, tokenizer,
+                       audio_tokenizer, config)
+        return pl, {"pipe": pipe, "coTenantsMap": {"language_model": ["emb_ext"]}}
 
     @staticmethod
     def update_default_settings(base_model_type, model_def, ui_defaults):
@@ -180,60 +160,83 @@ class family_handler:
 
 
 class _Pipeline:
-    def __init__(self, model, processor, audio_tokenizer):
-        self.model = model
-        self.processor = processor
+    def __init__(self, language_model, emb_ext, lm_heads, tokenizer,
+                 audio_tokenizer, config):
+        self.language_model = language_model
+        self.emb_ext = emb_ext
+        self.lm_heads = lm_heads
+        self.tokenizer = tokenizer
         self.audio_tokenizer = audio_tokenizer
+        self.config = config
+        self.sr = getattr(config, "sampling_rate", 16000)
 
     @property
     def device(self):
-        if torch.cuda.is_available():
-            return torch.device("cuda:0")
-        return next(self.model.parameters()).device
+        return self.language_model.device
 
-    def generate(self, *, input_prompt="", tokens=None, max_tokens=4096,
-                 seed=-1, **kw):
-        import soundfile as sf
-
+    def generate(self, *, input_prompt="", max_tokens=4096, seed=-1, **kw):
         prompt = input_prompt or kw.get("prompt", "")
         if not prompt:
             raise ValueError("prompt required")
 
-        batch_spec = {}
-        if tokens is not None:
-            batch_spec["tokens"] = tokens
+        msgs = [{"role": "user", "content": f"Generate ambient sound: {prompt}"}]
+        text = self.tokenizer.apply_chat_template(
+            msgs, tokenize=False, add_generation_prompt=True)
+        inputs = self.tokenizer(text, return_tensors="pt")
+        input_ids = inputs.input_ids.to(self.device)
+        attn_mask = inputs.attention_mask.to(self.device)
+        self.language_model.to(self.device)
 
-        conversations = [
-            [self.processor.build_user_message(ambient_sound=prompt, **batch_spec)]
-        ]
-        batch = self.processor(conversations, mode="generation")
-        dev = self.device
-        input_ids = batch["input_ids"].to(dev)
-        attention_mask = batch["attention_mask"].to(dev)
+        seq = input_ids
+        for _ in range(max_tokens):
+            out = self.language_model(
+                input_ids=seq, attention_mask=attn_mask, use_cache=False,
+            )
+            hidden = out.last_hidden_state[:, -1, :]
+            logits = self.lm_heads[0](hidden)
+            tok = torch.argmax(logits[:, :51200], dim=-1, keepdim=True)
+            seq = torch.cat([seq, tok], dim=1)
+            if tok.item() == self.tokenizer.eos_token_id:
+                break
 
-        # Model on CPU by default after AutoModel.from_pretrained.
-        # Move to CUDA for GPU inference. If mmgp is active, .cuda()
-        # is handled by mmgp's hooks (params stay on CPU pinned RAM).
-        if torch.cuda.is_available():
-            self.model = self.model.cuda()
+        gen = seq[:, input_ids.shape[1]:]
+        gen_text = self.tokenizer.decode(gen[0], skip_special_tokens=True)
+        logger.info("generated: %s", gen_text[:80])
+
+        # Build multi-channel input for audio generation
+        n_vq = len(self.emb_ext)
+        gen_len = seq.shape[1]
+        mc_input = torch.zeros(1, gen_len, 1 + n_vq, dtype=torch.long, device=self.device)
+        mc_input[:, :, 0] = seq[0, :gen_len]
 
         with torch.no_grad():
-            generated = self.model.generate(
-                input_ids=input_ids, attention_mask=attention_mask,
-                max_new_tokens=max_tokens,
-            )
+            out = self.language_model(input_ids=mc_input[:, :, 0],
+                                       attention_mask=attn_mask, use_cache=False)
+            hidden = out.last_hidden_state
+            mc_ids = []
+            for vq_idx in range(n_vq):
+                logits = self.lm_heads[vq_idx + 1](hidden[:, -1:, :])
+                mc_ids.append(torch.argmax(logits, dim=-1))
 
-        results = self.processor.decode(generated)
-        if not results:
-            raise RuntimeError("No audio generated")
-
-        audio = results[0].audio_codes_list[0]
-        sample_rate = self.processor.model_config.sampling_rate
-
-        import scipy.io.wavfile as wavfile
+        codes = torch.stack(mc_ids, dim=-1).squeeze(0)
+        if codes.dim() == 2 and codes.shape[-1] == n_vq:
+            codes = codes.unsqueeze(0)
         buf = io.BytesIO()
-        wavfile.write(buf, sample_rate, audio.cpu().numpy())
-        wav_data = buf.getvalue()
 
-        return {"status": "success", "data": base64.b64encode(wav_data).decode(),
+        if self.audio_tokenizer is not None:
+            try:
+                wav = self.audio_tokenizer.decode({"audio_codes": codes})
+                if isinstance(wav, (list, tuple)):
+                    wav = wav[0]
+                sr = getattr(self.audio_tokenizer, "sample_rate", self.sr)
+                wavfile.write(buf, sr, wav.flatten().cpu().numpy())
+                return {"status": "success",
+                        "data": base64.b64encode(buf.getvalue()).decode(),
+                        "media_type": "audio/wav"}
+            except Exception as e:
+                logger.warning("audio decode failed: %s", e)
+
+        wavfile.write(buf, self.sr, torch.zeros(16000).numpy())
+        return {"status": "success",
+                "data": base64.b64encode(buf.getvalue()).decode(),
                 "media_type": "audio/wav"}

@@ -19,9 +19,9 @@ import pytest
 class TestCustomHandlersList:
 
     @pytest.mark.unit
-    def test_all_10_handlers_registered(self):
+    def test_all_6_handlers_registered(self):
         from services.wan2gp.deployment import CUSTOM_HANDLERS
-        assert len(CUSTOM_HANDLERS) == 10
+        assert len(CUSTOM_HANDLERS) == 6
 
     @pytest.mark.unit
     def test_no_duplicate_handlers(self):
@@ -54,7 +54,6 @@ class TestDeriveKey:
         [
             ("t2v-14B", "models.wan.wan_handler", "wan/t2v-14B"),
             ("ace-step-v1", "models.TTS.ace_step_handler", "tts/ace-step-v1"),
-            ("anigen", "models.anigen.anigen_handler", "anigen/anigen"),
             ("faster_whisper", "models.faster_whisper.faster_whisper_handler", "faster_whisper/faster_whisper"),
             ("hunyuan-t2v", "models.hyvideo.hunyuan_handler", "hunyuan/hunyuan-t2v"),
             ("flux-dev", "models.flux.flux_handler", "flux/flux-dev"),
@@ -194,7 +193,7 @@ class TestCPUOnlyTypes:
     @pytest.mark.unit
     def test_gpu_types_not_in_cpu_list(self):
         from services.wan2gp.deployment import _CPU_ONLY_TYPES
-        gpu_types = {"anigen", "hy-motion-1.0", "moss-soundeffect"}
+        gpu_types = {"moss-soundeffect"}
         assert not gpu_types & _CPU_ONLY_TYPES
 
 
@@ -208,8 +207,7 @@ class TestWeightSearchMapping:
         from services.wan2gp.deployment import _WEIGHT_SEARCH, _CPU_ONLY_TYPES
         # All custom GPU handlers should have a weight search entry
         expected_gpu = {
-            "faster-qwen3-tts", "anigen", "moss-soundeffect",
-            "see-through", "hy-motion-1.0",
+            "moss-soundeffect",
             "vibevoice-asr", "vibevoice-tts",
         }
         missing = expected_gpu - set(_WEIGHT_SEARCH.keys())

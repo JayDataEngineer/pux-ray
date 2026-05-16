@@ -39,13 +39,13 @@ class TestSetupModule:
     def test_clone_module_lists_repos(self):
         from infra.setup.clone import REPOS
         # Bare-metal tools only (Docker tools clone inside Dockerfile)
-        expected = {"ace-step", "see-through", "qwen", "gpt-sovits", "comfyui", "llama"}
+        expected = {"ace-step", "qwen", "gpt-sovits", "comfyui", "llama"}
         assert set(REPOS.keys()) == expected, f"Got: {set(REPOS.keys())}"
 
     def test_venvs_module_lists_tools(self):
         from infra.setup.venvs import TOOLS
         # Bare-metal tools only (Docker tools built via `python -m infra.setup docker`)
-        expected = {"ace-step", "see-through", "qwen", "comfyui", "llama"}
+        expected = {"ace-step", "qwen", "comfyui", "llama"}
         assert set(TOOLS.keys()) == expected, f"Got: {set(TOOLS.keys())}"
 
     def test_all_repos_have_valid_urls(self):

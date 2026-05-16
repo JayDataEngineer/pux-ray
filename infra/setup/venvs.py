@@ -125,32 +125,6 @@ def setup_ace_step() -> bool:
 
 # ─── See-Through — anime character layer decomposition ────────────────────
 
-def setup_see_through() -> bool:
-    dir_ = REPOS_DIR / "see-through"
-    venv_py = dir_ / ".venv" / "bin" / "python"
-
-    if _can_import(venv_py, "torch") and _can_import(venv_py, "diffusers"):
-        _log(f"see-through venv OK ({_venv_version(venv_py)})")
-        return True
-
-    if not (dir_ / "requirements.txt").is_file():
-        _warn("see-through not cloned. Run: python -m infra.setup.clone")
-        return False
-
-    _log("Setting up see-through venv...")
-    uv = _uv()
-    if not venv_py.is_file():
-        _run([uv, "venv", "--python", "3.12", "--quiet"], cwd=str(dir_))
-    _uv_install(
-        venv_py,
-        "torch==2.8.0+cu128", "torchvision==0.23.0+cu128", "torchaudio==2.8.0+cu128",
-        "--index-url", "https://download.pytorch.org/whl/cu128",
-    )
-    _uv_install(venv_py, "-r", str(dir_ / "requirements.txt"))
-    _log("see-through venv ready")
-    return True
-
-
 # ─── Qwen Image Expert (Qwen3-TTS LoRA Trainer) ──────────────────────────
 
 def setup_qwen_img() -> bool:
@@ -234,7 +208,6 @@ def setup_llama() -> bool:
 
 TOOLS = {
     "ace-step": setup_ace_step,
-    "see-through": setup_see_through,
     "qwen": setup_qwen_img,
     "comfyui": setup_comfyui,
     "llama": setup_llama,

@@ -36,9 +36,8 @@ class TestServiceRegistry:
     def test_core_services_present(self):
         from services.registry import SERVICE_REGISTRY
         expected = {
-            "kokoro", "espeak", "faster_qwen3_tts", "faster_whisper",
+            "kokoro", "espeak", "faster_whisper",
             "moss_soundeffect", "ace_step",
-            "anigen", "hy_motion", "see_through",
             "comfyui", "llm", "wan2gp",
             "index_tts", "vibevoice_asr", "vibevoice_tts",
         }

@@ -1,0 +1,13 @@
+{
+    "model": {
+        "name": "TRELLIS.2 Image-to-3D",
+        "architecture": "trellis",
+        "description": "TRELLIS.2 image-to-3D mesh generation with texture. 8 flow models + decoders + DINOv3 + BiRefNet.",
+        "URLs": "trellis"
+    },
+    "steps": 12,
+    "guidance": 7.5,
+    "resolution": "1024_cascade",
+    "decimation": 50000,
+    "texture_size": 4096
+}

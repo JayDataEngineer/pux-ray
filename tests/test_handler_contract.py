@@ -28,16 +28,12 @@ import pytest
 # ─── Handler fixtures ───────────────────────────────────────────────────────
 
 ALL_HANDLERS = [
-    ("models.anigen.anigen_handler", "anigen"),
-    ("models.see_through.see_through_handler", "see-through"),
-    ("models.hy_motion.hy_motion_handler", "hy-motion-1.0"),
     ("models.kokoro.kokoro_handler", "kokoro"),
     ("models.moss.moss_handler", "moss-soundeffect"),
     ("models.espeak.espeak_handler", "espeak"),
     ("models.faster_whisper.faster_whisper_handler", "faster_whisper"),
     ("models.vibevoice_asr.vibevoice_asr_handler", "vibevoice-asr"),
     ("models.vibevoice_tts.vibevoice_tts_handler", "vibevoice-tts"),
-    ("models.faster_qwen3_tts.faster_qwen3_tts_handler", "faster-qwen3-tts"),
 ]
 
 
