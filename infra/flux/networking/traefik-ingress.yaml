@@ -293,14 +293,3 @@ spec:
 # Access: http://100.86.69.57:30080/flux
 
 apiVersion: traefik.io/v1alpha1
-kind: IngressRoute
-metadata:
-apiVersion: traefik.io/v1alpha1
-kind: Middleware
-metadata:
-  name: capacitor-rewrite
-  namespace: flux-system
-spec:
-  stripPrefix:
-    prefixes:
-      - /flux
