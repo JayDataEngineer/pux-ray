@@ -4,27 +4,16 @@ import subprocess
 import tempfile
 from pathlib import Path
 
+from models._shared import BaseFamilyHandler
 
-class family_handler:
-    @staticmethod
-    def query_supported_types():
-        return ["espeak"]
 
-    @staticmethod
-    def query_family_maps():
-        return {}, {}
-
-    @staticmethod
-    def query_model_family():
-        return "espeak"
-
-    @staticmethod
-    def query_family_infos():
-        return {"espeak": (300, "eSpeak TTS")}
-
-    @staticmethod
-    def query_model_def(base_model_type, model_def):
-        return {"audio_only": True, "image_outputs": False}
+class family_handler(BaseFamilyHandler):
+    FAMILY = "espeak"
+    FAMILY_ID = 300
+    DISPLAY_NAME = "eSpeak TTS"
+    SUPPORTED_TYPES = ["espeak"]
+    AUDIO_ONLY = True
+    UI_DEFAULTS = {"prompt": "Hello world"}
 
     @staticmethod
     def load_model(model_filename, model_type, base_model_type, model_def,
@@ -33,10 +22,6 @@ class family_handler:
         bin_path = (model_def or {}).get("espeak_bin", "espeak-ng")
         subprocess.run(["which", bin_path], capture_output=True, check=True)
         return _Pipeline(bin_path), {}
-
-    @staticmethod
-    def update_default_settings(base_model_type, model_def, ui_defaults):
-        ui_defaults.update({"prompt": "Hello world"})
 
 
 class _Pipeline:

@@ -29,6 +29,8 @@ from pathlib import Path
 
 import numpy as np
 import torch
+from models._shared import BaseFamilyHandler, resolve_model_path
+
 from PIL import Image
 
 logger = logging.getLogger(__name__)
@@ -65,33 +67,18 @@ IMAGE_COND_CONFIGS = {
 }
 
 
-class family_handler:
-    @staticmethod
-    def query_supported_types():
-        return ["pixal3d"]
-
-    @staticmethod
-    def query_family_maps():
-        return {}, {}
-
-    @staticmethod
-    def query_model_family():
-        return "pixal3d"
-
-    @staticmethod
-    def query_family_infos():
-        return {"pixal3d": (404, "Pixal3D")}
-
-    @staticmethod
-    def query_model_def(base_model_type, model_def):
-        return {"image_outputs": True, "audio_only": False}
+class family_handler(BaseFamilyHandler):
+    FAMILY = "pixal3d"
+    FAMILY_ID = 404
+    DISPLAY_NAME = "Pixal3D"
+    SUPPORTED_TYPES = ["pixal3d"]
+    AUDIO_ONLY = False
+    UI_DEFAULTS = {"steps": 12, "guidance": 7.5}
 
     @staticmethod
     def load_model(model_filename, model_type, base_model_type, model_def,
                    quantizeTransformer=False, text_encoder_quantization=None,
                    dtype=None, VAE_dtype=None, profile=0, **kwargs):
-        from models._shared import resolve_model_path
-
         # Spec-first path resolution
         model_root = resolve_model_path(
             "pixal3d", "pixal3d_path", model_def,

@@ -26,6 +26,8 @@ import numpy as np
 import torch
 from PIL import Image
 
+from models._shared import BaseFamilyHandler
+
 logger = logging.getLogger(__name__)
 
 _HANDLER_DIR = Path(__file__).parent
@@ -72,26 +74,13 @@ def _isolated_import(dominant_path, hidden_prefixes=("models",)):
         sys.modules.update(saved_modules)
 
 
-class family_handler:
-    @staticmethod
-    def query_supported_types():
-        return ["anigen"]
-
-    @staticmethod
-    def query_family_maps():
-        return {}, {}
-
-    @staticmethod
-    def query_model_family():
-        return "anigen"
-
-    @staticmethod
-    def query_family_infos():
-        return {"anigen": (400, "AniGen 3D")}
-
-    @staticmethod
-    def query_model_def(base_model_type, model_def):
-        return {"image_outputs": True, "audio_only": False}
+class family_handler(BaseFamilyHandler):
+    FAMILY = "anigen"
+    FAMILY_ID = 400
+    DISPLAY_NAME = "AniGen 3D"
+    SUPPORTED_TYPES = ["anigen"]
+    AUDIO_ONLY = False
+    UI_DEFAULTS = {"prompt": ""}
 
     @staticmethod
     def load_model(
@@ -174,10 +163,6 @@ class family_handler:
             slat_config=pipeline.slat_config,
         )
         return pl, {"pipe": pipe, "coTenantsMap": co_tenants}
-
-    @staticmethod
-    def update_default_settings(base_model_type, model_def, ui_defaults):
-        ui_defaults.update({"prompt": ""})
 
 
 class _Pipeline:

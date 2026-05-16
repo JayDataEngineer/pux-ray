@@ -23,6 +23,8 @@ from pathlib import Path
 import torch
 import yaml
 
+from models._shared import BaseFamilyHandler
+
 logger = logging.getLogger(__name__)
 
 _HANDLER_DIR = Path(__file__).parent
@@ -46,26 +48,13 @@ def _cwd(path):
         os.chdir(prev)
 
 
-class family_handler:
-    @staticmethod
-    def query_supported_types():
-        return ["hy-motion-1.0", "hy-motion-1.0-lite"]
-
-    @staticmethod
-    def query_family_maps():
-        return {}, {}
-
-    @staticmethod
-    def query_model_family():
-        return "hy_motion"
-
-    @staticmethod
-    def query_family_infos():
-        return {"hy_motion": (401, "HY-Motion")}
-
-    @staticmethod
-    def query_model_def(base_model_type, model_def):
-        return {"image_outputs": False, "audio_only": False}
+class family_handler(BaseFamilyHandler):
+    FAMILY = "hy_motion"
+    FAMILY_ID = 401
+    DISPLAY_NAME = "HY-Motion"
+    SUPPORTED_TYPES = ["hy-motion-1.0", "hy-motion-1.0-lite"]
+    AUDIO_ONLY = False
+    UI_DEFAULTS = {"prompt": "a person waves hello"}
 
     @staticmethod
     def load_model(model_filename, model_type, base_model_type, model_def,
@@ -159,10 +148,6 @@ class family_handler:
 
         pl = _Pipeline(pipeline, config_dict)
         return pl, {"pipe": pipe, "coTenantsMap": co_tenants}
-
-    @staticmethod
-    def update_default_settings(base_model_type, model_def, ui_defaults):
-        ui_defaults.update({"prompt": "a person waves hello"})
 
 
 class _Pipeline:

@@ -1,7 +1,7 @@
 """Shared utilities for Wan2GP family handlers.
 
-Spec-first path resolution and weight loading helpers used across all
-custom handlers.
+Spec-first path resolution, weight loading helpers, optional base class,
+and vendor registration used across all custom handlers.
 """
 from __future__ import annotations
 
@@ -166,4 +166,74 @@ def register_vendor_package(name: str, path: Path):
     sys.modules[name] = mod
     spec.loader.exec_module(mod)
     return mod
+
+
+class BaseFamilyHandler:
+    """Optional base class for Wan2GP family_handler.
+
+    Provides sensible defaults for the 7-method contract so handlers only
+    specify what's unique. Subclasses must define class attributes and can
+    override any method.
+
+    Required class attributes:
+        FAMILY: str — family name (e.g. "pixal3d")
+        FAMILY_ID: int — unique numeric ID (300-499)
+        DISPLAY_NAME: str — human-readable name (e.g. "Pixal3D")
+        SUPPORTED_TYPES: list[str] — model types (e.g. ["pixal3d"])
+        AUDIO_ONLY: bool — True for TTS/ASR, False for image/3D
+        UI_DEFAULTS: dict — default UI settings
+
+    Example::
+
+        class family_handler(BaseFamilyHandler):
+            FAMILY = "pixal3d"
+            FAMILY_ID = 404
+            DISPLAY_NAME = "Pixal3D"
+            SUPPORTED_TYPES = ["pixal3d"]
+            AUDIO_ONLY = False
+            UI_DEFAULTS = {"steps": 12, "guidance": 7.5}
+
+            @staticmethod
+            def load_model(model_filename, model_type, base_model_type,
+                           model_def, **kwargs):
+                ...
+
+    Not mandatory — existing handlers that don't inherit from this will
+    continue to work. New handlers should use it to reduce boilerplate.
+    """
+
+    FAMILY: str = ""
+    FAMILY_ID: int = 0
+    DISPLAY_NAME: str = ""
+    SUPPORTED_TYPES: list[str] = []
+    AUDIO_ONLY: bool = False
+    UI_DEFAULTS: dict = {}
+
+    @classmethod
+    def query_supported_types(cls) -> list[str]:
+        return list(cls.SUPPORTED_TYPES)
+
+    @classmethod
+    def query_family_maps(cls) -> tuple[dict, dict]:
+        return {}, {}
+
+    @classmethod
+    def query_model_family(cls) -> str:
+        return cls.FAMILY
+
+    @classmethod
+    def query_family_infos(cls) -> dict[str, tuple[int, str]]:
+        return {cls.FAMILY: (cls.FAMILY_ID, cls.DISPLAY_NAME)}
+
+    @classmethod
+    def query_model_def(cls, base_model_type: str, model_def: dict) -> dict:
+        return {
+            "audio_only": cls.AUDIO_ONLY,
+            "image_outputs": not cls.AUDIO_ONLY,
+        }
+
+    @classmethod
+    def update_default_settings(cls, base_model_type: str, model_def: dict,
+                                ui_defaults: dict) -> None:
+        ui_defaults.update(cls.UI_DEFAULTS)
 

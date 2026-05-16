@@ -14,33 +14,20 @@ import torch
 import torch.nn as nn
 from transformers import AutoConfig, AutoModel, AutoTokenizer
 
-from models._shared import load_safetensors, load_prefix_into_module, resolve_model_path
+from models._shared import BaseFamilyHandler, load_safetensors, load_prefix_into_module, resolve_model_path
 
 from .vibevoice_asr.blocks import VibeVoiceAcousticTokenizer, SpeechConnector
 
 logger = logging.getLogger(__name__)
 
 
-class family_handler:
-    @staticmethod
-    def query_supported_types():
-        return ["vibevoice-asr"]
-
-    @staticmethod
-    def query_family_maps():
-        return {}, {}
-
-    @staticmethod
-    def query_model_family():
-        return "vibevoice_asr"
-
-    @staticmethod
-    def query_family_infos():
-        return {"vibevoice_asr": (304, "VibeVoice ASR")}
-
-    @staticmethod
-    def query_model_def(base_model_type, model_def):
-        return {"audio_only": True, "image_outputs": False}
+class family_handler(BaseFamilyHandler):
+    FAMILY = "vibevoice_asr"
+    FAMILY_ID = 304
+    DISPLAY_NAME = "VibeVoice ASR"
+    SUPPORTED_TYPES = ["vibevoice-asr"]
+    AUDIO_ONLY = True
+    UI_DEFAULTS = {"language": "english"}
 
     @staticmethod
     def load_model(model_filename, model_type, base_model_type, model_def,
@@ -90,10 +77,6 @@ class family_handler:
         pl = _Pipeline(language_model, acoustic_tokenizer, acoustic_connector,
                        lm_head, tokenizer)
         return pl, {"pipe": pipe, "coTenantsMap": co_tenants}
-
-    @staticmethod
-    def update_default_settings(base_model_type, model_def, ui_defaults):
-        ui_defaults.update({"language": "english"})
 
 
 class _Pipeline:

@@ -18,7 +18,7 @@ import torch
 from diffusers import DPMSolverMultistepScheduler
 from transformers import AutoConfig, AutoModel, AutoTokenizer
 
-from models._shared import load_safetensors, load_prefix_into_module, resolve_model_path
+from models._shared import BaseFamilyHandler, load_safetensors, load_prefix_into_module, resolve_model_path
 
 from .vibevoice_tts.blocks import (
     VibeVoiceAcousticTokenizer, VibeVoiceSemanticTokenizer, SpeechConnector,
@@ -28,26 +28,13 @@ from .vibevoice_tts.diffusion import VibeVoiceDiffusionHead
 logger = logging.getLogger(__name__)
 
 
-class family_handler:
-    @staticmethod
-    def query_supported_types():
-        return ["vibevoice-tts"]
-
-    @staticmethod
-    def query_family_maps():
-        return {}, {}
-
-    @staticmethod
-    def query_model_family():
-        return "vibevoice_tts"
-
-    @staticmethod
-    def query_family_infos():
-        return {"vibevoice_tts": (305, "VibeVoice TTS")}
-
-    @staticmethod
-    def query_model_def(base_model_type, model_def):
-        return {"audio_only": True, "image_outputs": False}
+class family_handler(BaseFamilyHandler):
+    FAMILY = "vibevoice_tts"
+    FAMILY_ID = 305
+    DISPLAY_NAME = "VibeVoice TTS"
+    SUPPORTED_TYPES = ["vibevoice-tts"]
+    AUDIO_ONLY = True
+    UI_DEFAULTS = {"prompt": ""}
 
     @staticmethod
     def load_model(model_filename, model_type, base_model_type, model_def,
@@ -124,10 +111,6 @@ class family_handler:
                        prediction_head, acoustic_connector, semantic_connector,
                        lm_head, noise_scheduler, tokenizer, scaling_factor)
         return pl, {"pipe": pipe, "coTenantsMap": co_tenants}
-
-    @staticmethod
-    def update_default_settings(base_model_type, model_def, ui_defaults):
-        ui_defaults.update({"prompt": ""})
 
 
 class _Pipeline:

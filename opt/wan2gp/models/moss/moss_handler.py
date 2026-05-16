@@ -21,6 +21,8 @@ import torch.nn as nn
 import torch.nn.functional as F
 from transformers import AutoTokenizer, AutoConfig
 
+from models._shared import BaseFamilyHandler
+
 logger = logging.getLogger(__name__)
 
 
@@ -148,26 +150,13 @@ def _find_last_equal(tensor, value):
     return last_idx
 
 
-class family_handler:
-    @staticmethod
-    def query_supported_types():
-        return ["moss-soundeffect"]
-
-    @staticmethod
-    def query_family_maps():
-        return {}, {}
-
-    @staticmethod
-    def query_model_family():
-        return "moss"
-
-    @staticmethod
-    def query_family_infos():
-        return {"moss": (303, "MOSS SoundEffect")}
-
-    @staticmethod
-    def query_model_def(base_model_type, model_def):
-        return {"audio_only": True, "image_outputs": False}
+class family_handler(BaseFamilyHandler):
+    FAMILY = "moss"
+    FAMILY_ID = 303
+    DISPLAY_NAME = "MOSS SoundEffect"
+    SUPPORTED_TYPES = ["moss-soundeffect"]
+    AUDIO_ONLY = True
+    UI_DEFAULTS = {"prompt": "gentle rain"}
 
     @staticmethod
     def load_model(model_filename, model_type, base_model_type, model_def,
@@ -226,10 +215,6 @@ class family_handler:
         pl = _Pipeline(language_model, emb_ext, lm_heads, tokenizer,
                        audio_tokenizer, config)
         return pl, {"pipe": pipe, "coTenantsMap": {"language_model": ["emb_ext"]}}
-
-    @staticmethod
-    def update_default_settings(base_model_type, model_def, ui_defaults):
-        ui_defaults.update({"prompt": "gentle rain"})
 
 
 class _Pipeline:

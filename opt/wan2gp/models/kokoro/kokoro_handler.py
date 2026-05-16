@@ -21,32 +21,20 @@ from typing import Optional
 import numpy as np
 import torch
 
+from models._shared import BaseFamilyHandler
 from models.kokoro.kokoro_model import KokoroModel, load_kokoro
 from models.kokoro.kokoro_phonemizer import phonemize, chunk_phonemes
 
 logger = logging.getLogger(__name__)
 
 
-class family_handler:
-    @staticmethod
-    def query_supported_types():
-        return ["kokoro"]
-
-    @staticmethod
-    def query_family_maps():
-        return {}, {}
-
-    @staticmethod
-    def query_model_family():
-        return "kokoro"
-
-    @staticmethod
-    def query_family_infos():
-        return {"kokoro": (302, "Kokoro TTS")}
-
-    @staticmethod
-    def query_model_def(base_model_type, model_def):
-        return {"audio_only": True, "image_outputs": False}
+class family_handler(BaseFamilyHandler):
+    FAMILY = "kokoro"
+    FAMILY_ID = 302
+    DISPLAY_NAME = "Kokoro TTS"
+    SUPPORTED_TYPES = ["kokoro"]
+    AUDIO_ONLY = True
+    UI_DEFAULTS = {"prompt": "Hello world"}
 
     @staticmethod
     def load_model(model_filename, model_type, base_model_type, model_def,
@@ -71,10 +59,6 @@ class family_handler:
         pipeline = _Pipeline(kmodel, model_path)
 
         return pipeline, pipe_dict
-
-    @staticmethod
-    def update_default_settings(base_model_type, model_def, ui_defaults):
-        ui_defaults.update({"prompt": "Hello world"})
 
 
 class _Pipeline:
