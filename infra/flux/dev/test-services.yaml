@@ -1,0 +1,50 @@
+# Smoke test — verifies all production services are reachable.
+# Runs as a CronJob every 10 minutes. Check logs with:
+#   kubectl logs -n ai-services -l app=service-smoke-test
+#
+# Add more dev resources to this directory. They auto-deploy when
+# you push to the dev branch. Promote to production: merge dev → master.
+
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: service-smoke-test
+  namespace: ai-services
+spec:
+  schedule: "*/10 * * * *"
+  concurrencyPolicy: Replace
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      ttlSecondsAfterFinished: 300
+      template:
+        spec:
+          restartPolicy: Never
+          containers:
+            - name: test
+              image: forge-reg.local:30500/tech-noir/model-sync:latest
+              command: ["python3", "-c"]
+              args:
+                - |
+                  import urllib.request, json, sys
+
+                  services = {
+                      "Ray Dashboard": "http://tech-noir-ray-raycluster-dn7x9-head-svc.ai-services.svc.cluster.local:8265/api/cluster_status",
+                      "Ray Serve": "http://tech-noir-ray-raycluster-dn7x9-head-svc.ai-services.svc.cluster.local:8000/-/routes",
+                      "Forge Registry": "http://forge-registry.infra.svc.cluster.local:5000/v2/",
+                      "Grafana": "http://grafana.infra.svc.cluster.local:80/api/health",
+                      "Loki": "http://loki.infra.svc.cluster.local:3100/ready",
+                  }
+
+                  ok = True
+                  for name, url in services.items():
+                      try:
+                          r = urllib.request.urlopen(url, timeout=5)
+                          print(f"  OK  {name} ({r.status})")
+                      except Exception as e:
+                          print(f"  FAIL {name}: {e}")
+                          ok = False
+
+                  sys.exit(0 if ok else 1)
