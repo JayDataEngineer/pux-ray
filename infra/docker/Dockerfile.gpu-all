@@ -106,6 +106,7 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     scikit-image scikit-learn \
     trimesh lpips plyfile pygltflib pyvista pymeshfix xatlas rtree igraph \
     h5py pandas \
+    natten==0.21.0 \
     starlette aiohttp httpx \
     openai huggingface-hub \
     pyyaml click rich \
@@ -118,43 +119,43 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 # ── CUDA extensions (source builds — torch ABI must match) ────────────
 
 # nvdiffrast (CUDA rasterizer, ~10min)
-RUN git clone --depth 1 https://github.com/NVlabs/nvdiffrast.git /tmp/nvdiffrast && \
+RUN MAX_JOBS=8 git clone --depth 1 https://github.com/NVlabs/nvdiffrast.git /tmp/nvdiffrast && \
     cd /tmp/nvdiffrast && \
-    uv pip install . --no-build-isolation && \
+    MAX_JOBS=8 uv pip install . --no-build-isolation && \
     rm -rf /tmp/nvdiffrast
 
 # TRELLIS.2 CUDA dependencies — CuMesh, FlexGEMM, o-voxel
-RUN git clone --depth 1 --recursive https://github.com/JeffreyXiang/CuMesh.git /tmp/cumesh && \
+RUN MAX_JOBS=8 git clone --depth 1 --recursive https://github.com/JeffreyXiang/CuMesh.git /tmp/cumesh && \
     cd /tmp/cumesh && \
-    uv pip install . --no-build-isolation && \
+    MAX_JOBS=8 uv pip install . --no-build-isolation && \
     rm -rf /tmp/cumesh
 
-RUN git clone --depth 1 --recursive https://github.com/JeffreyXiang/FlexGEMM.git /tmp/flexgemm && \
+RUN MAX_JOBS=8 git clone --depth 1 --recursive https://github.com/JeffreyXiang/FlexGEMM.git /tmp/flexgemm && \
     cd /tmp/flexgemm && \
-    uv pip install . --no-build-isolation && \
+    MAX_JOBS=8 uv pip install . --no-build-isolation && \
     rm -rf /tmp/flexgemm
 
 COPY vendor/o-voxel/ /tmp/o-voxel/
 RUN cd /tmp/o-voxel && \
-    uv pip install . --no-build-isolation && \
+    MAX_JOBS=8 uv pip install . --no-build-isolation && \
     rm -rf /tmp/o-voxel
 
 # nvdiffrec (PBR rendering for TRELLIS)
-RUN git clone -b renderutils --depth 1 \
+RUN MAX_JOBS=8 git clone -b renderutils --depth 1 \
         https://github.com/JeffreyXiang/nvdiffrec.git /tmp/extensions/nvdiffrec && \
-    uv pip install /tmp/extensions/nvdiffrec --no-build-isolation && \
+    MAX_JOBS=8 uv pip install /tmp/extensions/nvdiffrec --no-build-isolation && \
     rm -rf /tmp/extensions/nvdiffrec
 
 # pytorch3d (for AniGen)
 RUN --mount=type=cache,target=/root/.cache/uv \
-    git clone --depth 1 https://github.com/facebookresearch/pytorch3d.git /tmp/pytorch3d && \
+    MAX_JOBS=8 git clone --depth 1 https://github.com/facebookresearch/pytorch3d.git /tmp/pytorch3d && \
     cd /tmp/pytorch3d && \
-    uv pip install --no-build-isolation . && \
+    MAX_JOBS=8 uv pip install --no-build-isolation . && \
     rm -rf /tmp/pytorch3d
 
 # spconv (source build for CUDA 12.8 — needs FORCE_CUDA=1)
 RUN --mount=type=cache,target=/root/.cache/uv \
-    FORCE_CUDA=1 SPCONV_CUDA_ARCHITECTURES=8.9 \
+    FORCE_CUDA=1 SPCONV_CUDA_ARCHITECTURES=8.9 MAX_JOBS=8 \
     uv pip install spconv --no-build-isolation
 
 # ── Clone git repos (for services that need full repo structure) ──────
@@ -289,4 +290,5 @@ RUN python3 -c "import torch; print(f'torch {torch.__version__}, CUDA {torch.cud
     python3 -c "import pytorch3d; print('pytorch3d OK')" && \
     python3 -c "import sys; sys.path.insert(0, '/opt/wan2gp/models/trellis'); import trellis2; print('trellis2 OK')" && \
     python3 -c "from models.trellis.trellis_handler import family_handler; print(f'TRELLIS handler OK: {family_handler.query_supported_types()}')" && \
+    python3 -c "from models.pixal3d.pixal3d_handler import family_handler; print(f'Pixal3D handler OK: {family_handler.query_supported_types()}')" && \
     echo "gpu-all image verification passed"

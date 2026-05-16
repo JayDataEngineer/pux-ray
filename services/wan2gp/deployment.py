@@ -206,6 +206,7 @@ CUSTOM_HANDLERS = [
     "models.anigen.anigen_handler",
     "models.see_through.see_through_handler",
     "models.hy_motion.hy_motion_handler",
+    "models.pixal3d.pixal3d_handler",
 ]
 
 def _get_family_handlers() -> list[str]:
@@ -687,6 +688,7 @@ class Wan2GPService:
             "see-through": "see_through",
             "hy-motion-1.0": "hy_motion",
             "hy-motion-1.0-lite": "hy_motion_lite",
+            "pixal3d": "pixal3d",
         }
 
         spec_name = _SPEC_AWARE.get(model_type)
@@ -807,6 +809,11 @@ class Wan2GPService:
                         p = mp / "ckpts" / sub
                         if p.is_dir():
                             paths[f"hy_motion_{sub.replace('-','_').replace('.','_')}_path"] = str(p)
+
+        elif model_type == "pixal3d":
+            # Pixal3D loads via from_pretrained(pipeline_json) — handler
+            # resolves its own path from spec / registry.
+            pass
 
         elif model_type == "faster-qwen3-tts":
             try:

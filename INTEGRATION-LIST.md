@@ -179,6 +179,26 @@ is a grey area — it loads a model class from the HF repo at runtime, similar t
 
 ---
 
+### pixal3d — Pixal3D (TRELLIS fine-tune, image-to-3D with PBR)
+
+**Status: PASS (Amendment A)**
+
+| # | Criterion | Status |
+|---|-----------|--------|
+| 1 | Pipe dict >= 2 modules | PASS — 13 modules: `{ss_flow_model, ss_decoder, slat_flow_512, slat_flow_1024, shape_decoder, tex_slat_flow_512, tex_slat_flow_1024, tex_decoder, image_cond_ss, image_cond_shape_512, image_cond_shape_1024, image_cond_tex_1024, rembg}` |
+| 2 | Modules are distinct subcomponents | PASS |
+| 3 | No single-blob `model` key | PASS |
+| 4 | Source written in fork, not copied | PASS (Amendment A) — handler authored. Upstream source symlinked as `pixal3d/` |
+| 5 | Relative imports from source subdir | PASS — `from .pixal3d.pipelines...` (relative imports, no sys.path) |
+| 6 | Import chain terminates at pip package | PASS — `torch`, `trimesh`, `natten`, `transformers`, `o_voxel` (vendor) |
+| 7 | Zero monkeypatches / sys.path.insert | PASS |
+
+**Files:** `opt/wan2gp/models/pixal3d/pixal3d_handler.py`, `pixal3d/` (symlink → `vendor/pixal3d/pixal3d/`)
+**Origin:** vendor/pixal3d/ — see vendor directory for commit details
+**Notes:** Fine-tune of TRELLIS.2 with projection-mode (pixel-aligned) conditioning. 4 DinoV3ProjFeatureExtractor models for stage-specific conditioning. Requires camera params (FOV, distance) for proj mode. GLB export via o_voxel (PBR textures) with trimesh fallback. Dependencies: natten, moge (optional, for auto-FOV).
+
+---
+
 ## Summary
 
 | Model | Status | Pipe Modules | Source | Weights | Inference |
@@ -191,6 +211,7 @@ is a grey area — it loads a model class from the HF repo at runtime, similar t
 | anigen | PASS (Amend A) | 6 | Upstream subpkg | Yes | Yes |
 | see_through | PASS (Amend A) | 8 | Upstream subpkg | Yes | Yes |
 | hy_motion | PASS (Amend A) | 2 | Upstream subpkg | Yes | Yes |
+| pixal3d | PASS (Amend A) | 13 | Upstream subpkg | Needs download | Wired (cascade + PBR) |
 
-**Passing: 5/8** (kokoro, trellis, anigen, see_through, hy_motion via Amendment A/B)
+**Passing: 6/9** (kokoro, trellis, anigen, see_through, hy_motion, pixal3d via Amendment A/B)
 **Remaining: 3** (moss needs HF trust_remote_code review, vibevoice_asr/tts need weight validation)

@@ -1015,6 +1015,26 @@ comfyui:
     vram_estimate_gb: 2.0
     device: gpu
     description: AniGen checkpoints. SLAT DAE, SS DAE, dinov2, dsine, vgg, flow models.
+  pixal3d:
+    path: 3d/pixal3d/
+    source: hf://TencentARC/Pixal3D
+    download: snapshot
+    sha256: null
+    size_gb: 16.0
+    vram_estimate_gb: 2.0
+    device: gpu
+    description: Pixal3D checkpoints. Fine-tune of TRELLIS.2 with projection-mode conditioning
+      for high-fidelity image-to-3D with PBR textures.
+  pixal3d_dinov3:
+    path: 3d/pixal3d/dinov3/facebook/dinov3-vitl16-pretrain-lvd1689m/
+    source: modelscope://facebook/dinov3-vitl16-pretrain-lvd1689m
+    download: modelscope
+    sha256: null
+    size_gb: 1.2
+    vram_estimate_gb: 0.5
+    device: gpu
+    description: DINOv3 ViT-L/16 image encoder for Pixal3D proj-mode conditioning. Gated on
+      HuggingFace, free on ModelScope.
 multimodal:
   phi4-multimodal:
     path: multimodal/phi4-multimodal-instruct/

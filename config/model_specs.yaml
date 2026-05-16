@@ -135,6 +135,26 @@ trellis:
         bf16: 3d/trellis/dinov3/facebook/dinov3-vitl16-pretrain-lvd1689m/
   co_tenants: {}
 
+pixal3d:
+  handler: pixal3d
+  quant_default: bf16
+  # Pixal3D loads via from_pretrained(pipeline_json) — single-root.
+  # 4 DinoV3ProjFeatureExtractor models built from config (downloaded from HF).
+  modules:
+    pipeline_root:
+      role: root
+      variants:
+        bf16: 3d/pixal3d/
+    rembg:
+      role: utility
+      variants:
+        bf16: 3d/pixal3d/rmbg/
+    image_cond:
+      role: encoder
+      variants:
+        bf16: 3d/pixal3d/dinov3/facebook/dinov3-vitl16-pretrain-lvd1689m/
+  co_tenants: {}
+
 # ─── Blocked Models (spec entries for future use) ─────────────────────────────
 
 anigen:
