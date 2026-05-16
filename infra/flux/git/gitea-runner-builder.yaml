@@ -44,7 +44,18 @@ spec:
       containers:
         - name: runner
           image: gitea/act_runner:0.2.12
-          command: ["act_runner", "daemon"]
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              if [ ! -f /data/.runner ]; then
+                act_runner register \
+                  --instance "$GITEA_INSTANCE_URL" \
+                  --token "$GITEA_RUNNER_REGISTRATION_TOKEN" \
+                  --labels "$(grep -oP '(?<=labels:).*' /config/config.yaml | xargs)" \
+                  --name "$(grep -oP '(?<=name:).*' /config/config.yaml | xargs)" \
+                  --no-interactive
+              fi
+              exec act_runner daemon --config /config/config.yaml
           env:
             - name: GITEA_INSTANCE_URL
               value: http://gitea-http.git.svc.cluster.local:3000
@@ -58,6 +69,8 @@ spec:
           volumeMounts:
             - name: config
               mountPath: /config
+            - name: data
+              mountPath: /data
             - name: docker-sock
               mountPath: /var/run/docker.sock
             - name: docker-config
@@ -70,6 +83,8 @@ spec:
               cpu: "2"
               memory: 4Gi
       volumes:
+        - name: data
+          emptyDir: {}
         - name: config
           configMap:
             name: act-runner-builder-config
