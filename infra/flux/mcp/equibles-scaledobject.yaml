@@ -10,7 +10,7 @@ metadata:
 spec:
   scaleTargetRef:
     name: equibles-mcp
-  minReplicaCount: 0
+  minReplicaCount: 1
   maxReplicaCount: 1
   cooldownPeriod: 600
   pollingInterval: 30

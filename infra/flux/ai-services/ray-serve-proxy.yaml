@@ -16,3 +16,20 @@ spec:
     - name: llm
       port: 18399
       targetPort: 18399
+---
+# Ray Dashboard service — uses broad selector that matches any Ray head pod.
+# The KubeRay-managed tech-noir-ray-head-svc has a broken selector
+# (app.kubernetes.io/name: kuberay instead of tech-noir-ray-head), so we
+# use ray.io/node-type: head which works across rolling updates.
+apiVersion: v1
+kind: Service
+metadata:
+  name: ray-dashboard
+  namespace: ai-services
+spec:
+  selector:
+    ray.io/node-type: head
+  ports:
+    - name: dashboard
+      port: 8265
+      targetPort: 8265

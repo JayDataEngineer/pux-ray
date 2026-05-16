@@ -83,7 +83,7 @@ spec:
       middlewares:
         - name: strip-ray-dashboard
       services:
-        - name: tech-noir-ray-head-svc
+        - name: ray-dashboard
           port: 8265
 
 ---
