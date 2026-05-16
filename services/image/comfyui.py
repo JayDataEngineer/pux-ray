@@ -64,7 +64,7 @@ class ComfyUIService(ForgeSubprocessMixin, ForgeService):
         self.start_subprocess(
             cmd=["python3", "main.py", "--port", str(self.PORT),
                  "--listen", "0.0.0.0", "--preview-method", "auto",
-                 "--use-split-cross-attention"],
+                 "--use-sage-attention", "--enable-manager"],
             port=self.PORT,
             health_path="/",
             timeout=900,
