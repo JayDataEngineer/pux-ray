@@ -229,13 +229,16 @@ class APIIngress:
         payload: dict[str, Any] = {
             "method": request.method,
             "path": request.url.path.replace("/comfyui", "") or "/",
+            "params": dict(request.query_params),
             "raw": True,
         }
         if request.method == "POST":
-            try:
-                payload["body"] = await request.json()
-            except Exception:
-                payload["body"] = {}
+            ct = request.headers.get("content-type", "")
+            if "application/json" in ct:
+                try:
+                    payload["body"] = await request.json()
+                except Exception:
+                    pass
         result = await forge.invoke.remote("comfyui", payload)
         if isinstance(result, dict) and result.get("raw_response"):
             return Response(
