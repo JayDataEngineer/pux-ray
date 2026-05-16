@@ -201,6 +201,7 @@ CUSTOM_HANDLERS = [
     "models.moss.moss_handler",
     "models.espeak.espeak_handler",
     "models.faster_whisper.faster_whisper_handler",
+    "models.faster_qwen3_tts.faster_qwen3_tts_handler",
     "models.vibevoice_asr.vibevoice_asr_handler",
     "models.vibevoice_tts.vibevoice_tts_handler",
     "models.anigen.anigen_handler",

@@ -4,10 +4,6 @@ GPU service via mmgp full-RAM mode. Decomposed into 5 components:
   bert, bert_encoder, predictor, text_encoder, decoder
 
 Phonemization via espeak-ng (phonemizer library), not misaki/spacy.
-
-Wan2GP dependency (Amendment B): nn.Module definitions (ProsodyPredictor, TextEncoder,
-Decoder, CustomAlbert) imported from Wan2GP's multitalk kokoro module via kokoro_model.py.
-The handler and phonemizer are authored; only the raw Module classes come from Wan2GP.
 """
 from __future__ import annotations
 
@@ -21,33 +17,33 @@ from typing import Optional
 import numpy as np
 import torch
 
-from models._shared import BaseFamilyHandler
 from models.kokoro.kokoro_model import KokoroModel, load_kokoro
 from models.kokoro.kokoro_phonemizer import phonemize, chunk_phonemes
 
 logger = logging.getLogger(__name__)
 
 
+from models.base_handler import BaseFamilyHandler, _make_handler_cls, audio_response
+
+logger = logging.getLogger(__name__)
+
+
+@_make_handler_cls
 class family_handler(BaseFamilyHandler):
-    FAMILY = "kokoro"
-    FAMILY_ID = 302
-    DISPLAY_NAME = "Kokoro TTS"
     SUPPORTED_TYPES = ["kokoro"]
-    AUDIO_ONLY = True
-    UI_DEFAULTS = {"prompt": "Hello world"}
+    FAMILY = "kokoro"
+    FAMILY_INFOS = {"kokoro": (302, "Kokoro TTS")}
+    DEFAULTS = {"prompt": "Hello world"}
 
     @staticmethod
     def load_model(model_filename, model_type, base_model_type, model_def,
                    quantizeTransformer=False, text_encoder_quantization=None,
                    dtype=None, VAE_dtype=None, profile=0, **kwargs):
-        from models._shared import resolve_model_path
-        model_path = resolve_model_path(
-            "kokoro", "kokoro_path", model_def,
-            check_file="config.json", quant=kwargs.get("quant"),
-        )
+        from registry.models import ModelRegistry
+
+        model_path = Path(ModelRegistry().get_path("tts", "kokoro"))
 
         if not (model_path / "config.json").exists():
-            # Download config + weights from HuggingFace on first use
             from huggingface_hub import snapshot_download
             snapshot_download(
                 repo_id="hexgrad/Kokoro-82M",
@@ -96,11 +92,7 @@ class _Pipeline:
             wf.setframerate(24000)
             wf.writeframes((audio_data * 32767).astype("int16").tobytes())
 
-        return {
-            "status": "success",
-            "data": base64.b64encode(buf.getvalue()).decode(),
-            "media_type": "audio/wav",
-        }
+        return audio_response(buf.getvalue())
 
     def _load_voice(self, voice: str) -> torch.FloatTensor:
         if voice in self._voice_cache:

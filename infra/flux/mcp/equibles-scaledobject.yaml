@@ -1,0 +1,23 @@
+# KEDA ScaledObject — scales equibles-mcp to zero when idle
+# Uses VictoriaMetrics (already deployed in infra namespace) as Prometheus source.
+# Scales up on any HTTP request, scales down after 10 minutes idle.
+---
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: equibles-mcp-scaler
+  namespace: mcp
+spec:
+  scaleTargetRef:
+    name: equibles-mcp
+  minReplicaCount: 0
+  maxReplicaCount: 1
+  cooldownPeriod: 600
+  pollingInterval: 30
+  triggers:
+    - type: prometheus
+      metadata:
+        serverAddress: http://victoriametrics.infra.svc.cluster.local:8428
+        metricName: http_requests_equibles
+        threshold: "1"
+        query: "sum(rate(http_requests_total{service=\"equibles-mcp\"}[2m]))"

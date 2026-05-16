@@ -1,30 +1,17 @@
 """eSpeak-NG family handler — subprocess wrapper, no nn.Modules."""
-import base64
 import subprocess
 import tempfile
 from pathlib import Path
 
+from models.base_handler import BaseFamilyHandler, _make_handler_cls, audio_response
 
-class family_handler:
-    @staticmethod
-    def query_supported_types():
-        return ["espeak"]
 
-    @staticmethod
-    def query_family_maps():
-        return {}, {}
-
-    @staticmethod
-    def query_model_family():
-        return "espeak"
-
-    @staticmethod
-    def query_family_infos():
-        return {"espeak": (300, "eSpeak TTS")}
-
-    @staticmethod
-    def query_model_def(base_model_type, model_def):
-        return {"audio_only": True, "image_outputs": False}
+@_make_handler_cls
+class family_handler(BaseFamilyHandler):
+    SUPPORTED_TYPES = ["espeak"]
+    FAMILY = "espeak"
+    FAMILY_INFOS = {"espeak": (300, "eSpeak TTS")}
+    DEFAULTS = {"prompt": "Hello world"}
 
     @staticmethod
     def load_model(model_filename, model_type, base_model_type, model_def,
@@ -34,10 +21,6 @@ class family_handler:
         bin_path = Config().get("binaries.espeak_ng", "espeak-ng")
         subprocess.run(["which", bin_path], capture_output=True, check=True)
         return _Pipeline(bin_path), {}
-
-    @staticmethod
-    def update_default_settings(base_model_type, model_def, ui_defaults):
-        ui_defaults.update({"prompt": "Hello world"})
 
 
 class _Pipeline:
@@ -60,5 +43,4 @@ class _Pipeline:
             wav = Path(out).read_bytes()
         finally:
             Path(out).unlink(missing_ok=True)
-        return {"status": "success", "data": base64.b64encode(wav).decode(),
-                "media_type": "audio/wav"}
+        return audio_response(wav)

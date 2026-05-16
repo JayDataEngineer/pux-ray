@@ -1,0 +1,76 @@
+# Equibles dependencies: ParadeDB (Postgres + pg_search + pgvector)
+# Dedicated instance — pg_search BM25 indexes are ParadeDB-specific and
+# cannot run on the shared Postgres (which has AGE + pgvector only).
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: paradedb
+  namespace: mcp
+  labels:
+    app: paradedb
+spec:
+  serviceName: paradedb
+  replicas: 1
+  selector:
+    matchLabels:
+      app: paradedb
+  template:
+    metadata:
+      labels:
+        app: paradedb
+    spec:
+      containers:
+        - name: paradedb
+          image: paradedb/paradedb:latest
+          ports:
+            - containerPort: 5432
+          env:
+            - name: POSTGRES_USER
+              value: postgres
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: shared-infra
+                  key: EQUIBLES_DB_PASSWORD
+            - name: POSTGRES_DB
+              value: equibles
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql
+          resources:
+            limits:
+              memory: 2Gi
+            requests:
+              memory: 512Mi
+          livenessProbe:
+            exec:
+              command: ["pg_isready", "-U", "postgres"]
+            initialDelaySeconds: 15
+            periodSeconds: 10
+          readinessProbe:
+            exec:
+              command: ["pg_isready", "-U", "postgres"]
+            initialDelaySeconds: 5
+            periodSeconds: 5
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        storageClassName: local-path
+        resources:
+          requests:
+            storage: 20Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: paradedb
+  namespace: mcp
+spec:
+  selector:
+    app: paradedb
+  ports:
+    - port: 5432
+      targetPort: 5432

@@ -7,13 +7,10 @@ nn.Modules:
 - motion_transformer: HunyuanMotionMMDiT
 - text_encoder: HYTextModel (Qwen3-8B + CLIP)
 
-Amendment A (Large Model Exception):
-  Upstream source: vendor/hymotion/ (symlinked as models/hy_motion/hymotion/).
-  Origin: https://github.com/AniGen/HY-Motion — see vendor/hymotion/ for commit details.
-  Imported via importlib.util (no sys.path.insert).
+Workspace: Creates temp dir with symlinks for Qwen3-8B, CLIP, stats.
+Patches config.yml with absolute paths.
 """
 import contextlib
-import importlib.util
 import logging
 import os
 import sys
@@ -23,18 +20,11 @@ from pathlib import Path
 import torch
 import yaml
 
-from models._shared import BaseFamilyHandler
+from models.base_handler import BaseFamilyHandler, _make_handler_cls
 
 logger = logging.getLogger(__name__)
 
-_HANDLER_DIR = Path(__file__).parent
 STATS_VENDOR = "/opt/hymotion/stats"
-
-
-def _ensure_vendor_package(name, path):
-    """Register a vendor package in sys.modules via importlib (no sys.path)."""
-    from models._shared import register_vendor_package
-    return register_vendor_package(name, path)
 
 
 @contextlib.contextmanager
@@ -48,33 +38,26 @@ def _cwd(path):
         os.chdir(prev)
 
 
+@_make_handler_cls
 class family_handler(BaseFamilyHandler):
-    FAMILY = "hy_motion"
-    FAMILY_ID = 401
-    DISPLAY_NAME = "HY-Motion"
     SUPPORTED_TYPES = ["hy-motion-1.0", "hy-motion-1.0-lite"]
-    AUDIO_ONLY = False
-    UI_DEFAULTS = {"prompt": "a person waves hello"}
+    FAMILY = "hy_motion"
+    FAMILY_INFOS = {"hy_motion": (401, "HY-Motion")}
+    MODEL_DEF = {"image_outputs": False, "audio_only": False}
+    DEFAULTS = {"prompt": "a person waves hello"}
 
     @staticmethod
     def load_model(model_filename, model_type, base_model_type, model_def,
                    quantizeTransformer=False, text_encoder_quantization=None,
                    dtype=None, VAE_dtype=None, profile=0, **kwargs):
-        from models._shared import resolve_model_path
+        from registry.config import Config
+        cfg = Config()
+        models_root = Path(cfg.models_root)
+        model_path = models_root / "motion" / model_type
 
-        # Resolve path: spec → registry → Config-based fallback
-        model_path = resolve_model_path(
-            "hy_motion", "hy_motion_path", model_def,
-            spec_module="pipeline_root", category="motion",
-            registry_name=model_type, quant=kwargs.get("quant"),
-        )
-        if not model_path.is_dir():
-            from registry.config import Config
-            cfg = Config()
-            model_path = Path(cfg.models_root) / "motion" / model_type
-
-        # Register vendor package via importlib
-        _ensure_vendor_package("hymotion", _HANDLER_DIR / "hymotion")
+        vendor = str(Path(cfg.project_root) / "vendor")
+        if vendor not in sys.path:
+            sys.path.insert(0, vendor)
 
         config_yml = model_path / "config.yml"
         ckpt_file = model_path / "latest.ckpt"
@@ -108,6 +91,7 @@ class family_handler(BaseFamilyHandler):
         # Patch config with absolute mean_std_dir
         with open(config_yml) as f:
             config_dict = yaml.safe_load(f)
+        import os
         test_cfg = config_dict.get("train_pipeline_args", {}).get("test_cfg", {})
         msd = test_cfg.get("mean_std_dir", "")
         if msd and not os.path.isabs(msd):

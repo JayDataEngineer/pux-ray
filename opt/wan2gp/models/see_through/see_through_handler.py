@@ -8,81 +8,50 @@ Two-stage pipeline:
 8 nn.Modules in mmgp pipe:
 - ld_unet, ld_vae, ld_trans_vae, ld_text_encoder, ld_text_encoder_2 (LayerDiff)
 - mg_unet, mg_vae, mg_text_encoder (Marigold)
-
-Amendment A (Large Model Exception):
-  Upstream source: vendor/seethrough/ (symlinked as models/see_through/seethrough/).
-  Origin: https://github.com/AniGen/SeeThrough — see vendor/seethrough/ for commit details.
-  Vendor subpackages (modules, utils) registered via importlib.util during load_model().
-  The vendor code uses generic top-level import names (modules.*, utils.*) which require
-  sys.modules registration rather than standard relative imports.
 """
 import gc
-import importlib.util
 import io
 import logging
 import sys
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 import torch
 from PIL import Image
 
-from models._shared import BaseFamilyHandler
+from models.base_handler import BaseFamilyHandler, _make_handler_cls
 
 logger = logging.getLogger(__name__)
 
-_HANDLER_DIR = Path(__file__).parent
 
-
-def _ensure_vendor_package(name, path):
-    """Register a vendor package in sys.modules via importlib (no sys.path)."""
-    from models._shared import register_vendor_package
-    return register_vendor_package(name, path)
-
-
-def _register_seethrough_vendor():
-    """Register vendor subpackages for SeeThrough (modules, utils)."""
-    vendor_common = _HANDLER_DIR / "seethrough" / "common"
-    if not vendor_common.is_dir():
-        raise FileNotFoundError(
-            f"SeeThrough vendor common dir not found at {vendor_common}")
-    _ensure_vendor_package("modules", vendor_common / "modules")
-    _ensure_vendor_package("utils", vendor_common / "utils")
-
-
+@_make_handler_cls
 class family_handler(BaseFamilyHandler):
-    FAMILY = "see_through"
-    FAMILY_ID = 403
-    DISPLAY_NAME = "See-Through"
     SUPPORTED_TYPES = ["see-through"]
-    AUDIO_ONLY = False
-    UI_DEFAULTS = {"resolution": 1280, "steps": 30}
+    FAMILY = "see_through"
+    FAMILY_INFOS = {"see_through": (403, "See-Through")}
+    MODEL_DEF = {"image_outputs": True, "audio_only": False}
+    DEFAULTS = {"resolution": 1280, "steps": 30}
 
     @staticmethod
     def load_model(model_filename, model_type, base_model_type, model_def,
                    quantizeTransformer=False, text_encoder_quantization=None,
                    dtype=None, VAE_dtype=None, profile=0, **kwargs):
-        from models._shared import resolve_model_path
+        from registry.config import Config
+        from registry.models import ModelRegistry
 
-        # Resolve paths: spec → registry → model_def
-        ld_path = resolve_model_path(
-            "see_through", "see_through_layerdiff_path", model_def,
-            spec_module="layerdiff", category="image",
-            registry_name="see-through-layerdiff", quant=kwargs.get("quant"),
-        )
-        mg_path = resolve_model_path(
-            "see_through", "see_through_marigold_path", model_def,
-            spec_module="marigold", category="image",
-            registry_name="see-through-marigold", quant=kwargs.get("quant"),
-        )
-        sched_path = resolve_model_path(
-            "see_through", "see_through_scheduler_path", model_def,
-            spec_module="scheduler", category="image",
-            registry_name="see-through-scheduler", quant=kwargs.get("quant"),
-        )
+        cfg = Config()
+        registry = ModelRegistry()
+        ld_path = Path(registry.get_path("image", "see-through-layerdiff"))
+        mg_path = Path(registry.get_path("image", "see-through-marigold"))
+        sched_path = Path(registry.get_path("image", "see-through-scheduler"))
 
-        # Register vendor packages via importlib
-        _register_seethrough_vendor()
+        vendor = str(Path(cfg.project_root) / "vendor")
+        if vendor not in sys.path:
+            sys.path.insert(0, vendor)
+        seethrough_common = str(Path(cfg.project_root) / "vendor" / "seethrough" / "common")
+        if seethrough_common not in sys.path:
+            sys.path.insert(0, seethrough_common)
 
         from modules.layerdiffuse.diffusers_kdiffusion_sdxl import KDiffusionStableDiffusionXLPipeline
         from modules.layerdiffuse.vae import TransparentVAE

@@ -23,26 +23,17 @@ from models.kokoro.kokoro_phonemizer import phonemize, chunk_phonemes
 logger = logging.getLogger(__name__)
 
 
-class family_handler:
-    @staticmethod
-    def query_supported_types():
-        return ["kokoro"]
+from models.base_handler import BaseFamilyHandler, _make_handler_cls, audio_response
 
-    @staticmethod
-    def query_family_maps():
-        return {}, {}
+logger = logging.getLogger(__name__)
 
-    @staticmethod
-    def query_model_family():
-        return "kokoro"
 
-    @staticmethod
-    def query_family_infos():
-        return {"kokoro": (302, "Kokoro TTS")}
-
-    @staticmethod
-    def query_model_def(base_model_type, model_def):
-        return {"audio_only": True, "image_outputs": False}
+@_make_handler_cls
+class family_handler(BaseFamilyHandler):
+    SUPPORTED_TYPES = ["kokoro"]
+    FAMILY = "kokoro"
+    FAMILY_INFOS = {"kokoro": (302, "Kokoro TTS")}
+    DEFAULTS = {"prompt": "Hello world"}
 
     @staticmethod
     def load_model(model_filename, model_type, base_model_type, model_def,
@@ -53,7 +44,6 @@ class family_handler:
         model_path = Path(ModelRegistry().get_path("tts", "kokoro"))
 
         if not (model_path / "config.json").exists():
-            # Download config + weights from HuggingFace on first use
             from huggingface_hub import snapshot_download
             snapshot_download(
                 repo_id="hexgrad/Kokoro-82M",
@@ -65,10 +55,6 @@ class family_handler:
         pipeline = _Pipeline(kmodel, model_path)
 
         return pipeline, pipe_dict
-
-    @staticmethod
-    def update_default_settings(base_model_type, model_def, ui_defaults):
-        ui_defaults.update({"prompt": "Hello world"})
 
 
 class _Pipeline:
@@ -106,11 +92,7 @@ class _Pipeline:
             wf.setframerate(24000)
             wf.writeframes((audio_data * 32767).astype("int16").tobytes())
 
-        return {
-            "status": "success",
-            "data": base64.b64encode(buf.getvalue()).decode(),
-            "media_type": "audio/wav",
-        }
+        return audio_response(buf.getvalue())
 
     def _load_voice(self, voice: str) -> torch.FloatTensor:
         if voice in self._voice_cache:

@@ -72,26 +72,18 @@ def _isolated_import(dominant_path, hidden_prefixes=("models",)):
         sys.modules.update(saved_modules)
 
 
-class family_handler:
-    @staticmethod
-    def query_supported_types():
-        return ["anigen"]
+from models.base_handler import BaseFamilyHandler, _make_handler_cls, audio_response
 
-    @staticmethod
-    def query_family_maps():
-        return {}, {}
+logger = logging.getLogger(__name__)
 
-    @staticmethod
-    def query_model_family():
-        return "anigen"
 
-    @staticmethod
-    def query_family_infos():
-        return {"anigen": (400, "AniGen 3D")}
-
-    @staticmethod
-    def query_model_def(base_model_type, model_def):
-        return {"image_outputs": True, "audio_only": False}
+@_make_handler_cls
+class family_handler(BaseFamilyHandler):
+    SUPPORTED_TYPES = ["anigen"]
+    FAMILY = "anigen"
+    FAMILY_INFOS = {"anigen": (400, "AniGen 3D")}
+    MODEL_DEF = {"image_outputs": True, "audio_only": False}
+    DEFAULTS = {"prompt": ""}
 
     @staticmethod
     def load_model(
@@ -175,10 +167,6 @@ class family_handler:
         )
         return pl, {"pipe": pipe, "coTenantsMap": co_tenants}
 
-    @staticmethod
-    def update_default_settings(base_model_type, model_def, ui_defaults):
-        ui_defaults.update({"prompt": ""})
-
 
 class _Pipeline:
     def __init__(self, modules, ss_config, slat_config):
@@ -250,8 +238,7 @@ class _Pipeline:
         data = self._postprocess_and_export(
             mesh_result, skeleton_result, img_rgb, simplify_ratio)
 
-        return {"status": "success", "data": base64.b64encode(data).decode(),
-                "media_type": "model/gltf-binary"}
+        return audio_response(data, media_type="model/gltf-binary")
 
     def _sample_ss(self, cond_dict_ss, strength, steps):
         from anigen.pipelines import samplers

@@ -16,29 +16,17 @@ from transformers import processing_utils as _pu
 if not hasattr(_pu, 'MODALITY_TO_BASE_CLASS_MAPPING'):
     _pu.MODALITY_TO_BASE_CLASS_MAPPING = {}
 
+from models.base_handler import BaseFamilyHandler, _make_handler_cls, audio_response
+
 logger = logging.getLogger(__name__)
 
 
-class family_handler:
-    @staticmethod
-    def query_supported_types():
-        return ["moss-soundeffect"]
-
-    @staticmethod
-    def query_family_maps():
-        return {}, {}
-
-    @staticmethod
-    def query_model_family():
-        return "moss"
-
-    @staticmethod
-    def query_family_infos():
-        return {"moss": (303, "MOSS SoundEffect")}
-
-    @staticmethod
-    def query_model_def(base_model_type, model_def):
-        return {"audio_only": True, "image_outputs": False}
+@_make_handler_cls
+class family_handler(BaseFamilyHandler):
+    SUPPORTED_TYPES = ["moss-soundeffect"]
+    FAMILY = "moss"
+    FAMILY_INFOS = {"moss": (303, "MOSS SoundEffect")}
+    DEFAULTS = {"prompt": "gentle rain"}
 
     @staticmethod
     def load_model(model_filename, model_type, base_model_type, model_def,
@@ -175,10 +163,6 @@ class family_handler:
         }
         return _Pipeline(model, processor, audio_tokenizer), pipe
 
-    @staticmethod
-    def update_default_settings(base_model_type, model_def, ui_defaults):
-        ui_defaults.update({"prompt": "gentle rain"})
-
 
 class _Pipeline:
     def __init__(self, model, processor, audio_tokenizer):
@@ -236,5 +220,4 @@ class _Pipeline:
         wavfile.write(buf, sample_rate, audio.cpu().numpy())
         wav_data = buf.getvalue()
 
-        return {"status": "success", "data": base64.b64encode(wav_data).decode(),
-                "media_type": "audio/wav"}
+        return audio_response(wav_data)

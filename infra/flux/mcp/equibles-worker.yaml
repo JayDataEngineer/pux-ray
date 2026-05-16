@@ -1,0 +1,65 @@
+# Equibles Worker — scrapers for SEC EDGAR, Yahoo Finance, FINRA, FRED, CFTC, Congress
+# Long-running BackgroundService with per-scraper scheduling intervals.
+# No source modification needed — runs upstream as-is.
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: equibles-worker
+  namespace: mcp
+  labels:
+    app: equibles-worker
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: equibles-worker
+  template:
+    metadata:
+      labels:
+        app: equibles-worker
+    spec:
+      containers:
+        - name: worker
+          image: forge-reg.local:30500/tech-noir/mcp-equibles-worker:latest
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: ConnectionStrings__DefaultConnection
+              valueFrom:
+                secretKeyRef:
+                  name: shared-infra
+                  key: EQUIBLES_CONNECTION_STRING
+            - name: Sec__ContactEmail
+              valueFrom:
+                secretKeyRef:
+                  name: shared-infra
+                  key: SEC_CONTACT_EMAIL
+            - name: Embedding__Enabled
+              value: "false"
+            - name: Worker__MinSyncDate
+              value: "2024-01-01"
+            - name: MinimumLogLevel
+              value: "Information"
+            - name: Finra__ClientId
+              valueFrom:
+                secretKeyRef:
+                  name: shared-infra
+                  key: FINRA_CLIENT_ID
+                  optional: true
+            - name: Finra__ClientSecret
+              valueFrom:
+                secretKeyRef:
+                  name: shared-infra
+                  key: FINRA_CLIENT_SECRET
+                  optional: true
+            - name: Fred__ApiKey
+              valueFrom:
+                secretKeyRef:
+                  name: shared-infra
+                  key: FRED_API_KEY
+                  optional: true
+          resources:
+            limits:
+              memory: 1Gi
+            requests:
+              memory: 256Mi

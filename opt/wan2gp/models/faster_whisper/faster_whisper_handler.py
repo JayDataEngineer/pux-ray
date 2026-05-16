@@ -3,24 +3,29 @@ import base64
 import tempfile
 from pathlib import Path
 
-from models._shared import BaseFamilyHandler
+from models.base_handler import BaseFamilyHandler, _make_handler_cls
 
 
+@_make_handler_cls
 class family_handler(BaseFamilyHandler):
-    FAMILY = "faster_whisper"
-    FAMILY_ID = 301
-    DISPLAY_NAME = "Faster-Whisper ASR"
     SUPPORTED_TYPES = ["faster_whisper"]
-    AUDIO_ONLY = True
-    UI_DEFAULTS = {"language": "en"}
+    FAMILY = "faster_whisper"
+    FAMILY_INFOS = {"faster_whisper": (301, "Faster-Whisper ASR")}
+    DEFAULTS = {"language": "en"}
 
     @staticmethod
     def load_model(model_filename, model_type, base_model_type, model_def,
                    quantizeTransformer=False, text_encoder_quantization=None,
                    dtype=None, VAE_dtype=None, profile=0, **kwargs):
         from faster_whisper import WhisperModel
-        local = (model_def or {}).get("faster_whisper_path", "")
-        model_path = str(local) if local and Path(local).is_dir() else "deepdml/faster-whisper-large-v3-turbo-ct2"
+        model_path = "deepdml/faster-whisper-large-v3-turbo-ct2"
+        try:
+            from registry.models import ModelRegistry
+            local = ModelRegistry().get_path("asr", "faster-whisper")
+            if Path(local).is_dir():
+                model_path = str(local)
+        except (KeyError, FileNotFoundError):
+            pass
         model = WhisperModel(model_path, device="cpu", compute_type="int8")
         return _Pipeline(model), {}
 

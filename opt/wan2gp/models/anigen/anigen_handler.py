@@ -6,37 +6,25 @@ Own inference logic: DSINE normals → DINOv2 conditioning → SS flow → SLAT 
 Modules:
   ss_flow_model, ss_decoder, slat_flow_model, slat_decoder,
   image_cond (DINOv2), dsine (normal estimation)
-
-Amendment A (Large Model Exception):
-  Upstream source: vendor/anigen/ (symlinked as models/anigen/anigen/).
-  Origin: https://github.com/AniGen/AniGen — see vendor/anigen/ for commit details.
-  Imported via importlib.util (no sys.path.insert). DSINE requires _isolated_import
-  due to its `from models import dsine` conflicting with Wan2GP's `models` package.
 """
-import contextlib
-import importlib.util
 import os
+os.environ.setdefault("ATTN_BACKEND", "sdpa")
+os.environ.setdefault("SPARSE_ATTN_BACKEND", "sage")
+
+import contextlib
 import sys
+
 import base64
 import io
 import logging
+import tempfile
 from pathlib import Path
 
 import numpy as np
 import torch
 from PIL import Image
 
-from models._shared import BaseFamilyHandler
-
 logger = logging.getLogger(__name__)
-
-_HANDLER_DIR = Path(__file__).parent
-
-
-def _ensure_vendor_package(name, path):
-    """Register a vendor package in sys.modules via importlib (no sys.path)."""
-    from models._shared import register_vendor_package
-    return register_vendor_package(name, path)
 
 
 @contextlib.contextmanager
@@ -44,16 +32,21 @@ def _isolated_import(dominant_path, hidden_prefixes=("models",)):
     """Temporarily hide Wan2GP's sys.modules entries so a conflicting package resolves.
 
     DSINE's hubconf.py does ``from models import dsine`` which collides with
-    Wan2GP's ``models`` package. This context manager briefly removes the
-    colliding entries from ``sys.modules`` so that the *dominant_path* wins.
+    Wan2GP's ``models`` package.  This context manager briefly removes the
+    colliding entries from ``sys.modules`` and ``sys.path`` so that the
+    *dominant_path* wins during the managed block, then restores everything
+    in the ``finally`` — safe because model loading is single-threaded.
     """
     dominant_path = str(dominant_path)
+
+    # Save sys.modules entries that conflict
     saved_modules = {}
     for prefix in hidden_prefixes:
         for key in list(sys.modules.keys()):
             if key == prefix or key.startswith(prefix + "."):
                 saved_modules[key] = sys.modules.pop(key)
 
+    # Save and reorder sys.path: inject dominant, remove wan2gp vendor paths
     saved_path = sys.path.copy()
     wan2gp_paths = [p for p in sys.path
                     if p.endswith("/vendor/wan2gp") or p == "/opt/wan2gp"]
@@ -65,22 +58,32 @@ def _isolated_import(dominant_path, hidden_prefixes=("models",)):
     try:
         yield
     finally:
+        # Restore sys.path
         sys.path[:] = saved_path
+
+        # Purge anything new that was imported during the managed block
         for key in list(sys.modules.keys()):
             for prefix in hidden_prefixes:
                 if key == prefix or key.startswith(prefix + "."):
                     if key not in saved_modules:
                         del sys.modules[key]
+
+        # Restore original entries
         sys.modules.update(saved_modules)
 
 
+from models.base_handler import BaseFamilyHandler, _make_handler_cls, audio_response
+
+logger = logging.getLogger(__name__)
+
+
+@_make_handler_cls
 class family_handler(BaseFamilyHandler):
-    FAMILY = "anigen"
-    FAMILY_ID = 400
-    DISPLAY_NAME = "AniGen 3D"
     SUPPORTED_TYPES = ["anigen"]
-    AUDIO_ONLY = False
-    UI_DEFAULTS = {"prompt": ""}
+    FAMILY = "anigen"
+    FAMILY_INFOS = {"anigen": (400, "AniGen 3D")}
+    MODEL_DEF = {"image_outputs": True, "audio_only": False}
+    DEFAULTS = {"prompt": ""}
 
     @staticmethod
     def load_model(
@@ -88,18 +91,16 @@ class family_handler(BaseFamilyHandler):
         quantizeTransformer=False, text_encoder_quantization=None,
         dtype=None, VAE_dtype=None, profile=0, **kwargs,
     ):
-        from models._shared import resolve_model_path
+        from registry.config import Config
+        from registry.models import ModelRegistry
 
-        # Resolve model path: spec → registry → model_def
-        model_path = resolve_model_path(
-            "anigen", "anigen_path", model_def,
-            category="3d", quant=kwargs.get("quant"),
-        )
-        if not model_path.is_dir():
-            raise FileNotFoundError(f"AniGen weights not found (tried spec, registry, model_def)")
+        cfg = Config()
+        registry = ModelRegistry()
+        model_path = Path(registry.get_path("3d", "anigen"))
 
-        # Register vendor package via importlib
-        _ensure_vendor_package("anigen", _HANDLER_DIR / "anigen")
+        vendor = str(Path(cfg.project_root) / "vendor")
+        if vendor not in sys.path:
+            sys.path.insert(0, vendor)
 
         ckpts_dir = model_path / "ckpts"
         os.environ.setdefault("TORCH_HOME", str(model_path.parent))
@@ -109,6 +110,7 @@ class family_handler(BaseFamilyHandler):
         ss_flow_path = str(ckpts_dir / "ss_flow_solo")
         slat_flow_path = str(ckpts_dir / "slat_flow_control")
 
+        # Search deeper if not found
         if not Path(ss_flow_path).is_dir():
             for p in ckpts_dir.rglob("ss_flow_solo"):
                 ss_flow_path = str(p)
@@ -126,7 +128,8 @@ class family_handler(BaseFamilyHandler):
                 slat_flow_path = str(p)
                 break
 
-        # DSINE's hubconf.py does `from models import dsine` — isolated import
+        # DSINE's hubconf.py does `from models import dsine` which conflicts
+        # with Wan2GP's `models` package. Use isolated import context.
         dsine_hub_dir = model_path / "hub" / "hugoycj_DSINE-hub_main"
         prev_cwd = os.getcwd()
         os.chdir(str(model_path))
@@ -235,8 +238,7 @@ class _Pipeline:
         data = self._postprocess_and_export(
             mesh_result, skeleton_result, img_rgb, simplify_ratio)
 
-        return {"status": "success", "data": base64.b64encode(data).decode(),
-                "media_type": "model/gltf-binary"}
+        return audio_response(data, media_type="model/gltf-binary")
 
     def _sample_ss(self, cond_dict_ss, strength, steps):
         from anigen.pipelines import samplers
@@ -264,6 +266,7 @@ class _Pipeline:
         z_s, z_s_skl = out.samples, out.samples_skl
         decoded_ss, decoded_ss_skl = ss_decoder(z_s, z_s_skl)
 
+        # Keep largest connected component for skeleton
         bsz, ch, d, h, w = decoded_ss_skl.shape
         for b in range(bsz):
             occ_3d = (decoded_ss_skl[b] > 0).any(dim=0).detach().cpu().numpy()
@@ -327,6 +330,7 @@ class _Pipeline:
         )
         slat, slat_skl = out.samples, out.samples_skl
 
+        # Denormalize
         if self.slat_config is not None:
             norm_stats = getattr(getattr(self.slat_config, 'dataset', None), 'args', None)
             if norm_stats and hasattr(norm_stats, 'normalization'):
@@ -347,7 +351,6 @@ class _Pipeline:
 
     def _postprocess_and_export(self, mesh_result, skeleton_result, img_rgb,
                                 simplify_ratio):
-        import tempfile
         import trimesh
         from anigen.utils.skin_utils import repair_skeleton_parents, filter_skinning_weights, smooth_skin_weights_on_mesh
         from anigen.utils.postprocessing_utils import postprocess_mesh, parametrize_mesh, barycentric_transfer_attributes, bake_texture
@@ -368,12 +371,14 @@ class _Pipeline:
         del skeleton_result
         torch.cuda.empty_cache()
 
+        # Simplify
         new_vertices, new_faces = postprocess_mesh(
             orig_vertices, orig_faces,
             simplify=(simplify_ratio > 0), simplify_ratio=simplify_ratio,
             fill_holes=True, verbose=True,
         )
 
+        # Transfer skin weights
         if new_vertices.shape[0] != orig_vertices.shape[0]:
             orig_mesh = trimesh.Trimesh(vertices=orig_vertices, faces=orig_faces, process=False)
             skin_weights = barycentric_transfer_attributes(orig_mesh, skin_weights, new_vertices)
@@ -382,6 +387,7 @@ class _Pipeline:
         skin_weights = filter_skinning_weights(mesh, skin_weights, joints, parents)
         skin_weights = smooth_skin_weights_on_mesh(mesh, skin_weights, iterations=100, alpha=1.0)
 
+        # Texture baking
         uv_vertices, uv_faces, uvs, vmapping = parametrize_mesh(new_vertices, new_faces)
         skin_weights = skin_weights[vmapping]
 
@@ -407,6 +413,7 @@ class _Pipeline:
             process=False,
         )
 
+        # Export GLB
         with tempfile.NamedTemporaryFile(suffix=".glb", delete=False) as tmp:
             convert_to_glb_from_data(
                 mesh, joints, parents, skin_weights, tmp.name,

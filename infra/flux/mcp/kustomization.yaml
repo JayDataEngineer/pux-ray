@@ -4,3 +4,8 @@ resources:
   - web-research-deps.yaml
   - web-research.yaml
   - web-research-worker.yaml
+  - equibles-deps.yaml
+  - equibles-mcp.yaml
+  - equibles-worker.yaml
+  - equibles-web.yaml
+  - equibles-scaledobject.yaml

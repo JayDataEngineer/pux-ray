@@ -1,0 +1,62 @@
+# Equibles MCP Server — .NET 10 ModelContextProtocol.AspNetCore
+# Scale-to-zero via KEDA (equibles-scaledobject.yaml).
+# Cold start: ~5s for .NET to connect to ParadeDB and load MCP tools.
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: equibles-mcp
+  namespace: mcp
+  labels:
+    app: equibles-mcp
+spec:
+  replicas: 0  # KEDA manages replica count
+  selector:
+    matchLabels:
+      app: equibles-mcp
+  template:
+    metadata:
+      labels:
+        app: equibles-mcp
+    spec:
+      containers:
+        - name: server
+          image: forge-reg.local:30500/tech-noir/mcp-equibles:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8080
+          env:
+            - name: ConnectionStrings__DefaultConnection
+              valueFrom:
+                secretKeyRef:
+                  name: shared-infra
+                  key: EQUIBLES_CONNECTION_STRING
+            - name: MinimumLogLevel
+              value: "Information"
+          resources:
+            limits:
+              memory: 512Mi
+            requests:
+              memory: 256Mi
+          livenessProbe:
+            tcpSocket:
+              port: 8080
+            initialDelaySeconds: 15
+            periodSeconds: 30
+          readinessProbe:
+            tcpSocket:
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: equibles-mcp
+  namespace: mcp
+spec:
+  selector:
+    app: equibles-mcp
+  ports:
+    - port: 8080
+      targetPort: 8080

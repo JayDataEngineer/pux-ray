@@ -20,29 +20,18 @@ import numpy as np
 import torch
 from PIL import Image
 
+from models.base_handler import BaseFamilyHandler, _make_handler_cls
+
 logger = logging.getLogger(__name__)
 
 
-class family_handler:
-    @staticmethod
-    def query_supported_types():
-        return ["see-through"]
-
-    @staticmethod
-    def query_family_maps():
-        return {}, {}
-
-    @staticmethod
-    def query_model_family():
-        return "see_through"
-
-    @staticmethod
-    def query_family_infos():
-        return {"see_through": (403, "See-Through")}
-
-    @staticmethod
-    def query_model_def(base_model_type, model_def):
-        return {"image_outputs": True, "audio_only": False}
+@_make_handler_cls
+class family_handler(BaseFamilyHandler):
+    SUPPORTED_TYPES = ["see-through"]
+    FAMILY = "see_through"
+    FAMILY_INFOS = {"see_through": (403, "See-Through")}
+    MODEL_DEF = {"image_outputs": True, "audio_only": False}
+    DEFAULTS = {"resolution": 1280, "steps": 30}
 
     @staticmethod
     def load_model(model_filename, model_type, base_model_type, model_def,
@@ -122,10 +111,6 @@ class family_handler:
         }
 
         return pipeline, {"pipe": pipe, "coTenantsMap": co_tenants}
-
-    @staticmethod
-    def update_default_settings(base_model_type, model_def, ui_defaults):
-        ui_defaults.update({"resolution": 1280, "steps": 30})
 
 
 class _Pipeline:

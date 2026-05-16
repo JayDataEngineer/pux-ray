@@ -1,0 +1,171 @@
+# ComfyUI Workflows — Infrastructure as Code
+# =======================================================================
+# Source-tracked workflow JSON files for the Tech Noir ComfyUI instance.
+# Custom nodes declared in config/comfyui_extensions.yaml.
+#
+# Directory layout:
+#   wdc/         → WhatDreamsCost (LTX Director, video gen)
+#   vnccs/       → VNCCS character creation pipeline (QWEN + SDXL)
+#   vnccs_utils/ → VNCCS utility workflows (pose studio, detailer, camera)
+#
+# To update from upstream:
+#   git clone --depth 1 <repo_url> /tmp/<name>
+#   cp /tmp/<name>/workflows/*.json config/workflows/comfyui/<dir>/
+
+workflows:
+
+  # ── WhatDreamsCost — LTX Video Workflows ─────────────────────
+  # Source: https://github.com/WhatDreamsCost/WhatDreamsCost-ComfyUI
+  # Requires: ComfyUI-LTXVideo, ComfyUI-KJNodes (latest)
+
+  - file: wdc/ltx_director.json
+    name: LTX Director
+    desc: Timeline editor for LTX 2.3 with first/middle/last frame support and prompt relay
+    source: WhatDreamsCost/WhatDreamsCost-ComfyUI
+    upstream_name: "LTX Director Example Workflow (Fixed).json"
+    category: video
+
+  - file: wdc/ltx_director_subgraph.json
+    name: LTX Director Subgraph
+    desc: LTX Director as a ComfyUI subgraph component for nesting in larger workflows
+    source: WhatDreamsCost/WhatDreamsCost-ComfyUI
+    upstream_name: "LTX Director Example Workflow Compa Subgraph (Fixed).json"
+    category: video
+
+  - file: wdc/ltx_i2v_fflf_audio_v3.json
+    name: LTX I2V FFLF Custom Audio
+    desc: Image-to-video with first/last frame, custom audio integration, and 2-stage generation
+    source: WhatDreamsCost/WhatDreamsCost-ComfyUI
+    upstream_name: "LTX I2V FFLF Custom Audio Workflow - SUPPORTS LATEST COMFYUI VERSION - V3.json"
+    category: video
+
+  - file: wdc/ltx_i2v_fflf_2stage_v6.json
+    name: LTX I2V FFLF 2-Stage
+    desc: Image-to-video with first frame / last frame in 2 stages
+    source: WhatDreamsCost/WhatDreamsCost-ComfyUI
+    upstream_name: "LTX I2V First Last Frame 2 Stage Workflow v6.json"
+    category: video
+
+  - file: wdc/ltx_i2v_fflf_3stage_v6.json
+    name: LTX I2V FFLF 3-Stage
+    desc: Image-to-video with first frame / last frame in 3 stages (higher quality)
+    source: WhatDreamsCost/WhatDreamsCost-ComfyUI
+    upstream_name: "LTX I2V First Last Frame 3 Stage Workflow v6.json"
+    category: video
+
+  # ── VNCCS — Character Creation Pipeline (QWEN) ───────────────
+  # Source: https://github.com/AHEKOT/ComfyUI_VNCCS
+  # 5-stage pipeline: char sheet → clone → clothes → emotions → sprites → lora dataset
+  # Requires: SDXL checkpoint, vn_character_sheet LoRA, ControlNet models, face detection models
+
+  - file: vnccs/step1_char_sheet_v1.json
+    name: VNCCS Step 1 — Character Sheet (QWEN)
+    desc: Generate a base character sheet from a text description using QWEN-guided SDXL
+    source: AHEKOT/ComfyUI_VNCCS
+    upstream_name: VN_Step1_QWEN_CharSheetGenerator_v1.json
+    category: character
+    pipeline_stage: 1
+
+  - file: vnccs/step1.1_clone_existing_v1.json
+    name: VNCCS Step 1.1 — Clone Existing Character (QWEN)
+    desc: Clone an existing character's appearance into a new VNCCS character slot
+    source: AHEKOT/ComfyUI_VNCCS
+    upstream_name: VN_Step1.1_QWEN_Clone_Existing_Character_v1.json
+    category: character
+    pipeline_stage: 1
+
+  - file: vnccs/step2_clothes_v1.json
+    name: VNCCS Step 2 — Clothes Generator (QWEN)
+    desc: Create clothing sets for an existing VNCCS character
+    source: AHEKOT/ComfyUI_VNCCS
+    upstream_name: VN_Step2_QWEN_ClothesGenerator_v1.json
+    category: character
+    pipeline_stage: 2
+
+  - file: vnccs/step3_emotions_v1.json
+    name: VNCCS Step 3 — Emotion Studio (QWEN)
+    desc: Generate emotion variations for a VNCCS character
+    source: AHEKOT/ComfyUI_VNCCS
+    upstream_name: VN_Step3_QWEN_EmotionStudio_V1.json
+    category: character
+    pipeline_stage: 3
+
+  - file: vnccs/step4_sprites_v5.json
+    name: VNCCS Step 4 — Sprite Creator
+    desc: Generate finished sprites from character sheets with emotion/pose sets
+    source: AHEKOT/ComfyUI_VNCCS
+    upstream_name: VN_Step4_CharSpriteCreatorV5.json
+    category: character
+    pipeline_stage: 4
+
+  - file: vnccs/step5_lora_dataset_v5.json
+    name: VNCCS Step 5 — LoRA Dataset Generator
+    desc: Create a LoRA training dataset from generated character sprites
+    source: AHEKOT/ComfyUI_VNCCS
+    upstream_name: VN_Step5_LoraDataSetGeneratorV5.json
+    category: character
+    pipeline_stage: 5
+
+  # ── VNCCS — SDXL Variants ────────────────────────────────────
+  # Older pipeline using SDXL directly (no QWEN guidance)
+
+  - file: vnccs/sdxl/step1_char_sheet_v5.json
+    name: VNCCS Step 1 — Character Sheet (SDXL)
+    desc: SDXL-only character sheet generation (no QWEN guidance)
+    source: AHEKOT/ComfyUI_VNCCS
+    upstream_name: VN_Step1_CharSheetGenerator_v5.json
+    upstream_path: V1SDXL/
+    category: character
+    pipeline_stage: 1
+    variant: sdxl
+
+  - file: vnccs/sdxl/step2_clothes_v5.json
+    name: VNCCS Step 2 — Clothes Changer (SDXL)
+    desc: SDXL-only clothing generation and swapping
+    source: AHEKOT/ComfyUI_VNCCS
+    upstream_name: VN_Step2_ClothesChanger_v5.json
+    upstream_path: V1SDXL/
+    category: character
+    pipeline_stage: 2
+    variant: sdxl
+
+  - file: vnccs/sdxl/step3_emotions_v6.json
+    name: VNCCS Step 3 — Emotion Generator (SDXL)
+    desc: SDXL-only emotion generation for existing characters
+    source: AHEKOT/ComfyUI_VNCCS
+    upstream_name: VN_Step3_CharEmotionGeneratorV6.json
+    upstream_path: V1SDXL/
+    category: character
+    pipeline_stage: 3
+    variant: sdxl
+
+  # ── VNCCS Utils — Utility Workflows ──────────────────────────
+  # Source: https://github.com/AHEKOT/ComfyUI_VNCCS_Utils
+
+  - file: vnccs_utils/model_loader_showcase.json
+    name: VNCCS Model Loader Showcase
+    desc: Demonstrates the VNCCS Model Manager and Selector system for managing LoRAs and checkpoints
+    source: AHEKOT/ComfyUI_VNCCS_Utils
+    upstream_name: "VNCCS_Utils Model Loader ShowCase.json"
+    category: utility
+
+  - file: vnccs_utils/pose_studio.json
+    name: VNCCS Pose Studio
+    desc: Professional 3D posing environment with bone manipulation, lighting, and prompt generation
+    source: AHEKOT/ComfyUI_VNCCS_Utils
+    upstream_name: "VNCCS_Utils Pose Studio.json"
+    category: utility
+
+  - file: vnccs_utils/qwen_detailer_change_emotion.json
+    name: VNCCS QWEN Detailer — Change Emotion
+    desc: QWEN-Image-Edit2511 detailer for face enhancement and emotion modification with drift prevention
+    source: AHEKOT/ComfyUI_VNCCS_Utils
+    upstream_name: "VNCCS_Utils QwenDetailer_ChangeEmotion.json"
+    category: utility
+
+  - file: vnccs_utils/visual_camera_control_qwen_edit.json
+    name: VNCCS Visual Camera Control (QWEN Image Edit LoRA)
+    desc: Interactive camera control for multi-angle LoRAs — azimuth, elevation, distance with visual widget
+    source: AHEKOT/ComfyUI_VNCCS_Utils
+    upstream_name: "VNCCS_Utils Visual camera control node for Qwen-Image-Edit-2511-Multiple-Angles LoRa.json"
+    category: utility

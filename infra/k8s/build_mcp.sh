@@ -51,5 +51,35 @@ kubectl apply -f infra/k8s/mcp/web-research.yaml
 kubectl apply -f infra/k8s/mcp/media-analysis.yaml
 kubectl apply -f infra/k8s/traefik-ingress.yaml
 
+# ── Equibles (vendor clone, builds from upstream source) ──
+EQUIBLES_DIR="vendor/equibles"
+if [ -d "$EQUIBLES_DIR" ]; then
+    echo ""
+    echo "=== Building Equibles images from vendor clone ==="
+
+    echo "--- Building equibles-mcp ---"
+    docker build -f "$EQUIBLES_DIR/src/Equibles.Mcp.Server/Dockerfile" \
+        -t "${PUSH_REGISTRY}/tech-noir/mcp-equibles:latest" "$EQUIBLES_DIR"
+    docker push "${PUSH_REGISTRY}/tech-noir/mcp-equibles:latest"
+
+    echo "--- Building equibles-worker ---"
+    docker build -f "$EQUIBLES_DIR/src/Equibles.Worker.Host/Dockerfile" \
+        -t "${PUSH_REGISTRY}/tech-noir/mcp-equibles-worker:latest" "$EQUIBLES_DIR"
+    docker push "${PUSH_REGISTRY}/tech-noir/mcp-equibles-worker:latest"
+
+    echo "--- Building equibles-web (migration runner) ---"
+    docker build -f "$EQUIBLES_DIR/src/Equibles.Web/Dockerfile" \
+        -t "${PUSH_REGISTRY}/tech-noir/mcp-equibles-web:latest" "$EQUIBLES_DIR"
+    docker push "${PUSH_REGISTRY}/tech-noir/mcp-equibles-web:latest"
+
+    echo "Deploying Equibles..."
+    kubectl apply -f infra/flux/mcp/equibles-deps.yaml
+    kubectl apply -f infra/flux/mcp/equibles-mcp.yaml
+    kubectl apply -f infra/flux/mcp/equibles-worker.yaml
+    kubectl apply -f infra/flux/mcp/equibles-web.yaml
+    kubectl apply -f infra/flux/shared/keda.yaml
+    kubectl apply -f infra/flux/mcp/equibles-scaledobject.yaml
+fi
+
 echo ""
 echo "Done. Watch: kubectl get pods -n mcp -w"

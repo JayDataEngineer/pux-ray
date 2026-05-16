@@ -3,27 +3,15 @@ import base64
 import tempfile
 from pathlib import Path
 
+from models.base_handler import BaseFamilyHandler, _make_handler_cls
 
-class family_handler:
-    @staticmethod
-    def query_supported_types():
-        return ["faster_whisper"]
 
-    @staticmethod
-    def query_family_maps():
-        return {}, {}
-
-    @staticmethod
-    def query_model_family():
-        return "faster_whisper"
-
-    @staticmethod
-    def query_family_infos():
-        return {"faster_whisper": (301, "Faster-Whisper ASR")}
-
-    @staticmethod
-    def query_model_def(base_model_type, model_def):
-        return {"audio_only": True, "image_outputs": False}
+@_make_handler_cls
+class family_handler(BaseFamilyHandler):
+    SUPPORTED_TYPES = ["faster_whisper"]
+    FAMILY = "faster_whisper"
+    FAMILY_INFOS = {"faster_whisper": (301, "Faster-Whisper ASR")}
+    DEFAULTS = {"language": "en"}
 
     @staticmethod
     def load_model(model_filename, model_type, base_model_type, model_def,
@@ -40,10 +28,6 @@ class family_handler:
             pass
         model = WhisperModel(model_path, device="cpu", compute_type="int8")
         return _Pipeline(model), {}
-
-    @staticmethod
-    def update_default_settings(base_model_type, model_def, ui_defaults):
-        ui_defaults.update({"language": "en"})
 
 
 class _Pipeline:

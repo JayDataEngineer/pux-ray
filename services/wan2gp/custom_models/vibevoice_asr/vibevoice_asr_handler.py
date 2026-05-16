@@ -10,29 +10,17 @@ from pathlib import Path
 
 import torch
 
+from models.base_handler import BaseFamilyHandler, _make_handler_cls
+
 logger = logging.getLogger(__name__)
 
 
-class family_handler:
-    @staticmethod
-    def query_supported_types():
-        return ["vibevoice-asr"]
-
-    @staticmethod
-    def query_family_maps():
-        return {}, {}
-
-    @staticmethod
-    def query_model_family():
-        return "vibevoice_asr"
-
-    @staticmethod
-    def query_family_infos():
-        return {"vibevoice_asr": (304, "VibeVoice ASR")}
-
-    @staticmethod
-    def query_model_def(base_model_type, model_def):
-        return {"audio_only": True, "image_outputs": False}
+@_make_handler_cls
+class family_handler(BaseFamilyHandler):
+    SUPPORTED_TYPES = ["vibevoice-asr"]
+    FAMILY = "vibevoice_asr"
+    FAMILY_INFOS = {"vibevoice_asr": (304, "VibeVoice ASR")}
+    DEFAULTS = {"language": "english"}
 
     @staticmethod
     def load_model(model_filename, model_type, base_model_type, model_def,
@@ -57,10 +45,6 @@ class family_handler:
         processor = VibeVoiceProcessor.from_pretrained(str(model_path))
 
         return _Pipeline(model, processor), {}
-
-    @staticmethod
-    def update_default_settings(base_model_type, model_def, ui_defaults):
-        ui_defaults.update({"language": "english"})
 
 
 class _Pipeline:

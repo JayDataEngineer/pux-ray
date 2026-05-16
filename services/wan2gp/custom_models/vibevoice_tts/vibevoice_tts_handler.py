@@ -25,26 +25,17 @@ import torch
 logger = logging.getLogger(__name__)
 
 
-class family_handler:
-    @staticmethod
-    def query_supported_types():
-        return ["vibevoice-tts"]
+from models.base_handler import BaseFamilyHandler, _make_handler_cls, audio_response
 
-    @staticmethod
-    def query_family_maps():
-        return {}, {}
+logger = logging.getLogger(__name__)
 
-    @staticmethod
-    def query_model_family():
-        return "vibevoice_tts"
 
-    @staticmethod
-    def query_family_infos():
-        return {"vibevoice_tts": (305, "VibeVoice TTS")}
-
-    @staticmethod
-    def query_model_def(base_model_type, model_def):
-        return {"audio_only": True, "image_outputs": False}
+@_make_handler_cls
+class family_handler(BaseFamilyHandler):
+    SUPPORTED_TYPES = ["vibevoice-tts"]
+    FAMILY = "vibevoice_tts"
+    FAMILY_INFOS = {"vibevoice_tts": (305, "VibeVoice TTS")}
+    DEFAULTS = {"prompt": ""}
 
     @staticmethod
     def load_model(model_filename, model_type, base_model_type, model_def,
@@ -84,10 +75,6 @@ class family_handler:
 
         pipeline = _Pipeline(inner, processor, model.lm_head, pipe)
         return pipeline, {"pipe": pipe, "coTenantsMap": co_tenants}
-
-    @staticmethod
-    def update_default_settings(base_model_type, model_def, ui_defaults):
-        ui_defaults.update({"prompt": ""})
 
 
 class _Pipeline:
@@ -155,8 +142,7 @@ class _Pipeline:
             sf.write(f.name, audio.flatten(), sample_rate)
             wav_data = open(f.name, "rb").read()
 
-        return {"status": "success", "data": base64.b64encode(wav_data).decode(),
-                "media_type": "audio/wav"}
+        return audio_response(wav_data)
 
     def _generate_loop(self, input_ids, attention_mask, speech_embeds, max_new_tokens):
         from transformers import DynamicCache
