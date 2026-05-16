@@ -195,3 +195,40 @@ spec:
   dependsOn:
     - name: ai-services
     - name: mcp
+
+---
+# Dev branch source — watches dev for dev-specific resources
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: GitRepository
+metadata:
+  name: tech-noir-dev
+  namespace: flux-system
+spec:
+  interval: 5m
+  ref:
+    branch: dev
+  url: https://github.com/JayDataEngineer/tech-noir-ray.git
+  secretRef:
+    name: github-token
+  ignore: |
+    /*
+    !/infra/flux/dev/
+
+---
+# Dev resources — test jobs, debug configs, experimental manifests
+# Add resources to infra/flux/dev/ on the dev branch. They auto-deploy.
+# Promote to production: merge dev → master.
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: dev-resources
+  namespace: flux-system
+spec:
+  interval: 5m
+  path: ./infra/flux/dev
+  prune: true
+  sourceRef:
+    kind: GitRepository
+    name: tech-noir-dev
+  dependsOn:
+    - name: namespaces
