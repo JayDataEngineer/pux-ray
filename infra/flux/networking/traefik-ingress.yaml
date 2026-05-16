@@ -286,10 +286,3 @@ spec:
   routes:
     - match: HostSNI(`*`)
       services:
-        - name: forge-registry
-          port: 5000
-
----
-# Access: http://100.86.69.57:30080/flux
-
-apiVersion: traefik.io/v1alpha1
