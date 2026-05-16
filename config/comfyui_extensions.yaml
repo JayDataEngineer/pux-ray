@@ -83,6 +83,8 @@ extensions:
     url: https://github.com/ltdrdata/ComfyUI-Inspire-Pack
     desc: AI-powered node pack
     required: false
+    pip:
+      - webcolors
 
   - name: comfyui-videohelpersuite
     url: https://github.com/Kosinkadink/ComfyUI-VideoHelperSuite
