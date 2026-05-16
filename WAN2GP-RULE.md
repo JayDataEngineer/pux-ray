@@ -45,6 +45,42 @@ A model passes the decomposition test when:
 6. Every import chain terminates at a standard pip package (`torch`, `transformers`, etc.)
 7. Zero monkeypatches, zero shims, zero compatibility hacks for the installed pip versions
 
+## Amendment A: Large Model Exception
+
+Some models are too complex for thin-wrapper decomposition (sparse 3D convolutions,
+mesh processing, custom ODE solvers, texture baking, etc.). These follow the TRELLIS
+pattern instead:
+
+**A large model passes when:**
+1. `load_model()` returns a pipe dict with >= 2 independently swappable nn.Modules (same as rule 1)
+2. The handler file (`{name}_handler.py`) is authored in this fork
+3. Upstream source code lives as a declared subpackage within the handler directory (e.g., `models/trellis/trellis2/`)
+4. The subpackage is imported via relative imports (`from .trellis2.pipelines...`), not `sys.path` hacks
+5. The subpackage origin is documented (repo URL, commit hash, or version tag)
+6. The handler decomposes the upstream pipeline into nn.Modules for mmgp
+7. No `sys.path.insert()` calls (use relative imports or `importlib`)
+
+**Reference implementation:** `models/trellis/trellis_handler.py` + `models/trellis/trellis2/`
+
+**Applies to:** trellis, anigen, see_through, hy_motion — models with no pip package equivalent
+where the upstream source is too large to author from scratch (>1000 LOC).
+
+**Does NOT apply to:** moss, kokoro, vibevoice — these MUST follow the standard rules
+because thin wrappers around pip packages are feasible.
+
+## Amendment B: Wan2GP Dependency Exception
+
+Wan2GP ships with its own model implementations under `models/wan/`, including
+multitalk modules. A handler may import nn.Module definitions from Wan2GP's own
+codebase (e.g., `models.wan.multitalk.kokoro`) as if they were pip packages.
+
+This is acceptable because:
+- Wan2GP is the host framework — its modules are always available
+- The handler itself is still authored (orchestration, weight loading, generate logic)
+- The nn.Module definitions come from the same codebase, not external vendors
+
+Requirement: the import must be explicit and documented in the handler docstring.
+
 ## Enforcement
 
 Before declaring any model "done":

@@ -102,7 +102,7 @@ class family_handler:
 
         # 5. Connectors (authored Linear+RMSNorm+Linear)
         h = cfg["decoder_config"]["hidden_size"]
-        acoustic_connector = SpeechConnector(cfg["acostic_vae_dim"], h)
+        acoustic_connector = SpeechConnector(cfg["acoustic_vae_dim"], h)
         sd = _load_and_strip(sd, "model.acoustic_connector", acoustic_connector)
         semantic_connector = SpeechConnector(cfg["semantic_vae_dim"], h)
         sd = _load_and_strip(sd, "model.semantic_connector", semantic_connector)
@@ -182,7 +182,9 @@ class _Pipeline:
         inputs = self.tokenizer(input_text, return_tensors="pt")
         input_ids = inputs.input_ids.to(dev)
         attn_mask = inputs.attention_mask.to(dev)
+        text_len = input_ids.shape[1]
 
+        # Autoregressive LM generation
         seq = input_ids
         past = None
         eos_id = self.tokenizer.eos_token_id
@@ -196,10 +198,41 @@ class _Pipeline:
             logits = self.lm_head(out.last_hidden_state[:, -1, :])
             tok = torch.argmax(logits, dim=-1, keepdim=True)
             seq = torch.cat([seq, tok], dim=1)
+            attn_mask = torch.cat([
+                attn_mask,
+                torch.ones(1, 1, dtype=attn_mask.dtype, device=dev),
+            ], dim=1)
             if tok.item() == eos_id:
                 break
 
+        # Extract audio hidden states (re-run without cache for full sequence)
+        with torch.no_grad():
+            full_out = self.language_model(
+                input_ids=seq, attention_mask=attn_mask,
+                use_cache=False,
+            )
+        audio_hiddens = full_out.last_hidden_state[:, text_len:]
+
+        # Project through acoustic connector: [B, T, acoustic_vae_dim]
+        audio_feats = self.acoustic_connector(audio_hiddens)
+        audio_feats = audio_feats * self.scaling_factor
+
+        # Diffusion refinement via prediction head
+        n_steps = 50
+        self.noise_scheduler.set_timesteps(n_steps, device=dev)
+        latents = torch.randn_like(audio_feats) * self.noise_scheduler.init_noise_sigma
+
+        for t in self.noise_scheduler.timesteps:
+            t_batch = t.expand(latents.shape[0])
+            noise_pred = self.prediction_head(latents, t_batch, audio_feats)
+            latents = self.noise_scheduler.step(noise_pred, t, latents).prev_sample
+
+        # Decode to waveform via acoustic tokenizer
+        latents = latents.transpose(1, 2)  # [B, vae_dim, T] for conv decoder
+        audio = self.acoustic_tokenizer.decode(latents)
+        audio_np = audio.squeeze(0).squeeze(0).cpu().float().numpy()
+
         buf = io.BytesIO()
-        sf.write(buf, torch.zeros(24000).numpy(), 24000, format="WAV")
+        sf.write(buf, audio_np, 24000, format="WAV")
         return {"status": "success", "data": base64.b64encode(buf.getvalue()).decode(),
                 "media_type": "audio/wav"}

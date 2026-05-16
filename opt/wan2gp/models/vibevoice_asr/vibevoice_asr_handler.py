@@ -82,7 +82,7 @@ class family_handler:
         sd = _load_and_strip(sd, "model.acoustic_tokenizer", acoustic_tokenizer)
 
         h = cfg["decoder_config"]["hidden_size"]
-        acoustic_connector = SpeechConnector(cfg.get("acostic_vae_dim", 64), h)
+        acoustic_connector = SpeechConnector(cfg.get("acoustic_vae_dim", 64), h)
         sd = _load_and_strip(sd, "model.acoustic_connector", acoustic_connector)
 
         lm_head = nn.Linear(h, cfg["decoder_config"]["vocab_size"], bias=False)
