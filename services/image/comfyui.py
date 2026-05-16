@@ -49,18 +49,6 @@ class ComfyUIService(ForgeSubprocessMixin, ForgeService):
             done
         """], check=False)
 
-        # Install ComfyUI-Manager if missing
-        manager_dir = "/opt/ComfyUI/custom_nodes/ComfyUI-Manager"
-        if not os.path.isdir(manager_dir):
-            try:
-                subprocess.run(
-                    ["git", "clone", "https://github.com/ltdrdata/ComfyUI-Manager.git",
-                     manager_dir],
-                    check=True, capture_output=True, timeout=60)
-                logger.info("ComfyUI-Manager installed")
-            except Exception as e:
-                logger.warning("ComfyUI-Manager install failed: %s", e)
-
         self.start_subprocess(
             cmd=["python3", "main.py", "--port", str(self.PORT),
                  "--listen", "0.0.0.0", "--preview-method", "auto",
