@@ -500,7 +500,7 @@ class LLMService(ForgeSubprocessMixin, ForgeService):
     """LLM via llama-server subprocess for the Forge. Takes dict, returns dict."""
     vram_mb = 20_480
     service_name = "llm"
-    default_model = "qwen3.6-27b-q5_k_s"
+    default_model = "qwen3.6-27b-q5_k_s-32k"
 
     def __init__(self):
         ForgeService.__init__(self)
