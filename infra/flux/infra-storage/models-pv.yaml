@@ -10,7 +10,7 @@ spec:
   persistentVolumeReclaimPolicy: Retain
   storageClassName: local-models
   local:
-    path: /mnt/data/models
+    path: /home/user/Documents/models  # symlink → /mnt/data/models (PV spec is immutable)
   nodeAffinity:
     required:
       nodeSelectorTerms:

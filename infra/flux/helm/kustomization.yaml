@@ -4,6 +4,7 @@ resources:
   # Helm repositories (must be indexed before releases)
   - repositories/gitea.yaml
   - repositories/grafana.yaml
+  - repositories/keda.yaml
   - repositories/prometheus-community.yaml
   - repositories/traefik.yaml
   - repositories/victoriametrics.yaml
@@ -17,6 +18,7 @@ resources:
   - releases/infra/kube-state-metrics.yaml
   - releases/infra/flux-operator.yaml
   - releases/infra/flux-ui-nodeport.yaml
+  - releases/infra/keda.yaml
   - releases/git/gitea.yaml
   # Custom charts (in-repo GitRepository-based)
   - releases/infra/forge-registry.yaml

@@ -268,6 +268,9 @@ _WEIGHT_SEARCH = {
     "faster-qwen3-tts": [("tts", "qwen3-tts")],
     "anigen": [("3d", "anigen")],
     "moss-soundeffect": [("audio", "moss-soundeffect")],
+    "moss-tts": [("audio", "moss-tts")],
+    "moss-ttsd": [("audio", "moss-ttsd")],
+    "moss-voicegenerator": [("audio", "moss-voicegenerator")],
     "see-through": [("image", "see-through-layerdiff"), ("image", "see-through-marigold")],
     "hy-motion-1.0": [("motion", "hy-motion-1.0")],
     "hy-motion-1.0-lite": [("motion", "hy-motion-1.0-lite")],
@@ -520,65 +523,29 @@ class Wan2GPService:
         cfg = Config()
         model_registry = ModelRegistry()
 
-        # Resolve model path
         model_path = self._resolve_model_path(model_name, entry, model_registry, cfg)
-
-        # Resolve extra per-handler paths and inject into model_def
         extra_paths = self._resolve_handler_paths(
             model_type, model_registry, cfg, quant=quant)
-
-        # Build model_def with injected paths
         model_def = self._build_model_def(handler, base_model_type, model_path)
-
-        # Merge handler-specific paths as top-level model_def keys
-        # (same pattern vendor handlers use: model_def.get("text_encoder_folder", ...))
         if extra_paths:
             model_def.update(extra_paths)
 
-        # Determine if this is a CPU-only model
         is_cpu = model_type in _CPU_ONLY_TYPES
-        dtype = None if is_cpu else torch.bfloat16
-        vae_dtype = None if is_cpu else torch.float32
-        profile = 0 if is_cpu else MMGP_PROFILES["balanced"]
-
         logger.info("Loading %s from %s (family_handler, quant=%s)", model_name, model_path or "N/A", quant)
         torch.set_default_device("cpu")
 
         pipeline, pipe_wrapper = handler.load_model(
-            [] if model_path is None else [],
-            model_type,
-            base_model_type,
-            model_def,
+            [], model_type, base_model_type, model_def,
             quantizeTransformer=not is_cpu,
             text_encoder_quantization="int8" if not is_cpu else None,
-            dtype=dtype,
-            VAE_dtype=vae_dtype,
-            profile=profile,
+            dtype=None if is_cpu else torch.bfloat16,
+            VAE_dtype=None if is_cpu else torch.float32,
+            profile=0 if is_cpu else MMGP_PROFILES["balanced"],
             quant=quant,
         )
 
-        # Unwrap pipe dict
-        if isinstance(pipe_wrapper, dict):
-            pipe = pipe_wrapper.get("pipe", pipe_wrapper)
-            co_tenants = pipe_wrapper.get("coTenantsMap", {})
-        else:
-            pipe = {}
-            co_tenants = {}
-
-        # mmgp profile for GPU models with nn.Modules
-        if pipe and not is_cpu:
-            from mmgp import offload
-            budgets = {"transformer": 250, "text_encoder": 250, "*": 3000}
-            offload.profile(
-                pipe,
-                profile_no=profile,
-                quantizeTransformer=False,
-                budgets=budgets,
-                loras=[],
-                perc_reserved_mem_max=0.5,
-                vram_safety_coefficient=0.9,
-                coTenantsMap=co_tenants,
-            )
+        pipe, co_tenants = self._unwrap_pipe(pipe_wrapper)
+        self._apply_mmgp_profile(pipe, co_tenants, is_cpu, model_type)
 
         self._models[model_name] = {
             "model": pipeline,
@@ -586,6 +553,29 @@ class Wan2GPService:
             "info": entry,
             "loaded_at": time.time(),
         }
+
+    @staticmethod
+    def _unwrap_pipe(pipe_wrapper) -> tuple[dict, dict]:
+        if isinstance(pipe_wrapper, dict):
+            return pipe_wrapper.get("pipe", pipe_wrapper), pipe_wrapper.get("coTenantsMap", {})
+        return {}, {}
+
+    @staticmethod
+    def _apply_mmgp_profile(pipe: dict, co_tenants: dict, is_cpu: bool,
+                            model_type: str) -> None:
+        if not pipe or is_cpu:
+            return
+        from mmgp import offload
+        offload.profile(
+            pipe,
+            profile_no=MMGP_PROFILES["balanced"],
+            quantizeTransformer=False,
+            budgets={"transformer": 250, "text_encoder": 250, "*": 3000},
+            loras=[],
+            perc_reserved_mem_max=0.5,
+            vram_safety_coefficient=0.9,
+            coTenantsMap=co_tenants,
+        )
 
     def _resolve_model_path(self, model_name: str, entry: dict,
                              registry, cfg) -> Path | None:
@@ -676,169 +666,113 @@ class Wan2GPService:
 
         return False
 
+    # Spec-aware model type → spec name mapping
+    _SPEC_AWARE = {
+        "moss-soundeffect": "moss",
+        "moss-tts": "moss_tts",
+        "moss-ttsd": "moss_ttsd",
+        "moss-voicegenerator": "moss_voicegenerator",
+        "trellis": "trellis",
+        "kokoro": "kokoro",
+        "faster_whisper": "faster_whisper",
+        "vibevoice-asr": "vibevoice_asr",
+        "vibevoice-tts": "vibevoice_tts",
+        "anigen": "anigen",
+        "see-through": "see_through",
+        "hy-motion-1.0": "hy_motion",
+        "hy-motion-1.0-lite": "hy_motion_lite",
+        "pixal3d": "pixal3d",
+    }
+
+    # model_type → [(output_key, spec_module_key, registry_category, registry_name), ...]
+    _PATH_MAP = {
+        "moss-soundeffect": [
+            ("moss_soundeffect_path", "language_model", "audio", "moss-soundeffect"),
+            ("moss_audio_tokenizer_path", "audio_tokenizer", "audio", "moss-audio-tokenizer"),
+        ],
+        "moss-tts": [
+            ("moss_tts_path", "language_model", "audio", "moss-tts"),
+            ("moss_audio_tokenizer_path", "audio_tokenizer", "audio", "moss-audio-tokenizer"),
+        ],
+        "moss-ttsd": [
+            ("moss_ttsd_path", "language_model", "audio", "moss-ttsd"),
+            ("moss_audio_tokenizer_path", "audio_tokenizer", "audio", "moss-audio-tokenizer"),
+        ],
+        "moss-voicegenerator": [
+            ("moss_voicegenerator_path", "language_model", "audio", "moss-voicegenerator"),
+            ("moss_audio_tokenizer_path", "audio_tokenizer", "audio", "moss-audio-tokenizer"),
+        ],
+        "kokoro": [("kokoro_path", "model", "tts", "kokoro")],
+        "faster_whisper": [("faster_whisper_path", "model", "asr", "faster-whisper")],
+        "vibevoice-asr": [("vibevoice_asr_path", "language_model", "asr", "vibevoice-asr")],
+        "vibevoice-tts": [("vibevoice_tts_path", "language_model", "tts", "vibevoice-tts")],
+        "anigen": [("anigen_path", "pipeline_root", "3d", "anigen")],
+        "faster-qwen3-tts": [("faster_qwen3_tts_path", None, "tts", "qwen3-tts")],
+    }
+
+    # Models with multiple paths sharing the same pattern
+    _MULTI_PATH_MAP = {
+        "see-through": [
+            ("see_through_layerdiff_path", "layerdiff", "image", "see-through-layerdiff"),
+            ("see_through_marigold_path", "marigold", "image", "see-through-marigold"),
+            ("see_through_scheduler_path", "scheduler", "image", "see-through-scheduler"),
+        ],
+    }
+
     def _resolve_handler_paths(self, model_type: str, registry, cfg, *,
                                quant: str | None = None) -> dict:
-        """Resolve extra paths for custom handlers and return as a flat dict.
-
-        These are injected into model_def so handlers don't need to import
-        registry.* themselves. When quant is set, tries the spec resolver
-        first for spec-aware models.
-        """
+        """Resolve extra paths for custom handlers and return as a flat dict."""
         paths = {}
 
-        # Spec-aware model type → spec name mapping
-        _SPEC_AWARE = {
-            "moss-soundeffect": "moss",
-            "trellis": "trellis",
-            "kokoro": "kokoro",
-            "faster_whisper": "faster_whisper",
-            "vibevoice-asr": "vibevoice_asr",
-            "vibevoice-tts": "vibevoice_tts",
-            "anigen": "anigen",
-            "see-through": "see_through",
-            "hy-motion-1.0": "hy_motion",
-            "hy-motion-1.0-lite": "hy_motion_lite",
-            "pixal3d": "pixal3d",
-        }
-
-        spec_name = _SPEC_AWARE.get(model_type)
-        spec_resolved = False
+        # Try spec resolver for spec-aware models
+        spec_name = self._SPEC_AWARE.get(model_type)
+        spec = None
         if spec_name:
             try:
                 from registry.specs import resolve
                 spec = resolve(spec_name, quant=quant)
-                spec_resolved = True
             except Exception:
                 pass
 
-        # ── Per-model path injection ──────────────────────────────────────
-
-        if model_type == "moss-soundeffect":
-            if spec_resolved:
-                paths["moss_soundeffect_path"] = spec["modules"].get(
-                    "language_model", "")
-                paths["moss_audio_tokenizer_path"] = spec["modules"].get(
-                    "audio_tokenizer", "")
-            else:
-                try:
-                    paths["moss_soundeffect_path"] = registry.get_path(
-                        "audio", "moss-soundeffect")
-                except Exception:
-                    pass
-                try:
-                    paths["moss_audio_tokenizer_path"] = registry.get_path(
-                        "audio", "moss-audio-tokenizer")
-                except Exception:
-                    pass
-
-        elif model_type == "trellis":
-            # TRELLIS loads via from_pretrained(pipeline_json) — handler
-            # resolves its own path from TRELLIS_MODEL_ROOT / spec.
-            pass
-
-        elif model_type == "kokoro":
-            if spec_resolved:
-                paths["kokoro_path"] = spec["modules"].get("model", "")
-            else:
-                try:
-                    paths["kokoro_path"] = registry.get_path("tts", "kokoro")
-                except Exception:
-                    pass
-
-        elif model_type == "faster_whisper":
-            if spec_resolved:
-                paths["faster_whisper_path"] = spec["modules"].get("model", "")
-            else:
-                try:
-                    paths["faster_whisper_path"] = registry.get_path(
-                        "asr", "faster-whisper")
-                except Exception:
-                    pass
-
-        elif model_type == "vibevoice-asr":
-            if spec_resolved:
-                paths["vibevoice_asr_path"] = spec["modules"].get(
-                    "language_model", "")
-            else:
-                try:
-                    paths["vibevoice_asr_path"] = registry.get_path(
-                        "asr", "vibevoice-asr")
-                except Exception:
-                    pass
-
-        elif model_type == "vibevoice-tts":
-            if spec_resolved:
-                paths["vibevoice_tts_path"] = spec["modules"].get(
-                    "language_model", "")
-            else:
-                try:
-                    paths["vibevoice_tts_path"] = registry.get_path(
-                        "tts", "vibevoice-tts")
-                except Exception:
-                    pass
-
-        elif model_type == "anigen":
-            if spec_resolved:
-                paths["anigen_path"] = spec["modules"].get("pipeline_root", "")
-            else:
-                try:
-                    paths["anigen_path"] = registry.get_path("3d", "anigen")
-                except Exception:
-                    pass
-
-        elif model_type == "see-through":
-            if spec_resolved:
-                paths["see_through_layerdiff_path"] = spec["modules"].get(
-                    "layerdiff", "")
-                paths["see_through_marigold_path"] = spec["modules"].get(
-                    "marigold", "")
-                paths["see_through_scheduler_path"] = spec["modules"].get(
-                    "scheduler", "")
-            else:
-                for key, reg in [
-                    ("see_through_layerdiff_path", "see-through-layerdiff"),
-                    ("see_through_marigold_path", "see-through-marigold"),
-                    ("see_through_scheduler_path", "see-through-scheduler"),
-                ]:
+        # Data-driven path resolution
+        path_entries = self._PATH_MAP.get(model_type) or self._MULTI_PATH_MAP.get(model_type)
+        if path_entries:
+            for out_key, spec_key, reg_cat, reg_name in path_entries:
+                if spec and spec_key:
+                    paths[out_key] = spec["modules"].get(spec_key, "")
+                else:
                     try:
-                        paths[key] = registry.get_path("image", reg)
+                        paths[out_key] = registry.get_path(reg_cat, reg_name)
                     except Exception:
                         pass
 
+        # Special cases needing custom logic
         elif model_type.startswith("hy-motion"):
-            if spec_resolved:
-                paths["hy_motion_path"] = spec["modules"].get("pipeline_root", "")
-                text_enc = spec["modules"].get("text_encoder", "")
-                if text_enc:
-                    paths["hy_motion_Qwen3_8B_path"] = text_enc
-            else:
-                mp = Path(cfg.models_root) / "motion" / model_type
-                if mp.is_dir():
-                    paths["hy_motion_path"] = str(mp)
-                    for sub in ["Qwen3-8B", "clip-vit-large-patch14"]:
-                        p = mp / "ckpts" / sub
-                        if p.is_dir():
-                            paths[f"hy_motion_{sub.replace('-','_').replace('.','_')}_path"] = str(p)
+            self._resolve_hymotion_paths(paths, model_type, cfg, spec)
 
-        elif model_type == "pixal3d":
-            # Pixal3D loads via from_pretrained(pipeline_json) — handler
-            # resolves its own path from spec / registry.
-            pass
-
-        elif model_type == "faster-qwen3-tts":
-            try:
-                paths["faster_qwen3_tts_path"] = registry.get_path(
-                    "tts", "qwen3-tts")
-            except Exception:
-                pass
-
-        # Espeak binary path
+        # Espeak binary path (always resolved)
         try:
             paths["espeak_bin"] = cfg.get("binaries.espeak_ng", "espeak-ng")
         except Exception:
             pass
 
         return paths
+
+    def _resolve_hymotion_paths(self, paths: dict, model_type: str,
+                                cfg, spec: dict | None) -> None:
+        if spec:
+            paths["hy_motion_path"] = spec["modules"].get("pipeline_root", "")
+            text_enc = spec["modules"].get("text_encoder", "")
+            if text_enc:
+                paths["hy_motion_Qwen3_8B_path"] = text_enc
+        else:
+            mp = Path(cfg.models_root) / "motion" / model_type
+            if mp.is_dir():
+                paths["hy_motion_path"] = str(mp)
+                for sub in ["Qwen3-8B", "clip-vit-large-patch14"]:
+                    p = mp / "ckpts" / sub
+                    if p.is_dir():
+                        paths[f"hy_motion_{sub.replace('-','_').replace('.','_')}_path"] = str(p)
 
     def _build_model_def(self, handler, base_model_type: str,
                           model_path: Path | None) -> dict:

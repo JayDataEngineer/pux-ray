@@ -110,20 +110,31 @@ class LLMDeployment(BaseGPUDeployment, SubprocessMixin):
             raise FileNotFoundError(f"Model not found: {model_path}")
         container_model = f"/models/{model_path.relative_to(config.models_root)}"
 
-        # Merge: override > registry > code default
-        def _val(key, fallback=None):
-            return overrides.get(key) or meta.get(key) or fallback
+        cmd = self._base_cmd(binary, container_model, meta, overrides)
 
-        ctx_size = int(_val("ctx_size", 8192))
-        parallel = int(_val("parallel", 1))
-        n_gpu_layers = int(_val("n_gpu_layers", 99))
+        self._add_cache_flags(cmd, engine, meta, overrides)
+        self._add_vision_flags(cmd, config, meta, overrides)
+        if engine == "beellama":
+            self._add_beellama_flags(cmd, meta, overrides)
+        self._add_sampling_flags(cmd, meta, overrides)
+
+        return cmd
+
+    def _val(self, key, overrides, meta, fallback=None):
+        return overrides.get(key) or meta.get(key) or fallback
+
+    def _base_cmd(self, binary: str, container_model: str,
+                  meta: dict, overrides: dict) -> list[str]:
+        ctx_size = int(self._val("ctx_size", overrides, meta, 8192))
+        parallel = int(self._val("parallel", overrides, meta, 1))
+        n_gpu = int(self._val("n_gpu_layers", overrides, meta, 99))
 
         cmd: list[str] = [
             binary,
             "-m", container_model,
             "--port", str(self.PORT),
             "--host", "0.0.0.0",
-            "-ngl", str(n_gpu_layers),
+            "-ngl", str(n_gpu),
             "-c", str(ctx_size),
             "--parallel", str(parallel),
             "--jinja",
@@ -132,54 +143,54 @@ class LLMDeployment(BaseGPUDeployment, SubprocessMixin):
             "--cache-ram", "0",
         ]
 
-        # Flash attention
-        if _val("flash_attn"):
+        if self._val("flash_attn", overrides, meta):
             cmd.extend(["--flash-attn", "on"])
 
-        # Batch sizes
-        batch_size = _val("batch_size")
-        if batch_size:
-            cmd.extend(["-b", str(batch_size)])
-        ubatch_size = _val("ubatch_size")
-        if ubatch_size:
-            cmd.extend(["-ub", str(ubatch_size)])
+        for flag, key in [("-b", "batch_size"), ("-ub", "ubatch_size")]:
+            val = self._val(key, overrides, meta)
+            if val:
+                cmd.extend([flag, str(val)])
 
-        # KV cache compression — TurboQuant types are BeeLlama-only
-        beellama_cache = {"turbo4", "turbo3_tcq", "turbo3"}
-        cache_type_k = _val("cache_type_k")
-        if cache_type_k:
-            if engine != "beellama" and cache_type_k in beellama_cache:
-                cache_type_k = "f16"
-            cmd.extend(["--cache-type-k", str(cache_type_k)])
-        cache_type_v = _val("cache_type_v")
-        if cache_type_v:
-            if engine != "beellama" and cache_type_v in beellama_cache:
-                cache_type_v = "f16"
-            cmd.extend(["--cache-type-v", str(cache_type_v)])
+        threads = self._val("threads", overrides, meta)
+        if threads:
+            cmd.extend(["-t", str(threads)])
 
-        # Vision projector (mmproj) — always load when path configured; offload=0 keeps it CPU
+        return cmd
+
+    def _add_cache_flags(self, cmd: list[str], engine: str,
+                         meta: dict, overrides: dict) -> None:
+        beellama_only = {"turbo4", "turbo3_tcq", "turbo3"}
+        for flag, key in [("--cache-type-k", "cache_type_k"),
+                          ("--cache-type-v", "cache_type_v")]:
+            val = self._val(key, overrides, meta)
+            if val:
+                if engine != "beellama" and val in beellama_only:
+                    val = "f16"
+                cmd.extend([flag, str(val)])
+
+    def _add_vision_flags(self, cmd: list[str], config, meta: dict,
+                          overrides: dict) -> None:
         mmproj_path = overrides.get("mmproj_path") or meta.get("mmproj_path")
         use_vision = overrides.get("use_vision")
         if use_vision is None:
             use_vision = mmproj_path is not None
-        offload = int(_val("mmproj_n_gpu_layers", 0))
-        if use_vision and mmproj_path:
-            full_mmproj = Path(mmproj_path)
-            if not full_mmproj.is_absolute():
-                full_mmproj = Path(config.models_root) / mmproj_path
-            if full_mmproj.exists():
-                container_mmproj = (
-                    f"/models/{full_mmproj.relative_to(config.models_root)}"
-                )
-                cmd.extend(["--mmproj", container_mmproj])
-                if offload == 0:
-                    cmd.append("--no-mmproj-offload")
+        if not (use_vision and mmproj_path):
+            return
 
-        # Engine-specific flags
-        if engine == "beellama":
-            self._add_beellama_flags(cmd, meta, overrides)
+        full_mmproj = Path(mmproj_path)
+        if not full_mmproj.is_absolute():
+            full_mmproj = Path(config.models_root) / mmproj_path
+        if not full_mmproj.exists():
+            return
 
-        # Sampling defaults as startup flags (llama-server native)
+        container_mmproj = f"/models/{full_mmproj.relative_to(config.models_root)}"
+        cmd.extend(["--mmproj", container_mmproj])
+        offload = int(self._val("mmproj_n_gpu_layers", overrides, meta, 0))
+        if offload == 0:
+            cmd.append("--no-mmproj-offload")
+
+    def _add_sampling_flags(self, cmd: list[str], meta: dict,
+                            overrides: dict) -> None:
         for flag, key in [
             ("--temp", "temp"),
             ("--top-p", "top_p"),
@@ -188,21 +199,13 @@ class LLMDeployment(BaseGPUDeployment, SubprocessMixin):
             ("--presence-penalty", "presence_penalty"),
             ("--repeat-penalty", "repeat_penalty"),
         ]:
-            val = _val(key)
+            val = self._val(key, overrides, meta)
             if val is not None:
                 cmd.extend([flag, str(val)])
 
-        # Reasoning mode
-        if _val("reasoning"):
+        if self._val("reasoning", overrides, meta):
             cmd.extend(["--reasoning", "on"])
             cmd.extend(["--chat-template-kwargs", '{"preserve_thinking":true}'])
-
-        # Threads
-        threads = _val("threads")
-        if threads:
-            cmd.extend(["-t", str(threads)])
-
-        return cmd
 
     def _add_beellama_flags(
         self, cmd: list[str], meta: dict, overrides: dict
@@ -213,12 +216,10 @@ class LLMDeployment(BaseGPUDeployment, SubprocessMixin):
         def _val(key, fallback=None):
             return overrides.get(key) or meta.get(key) or fallback
 
-        # Speculative decoding type
         spec_type = _val("spec_type")
         if spec_type:
             cmd.extend(["--spec-type", spec_type])
 
-        # Draft model
         spec_draft_model = _val("spec_draft_model")
         if spec_draft_model:
             draft_path = Path(spec_draft_model)
@@ -234,17 +235,14 @@ class LLMDeployment(BaseGPUDeployment, SubprocessMixin):
                     "DFlash draft model not found: %s — DFlash disabled", draft_path
                 )
 
-        spec_draft_ngl = _val("spec_draft_ngl")
-        if spec_draft_ngl is not None:
-            cmd.extend(["--spec-draft-ngl", str(spec_draft_ngl)])
-
-        spec_dflash_cross_ctx = _val("spec_dflash_cross_ctx")
-        if spec_dflash_cross_ctx is not None:
-            cmd.extend(["--spec-dflash-cross-ctx", str(spec_dflash_cross_ctx)])
-
-        spec_draft_n_max = _val("spec_draft_n_max")
-        if spec_draft_n_max is not None:
-            cmd.extend(["--spec-draft-n-max", str(spec_draft_n_max)])
+        for flag, key in [
+            ("--spec-draft-ngl", "spec_draft_ngl"),
+            ("--spec-dflash-cross-ctx", "spec_dflash_cross_ctx"),
+            ("--spec-draft-n-max", "spec_draft_n_max"),
+        ]:
+            val = _val(key)
+            if val is not None:
+                cmd.extend([flag, str(val)])
 
         if _val("no_host"):
             cmd.append("--no-host")

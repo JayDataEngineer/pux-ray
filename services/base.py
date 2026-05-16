@@ -35,8 +35,8 @@ def gpu_memory_info() -> dict:
                 "free_mb": int(free),
                 "device_name": props.name,
             }
-    except (ImportError, RuntimeError):
-        pass
+    except (ImportError, RuntimeError) as e:
+        logger.debug("gpu_memory_info unavailable: %s", e)
     return {"total_mb": 0, "free_mb": 0}
 
 

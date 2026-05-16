@@ -44,12 +44,14 @@ def resolve_model_path(
     model_def = model_def or {}
 
     # 1. Check model_def first (explicit override from deployment.py)
-    path = Path(model_def.get(model_def_key, ""))
-    if check_file:
-        if path.is_dir() and (path / check_file).exists():
+    raw = model_def.get(model_def_key, "")
+    if raw:
+        path = Path(raw)
+        if check_file:
+            if path.is_dir() and (path / check_file).exists():
+                return path
+        elif path.is_dir():
             return path
-    elif path.is_dir():
-        return path
 
     # 2. Spec-first resolution
     try:

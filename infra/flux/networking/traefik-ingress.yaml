@@ -17,8 +17,9 @@
 #   /grafana/*        → Grafana
 #   /*                → Ray Serve (catch-all)
 #
-# Ray Serve uses ray-serve-proxy (head-only) to avoid 502s from worker
-# nodes that don't run the HTTP proxy.
+# Ray Serve uses tech-noir-ray-serve-svc (KubeRay-managed) which always
+# targets the active cluster. ray-serve-proxy was removed because its static
+# selector matched both active and pending clusters during rolling updates.
 
 # Gitea — self-hosted Git + Actions CI
 apiVersion: traefik.io/v1alpha1
@@ -63,7 +64,7 @@ spec:
     - match: PathPrefix(`/`)
       kind: Rule
       services:
-        - name: ray-serve-proxy
+        - name: tech-noir-ray-serve-svc
           port: 8000
 
 ---
@@ -246,7 +247,7 @@ spec:
         - name: grafana-rewrite
       services:
         - name: grafana
-          port: 3000
+          port: 80
 
 ---
 apiVersion: traefik.io/v1alpha1
@@ -343,7 +344,7 @@ spec:
     - match: PathPrefix(`/comfyui`)
       kind: Rule
       services:
-        - name: ray-serve-proxy
+        - name: tech-noir-ray-serve-svc
           port: 8000
 
 ---
@@ -373,5 +374,5 @@ spec:
     - match: PathPrefix(`/llm`)
       kind: Rule
       services:
-        - name: ray-serve-proxy
+        - name: tech-noir-ray-serve-svc
           port: 8000

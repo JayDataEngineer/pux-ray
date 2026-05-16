@@ -83,6 +83,12 @@ spec:
                   value: /tmp/huggingface
                 - name: TECH_NOIR_MODELS_ROOT
                   value: /models
+                - name: HF_TOKEN
+                  valueFrom:
+                    secretKeyRef:
+                      name: shared-infra
+                      key: HF_TOKEN
+                      optional: true
               resources:
                 limits:
                   cpu: '4'
@@ -194,6 +200,12 @@ spec:
                     value: /tmp/huggingface
                   - name: TECH_NOIR_MODELS_ROOT
                     value: /models
+                  - name: HF_TOKEN
+                    valueFrom:
+                      secretKeyRef:
+                        name: shared-infra
+                        key: HF_TOKEN
+                        optional: true
                 resources:
                   limits:
                     nvidia.com/gpu: 1

@@ -145,28 +145,31 @@ class ForgeCore:
                  quant: str | None = None) -> None:
         svc = self._get_service(name)
         target_model = model or svc.default_model
-
         estimate = svc.vram_mb
+
+        self._reserve_vram(name, estimate)
+        svc.load(target_model, quant=quant)
+        self._loaded[name] = True
+        self._reconcile_vram(name, estimate)
+
+        logger.info(
+            "Forge: loaded %s model=%s (estimated=%dMB, actual=%dMB, free=%dMB)",
+            name, target_model, estimate, svc.actual_vram_mb(), self._vram_free_mb,
+        )
+
+    def _reserve_vram(self, name: str, estimate: int) -> None:
         if estimate > 0:
             self._vram_allocations[name] = estimate
             self._vram_free_mb -= estimate
 
-        svc.load(target_model, quant=quant)
-        self._loaded[name] = True
-
+    def _reconcile_vram(self, name: str, estimate: int) -> None:
+        svc = self._get_service(name)
         actual = svc.actual_vram_mb()
-        if actual > 0 and estimate > 0:
-            diff = actual - estimate
-            self._vram_allocations[name] = actual
-            self._vram_free_mb -= diff
-        elif actual > 0 and estimate == 0:
-            self._vram_allocations[name] = actual
-            self._vram_free_mb -= actual
-
-        logger.info(
-            "Forge: loaded %s model=%s (estimated=%dMB, actual=%dMB, free=%dMB)",
-            name, target_model, estimate, actual, self._vram_free_mb,
-        )
+        if actual <= 0:
+            return
+        diff = actual - estimate
+        self._vram_allocations[name] = actual
+        self._vram_free_mb -= diff
 
     def _do_unload(self, name: str) -> None:
         svc = self._services.get(name)

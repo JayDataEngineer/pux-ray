@@ -1,29 +1,6 @@
-# Dedicated Ray Serve proxy service — targets head node only
-#
-# The KubeRay-managed serve service (tech-noir-ray-serve-svc) includes both
-# head and worker endpoints, but the HTTP proxy only runs on the head node.
-# This causes 502s when Traefik load-balances to the worker.
-#
-# This service uses ray.io/node-type: head to route only to the serve proxy.
-# Traefik should reference this service instead of the KubeRay-managed one.
-#
-apiVersion: v1
-kind: Service
-metadata:
-  name: ray-serve-proxy
-  namespace: ai-services
-spec:
-  selector:
-    app.kubernetes.io/name: tech-noir-ray-head
-  ports:
-    - name: serve
-      port: 8000
-      targetPort: 8000
-
----
-# GPU worker service — targets the worker pod for subprocess UIs.
+# GPU worker subprocess service — targets worker pod for subprocess UIs.
 # ComfyUI (18465) and llama.cpp (18399) run as Forge-managed subprocesses.
-# These ports only respond when the Forge has loaded the service.
+# These ports only respond when Forge has loaded the service.
 apiVersion: v1
 kind: Service
 metadata:
