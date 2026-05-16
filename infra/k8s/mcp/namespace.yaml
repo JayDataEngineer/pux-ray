@@ -1,7 +1,0 @@
-apiVersion: v1
-kind: Namespace
-metadata:
-  name: mcp
-  labels:
-    app.kubernetes.io/part-of: tech-noir
-    app.kubernetes.io/component: mcp
