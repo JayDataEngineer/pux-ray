@@ -13,6 +13,7 @@ from __future__ import annotations
 import base64
 import json
 import logging
+import os
 import subprocess
 import uuid
 
@@ -33,12 +34,31 @@ class ComfyUIService(ForgeSubprocessMixin, ForgeService):
     def load(self, model_name: str, quant: str | None = None) -> None:
         # Symlink model dirs from mounted /models volume
         subprocess.run(["bash", "-c", """
+            set -e
             mkdir -p /opt/ComfyUI/models
-            for d in HY-Motion RMBG sams ultralytics; do
-              [ -d /models/image-gen/comfyui/$d ] && [ ! -e /opt/ComfyUI/models/$d ] &&
-                ln -s /models/image-gen/comfyui/$d /opt/ComfyUI/models/$d
+            for d in checkpoints clip clip_vision controlnet diffusion_models \
+                     loras text_encoders unet upscale_models vae \
+                     latent_upscale_models HY-Motion RMBG sams ultralytics; do
+              target="/models/image-gen/comfyui/$d"
+              link="/opt/ComfyUI/models/$d"
+              if [ -d "$target" ]; then
+                [ -L "$link" ] || [ -d "$link" ] && rm -rf "$link"
+                ln -s "$target" "$link"
+              fi
             done
         """], check=False)
+
+        # Install ComfyUI-Manager if missing
+        manager_dir = "/opt/ComfyUI/custom_nodes/ComfyUI-Manager"
+        if not os.path.isdir(manager_dir):
+            try:
+                subprocess.run(
+                    ["git", "clone", "https://github.com/ltdrdata/ComfyUI-Manager.git",
+                     manager_dir],
+                    check=True, capture_output=True, timeout=60)
+                logger.info("ComfyUI-Manager installed")
+            except Exception as e:
+                logger.warning("ComfyUI-Manager install failed: %s", e)
 
         self.start_subprocess(
             cmd=["python3", "main.py", "--port", str(self.PORT),
