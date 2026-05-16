@@ -253,9 +253,14 @@ class APIIngress:
     async def comfyui_proxy(self, request: Request) -> Response:
         """Route to ComfyUI via Forge — auto-loads on first request."""
         forge = _get_forge()
+        # Use raw path to preserve URL-encoded characters (e.g. %2F for
+        # ComfyUI userdata API paths). Starlette decodes request.url.path,
+        # which breaks ComfyUI's path-based file serving.
+        raw_path = request.scope.get("raw_path", b"").decode("ascii", errors="replace")
+        proxy_path = (raw_path or request.url.path).replace("/comfyui", "") or "/"
         payload: dict[str, Any] = {
             "method": request.method,
-            "path": request.url.path.replace("/comfyui", "") or "/",
+            "path": proxy_path,
             "params": dict(request.query_params),
             "raw": True,
         }

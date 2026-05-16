@@ -219,6 +219,9 @@ spec:
                   - name: src
                     mountPath: /app/config/model_registry.yaml
                     subPath: config/model_registry.yaml
+                  - name: src
+                    mountPath: /opt/ComfyUI/user/default/workflows/
+                    subPath: config/workflows/comfyui
                   - name: config
                     mountPath: /app/config/local.yaml
                     subPath: local.yaml
