@@ -462,14 +462,14 @@ comfyui:
     device: gpu
     description: LTX 2.3 text projection (BF16). From Kijai ComfyUI repo.
   text-encoder-gemma-3-12b-it:
-    path: image-gen/comfyui/text_encoders/gemma-3-12b-it/
-    source: hf://google/gemma-3-12b-it
-    download: snapshot
-    sha256: null
-    size_gb: 24.0
+    path: image-gen/comfyui/text_encoders/gemma_3_12B_it_fp4_mixed.safetensors
+    source: hf://Comfy-Org/ltx-2/split_files/text_encoders/gemma_3_12B_it_fp4_mixed.safetensors
+    download: file
+    sha256: aaca463d11e6d8d2a4bdb0d6299214c15ef78a3f73e0ef8113d5a9d0219b3f6d
+    size_gb: 9.45
     vram_estimate_gb: 3.0
     device: gpu
-    description: Gemma 3 12B IT text encoder. Full safetensors.
+    description: Gemma 3 12B IT text encoder. FP4 mixed quant (9.45 GB). From Comfy-Org/ltx-2.
   lora-dmd2-sdxl-4step:
     path: image-gen/comfyui/loras/DMD2/dmd2_sdxl_4step_lora_fp16.safetensors
     source: hf://tianweiy/DMD2/dmd2_sdxl_4step_lora_fp16.safetensors
