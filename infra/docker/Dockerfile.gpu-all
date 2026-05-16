@@ -159,10 +159,9 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     MAX_JOBS=${MAX_JOBS} uv pip install --no-build-isolation . && \
     rm -rf /tmp/pytorch3d
 
-# spconv (source build for CUDA 12.8 — needs FORCE_CUDA=1)
-RUN --mount=type=cache,target=/root/.cache/uv \
-    FORCE_CUDA=1 SPCONV_CUDA_ARCHITECTURES=8.9 MAX_JOBS=${MAX_JOBS} \
-    uv pip install spconv --no-build-isolation
+# spconv (PyPI wheel — CUDA ops partially work, mesh extraction needs workaround)
+RUN FORCE_CUDA=1 SPCONV_CUDA_ARCHITECTURES=8.9 MAX_JOBS=${MAX_JOBS} \
+    uv pip install spconv --no-cache
 
 # ── Clone git repos (for services that need full repo structure) ──────
 WORKDIR /opt
@@ -243,6 +242,10 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 COPY config/comfyui_extensions.yaml /tmp/extensions.yaml
 COPY infra/docker/setup_comfyui.py /tmp/setup_comfyui.py
 RUN python3 /tmp/setup_comfyui.py && rm /tmp/setup_comfyui.py /tmp/extensions.yaml
+
+# ── ComfyUI-Manager (built-in, requires pip package) ───────────────────
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv pip install -r /opt/ComfyUI/manager_requirements.txt
 
 # ── TRELLIS runtime patches (flex_gemm conv + cumesh fallback) ──
 COPY infra/docker/patch_conv_flex_gemm.py /opt/patch_conv_flex_gemm.py
