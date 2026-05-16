@@ -146,3 +146,18 @@ extensions:
     url: https://github.com/rgthree/rgthree-comfy
     desc: Image Comparer, Fast Groups Bypasser (used by VNCCS workflows)
     required: false
+
+  - name: ComfyUI-KJNodes
+    url: https://github.com/kijai/ComfyUI-KJNodes
+    desc: Nodes for LTX Director, video generation utilities
+    required: false
+
+  - name: WhatDreamsCost-ComfyUI
+    url: https://github.com/WhatDreamsCost/WhatDreamsCost-ComfyUI
+    desc: LTX Director workflow nodes
+    required: false
+
+  - name: ComfyUI-UltimateSDUpscale
+    url: https://github.com/Clybius/ComfyUI-UltimateSDUpscale
+    desc: Ultimate SD Upscale (VNCCS workflows)
+    required: false

@@ -433,6 +433,15 @@ comfyui:
     vram_estimate_gb: 7.0
     device: gpu
     description: LTX Video 2.3 22B distilled checkpoint.
+  checkpoint-ltx-2.3-dev-fp8:
+    path: image-gen/comfyui/checkpoints/ltx-2.3-22b-dev-fp8.safetensors
+    source: hf://Lightricks/LTX-2.3-fp8/ltx-2.3-22b-dev-fp8.safetensors
+    download: file
+    sha256: null
+    size_gb: 23.0
+    vram_estimate_gb: 5.0
+    device: gpu
+    description: LTX Video 2.3 22B dev FP8 checkpoint.
   checkpoint-prefectillustrious-v70:
     path: image-gen/comfyui/checkpoints/prefectIllustriousXL_v70.safetensors
     source: civitai://2553102
@@ -443,7 +452,7 @@ comfyui:
     device: gpu
     description: PrefectIllustrious XL v7.0 SDXL checkpoint.
   checkpoint-ilflatmix:
-    path: image-gen/comfyui/checkpoints/ILFlatMix.safetensors
+    path: image-gen/comfyui/checkpoints/Illustrious/ILFlatMix.safetensors
     source: civitai://1188956
     download: civitai
     sha256: null
@@ -452,6 +461,16 @@ comfyui:
     device: gpu
     description: "ALF mix IL v4.3 [final] — Illustrious 8-step checkpoint. VNCCS author's
       mix (Shio_N). LCM/Euler A, CFG 1.8-2.0, 6-8 steps. Civitai model 1188956."
+  checkpoint-ilflatmix-v4:
+    path: image-gen/comfyui/checkpoints/Illustrious/ILFlatMixV4_00001_.safetensors
+    source: civitai://1188956
+    download: civitai
+    sha256: null
+    size_gb: 6.8
+    vram_estimate_gb: 7.5
+    device: gpu
+    description: "ALF mix IL v4 [00001] — Illustrious checkpoint. VNCCS SDXL pipeline.
+      Civitai model 1188956."
   text-encoder-ltx-2.3-projection:
     path: image-gen/comfyui/text_encoders/ltx-2.3_text_projection_bf16.safetensors
     source: hf://Kijai/LTX2.3_comfy/text_encoders/ltx-2.3_text_projection_bf16.safetensors
@@ -488,6 +507,15 @@ comfyui:
     vram_estimate_gb: 1.5
     device: gpu
     description: LTX 2.3 Edit Anything LoRA. Civitai download.
+  lora-ltx23-dynamic-fro09:
+    path: image-gen/comfyui/loras/ltx2/ltx-2.3-22b-distilled-lora-dynamic_fro09_avg_rank_105_bf16.safetensors
+    source: hf://Lightricks/LTX-2.3/ltx-2.3-22b-distilled-lora-dynamic_fro09_avg_rank_105_bf16.safetensors
+    download: file
+    sha256: null
+    size_gb: 1.2
+    vram_estimate_gb: 1.5
+    device: gpu
+    description: LTX 2.3 dynamic FRO9 LoRA. VNCCS sheet workflow.
   vae-ltx23-video:
     path: image-gen/comfyui/vae/LTX23_video_vae_bf16.safetensors
     source: hf://Kijai/LTX2.3_comfy/vae/LTX23_video_vae_bf16.safetensors
@@ -497,6 +525,15 @@ comfyui:
     vram_estimate_gb: 2.0
     device: gpu
     description: LTX 2.3 Video VAE (BF16). From Kijai ComfyUI repo.
+  vae-ltx23-audio:
+    path: image-gen/comfyui/vae/LTX23_audio_vae_bf16.safetensors
+    source: hf://Kijai/LTX2.3_comfy/vae/LTX23_audio_vae_bf16.safetensors
+    download: file
+    sha256: null
+    size_gb: 1.4
+    vram_estimate_gb: 2.0
+    device: gpu
+    description: LTX 2.3 Audio VAE (BF16). From Kijai ComfyUI repo.
   vae-taeltx2-3:
     path: image-gen/comfyui/vae/taeltx2_3.safetensors
     source: hf://Kijai/LTX2.3_comfy/vae/taeltx2_3.safetensors
@@ -580,7 +617,7 @@ comfyui:
     device: gpu
     description: VNCCS Poser Helper V2 LoRA. Pose alignment and stability.
   controlnet-sdxl-anytest:
-    path: image-gen/comfyui/controlnet/AnytestV4.safetensors
+    path: image-gen/comfyui/controlnet/SDXL/AnytestV4.safetensors
     source: hf://MIUProject/VNCCS/models/controlnet/SDXL/AnytestV4.safetensors
     download: file
     sha256: null
@@ -589,7 +626,7 @@ comfyui:
     device: gpu
     description: SDXL ControlNet AnyTest V4. High-quality pose guidance for SDXL.
   controlnet-sdxl-openpose-illustrious:
-    path: image-gen/comfyui/controlnet/IllustriousXL_openpose.safetensors
+    path: image-gen/comfyui/controlnet/SDXL/IllustriousXL_openpose.safetensors
     source: hf://MIUProject/VNCCS/models/controlnet/SDXL/IllustriousXL_openpose.safetensors
     download: file
     sha256: null
@@ -660,6 +697,15 @@ comfyui:
     vram_estimate_gb: 0.0
     device: gpu
     description: mimimeter LoRA. VNCCS demo character style LoRA for Illustrious.
+  lora-qwen-multi-angle:
+    path: image-gen/comfyui/loras/qwen/qwen-image-edit-2511-multiple-angles-lora.safetensors
+    source: hf://Comfy-Org/Qwen-Image_ComfyUI/split_files/loras/qwen-image-edit-2511-multiple-angles-lora.safetensors
+    download: file
+    sha256: null
+    size_gb: 1.0
+    vram_estimate_gb: 0.0
+    device: gpu
+    description: Qwen Image Edit 2511 Multiple Angles LoRA. From Comfy-Org.
   rmbg-v2:
     path: image-gen/comfyui/RMBG/RMBG-2.0/model.safetensors
     source: hf://1038lab/RMBG-2.0/model.safetensors
@@ -697,7 +743,7 @@ comfyui:
     device: gpu
     description: BEN2 background removal model. From 1038lab.
   upscale-ltx-spatial:
-    path: image-gen/comfyui/latent_upscale_models/ltx-2-spatial-upscaler-x2-1.0.safetensors
+    path: image-gen/comfyui/latent_upscale_models/ltx-2.3-spatial-upscaler-x2-1.1.safetensors
     source: hf://Lightricks/LTX-2.3/ltx-2.3-spatial-upscaler-x2-1.1.safetensors
     download: file
     sha256: null
