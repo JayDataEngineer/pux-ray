@@ -30,7 +30,7 @@ class ComfyUIService(ForgeSubprocessMixin, ForgeService):
 
     PORT = 18465
 
-    def load(self, model_name: str) -> None:
+    def load(self, model_name: str, quant: str | None = None) -> None:
         # Symlink model dirs from mounted /models volume
         subprocess.run(["bash", "-c", """
             mkdir -p /opt/ComfyUI/models

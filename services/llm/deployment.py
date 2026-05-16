@@ -511,7 +511,7 @@ class LLMService(ForgeSubprocessMixin, ForgeService):
         self._engine: str = "beellama"
         self.PORT = 18399
 
-    def load(self, model_name: str) -> None:
+    def load(self, model_name: str, quant: str | None = None) -> None:
         result = self._configure({"model": model_name})
         if result.get("status") == "error":
             raise RuntimeError(result["error"])

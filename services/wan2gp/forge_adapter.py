@@ -29,9 +29,9 @@ class Wan2GPForgeService(ForgeService):
         super().__init__()
         self._svc = Wan2GPService()
 
-    def load(self, model_name: str | None = None) -> None:
+    def load(self, model_name: str | None = None, quant: str | None = None) -> None:
         model_name = model_name or self.default_model
-        self._svc.load(model_name)
+        self._svc.load(model_name, quant=quant)
         self._loaded = True
 
     def unload(self) -> None:

@@ -61,7 +61,17 @@ class family_handler:
         if trellis2_pkg not in sys.path:
             sys.path.insert(0, trellis2_pkg)
 
+        # Try spec registry first
         model_root = Path(TRELLIS_MODEL_ROOT)
+        try:
+            from registry.specs import resolve
+            spec = resolve("trellis", quant=kwargs.get("quant"))
+            if "pipeline_root" in spec["modules"]:
+                model_root = Path(spec["modules"]["pipeline_root"]).parent
+                if not (Path(spec["modules"]["pipeline_root"]) / "pipeline.json").exists():
+                    model_root = Path(TRELLIS_MODEL_ROOT)
+        except Exception:
+            pass
 
         # Find pipeline.json
         pipeline_json = None
