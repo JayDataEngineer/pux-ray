@@ -5,8 +5,10 @@ resources:
   - repositories/gitea.yaml
   - repositories/grafana.yaml
   - repositories/prometheus-community.yaml
+  - repositories/traefik.yaml
   - repositories/victoriametrics.yaml
   # Helm releases
+  - releases/kube-system/traefik.yaml
   - releases/infra/victoriametrics.yaml
   - releases/infra/grafana.yaml
   - releases/infra/loki.yaml
