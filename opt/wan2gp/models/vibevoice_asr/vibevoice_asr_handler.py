@@ -1,16 +1,42 @@
 """VibeVoice ASR family handler — speech-to-text.
 
-Uses VibeVoice's acoustic_tokenizer + acoustic_connector to embed audio,
-then runs the Qwen2 language_model autoregressively for transcription.
+Decomposed into mmgp-managed nn.Modules:
+- language_model: Qwen2-based LM backbone
+- acoustic_tokenizer: conv codec encoder for speech
+- acoustic_connector: speech→LM projection
+- lm_head: vocabulary projection
 """
-import base64
-import io
+import json
 import logging
 from pathlib import Path
 
+import safetensors.torch
 import torch
+import torch.nn as nn
+from transformers import AutoConfig, AutoModel, AutoTokenizer
+
+from .vibevoice_asr.blocks import VibeVoiceAcousticTokenizer, SpeechConnector
 
 logger = logging.getLogger(__name__)
+
+
+def _load_state_dict(model_path: Path):
+    sd = {}
+    for sf_path in sorted(model_path.rglob("model*.safetensors")):
+        sd.update(safetensors.torch.load_file(str(sf_path)))
+    return sd
+
+
+def _load_and_strip(sd, prefix, module, dtype=torch.bfloat16):
+    module_sd = {}
+    rest = {}
+    for k, v in sd.items():
+        if k.startswith(prefix):
+            module_sd[k[len(prefix):].lstrip(".")] = v.to(dtype)
+        else:
+            rest[k] = v
+    module.load_state_dict(module_sd, strict=False)
+    return rest
 
 
 class family_handler:
@@ -38,24 +64,45 @@ class family_handler:
     def load_model(model_filename, model_type, base_model_type, model_def,
                    quantizeTransformer=False, text_encoder_quantization=None,
                    dtype=None, VAE_dtype=None, profile=0, **kwargs):
-        from vibevoice.modular.configuration_vibevoice import VibeVoiceConfig
-        from vibevoice.modular.modeling_vibevoice import VibeVoiceForConditionalGeneration
-        from transformers import AutoConfig, AutoModel
-        AutoConfig.register("vibevoice", VibeVoiceConfig)
-        AutoModel.register(VibeVoiceConfig, VibeVoiceForConditionalGeneration)
+        mp = Path((model_def or {}).get("vibevoice_asr_path", ""))
+        if not (mp / "config.json").exists():
+            raise FileNotFoundError(f"VibeVoice ASR not found at {mp}")
 
-        model_path = Path((model_def or {}).get("vibevoice_asr_path", ""))
+        with open(mp / "config.json") as f:
+            cfg = json.load(f)
+        dt = dtype or torch.bfloat16
 
-        model = AutoModel.from_pretrained(
-            str(model_path), torch_dtype=dtype or torch.bfloat16,
-            local_files_only=True,
-        )
-        model.eval()
+        lang_cfg = AutoConfig.for_model("qwen2", **cfg["decoder_config"])
+        lang_cfg.torch_dtype = dt
+        language_model = AutoModel.from_config(lang_cfg)
+        sd = _load_state_dict(mp)
+        sd = _load_and_strip(sd, "model.language_model", language_model, dt)
 
-        from vibevoice.processor.vibevoice_processor import VibeVoiceProcessor
-        processor = VibeVoiceProcessor.from_pretrained(str(model_path))
+        acoustic_tokenizer = VibeVoiceAcousticTokenizer(cfg["acoustic_tokenizer_config"])
+        sd = _load_and_strip(sd, "model.acoustic_tokenizer", acoustic_tokenizer)
 
-        return _Pipeline(model, processor), {}
+        h = cfg["decoder_config"]["hidden_size"]
+        acoustic_connector = SpeechConnector(cfg.get("acostic_vae_dim", 64), h)
+        sd = _load_and_strip(sd, "model.acoustic_connector", acoustic_connector)
+
+        lm_head = nn.Linear(h, cfg["decoder_config"]["vocab_size"], bias=False)
+        lm_head_key = "lm_head.weight"
+        if lm_head_key in sd:
+            lm_head.weight.data.copy_(sd.pop(lm_head_key).to(dt))
+
+        tokenizer = AutoTokenizer.from_pretrained(
+            str(mp), trust_remote_code=True, local_files_only=True)
+
+        pipe = {
+            "language_model": language_model,
+            "acoustic_tokenizer": acoustic_tokenizer,
+            "acoustic_connector": acoustic_connector,
+            "lm_head": lm_head,
+        }
+        co_tenants = {"language_model": ["lm_head"]}
+        pl = _Pipeline(language_model, acoustic_tokenizer, acoustic_connector,
+                       lm_head, tokenizer)
+        return pl, {"pipe": pipe, "coTenantsMap": co_tenants}
 
     @staticmethod
     def update_default_settings(base_model_type, model_def, ui_defaults):
@@ -63,17 +110,21 @@ class family_handler:
 
 
 class _Pipeline:
-    def __init__(self, model, processor):
-        self.model = model
-        self.processor = processor
+    def __init__(self, language_model, acoustic_tokenizer, acoustic_connector,
+                 lm_head, tokenizer):
+        self.language_model = language_model
+        self.acoustic_tokenizer = acoustic_tokenizer
+        self.acoustic_connector = acoustic_connector
+        self.lm_head = lm_head
+        self.tokenizer = tokenizer
 
     @property
     def device(self):
-        return next(self.model.parameters()).device
+        return next(self.language_model.parameters()).device
 
     def generate(self, *, audio_b64=None, audio_path=None, language="english",
                  max_tokens=512, seed=-1, **kw):
-        import soundfile as sf
+        import base64, io, soundfile as sf
 
         if audio_b64:
             audio_np, sr = sf.read(io.BytesIO(base64.b64decode(audio_b64)), dtype="float32")
@@ -85,79 +136,59 @@ class _Pipeline:
         if audio_np.ndim > 1:
             audio_np = audio_np.mean(axis=1)
 
-        speech = torch.tensor(audio_np, dtype=torch.float32, device=self.device).unsqueeze(0)
-        tokenizer = self.processor.tokenizer
-        inner = self.model.model
+        dev = self.device
+        speech = torch.tensor(audio_np, dtype=torch.float32, device=dev).unsqueeze(0)
 
-        # Encode audio through acoustic_tokenizer + connector
         with torch.no_grad():
-            enc_out = inner.acoustic_tokenizer.encode(speech.unsqueeze(1).to(torch.bfloat16))
-            # encode returns VibeVoiceTokenizerEncoderOutput
-            if hasattr(enc_out, 'mean'):
-                frames = enc_out
-            else:
-                frames = enc_out[0][0]
-            audio_tokens = frames.sample(inner.acoustic_tokenizer.std_dist_type)
-            if isinstance(audio_tokens, (list, tuple)):
-                audio_tokens = audio_tokens[0]
-            audio_embeds = inner.acoustic_connector(audio_tokens)
+            frames = self.acoustic_tokenizer.encode(speech)
+            audio_embeds = self.acoustic_connector(frames.transpose(1, 2))
 
-        num_audio_tokens = audio_embeds.shape[1]
-
-        # Build text prompt
         prompt = f"Transcribe the following audio into {language}."
         conversations = [{"role": "user", "content": prompt}]
-        text_inputs = tokenizer.apply_chat_template(
-            conversations, return_tensors="pt", return_dict=True,
-            add_generation_prompt=True,
-        )
-        text_ids = text_inputs["input_ids"].to(self.device)
-        text_attn = text_inputs.get("attention_mask", None)
-        if text_attn is not None:
-            text_attn = text_attn.to(self.device)
+        text = self.tokenizer.apply_chat_template(
+            conversations, tokenize=False, add_generation_prompt=True)
+        inputs = self.tokenizer(text, return_tensors="pt")
+        text_ids = inputs.input_ids.to(dev)
+        text_attn = inputs.attention_mask.to(dev)
 
-        # Build combined inputs_embeds: [text] + [audio] + [text_gen_prompt]
-        text_embeds = self.model.get_input_embeddings()(text_ids)
+        text_embeds = self.language_model.get_input_embeddings()(text_ids)
+        audio_embeds = audio_embeds.to(dev)
         inputs_embeds = torch.cat([text_embeds, audio_embeds], dim=1)
-        attention_mask = torch.cat([
+        num_audio = audio_embeds.shape[1]
+        attn_mask = torch.cat([
             text_attn,
-            torch.ones(1, num_audio_tokens, dtype=text_attn.dtype, device=self.device),
+            torch.ones(1, num_audio, dtype=text_attn.dtype, device=dev),
         ], dim=1)
 
-        eos_token_id = tokenizer.eos_token_id
-        if isinstance(eos_token_id, list):
-            eos_token_id = eos_token_id[0]
+        eos_id = self.tokenizer.eos_token_id
+        if isinstance(eos_id, list):
+            eos_id = eos_id[0]
 
-        generated_tokens = []
+        past = None
+        seq_len = inputs_embeds.shape[1]
+        generated = []
 
-        with torch.no_grad():
-            out = inner.language_model(
-                inputs_embeds=inputs_embeds,
-                attention_mask=attention_mask,
-                use_cache=True,
-                return_dict=True,
+        out = self.language_model(
+            inputs_embeds=inputs_embeds, attention_mask=attn_mask,
+            use_cache=True, return_dict=True,
+        )
+        past = out.past_key_values
+        logits = self.lm_head(out.last_hidden_state[:, -1, :])
+        tok = torch.argmax(logits, dim=-1)
+        generated.append(tok.item())
+
+        for _ in range(max_tokens - 1):
+            if tok.item() == eos_id:
+                break
+            tok_embed = self.language_model.get_input_embeddings()(tok.unsqueeze(0).unsqueeze(0))
+            out = self.language_model(
+                inputs_embeds=tok_embed, past_key_values=past,
+                use_cache=True, return_dict=True,
             )
-            logits = self.model.lm_head(out.last_hidden_state[:, -1:, :])
-            token = torch.argmax(logits[:, -1, :], dim=-1)
-            generated_tokens.append(token.item())
-            past_kv = out.past_key_values
-            cur_embed = self.model.get_input_embeddings()(token.unsqueeze(0))
+            past = out.past_key_values
+            logits = self.lm_head(out.last_hidden_state[:, -1, :])
+            tok = torch.argmax(logits, dim=-1)
+            generated.append(tok.item())
 
-            for _ in range(max_tokens - 1):
-                if token.item() == eos_token_id:
-                    break
-                out = inner.language_model(
-                    inputs_embeds=cur_embed,
-                    attention_mask=None,
-                    past_key_values=past_kv,
-                    use_cache=True,
-                    return_dict=True,
-                )
-                logits = self.model.lm_head(out.last_hidden_state[:, -1:, :])
-                token = torch.argmax(logits[:, -1, :], dim=-1)
-                generated_tokens.append(token.item())
-                past_kv = out.past_key_values
-                cur_embed = self.model.get_input_embeddings()(token.unsqueeze(0))
-
-        text = tokenizer.decode(generated_tokens, skip_special_tokens=True).strip()
+        text = self.tokenizer.decode(generated, skip_special_tokens=True).strip()
         return {"status": "success", "text": text}
