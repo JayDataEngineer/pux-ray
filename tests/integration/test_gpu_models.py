@@ -61,19 +61,6 @@ class TestMOSS:
             _cleanup(pipeline, pw)
 
 
-class TestAniGen:
-    @pytest.mark.gpu
-    @pytest.mark.slow
-    @pytest.mark.handler
-    def test_anigen_generate(self, sample_png_b64):
-        pipeline, pw = _load_handler("models.anigen.anigen_handler", "anigen")
-        try:
-            result = pipeline.generate(image=sample_png_b64, ss_steps=1, slat_steps=1)
-            assert result.get("status") in ("success", "error")
-        finally:
-            _cleanup(pipeline, pw)
-
-
 class TestVibeVoiceASR:
     @pytest.mark.gpu
     @pytest.mark.slow
@@ -106,50 +93,3 @@ class TestVibeVoiceTTS:
             _cleanup(pipeline, pw)
 
 
-class TestFasterQwen3TTS:
-    @pytest.mark.gpu
-    @pytest.mark.slow
-    @pytest.mark.handler
-    def test_faster_qwen3_tts_generate(self):
-        pipeline, pw = _load_handler(
-            "models.faster_qwen3_tts.faster_qwen3_tts_handler", "faster-qwen3-tts"
-        )
-        try:
-            result = pipeline.generate(text="Hello world", voice="Aiden")
-            assert result["status"] == "success"
-        finally:
-            _cleanup(pipeline, pw)
-
-
-class TestHYMotion:
-    @pytest.mark.gpu
-    @pytest.mark.slow
-    @pytest.mark.handler
-    def test_hy_motion_generate(self):
-        pipeline, pw = _load_handler(
-            "models.hy_motion.hy_motion_handler", "hy-motion-1.0"
-        )
-        try:
-            result = pipeline.generate(
-                text="a person waves hello", duration=1.0, cfg_scale=3.0
-            )
-            assert result["status"] == "success"
-        finally:
-            _cleanup(pipeline, pw)
-
-
-class TestSeeThrough:
-    @pytest.mark.gpu
-    @pytest.mark.slow
-    @pytest.mark.handler
-    def test_see_through_generate(self, sample_png_b64):
-        pipeline, pw = _load_handler(
-            "models.see_through.see_through_handler", "see-through"
-        )
-        try:
-            result = pipeline.generate(
-                image=sample_png_b64, resolution=256, steps=2
-            )
-            assert result.get("status") in ("success", "error")
-        finally:
-            _cleanup(pipeline, pw)

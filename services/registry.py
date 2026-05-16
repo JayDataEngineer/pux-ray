@@ -80,13 +80,6 @@ SERVICE_REGISTRY: dict[str, ServiceEntry] = {
         model_aliases={"tts-01-espeak": "espeak"},
         description="eSpeak-NG — lightweight phoneme TTS, many languages.",
     ),
-    "faster_qwen3_tts": ServiceEntry(
-        deployment="wan2gp", app="wan2gp",
-        label="Faster-Qwen3-TTS", category="tts",
-        needs_gpu=True, default_model="faster_qwen3_tts",
-        output_type="audio",
-        description="Qwen3-TTS 1.7B — fast GPU-accelerated TTS.",
-    ),
     "faster_whisper": ServiceEntry(
         deployment="wan2gp", app="wan2gp",
         label="Faster-Whisper", category="asr",
@@ -116,27 +109,6 @@ SERVICE_REGISTRY: dict[str, ServiceEntry] = {
         needs_gpu=True, default_model="ace_step/v1_5",
         output_type="audio",
         description="ACE-STEP 1.5 — text-to-music generation.",
-    ),
-    "anigen": ServiceEntry(
-        deployment="wan2gp", app="wan2gp",
-        label="AniGen", category="creative",
-        needs_gpu=True, default_model="anigen",
-        output_type="model_3d",
-        description="AniGen — anime image-to-3D with textures.",
-    ),
-    "hy_motion": ServiceEntry(
-        deployment="wan2gp", app="wan2gp",
-        label="HY-Motion", category="creative",
-        needs_gpu=True, default_model="hy_motion",
-        output_type="json",
-        description="HY-Motion 1.0 — text-to-3D human motion.",
-    ),
-    "see_through": ServiceEntry(
-        deployment="wan2gp", app="wan2gp",
-        label="See-Through", category="creative",
-        needs_gpu=True, default_model="see_through",
-        output_type="image",
-        description="See-Through — anime layer decomposition.",
     ),
     "vibevoice_asr": ServiceEntry(
         deployment="wan2gp", app="wan2gp",

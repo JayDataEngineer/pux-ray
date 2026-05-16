@@ -26,7 +26,6 @@ REPOS_DIR = INFRA_DIR / "repos"
 # Bare-metal tools only. Docker tools clone inside their Dockerfile.
 REPOS = {
     "ace-step": ("https://github.com/ace-step/ACE-Step-1.5.git", "ACE-Step-1.5"),
-    "see-through": ("https://github.com/shitagaki-lab/see-through.git", "see-through"),
     "qwen": ("https://github.com/JayDataEngineer/QwenTTS-Lora-Trainer.git", "qwen_img_expert"),
     "gpt-sovits": ("https://github.com/RVC-Boss/GPT-SoVITS.git", "GPT-SoVITS"),
     "comfyui": ("https://github.com/comfyanonymous/ComfyUI.git", "ComfyUI"),

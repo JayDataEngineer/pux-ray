@@ -1,6 +1,0 @@
-apiVersion: v2
-name: media-analysis-mcp
-description: MCP server for vision/audio/video analysis
-type: application
-version: 0.1.0
-appVersion: "1.0"

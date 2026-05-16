@@ -49,9 +49,8 @@ class TestHandlerFilesMatchRegistry:
         handler_files = set()
 
         custom_dirs = {
-            "anigen", "see_through", "hy_motion", "kokoro", "espeak",
+            "kokoro", "espeak",
             "faster_whisper", "moss", "vibevoice_asr", "vibevoice_tts",
-            "faster_qwen3_tts",
         }
         for d in custom_dirs:
             dir_path = fork_models_dir / d
@@ -98,9 +97,9 @@ class TestServiceRegistryForgeConsistency:
         from services.forge import SERVICE_MAP
         forge_services = set(SERVICE_MAP.keys())
         # wan2gp handles many GPU models through Wan2GPForgeService
-        wan2gp_handled = {"anigen", "ace_step", "hy_motion",
-                          "moss_soundeffect", "see_through", "index_tts",
-                          "faster_qwen3_tts", "vibevoice_asr", "vibevoice_tts",
+        wan2gp_handled = {"ace_step",
+                          "moss_soundeffect", "index_tts",
+                          "vibevoice_asr", "vibevoice_tts",
                           "wan2gp"}
         routed = forge_services | wan2gp_handled
         unrouted = gpu_services - routed
@@ -122,16 +121,12 @@ class TestServiceRegistryCompleteness:
 
         # Handler family names → registry service names
         handler_to_service = {
-            "models.anigen.anigen_handler": "anigen",
-            "models.see_through.see_through_handler": "see_through",
-            "models.hy_motion.hy_motion_handler": "hy_motion",
             "models.kokoro.kokoro_handler": "kokoro",
             "models.moss.moss_handler": "moss_soundeffect",
             "models.espeak.espeak_handler": "espeak",
             "models.faster_whisper.faster_whisper_handler": "faster_whisper",
             "models.vibevoice_asr.vibevoice_asr_handler": "vibevoice_asr",
             "models.vibevoice_tts.vibevoice_tts_handler": "vibevoice_tts",
-            "models.faster_qwen3_tts.faster_qwen3_tts_handler": "faster_qwen3_tts",
         }
 
         for handler_path, service_name in handler_to_service.items():
@@ -184,10 +179,10 @@ class TestTierClassification:
         from services.registry import SERVICE_REGISTRY
 
         tier1 = {
-            "kokoro", "espeak", "faster_whisper", "faster_qwen3_tts",
+            "kokoro", "espeak", "faster_whisper",
             "index_tts", "vibevoice_asr", "vibevoice_tts",
-            "ace_step", "comfyui", "hy_motion",
-            "moss_soundeffect", "anigen", "see_through", "llm",
+            "ace_step", "comfyui",
+            "moss_soundeffect", "llm",
             "wan2gp",
         }
         for name in tier1:

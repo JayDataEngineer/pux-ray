@@ -1,6 +1,0 @@
-apiVersion: v2
-name: forge-registry
-description: In-cluster container registry (registry:2) for the Forge
-type: application
-version: 0.1.0
-appVersion: "2"

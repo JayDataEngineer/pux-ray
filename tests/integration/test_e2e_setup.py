@@ -123,9 +123,7 @@ class TestReposCloned:
 
     EXPECTED_REPOS = {
         "TRELLIS.2": {"setup.sh", "README.md"},
-        "AniGen": {"README.md"},
         "ACE-Step-1.5": {"pyproject.toml"},
-        "see-through": {"requirements.txt"},
         "qwen_img_expert": {"pyproject.toml"},
         "llama.cpp": {"CMakeLists.txt"},
     }
@@ -168,16 +166,6 @@ class TestVenvsWork:
         )
         assert result.returncode == 0, f"TRELLIS.2 venv broken: {result.stderr}"
 
-    def test_anigen_venv(self):
-        venv_py = REPOS_DIR / "AniGen" / ".venv" / "bin" / "python"
-        if not venv_py.exists():
-            pytest.skip("AniGen venv not built yet")
-        result = subprocess.run(
-            [str(venv_py), "-c", "import torch; print(torch.__version__)"],
-            capture_output=True, text=True, timeout=15,
-        )
-        assert result.returncode == 0, f"AniGen venv broken: {result.stderr}"
-
     def test_ace_step_venv(self):
         venv_py = REPOS_DIR / "ACE-Step-1.5" / ".venv" / "bin" / "python"
         if not venv_py.exists():
@@ -214,7 +202,7 @@ class TestConfigResolves:
 
     def test_all_creative_tools_configured(self):
         config = Config()
-        tools = ["trellis", "anigen", "ace_step", "see_through"]
+        tools = ["trellis", "ace_step"]
         missing = []
         for tool in tools:
             section = config.get(f"services.creative.{tool}", {})

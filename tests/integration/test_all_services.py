@@ -20,12 +20,8 @@ PAYLOADS = {
     "espeak/espeak": {"text": "Hello world"},
     "kokoro/kokoro": {"text": "Hello world", "voice": "af_bella"},
     "faster_whisper/faster_whisper": {"audio_b64": "placeholder"},
-    "faster_qwen3_tts/faster-qwen3-tts": {"text": "Hello world", "voice": "Aiden"},
-    "anigen/anigen": {"image_b64": "placeholder", "ss_steps": 1, "slat_steps": 1},
     "trellis/trellis": {"image_b64": "placeholder", "steps": 1},
-    "hy_motion/hy-motion-1.0": {"text": "a person waves", "duration": 1.0, "cfg_scale": 3.0},
     "moss/moss-soundeffect": {"prompt": "gentle rain", "max_tokens": 64},
-    "see_through/see-through": {"image_b64": "placeholder", "resolution": 256, "steps": 1},
     "vibevoice_asr/vibevoice-asr": {"audio_b64": "placeholder"},
     "vibevoice_tts/vibevoice-tts": {"text": "Hello world"},
 }

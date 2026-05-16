@@ -148,16 +148,12 @@ def sample_png_b64(sample_png_bytes) -> str:
 def custom_handler_paths() -> list[str]:
     """All custom family_handler import paths from CUSTOM_HANDLERS."""
     return [
-        "models.anigen.anigen_handler",
-        "models.see_through.see_through_handler",
-        "models.hy_motion.hy_motion_handler",
         "models.kokoro.kokoro_handler",
         "models.moss.moss_handler",
         "models.espeak.espeak_handler",
         "models.faster_whisper.faster_whisper_handler",
         "models.vibevoice_asr.vibevoice_asr_handler",
         "models.vibevoice_tts.vibevoice_tts_handler",
-        "models.faster_qwen3_tts.faster_qwen3_tts_handler",
     ]
 
 
