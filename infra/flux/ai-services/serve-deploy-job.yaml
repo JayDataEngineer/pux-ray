@@ -40,7 +40,7 @@ spec:
                       autoscaling_config: { min_replicas: 1, max_replicas: 1 }
               """
 
-              svc = "http://tech-noir-ray-ptc2v-head-svc.ai-services.svc.cluster.local:8265"
+              svc = "http://tech-noir-ray-raycluster-dn7x9-head-svc.ai-services.svc.cluster.local:8265"
 
               for i in range(60):
                 try:
