@@ -286,3 +286,5 @@ spec:
   routes:
     - match: HostSNI(`*`)
       services:
+        - name: forge-registry
+          port: 5000
