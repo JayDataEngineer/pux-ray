@@ -7,4 +7,3 @@ resources:
   - infisical.yaml
   - langfuse.yaml
   - alerting.yaml
-  - capacitor.yaml
