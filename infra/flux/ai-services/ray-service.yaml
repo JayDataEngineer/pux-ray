@@ -170,6 +170,11 @@ spec:
               - name: ray-worker
                 image: forge-reg.local:30500/tech-noir/gpu-all:latest
                 imagePullPolicy: Always
+                ports:
+                  - containerPort: 18465
+                    name: comfyui
+                  - containerPort: 18399
+                    name: llm
                 readinessProbe:
                   exec:
                     command:

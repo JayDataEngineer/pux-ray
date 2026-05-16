@@ -19,3 +19,23 @@ spec:
     - name: serve
       port: 8000
       targetPort: 8000
+
+---
+# GPU worker service — targets the worker pod for subprocess UIs.
+# ComfyUI (18465) and llama.cpp (18399) run as Forge-managed subprocesses.
+# These ports only respond when the Forge has loaded the service.
+apiVersion: v1
+kind: Service
+metadata:
+  name: gpu-worker-subprocess
+  namespace: ai-services
+spec:
+  selector:
+    ray.io/group: gpu-workers
+  ports:
+    - name: comfyui
+      port: 18465
+      targetPort: 18465
+    - name: llm
+      port: 18399
+      targetPort: 18399

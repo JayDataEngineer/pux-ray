@@ -11,6 +11,7 @@
 #   /ray-dashboard/*  → Ray Dashboard
 #   /mcp/media/*      → Media Analysis MCP
 #   /mcp/web/*        → Web Research MCP
+#   /mcp/equibles/*   → Equibles Financial MCP
 #   /langfuse/*       → Langfuse
 #   /infisical/*      → Infisical
 #   /grafana/*        → Grafana
@@ -123,6 +124,13 @@ spec:
       services:
         - name: web-research-mcp
           port: 8000
+    - match: PathPrefix(`/mcp/equibles`)
+      kind: Rule
+      middlewares:
+        - name: mcp-equibles-rewrite
+      services:
+        - name: equibles-mcp
+          port: 8080
 
 ---
 apiVersion: traefik.io/v1alpha1
@@ -144,6 +152,17 @@ metadata:
 spec:
   replacePathRegex:
     regex: ^/mcp/web(/.*)?$
+    replacement: /mcp
+
+---
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: mcp-equibles-rewrite
+  namespace: mcp
+spec:
+  replacePathRegex:
+    regex: ^/mcp/equibles(/.*)?$
     replacement: /mcp
 
 ---
@@ -288,3 +307,69 @@ spec:
       services:
         - name: forge-registry
           port: 5000
+
+---
+# ComfyUI — browser-accessible web UI on the GPU worker
+# Only available when the Forge has loaded comfyui service.
+# URL: http://100.86.69.57:30080/comfyui/
+
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: comfyui-ingress
+  namespace: ai-services
+spec:
+  entryPoints:
+    - web
+  routes:
+    - match: PathPrefix(`/comfyui`)
+      kind: Rule
+      middlewares:
+        - name: comfyui-rewrite
+      services:
+        - name: gpu-worker-subprocess
+          port: 18465
+
+---
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: comfyui-rewrite
+  namespace: ai-services
+spec:
+  stripPrefix:
+    prefixes:
+      - /comfyui
+
+---
+# llama.cpp — browser-accessible OpenAI-compatible API on the GPU worker
+# Only available when the Forge has loaded llm service.
+# URL: http://100.86.69.57:30080/llm/
+
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: llm-ingress
+  namespace: ai-services
+spec:
+  entryPoints:
+    - web
+  routes:
+    - match: PathPrefix(`/llm`)
+      kind: Rule
+      middlewares:
+        - name: llm-rewrite
+      services:
+        - name: gpu-worker-subprocess
+          port: 18399
+
+---
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: llm-rewrite
+  namespace: ai-services
+spec:
+  stripPrefix:
+    prefixes:
+      - /llm
