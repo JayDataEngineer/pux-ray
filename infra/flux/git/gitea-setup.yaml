@@ -82,7 +82,7 @@ data:
     def create_token(name):
         """Generate an admin API token."""
         status, body = api("POST", f"/api/v1/users/{ADMIN_USER}/tokens",
-                           data={"name": name})
+                           data={"name": name, "scopes": ["write:repository", "write:organization", "admin:application"]})
         if status == 201 and "sha1" in body:
             return body["sha1"]
         # Token might already exist — list and reuse
