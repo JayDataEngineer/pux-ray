@@ -492,7 +492,7 @@ to see cloud fallback rate over time.
 
 ## Flux Tooling
 
-**Capacitor** — Visual Flux dashboard at `http://100.86.69.57:30080/flux`. Shows Kustomization dependency graph, click-to-reconcile, inline logs. Deployed in `flux-system` namespace.
+**Flux Operator** — Official Flux web UI at `http://100.86.69.57:30080/flux`. Kustomization dependency graphs, reconciliation history, click-to-reconcile. Managed via HelmRelease in `infra/flux/helm/releases/infra/flux-operator.yaml`. Source: OCI chart at `ghcr.io/controlplaneio-fluxcd/charts/flux-operator`.
 
 **Renovate** — Automated dependency updates (Docker images, Python deps). Runs weekly via Gitea Actions (`.gitea/workflows/renovate.yaml`). Config in `renovate.json`. Custom `forge-reg` images are excluded. Setup: create Gitea token with `repo` scope, add as `RENOVATE_TOKEN` secret. Optional `GH_PAT` for GitHub changelogs.
 

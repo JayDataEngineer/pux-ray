@@ -7,6 +7,7 @@ resources:
   - repositories/prometheus-community.yaml
   - repositories/traefik.yaml
   - repositories/victoriametrics.yaml
+  - repositories/flux-operator.yaml
   # Helm releases
   - releases/kube-system/traefik.yaml
   - releases/infra/victoriametrics.yaml
@@ -14,6 +15,7 @@ resources:
   - releases/infra/loki.yaml
   - releases/infra/node-exporter.yaml
   - releases/infra/kube-state-metrics.yaml
+  - releases/infra/flux-operator.yaml
   - releases/git/gitea.yaml
   # Custom charts (in-repo GitRepository-based)
   - releases/infra/forge-registry.yaml
