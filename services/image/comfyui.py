@@ -16,6 +16,7 @@ import logging
 import os
 import subprocess
 import uuid
+from typing import Any
 
 from services.forge_base import ForgeService
 from services.forge_subprocess import ForgeSubprocessMixin
@@ -82,6 +83,19 @@ class ComfyUIService(ForgeSubprocessMixin, ForgeService):
 
         if "path" in payload:
             try:
+                if payload.get("raw"):
+                    kwargs: dict[str, Any] = {
+                        "method": payload.get("method", "GET"),
+                        "path": payload["path"],
+                        "params": payload.get("params"),
+                    }
+                    body = payload.get("body")
+                    if body is not None:
+                        if isinstance(body, dict):
+                            kwargs["json"] = body
+                        else:
+                            kwargs["content"] = body
+                    return self._call_raw_full(**kwargs)
                 result = self._call(
                     method=payload.get("method", "GET"),
                     path=payload["path"],

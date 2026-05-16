@@ -309,10 +309,28 @@ spec:
           port: 5000
 
 ---
-# ComfyUI — browser-accessible web UI on the GPU worker
-# Only available when the Forge has loaded comfyui service.
-# URL: http://100.86.69.57:30080/comfyui/
+# ComfyUI WebSocket — direct to subprocess (persistent connections)
+# Matched before the HTTP catch-all for correct WS routing.
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: comfyui-ws-ingress
+  namespace: ai-services
+spec:
+  entryPoints:
+    - web
+  routes:
+    - match: PathPrefix(`/comfyui/ws`)
+      kind: Rule
+      middlewares:
+        - name: comfyui-rewrite
+      services:
+        - name: gpu-worker-subprocess
+          port: 18465
 
+---
+# ComfyUI HTTP — through api-ingress (auto-loads via Forge on first request)
+# Full path preserved — api-ingress expects /comfyui/... routes.
 apiVersion: traefik.io/v1alpha1
 kind: IngressRoute
 metadata:
@@ -324,11 +342,9 @@ spec:
   routes:
     - match: PathPrefix(`/comfyui`)
       kind: Rule
-      middlewares:
-        - name: comfyui-rewrite
       services:
-        - name: gpu-worker-subprocess
-          port: 18465
+        - name: ray-serve-proxy
+          port: 8000
 
 ---
 apiVersion: traefik.io/v1alpha1

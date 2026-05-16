@@ -144,6 +144,30 @@ class ForgeSubprocessMixin:
         resp.raise_for_status()
         return resp.content
 
+    def _call_raw_full(
+        self,
+        method: str,
+        path: str,
+        timeout: int = 600,
+        **kwargs,
+    ) -> dict:
+        """Full HTTP response from subprocess. Returns dict with body + metadata.
+
+        Returns:
+            {status_code, content_type, body (base64)} — suitable for proxying
+            through Ray Serve (which requires serializable return values).
+        """
+        import base64
+        url = f"{self._base_url}{path}"
+        resp = httpx.request(method, url, timeout=timeout, **kwargs)
+        return {
+            "status": "ok",
+            "raw_response": True,
+            "status_code": resp.status_code,
+            "content_type": resp.headers.get("content-type", "text/plain"),
+            "body": base64.b64encode(resp.content).decode(),
+        }
+
     async def _async_call(
         self,
         method: str,

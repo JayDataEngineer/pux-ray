@@ -9,6 +9,7 @@ Empty/unset = no auth (dev mode).
 """
 from __future__ import annotations
 
+import base64
 import hmac
 import logging
 from typing import Any
@@ -223,14 +224,25 @@ class APIIngress:
     # ── ComfyUI proxy ──────────────────────────────────────────────────────────
 
     async def comfyui_proxy(self, request: Request) -> Response:
-        """Route to ComfyUI via Forge."""
-        body = await request.json() if request.method == "POST" else {}
+        """Route to ComfyUI via Forge — auto-loads on first request."""
         forge = _get_forge()
-        result = await forge.invoke.remote("comfyui", {
+        payload: dict[str, Any] = {
             "method": request.method,
             "path": request.url.path.replace("/comfyui", "") or "/",
-            **body,
-        })
+            "raw": True,
+        }
+        if request.method == "POST":
+            try:
+                payload["body"] = await request.json()
+            except Exception:
+                payload["body"] = {}
+        result = await forge.invoke.remote("comfyui", payload)
+        if isinstance(result, dict) and result.get("raw_response"):
+            return Response(
+                content=base64.b64decode(result["body"]),
+                status_code=result.get("status_code", 200),
+                media_type=result.get("content_type", "text/html"),
+            )
         return JSONResponse(result)
 
     # ── Status / Health / Admin ────────────────────────────────────────────────
