@@ -141,7 +141,8 @@ class ForgeCore:
 
     # ── Model Lifecycle ───────────────────────────────────────────────────────
 
-    def _do_load(self, name: str, model: str | None = None) -> None:
+    def _do_load(self, name: str, model: str | None = None,
+                 quant: str | None = None) -> None:
         svc = self._get_service(name)
         target_model = model or svc.default_model
 
@@ -150,7 +151,7 @@ class ForgeCore:
             self._vram_allocations[name] = estimate
             self._vram_free_mb -= estimate
 
-        svc.load(target_model)
+        svc.load(target_model, quant=quant)
         self._loaded[name] = True
 
         actual = svc.actual_vram_mb()
@@ -189,7 +190,7 @@ class ForgeCore:
     # ── Public API ────────────────────────────────────────────────────────────
 
     async def invoke(self, service: str, payload: dict,
-                     model: str | None = None) -> dict:
+                     model: str | None = None, quant: str | None = None) -> dict:
         if service not in self._service_map:
             return {"status": "error", "error": f"Unknown service: {service}"}
 
@@ -200,7 +201,7 @@ class ForgeCore:
         if not self._can_fit(service):
             self._evict_for(service)
 
-        await asyncio.to_thread(self._do_load, service, model)
+        await asyncio.to_thread(self._do_load, service, model, quant)
 
         if not self._loaded.get(service):
             return {"status": "error", "error": f"Failed to load {service}"}
@@ -208,7 +209,8 @@ class ForgeCore:
         svc = self._services[service]
         return await asyncio.to_thread(svc.infer, payload)
 
-    async def preload(self, service: str, model: str | None = None) -> dict:
+    async def preload(self, service: str, model: str | None = None,
+                      quant: str | None = None) -> dict:
         if service not in self._service_map:
             return {"status": "error", "error": f"Unknown service: {service}"}
 
@@ -218,7 +220,7 @@ class ForgeCore:
         if not self._can_fit(service):
             self._evict_for(service)
 
-        await asyncio.to_thread(self._do_load, service, model)
+        await asyncio.to_thread(self._do_load, service, model, quant)
 
         return {
             "status": "loaded",
@@ -290,11 +292,12 @@ class Forge:
         self._core = ForgeCore()
 
     async def invoke(self, service: str, payload: dict,
-                     model: str | None = None) -> dict:
-        return await self._core.invoke(service, payload, model)
+                     model: str | None = None, quant: str | None = None) -> dict:
+        return await self._core.invoke(service, payload, model, quant)
 
-    async def preload(self, service: str, model: str | None = None) -> dict:
-        return await self._core.preload(service, model)
+    async def preload(self, service: str, model: str | None = None,
+                      quant: str | None = None) -> dict:
+        return await self._core.preload(service, model, quant)
 
     async def release(self, service: str | None = None) -> dict:
         return await self._core.release(service)
@@ -317,7 +320,8 @@ class Forge:
 
         payload = {k: v for k, v in body.items() if k != "service"}
         model = payload.get("model", None)
-        result = await self.invoke(service, payload, model)
+        quant = payload.get("quant", None)
+        result = await self.invoke(service, payload, model, quant)
         return JSONResponse(result)
 
 

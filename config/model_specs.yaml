@@ -1,0 +1,205 @@
+# Module Quant Variant Registry
+#
+# Declarative per-module quant specs. Used by registry/specs.py resolver
+# and consumed by both Wan2GP handlers and the Forge.
+#
+# Key fields:
+#   handler:        Wan2GP family_handler name (matches model_type in most cases)
+#   quant_default:  fallback quant level when none specified
+#   modules.<name>.role:     transformer|codec|embedding|head|flow|decoder|encoder|utility|root
+#   modules.<name>.variants: {quant_level: relative_path_under_MODELS_ROOT}
+#   modules.<name>.bundled:  true = weights come from another module's safetensors
+#   co_tenants:     mmgp co-tenancy map (module → [modules that share VRAM])
+
+# ─── Custom Handlers ──────────────────────────────────────────────────────────
+
+moss:
+  handler: moss
+  quant_default: bf16
+  modules:
+    language_model:
+      role: transformer
+      variants:
+        bf16: audio/moss-soundeffect/bf16/
+        int8: audio/moss-soundeffect/int8/
+    audio_tokenizer:
+      role: codec
+      variants:
+        fp32: audio/moss-audio-tokenizer/
+    emb_ext:
+      role: embedding
+      bundled: true
+    lm_heads:
+      role: head
+      bundled: true
+  co_tenants:
+    language_model: [emb_ext]
+
+kokoro:
+  handler: kokoro
+  quant_default: fp32
+  # CPU model — no mmgp, empty pipe dict. Single weight file.
+  modules:
+    model:
+      role: transformer
+      variants:
+        fp32: tts/kokoro/
+  co_tenants: {}
+
+espeak:
+  handler: espeak
+  quant_default: fp32
+  # Subprocess wrapper — no weights. Binary only.
+  modules: {}
+  co_tenants: {}
+
+faster_whisper:
+  handler: faster_whisper
+  quant_default: fp32
+  # CPU model — no mmgp, empty pipe dict. CTranslate2 format.
+  modules:
+    model:
+      role: encoder
+      variants:
+        fp32: asr/faster-whisper/
+  co_tenants: {}
+
+vibevoice_asr:
+  handler: vibevoice-asr
+  quant_default: bf16
+  modules:
+    language_model:
+      role: transformer
+      variants:
+        bf16: asr/vibevoice-asr/
+        int8: asr/vibevoice-asr/int8/
+    acoustic_tokenizer:
+      role: codec
+      bundled: true
+    acoustic_connector:
+      role: connector
+      bundled: true
+    lm_head:
+      role: head
+      bundled: true
+  co_tenants:
+    language_model: [lm_head]
+
+vibevoice_tts:
+  handler: vibevoice-tts
+  quant_default: bf16
+  modules:
+    language_model:
+      role: transformer
+      variants:
+        bf16: tts/vibevoice/
+        int8: tts/vibevoice/int8/
+    acoustic_tokenizer:
+      role: codec
+      bundled: true
+    semantic_tokenizer:
+      role: codec
+      bundled: true
+    prediction_head:
+      role: head
+      bundled: true
+    acoustic_connector:
+      role: connector
+      bundled: true
+    semantic_connector:
+      role: connector
+      bundled: true
+    lm_head:
+      role: head
+      bundled: true
+  co_tenants:
+    language_model: [lm_head]
+
+trellis:
+  handler: trellis
+  quant_default: bf16
+  # TRELLIS loads via from_pretrained(pipeline_json) — single-root.
+  # Per-module quant is future work (requires splitting the pipeline).
+  modules:
+    pipeline_root:
+      role: root
+      variants:
+        bf16: 3d/trellis/TRELLIS.2-4B/ckpts/
+    rembg:
+      role: utility
+      variants:
+        bf16: 3d/trellis/rmbg/briaai/RMBG-2___0/
+    image_cond:
+      role: encoder
+      variants:
+        bf16: 3d/trellis/dinov3/facebook/dinov3-vitl16-pretrain-lvd1689m/
+  co_tenants: {}
+
+# ─── Blocked Models (spec entries for future use) ─────────────────────────────
+
+anigen:
+  handler: anigen
+  quant_default: bf16
+  # BLOCKED: Complex 3D pipeline — ss_flow, slat_flow, ss_dae, slat_dae, dinov2, dsine, vgg
+  modules:
+    pipeline_root:
+      role: root
+      variants:
+        bf16: 3d/anigen/ckpts/ckpts/anigen/
+    dinov2:
+      role: encoder
+      variants:
+        bf16: 3d/anigen/ckpts/ckpts/dinov2/
+    dsine:
+      role: utility
+      variants:
+        bf16: 3d/anigen/ckpts/ckpts/dsine/
+    vgg:
+      role: encoder
+      variants:
+        bf16: 3d/anigen/ckpts/ckpts/vgg/
+  co_tenants: {}
+
+see_through:
+  handler: see-through
+  quant_default: fp16
+  # BLOCKED: Custom diffusion pipeline with no pip package equivalent.
+  modules:
+    layerdiff:
+      role: root
+      variants:
+        fp16: image/see-through/layerdiff3d/
+    marigold:
+      role: encoder
+      variants:
+        fp16: image/see-through/marigold/
+    scheduler:
+      role: utility
+      variants:
+        fp16: image/see-through/scheduler/
+  co_tenants: {}
+
+hy_motion:
+  handler: hy-motion-1.0
+  quant_default: bf16
+  # BLOCKED: Custom motion generation pipeline.
+  modules:
+    pipeline_root:
+      role: root
+      variants:
+        bf16: motion/hy-motion-1.0/
+    text_encoder:
+      role: encoder
+      variants:
+        bf16: motion/hy-motion-1.0/ckpts/Qwen3-8B/
+  co_tenants: {}
+
+hy_motion_lite:
+  handler: hy-motion-1.0-lite
+  quant_default: bf16
+  modules:
+    pipeline_root:
+      role: root
+      variants:
+        bf16: motion/hy-motion-1.0-lite/
+  co_tenants: {}

@@ -1081,7 +1081,7 @@ audio:
     device: gpu
     description: ACE-STEP 1.5 music generation. v15-turbo, 5Hz-lm-1.7B, Qwen3-Embedding.
   moss-soundeffect:
-    path: audio/moss-soundeffect/
+    path: audio/moss-soundeffect/bf16/
     source: hf://OpenMOSS-Team/MOSS-SoundEffect
     download: snapshot
     sha256: null

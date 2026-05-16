@@ -32,10 +32,14 @@ they ship with Wan2GP and are maintained upstream.
 | 6 | Import chain terminates at pip package | PASS — `transformers.Qwen2Model`, `safetensors`, `scipy` |
 | 7 | Zero monkeypatches | PASS |
 
-**Files:** `opt/wan2gp/models/moss/moss_handler.py`
+**Files:** `opt/wan2gp/models/moss/moss_handler.py`, `config/model_specs.yaml`
+**Quant variants:** Per-module quant variant registry in `config/model_specs.yaml`.
+Weights in `bf16/` subdirectory (int8 prepared for Unsloth Studio export).
+Resolved via `registry/specs.py` — shared by Wan2GP handlers and the Forge.
 **Notes:** Closest to the ideal pattern. The `trust_remote_code=True` on audio_tokenizer
 is a grey area — it loads a model class from the HF repo at runtime, similar to how
 `transformers` handles any model. The authored parts (embedding, LM heads) are clean.
+First model with full quant variant hot-swap support.
 
 ---
 

@@ -176,7 +176,23 @@ class family_handler:
     def load_model(model_filename, model_type, base_model_type, model_def,
                    quantizeTransformer=False, text_encoder_quantization=None,
                    dtype=None, VAE_dtype=None, profile=0, **kwargs):
-        mp = Path((model_def or {}).get("moss_soundeffect_path", ""))
+        model_def = model_def or {}
+        quant = kwargs.get("quant", None)
+
+        # Resolve paths via spec registry when available
+        mp = Path(model_def.get("moss_soundeffect_path", ""))
+        ap = Path(model_def.get("moss_audio_tokenizer_path", ""))
+
+        if not mp or not (mp / "model.safetensors.index.json").exists():
+            try:
+                from registry.specs import resolve
+                spec = resolve("moss", quant=quant)
+                mp = Path(spec["modules"]["language_model"])
+                if not ap or not ap.is_dir():
+                    ap = Path(spec["modules"].get("audio_tokenizer", ""))
+            except Exception:
+                pass  # Fall back to model_def paths
+
         if not (mp / "model.safetensors.index.json").exists():
             raise FileNotFoundError(f"MOSS weights not found at {mp}")
 
@@ -187,9 +203,8 @@ class family_handler:
             str(mp), trust_remote_code=True, local_files_only=True,
         )
 
-        ap = Path((model_def or {}).get("moss_audio_tokenizer_path", mp / "audio_tokenizer"))
         audio_tokenizer = None
-        if ap.is_dir():
+        if ap and ap.is_dir():
             try:
                 from transformers import AutoModel
                 audio_tokenizer = AutoModel.from_pretrained(

@@ -34,7 +34,7 @@ class ForgeService:
         self._loaded: bool = False
         self.model_name: Optional[str] = None
 
-    def load(self, model_name: str) -> None:
+    def load(self, model_name: str, quant: str | None = None) -> None:
         """Load model into VRAM. Blocking — Forge runs this in a thread."""
         raise NotImplementedError(f"{self.__class__.__name__}.load() not implemented")
 
