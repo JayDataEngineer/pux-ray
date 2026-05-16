@@ -509,7 +509,7 @@ comfyui:
     description: LTX 2.3 Edit Anything LoRA. Civitai download.
   lora-ltx23-dynamic-fro09:
     path: image-gen/comfyui/loras/ltx2/ltx-2.3-22b-distilled-lora-dynamic_fro09_avg_rank_105_bf16.safetensors
-    source: hf://Lightricks/LTX-2.3/ltx-2.3-22b-distilled-lora-dynamic_fro09_avg_rank_105_bf16.safetensors
+    source: hf://Kijai/LTX2.3_comfy/loras/ltx-2.3-22b-distilled-lora-dynamic_fro09_avg_rank_105_bf16.safetensors
     download: file
     sha256: null
     size_gb: 1.2
@@ -697,15 +697,6 @@ comfyui:
     vram_estimate_gb: 0.0
     device: gpu
     description: mimimeter LoRA. VNCCS demo character style LoRA for Illustrious.
-  lora-qwen-multi-angle:
-    path: image-gen/comfyui/loras/qwen/qwen-image-edit-2511-multiple-angles-lora.safetensors
-    source: hf://Comfy-Org/Qwen-Image_ComfyUI/split_files/loras/qwen-image-edit-2511-multiple-angles-lora.safetensors
-    download: file
-    sha256: null
-    size_gb: 1.0
-    vram_estimate_gb: 0.0
-    device: gpu
-    description: Qwen Image Edit 2511 Multiple Angles LoRA. From Comfy-Org.
   rmbg-v2:
     path: image-gen/comfyui/RMBG/RMBG-2.0/model.safetensors
     source: hf://1038lab/RMBG-2.0/model.safetensors
