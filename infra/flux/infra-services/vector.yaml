@@ -16,7 +16,6 @@ data:
     sources:
       kubernetes_logs:
         type: kubernetes_logs
-        dedot: true
 
     transforms:
       parse_log:
