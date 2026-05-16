@@ -211,7 +211,7 @@ data:
                  "-n", "flux-system", "--type", "merge",
                  "-p", json.dumps({
                      "spec": {
-                         "url": f"http://gitea.git.svc.cluster.local:3000/{ORG}/{REPO}.git",
+                         "url": f"http://gitea-http.git.svc.cluster.local:3000/{ORG}/{REPO}.git",
                          "secretRef": {"name": "gitea-token"}
                      }
                  })],
