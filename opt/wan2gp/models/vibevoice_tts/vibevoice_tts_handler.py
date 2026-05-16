@@ -14,10 +14,11 @@ import json
 import logging
 from pathlib import Path
 
-import safetensors.torch
 import torch
 from diffusers import DPMSolverMultistepScheduler
 from transformers import AutoConfig, AutoModel, AutoTokenizer
+
+from models._shared import load_safetensors, load_prefix_into_module, resolve_model_path
 
 from .vibevoice_tts.blocks import (
     VibeVoiceAcousticTokenizer, VibeVoiceSemanticTokenizer, SpeechConnector,
@@ -25,27 +26,6 @@ from .vibevoice_tts.blocks import (
 from .vibevoice_tts.diffusion import VibeVoiceDiffusionHead
 
 logger = logging.getLogger(__name__)
-
-
-def _load_state_dict(model_path: Path):
-    """Load all safetensors files and return flat state dict."""
-    sd = {}
-    for sf_path in sorted(model_path.rglob("model*.safetensors")):
-        sd.update(safetensors.torch.load_file(str(sf_path)))
-    return sd
-
-
-def _load_and_strip(sd: dict, prefix: str, module, dtype=torch.bfloat16):
-    """Load weights matching *prefix* into *module*, return leftover keys."""
-    module_sd = {}
-    rest = {}
-    for k, v in sd.items():
-        if k.startswith(prefix):
-            module_sd[k[len(prefix):].lstrip(".")] = v.to(dtype)
-        else:
-            rest[k] = v
-    module.load_state_dict(module_sd, strict=False)
-    return rest
 
 
 class family_handler:
@@ -73,7 +53,12 @@ class family_handler:
     def load_model(model_filename, model_type, base_model_type, model_def,
                    quantizeTransformer=False, text_encoder_quantization=None,
                    dtype=None, VAE_dtype=None, profile=0, **kwargs):
-        mp = Path((model_def or {}).get("vibevoice_tts_path", ""))
+        from models._shared import resolve_model_path
+        mp = resolve_model_path(
+            "vibevoice_tts", "vibevoice_tts_path", model_def,
+            check_file="config.json", category="tts",
+            registry_name="vibevoice", quant=kwargs.get("quant"),
+        )
         if not (mp / "config.json").exists():
             raise FileNotFoundError(f"VibeVoice TTS not found at {mp}")
 
@@ -85,27 +70,27 @@ class family_handler:
         lang_cfg = AutoConfig.for_model("qwen2", **cfg["decoder_config"])
         lang_cfg.torch_dtype = dt
         language_model = AutoModel.from_config(lang_cfg)
-        sd = _load_state_dict(mp)
-        sd = _load_and_strip(sd, "model.language_model", language_model, dt)
+        sd = load_safetensors(mp)
+        sd = load_prefix_into_module(sd, "model.language_model", language_model, dt)
 
         # 2. Acoustic tokenizer (authored conv codec)
         acoustic_tokenizer = VibeVoiceAcousticTokenizer(cfg["acoustic_tokenizer_config"])
-        sd = _load_and_strip(sd, "model.acoustic_tokenizer", acoustic_tokenizer)
+        sd = load_prefix_into_module(sd, "model.acoustic_tokenizer", acoustic_tokenizer)
 
         # 3. Semantic tokenizer (authored encoder-only)
         semantic_tokenizer = VibeVoiceSemanticTokenizer(cfg["semantic_tokenizer_config"])
-        sd = _load_and_strip(sd, "model.semantic_tokenizer", semantic_tokenizer)
+        sd = load_prefix_into_module(sd, "model.semantic_tokenizer", semantic_tokenizer)
 
         # 4. Prediction head (authored diffusion)
         prediction_head = VibeVoiceDiffusionHead(cfg["diffusion_head_config"])
-        sd = _load_and_strip(sd, "model.prediction_head", prediction_head)
+        sd = load_prefix_into_module(sd, "model.prediction_head", prediction_head)
 
         # 5. Connectors (authored Linear+RMSNorm+Linear)
         h = cfg["decoder_config"]["hidden_size"]
         acoustic_connector = SpeechConnector(cfg["acoustic_vae_dim"], h)
-        sd = _load_and_strip(sd, "model.acoustic_connector", acoustic_connector)
+        sd = load_prefix_into_module(sd, "model.acoustic_connector", acoustic_connector)
         semantic_connector = SpeechConnector(cfg["semantic_vae_dim"], h)
-        sd = _load_and_strip(sd, "model.semantic_connector", semantic_connector)
+        sd = load_prefix_into_module(sd, "model.semantic_connector", semantic_connector)
 
         # 6. LM head
         lm_head = torch.nn.Linear(h, cfg["decoder_config"]["vocab_size"], bias=False)

@@ -33,16 +33,8 @@ _HANDLER_DIR = Path(__file__).parent
 
 def _ensure_vendor_package(name, path):
     """Register a vendor package in sys.modules via importlib (no sys.path)."""
-    if name in sys.modules:
-        return sys.modules[name]
-    init_file = path / "__init__.py"
-    spec = importlib.util.spec_from_file_location(
-        name, str(init_file),
-        submodule_search_locations=[str(path)])
-    mod = importlib.util.module_from_spec(spec)
-    sys.modules[name] = mod
-    spec.loader.exec_module(mod)
-    return mod
+    from models._shared import register_vendor_package
+    return register_vendor_package(name, path)
 
 
 @contextlib.contextmanager
@@ -107,16 +99,15 @@ class family_handler:
         quantizeTransformer=False, text_encoder_quantization=None,
         dtype=None, VAE_dtype=None, profile=0, **kwargs,
     ):
-        from registry.config import Config
-        from registry.models import ModelRegistry
+        from models._shared import resolve_model_path
 
-        cfg = Config()
-        registry = ModelRegistry()
-
-        # Resolve model path from model_def (deployment.py) or registry
-        model_path = Path((model_def or {}).get("anigen_path", ""))
+        # Resolve model path: spec → registry → model_def
+        model_path = resolve_model_path(
+            "anigen", "anigen_path", model_def,
+            category="3d", quant=kwargs.get("quant"),
+        )
         if not model_path.is_dir():
-            model_path = Path(registry.get_path("3d", "anigen"))
+            raise FileNotFoundError(f"AniGen weights not found (tried spec, registry, model_def)")
 
         # Register vendor package via importlib
         _ensure_vendor_package("anigen", _HANDLER_DIR / "anigen")

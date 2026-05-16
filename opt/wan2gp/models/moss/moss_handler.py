@@ -15,7 +15,6 @@ import io
 import logging
 from pathlib import Path
 
-import safetensors.torch
 import scipy.io.wavfile as wavfile
 import torch
 import torch.nn as nn
@@ -57,10 +56,8 @@ def _load_moss_model(model_path: Path, dtype: torch.dtype):
     lang_cfg = hf_config.language_config
     lang_model = AutoModel.from_config(lang_cfg)
 
-    sd = {}
-    for sf_path in sorted(model_path.rglob("model*.safetensors")):
-        chunk = safetensors.torch.load_file(str(sf_path))
-        sd.update(chunk)
+    from models._shared import load_safetensors
+    sd = load_safetensors(model_path)
 
     # Load language model weights
     lang_prefix = "language_model."
@@ -179,19 +176,24 @@ class family_handler:
         model_def = model_def or {}
         quant = kwargs.get("quant", None)
 
-        # Resolve paths via spec registry when available
-        mp = Path(model_def.get("moss_soundeffect_path", ""))
-        ap = Path(model_def.get("moss_audio_tokenizer_path", ""))
-
-        if not mp or not (mp / "model.safetensors.index.json").exists():
+        # Resolve paths: spec → model_def
+        from models._shared import resolve_model_path
+        mp = resolve_model_path(
+            "moss", "moss_soundeffect_path", model_def,
+            check_file="model.safetensors.index.json", quant=quant,
+        )
+        ap = resolve_model_path(
+            "moss", "moss_audio_tokenizer_path", model_def,
+            spec_module="audio_tokenizer", quant=quant,
+        )
+        if mp.is_dir():
             try:
                 from registry.specs import resolve
                 spec = resolve("moss", quant=quant)
-                mp = Path(spec["modules"]["language_model"])
-                if not ap or not ap.is_dir():
-                    ap = Path(spec["modules"].get("audio_tokenizer", ""))
+                if not ap.is_dir() and "audio_tokenizer" in spec.get("modules", {}):
+                    ap = Path(spec["modules"]["audio_tokenizer"])
             except Exception:
-                pass  # Fall back to model_def paths
+                pass
 
         if not (mp / "model.safetensors.index.json").exists():
             raise FileNotFoundError(f"MOSS weights not found at {mp}")

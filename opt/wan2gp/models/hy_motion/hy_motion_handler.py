@@ -31,16 +31,8 @@ STATS_VENDOR = "/opt/hymotion/stats"
 
 def _ensure_vendor_package(name, path):
     """Register a vendor package in sys.modules via importlib (no sys.path)."""
-    if name in sys.modules:
-        return sys.modules[name]
-    init_file = path / "__init__.py"
-    spec = importlib.util.spec_from_file_location(
-        name, str(init_file),
-        submodule_search_locations=[str(path)])
-    mod = importlib.util.module_from_spec(spec)
-    sys.modules[name] = mod
-    spec.loader.exec_module(mod)
-    return mod
+    from models._shared import register_vendor_package
+    return register_vendor_package(name, path)
 
 
 @contextlib.contextmanager
@@ -79,10 +71,18 @@ class family_handler:
     def load_model(model_filename, model_type, base_model_type, model_def,
                    quantizeTransformer=False, text_encoder_quantization=None,
                    dtype=None, VAE_dtype=None, profile=0, **kwargs):
-        from registry.config import Config
-        cfg = Config()
-        models_root = Path(cfg.models_root)
-        model_path = models_root / "motion" / model_type
+        from models._shared import resolve_model_path
+
+        # Resolve path: spec → registry → Config-based fallback
+        model_path = resolve_model_path(
+            "hy_motion", "hy_motion_path", model_def,
+            spec_module="pipeline_root", category="motion",
+            registry_name=model_type, quant=kwargs.get("quant"),
+        )
+        if not model_path.is_dir():
+            from registry.config import Config
+            cfg = Config()
+            model_path = Path(cfg.models_root) / "motion" / model_type
 
         # Register vendor package via importlib
         _ensure_vendor_package("hymotion", _HANDLER_DIR / "hymotion")

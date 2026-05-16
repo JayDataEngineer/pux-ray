@@ -25,6 +25,9 @@ target "gpu-all" {
   context    = "."
   tags       = ["${REGISTRY}/gpu-all:latest", "${REGISTRY}/gpu-all:ngc-26.01"]
   platforms  = ["linux/amd64"]
+  args = {
+    MAX_JOBS = "4"
+  }
 }
 
 target "model-sync" {

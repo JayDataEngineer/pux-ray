@@ -191,6 +191,95 @@ class RayClient:
     async def close(self) -> None:
         await self.client.aclose()
 
+    # ── Wan2GP typed generation methods ────────────────────────────────────────
+    # Adapted from tech-noir-studio ray_client.py. Each method knows the correct
+    # parameter mapping for a specific Wan2GP model family.
+
+    async def generate_image(
+        self, model: str = "z_image", prompt: str = "",
+        seed: int = 42, width: int = 1024, height: int = 1024,
+        steps: int = 8, **kwargs,
+    ) -> bytes:
+        """Generate an image. Returns PNG bytes."""
+        return await self.generate_binary(
+            model, input={"prompt": prompt, "seed": seed,
+                          "width": width, "height": height, "steps": steps},
+            **kwargs,
+        )
+
+    async def generate_image_edit(
+        self, model: str = "z_image", prompt: str = "",
+        image: bytes | Path | None = None,
+        seed: int = 42, **kwargs,
+    ) -> bytes:
+        """Edit an image with a prompt. Returns PNG bytes."""
+        input_dict: dict = {"prompt": prompt, "seed": seed}
+        if image is not None:
+            img_bytes = Path(image).read_bytes() if isinstance(image, Path) else image
+            input_dict["image_b64"] = base64.b64encode(img_bytes).decode()
+        return await self.generate_binary(model, input=input_dict, **kwargs)
+
+    async def generate_3d(
+        self, image: bytes | Path, model: str = "trellis",
+        name: str = "", seed: int = 1, steps: int = 12,
+        guidance: float = 7.5, **kwargs,
+    ) -> bytes:
+        """Generate a 3D model from an image. Returns GLB bytes."""
+        img_bytes = Path(image).read_bytes() if isinstance(image, Path) else image
+        b64 = base64.b64encode(img_bytes).decode()
+        return await self.generate_binary(
+            model, input={"name": name, "seed": seed, "steps": steps,
+                          "guidance": guidance, "image_b64": b64},
+            **kwargs,
+        )
+
+    async def generate_music(
+        self, model: str = "ace_step", prompt: str = "",
+        duration_seconds: float = 120, seed: int = -1,
+        steps: int = 8, temperature: float = 0.85,
+        top_p: float = 0.9, **kwargs,
+    ) -> bytes:
+        """Generate music via ACE-Step. Returns WAV bytes."""
+        return await self.generate_binary(
+            model, input={"prompt": prompt, "duration_seconds": duration_seconds,
+                          "seed": seed, "steps": steps,
+                          "temperature": temperature, "top_p": top_p},
+            **kwargs,
+        )
+
+    async def generate_sfx(
+        self, model: str = "moss_soundeffect", prompt: str = "",
+        seed: int = -1, **kwargs,
+    ) -> bytes:
+        """Generate a sound effect via MOSS. Returns WAV bytes."""
+        return await self.generate_binary(
+            model, input={"prompt": prompt, "seed": seed}, **kwargs,
+        )
+
+    async def generate_tts(
+        self, model: str = "faster_qwen3_tts", text: str = "",
+        voice: str = "Aiden", language: str = "English",
+        instruct: str = "", seed: int = -1, **kwargs,
+    ) -> bytes:
+        """Generate speech via TTS. Returns WAV bytes."""
+        return await self.generate_binary(
+            model, input={"text": text, "voice": voice, "language": language,
+                          "instruct": instruct, "seed": seed},
+            **kwargs,
+        )
+
+    async def generate_motion(
+        self, model: str = "hy_motion", text: str = "",
+        guidance: float = 3.0, duration: float = 3.0,
+        seeds_csv: str = "42", **kwargs,
+    ) -> dict[str, Any]:
+        """Generate motion data. Returns raw JSON."""
+        return await self.generate(
+            model, input={"text": text, "guidance": guidance,
+                          "duration": duration, "seeds_csv": seeds_csv},
+            **kwargs,
+        )
+
     async def __aenter__(self):
         return self
 

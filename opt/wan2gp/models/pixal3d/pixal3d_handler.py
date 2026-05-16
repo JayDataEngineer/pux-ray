@@ -90,27 +90,14 @@ class family_handler:
     def load_model(model_filename, model_type, base_model_type, model_def,
                    quantizeTransformer=False, text_encoder_quantization=None,
                    dtype=None, VAE_dtype=None, profile=0, **kwargs):
-        from registry.config import Config
-        from registry.models import ModelRegistry
-
-        cfg = Config()
-        registry = ModelRegistry()
+        from models._shared import resolve_model_path
 
         # Spec-first path resolution
-        model_root = Path((model_def or {}).get("pixal3d_path", ""))
-        if not model_root.is_dir():
-            try:
-                from registry.specs import resolve
-                spec = resolve("pixal3d", quant=kwargs.get("quant"))
-                if "pipeline_root" in spec["modules"]:
-                    model_root = Path(spec["modules"]["pipeline_root"])
-            except Exception:
-                pass
-        if not model_root.is_dir():
-            try:
-                model_root = Path(registry.get_path("3d", "pixal3d"))
-            except Exception:
-                pass
+        model_root = resolve_model_path(
+            "pixal3d", "pixal3d_path", model_def,
+            spec_module="pipeline_root", category="3d",
+            quant=kwargs.get("quant"),
+        )
 
         from .pixal3d.pipelines.pixal3d_image_to_3d import Pixal3DImageTo3DPipeline
 

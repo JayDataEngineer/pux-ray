@@ -10,33 +10,15 @@ import json
 import logging
 from pathlib import Path
 
-import safetensors.torch
 import torch
 import torch.nn as nn
 from transformers import AutoConfig, AutoModel, AutoTokenizer
 
+from models._shared import load_safetensors, load_prefix_into_module, resolve_model_path
+
 from .vibevoice_asr.blocks import VibeVoiceAcousticTokenizer, SpeechConnector
 
 logger = logging.getLogger(__name__)
-
-
-def _load_state_dict(model_path: Path):
-    sd = {}
-    for sf_path in sorted(model_path.rglob("model*.safetensors")):
-        sd.update(safetensors.torch.load_file(str(sf_path)))
-    return sd
-
-
-def _load_and_strip(sd, prefix, module, dtype=torch.bfloat16):
-    module_sd = {}
-    rest = {}
-    for k, v in sd.items():
-        if k.startswith(prefix):
-            module_sd[k[len(prefix):].lstrip(".")] = v.to(dtype)
-        else:
-            rest[k] = v
-    module.load_state_dict(module_sd, strict=False)
-    return rest
 
 
 class family_handler:
@@ -64,7 +46,12 @@ class family_handler:
     def load_model(model_filename, model_type, base_model_type, model_def,
                    quantizeTransformer=False, text_encoder_quantization=None,
                    dtype=None, VAE_dtype=None, profile=0, **kwargs):
-        mp = Path((model_def or {}).get("vibevoice_asr_path", ""))
+        from models._shared import resolve_model_path
+        mp = resolve_model_path(
+            "vibevoice_asr", "vibevoice_asr_path", model_def,
+            check_file="config.json", category="asr",
+            registry_name="vibevoice-asr", quant=kwargs.get("quant"),
+        )
         if not (mp / "config.json").exists():
             raise FileNotFoundError(f"VibeVoice ASR not found at {mp}")
 
@@ -75,15 +62,15 @@ class family_handler:
         lang_cfg = AutoConfig.for_model("qwen2", **cfg["decoder_config"])
         lang_cfg.torch_dtype = dt
         language_model = AutoModel.from_config(lang_cfg)
-        sd = _load_state_dict(mp)
-        sd = _load_and_strip(sd, "model.language_model", language_model, dt)
+        sd = load_safetensors(mp)
+        sd = load_prefix_into_module(sd, "model.language_model", language_model, dt)
 
         acoustic_tokenizer = VibeVoiceAcousticTokenizer(cfg["acoustic_tokenizer_config"])
-        sd = _load_and_strip(sd, "model.acoustic_tokenizer", acoustic_tokenizer)
+        sd = load_prefix_into_module(sd, "model.acoustic_tokenizer", acoustic_tokenizer)
 
         h = cfg["decoder_config"]["hidden_size"]
         acoustic_connector = SpeechConnector(cfg.get("acoustic_vae_dim", 64), h)
-        sd = _load_and_strip(sd, "model.acoustic_connector", acoustic_connector)
+        sd = load_prefix_into_module(sd, "model.acoustic_connector", acoustic_connector)
 
         lm_head = nn.Linear(h, cfg["decoder_config"]["vocab_size"], bias=False)
         lm_head_key = "lm_head.weight"

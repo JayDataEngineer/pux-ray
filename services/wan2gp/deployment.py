@@ -210,29 +210,38 @@ CUSTOM_HANDLERS = [
 ]
 
 def _get_family_handlers() -> list[str]:
-    """Get the family_handlers list from Wan2GP's wgp.py, plus our custom handlers."""
-    try:
-        import wgp
-        base = wgp.family_handlers
-    except (ImportError, AttributeError):
-        base = [
-            "models.wan.wan_handler", "models.wan.ovi_handler", "models.wan.df_handler",
-            "models.hyvideo.hunyuan_handler", "models.ltx_video.ltxv_handler",
-            "models.ltx2.ltx2_handler", "models.longcat.longcat_handler",
-            "models.flux.flux_handler", "models.qwen.qwen_handler",
-            "models.kandinsky5.kandinsky_handler", "models.z_image.z_image_handler",
-            "models.magi_human.magi_human_handler",
-            "models.TTS.ace_step_handler", "models.TTS.chatterbox_handler",
-            "models.TTS.qwen3_handler", "models.TTS.yue_handler",
-            "models.TTS.heartmula_handler", "models.TTS.kugelaudio_handler",
-            "models.TTS.index_tts2_handler",
-            "models.vnccs.vnccs_handler",
-        ]
-    # Append our custom handlers living in opt/wan2gp/models/
+    """Discover family handlers by scanning models/ directory + custom list.
+
+    Scans opt/wan2gp/models/ for ``*_handler.py`` files, converting each
+    to a dotted import path (e.g. ``models.kokoro.kokoro_handler``).
+    Custom handlers are appended if not already found by the scan.
+    """
+    import importlib
+
+    handlers: list[str] = []
+    models_dir = Path(__file__).resolve().parent.parent.parent / "opt" / "wan2gp" / "models"
+
+    if models_dir.is_dir():
+        for family_dir in sorted(models_dir.iterdir()):
+            if not family_dir.is_dir() or family_dir.name.startswith("_"):
+                continue
+            for handler_file in sorted(family_dir.glob("*_handler.py")):
+                handler_path = f"models.{family_dir.name}.{handler_file.stem}"
+                try:
+                    # Quick check that it actually has family_handler
+                    mod = importlib.import_module(handler_path)
+                    if hasattr(mod, "family_handler"):
+                        handlers.append(handler_path)
+                except (ImportError, ModuleNotFoundError):
+                    # Handler may have import deps not available outside Docker
+                    # — include it anyway, it'll fail at load_model() time
+                    handlers.append(handler_path)
+
+    # Append custom handlers not found by the scan
     for h in CUSTOM_HANDLERS:
-        if h not in base:
-            base.append(h)
-    return base
+        if h not in handlers:
+            handlers.append(h)
+    return handlers
 
 
 def _derive_key(model_type: str, handler_path: str) -> str:

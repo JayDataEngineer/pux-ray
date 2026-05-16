@@ -34,18 +34,8 @@ _HANDLER_DIR = Path(__file__).parent
 
 def _ensure_vendor_package(name, path):
     """Register a vendor package in sys.modules via importlib (no sys.path)."""
-    if name in sys.modules:
-        return sys.modules[name]
-    init_file = path / "__init__.py"
-    if not init_file.exists():
-        init_file.touch()
-    spec = importlib.util.spec_from_file_location(
-        name, str(init_file),
-        submodule_search_locations=[str(path)])
-    mod = importlib.util.module_from_spec(spec)
-    sys.modules[name] = mod
-    spec.loader.exec_module(mod)
-    return mod
+    from models._shared import register_vendor_package
+    return register_vendor_package(name, path)
 
 
 def _register_seethrough_vendor():
@@ -83,22 +73,24 @@ class family_handler:
     def load_model(model_filename, model_type, base_model_type, model_def,
                    quantizeTransformer=False, text_encoder_quantization=None,
                    dtype=None, VAE_dtype=None, profile=0, **kwargs):
-        from registry.config import Config
-        from registry.models import ModelRegistry
+        from models._shared import resolve_model_path
 
-        cfg = Config()
-        registry = ModelRegistry()
-
-        # Resolve paths from model_def (deployment.py) or registry
-        ld_path = Path((model_def or {}).get("see_through_layerdiff_path", ""))
-        mg_path = Path((model_def or {}).get("see_through_marigold_path", ""))
-        sched_path = Path((model_def or {}).get("see_through_scheduler_path", ""))
-        if not ld_path.is_dir():
-            ld_path = Path(registry.get_path("image", "see-through-layerdiff"))
-        if not mg_path.is_dir():
-            mg_path = Path(registry.get_path("image", "see-through-marigold"))
-        if not sched_path.is_dir():
-            sched_path = Path(registry.get_path("image", "see-through-scheduler"))
+        # Resolve paths: spec → registry → model_def
+        ld_path = resolve_model_path(
+            "see_through", "see_through_layerdiff_path", model_def,
+            spec_module="layerdiff", category="image",
+            registry_name="see-through-layerdiff", quant=kwargs.get("quant"),
+        )
+        mg_path = resolve_model_path(
+            "see_through", "see_through_marigold_path", model_def,
+            spec_module="marigold", category="image",
+            registry_name="see-through-marigold", quant=kwargs.get("quant"),
+        )
+        sched_path = resolve_model_path(
+            "see_through", "see_through_scheduler_path", model_def,
+            spec_module="scheduler", category="image",
+            registry_name="see-through-scheduler", quant=kwargs.get("quant"),
+        )
 
         # Register vendor packages via importlib
         _register_seethrough_vendor()

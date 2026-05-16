@@ -44,10 +44,11 @@ COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
 ENV UV_SYSTEM_PYTHON=1 UV_BREAK_SYSTEM_PACKAGES=1
 
 ARG CUDA_ARCHITECTURES="8.9"
+ARG MAX_JOBS=4
 ENV DEBIAN_FRONTEND=noninteractive \
     TORCH_CUDA_ARCH_LIST="${CUDA_ARCHITECTURES}" \
     FORCE_CUDA=1 \
-    MAX_JOBS=20
+    MAX_JOBS=${MAX_JOBS}
 
 # System deps (from Wan2GP Dockerfile)
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -78,6 +79,8 @@ RUN cd /tmp/sageattention && \
 # ── Stage 3: Final image — add Ray + our extras on top of Wan2GP base ──
 FROM wan2gp-base
 
+ARG MAX_JOBS=4
+
 # Extra system packages (beyond Wan2GP base)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     git-lfs pkg-config build-essential \
@@ -95,7 +98,7 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 # Build from source to match PyTorch 2.10 ABI (~30min, only runs on image rebuild).
 # vllm-flash-attn removed — ABI mismatch (undefined symbol errors).
 RUN --mount=type=cache,target=/root/.cache/uv \
-    MAX_JOBS=7 uv pip install flash-attn --no-build-isolation
+    MAX_JOBS=${MAX_JOBS} uv pip install flash-attn --no-build-isolation
 
 
 # ── Extra Python packages (NOT in Wan2GP requirements) ────────────────
@@ -106,11 +109,14 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     scikit-image scikit-learn \
     trimesh lpips plyfile pygltflib pyvista pymeshfix xatlas rtree igraph \
     h5py pandas \
-    natten==0.21.0 \
     starlette aiohttp httpx \
     openai huggingface-hub \
     pyyaml click rich \
-    "protobuf>=6,<7" packaging
+    "protobuf>=6,<7" packaging webcolors
+
+# natten needs build isolation off to see system torch
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv pip install natten==0.21.0 --no-build-isolation
 
 # qwen-tts (no-deps to avoid accelerate version conflict)
 RUN --mount=type=cache,target=/root/.cache/uv \
@@ -119,43 +125,43 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 # ── CUDA extensions (source builds — torch ABI must match) ────────────
 
 # nvdiffrast (CUDA rasterizer, ~10min)
-RUN MAX_JOBS=8 git clone --depth 1 https://github.com/NVlabs/nvdiffrast.git /tmp/nvdiffrast && \
+RUN MAX_JOBS=${MAX_JOBS} git clone --depth 1 https://github.com/NVlabs/nvdiffrast.git /tmp/nvdiffrast && \
     cd /tmp/nvdiffrast && \
-    MAX_JOBS=8 uv pip install . --no-build-isolation && \
+    MAX_JOBS=${MAX_JOBS} uv pip install . --no-build-isolation && \
     rm -rf /tmp/nvdiffrast
 
 # TRELLIS.2 CUDA dependencies — CuMesh, FlexGEMM, o-voxel
-RUN MAX_JOBS=8 git clone --depth 1 --recursive https://github.com/JeffreyXiang/CuMesh.git /tmp/cumesh && \
+RUN MAX_JOBS=${MAX_JOBS} git clone --depth 1 --recursive https://github.com/JeffreyXiang/CuMesh.git /tmp/cumesh && \
     cd /tmp/cumesh && \
-    MAX_JOBS=8 uv pip install . --no-build-isolation && \
+    MAX_JOBS=${MAX_JOBS} uv pip install . --no-build-isolation && \
     rm -rf /tmp/cumesh
 
-RUN MAX_JOBS=8 git clone --depth 1 --recursive https://github.com/JeffreyXiang/FlexGEMM.git /tmp/flexgemm && \
+RUN MAX_JOBS=${MAX_JOBS} git clone --depth 1 --recursive https://github.com/JeffreyXiang/FlexGEMM.git /tmp/flexgemm && \
     cd /tmp/flexgemm && \
-    MAX_JOBS=8 uv pip install . --no-build-isolation && \
+    MAX_JOBS=${MAX_JOBS} uv pip install . --no-build-isolation && \
     rm -rf /tmp/flexgemm
 
 COPY vendor/o-voxel/ /tmp/o-voxel/
 RUN cd /tmp/o-voxel && \
-    MAX_JOBS=8 uv pip install . --no-build-isolation && \
+    MAX_JOBS=${MAX_JOBS} uv pip install . --no-build-isolation && \
     rm -rf /tmp/o-voxel
 
 # nvdiffrec (PBR rendering for TRELLIS)
-RUN MAX_JOBS=8 git clone -b renderutils --depth 1 \
+RUN MAX_JOBS=${MAX_JOBS} git clone -b renderutils --depth 1 \
         https://github.com/JeffreyXiang/nvdiffrec.git /tmp/extensions/nvdiffrec && \
-    MAX_JOBS=8 uv pip install /tmp/extensions/nvdiffrec --no-build-isolation && \
+    MAX_JOBS=${MAX_JOBS} uv pip install /tmp/extensions/nvdiffrec --no-build-isolation && \
     rm -rf /tmp/extensions/nvdiffrec
 
 # pytorch3d (for AniGen)
 RUN --mount=type=cache,target=/root/.cache/uv \
-    MAX_JOBS=8 git clone --depth 1 https://github.com/facebookresearch/pytorch3d.git /tmp/pytorch3d && \
+    MAX_JOBS=${MAX_JOBS} git clone --depth 1 https://github.com/facebookresearch/pytorch3d.git /tmp/pytorch3d && \
     cd /tmp/pytorch3d && \
-    MAX_JOBS=8 uv pip install --no-build-isolation . && \
+    MAX_JOBS=${MAX_JOBS} uv pip install --no-build-isolation . && \
     rm -rf /tmp/pytorch3d
 
 # spconv (source build for CUDA 12.8 — needs FORCE_CUDA=1)
 RUN --mount=type=cache,target=/root/.cache/uv \
-    FORCE_CUDA=1 SPCONV_CUDA_ARCHITECTURES=8.9 MAX_JOBS=8 \
+    FORCE_CUDA=1 SPCONV_CUDA_ARCHITECTURES=8.9 MAX_JOBS=${MAX_JOBS} \
     uv pip install spconv --no-build-isolation
 
 # ── Clone git repos (for services that need full repo structure) ──────

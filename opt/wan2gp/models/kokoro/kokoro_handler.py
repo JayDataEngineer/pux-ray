@@ -52,7 +52,11 @@ class family_handler:
     def load_model(model_filename, model_type, base_model_type, model_def,
                    quantizeTransformer=False, text_encoder_quantization=None,
                    dtype=None, VAE_dtype=None, profile=0, **kwargs):
-        model_path = Path((model_def or {}).get("kokoro_path", ""))
+        from models._shared import resolve_model_path
+        model_path = resolve_model_path(
+            "kokoro", "kokoro_path", model_def,
+            check_file="config.json", quant=kwargs.get("quant"),
+        )
 
         if not (model_path / "config.json").exists():
             # Download config + weights from HuggingFace on first use
