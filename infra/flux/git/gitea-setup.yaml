@@ -159,8 +159,8 @@ data:
         runner_token = None
         for scope in ["orgs", "repos"]:
             path = f"/api/v1/{scope}/{ORG}/actions/runners/registration-token"
-            status, body = api("GET", path, token=token)
-            if status == 200 and "token" in body:
+            status, body = api("POST", path, token=token)
+            if status in (200, 201) and "token" in body:
                 runner_token = body["token"]
                 break
 

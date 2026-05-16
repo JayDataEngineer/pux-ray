@@ -46,7 +46,7 @@ spec:
           command: ["act_runner", "daemon"]
           env:
             - name: GITEA_INSTANCE_URL
-              value: http://gitea.git.svc.cluster.local:3000
+              value: http://gitea-http.git.svc.cluster.local:3000
             - name: GITEA_RUNNER_REGISTRATION_TOKEN
               valueFrom:
                 secretKeyRef:
