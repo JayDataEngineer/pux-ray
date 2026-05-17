@@ -24,7 +24,9 @@ from starlette.responses import JSONResponse, Response
 from starlette.routing import Route
 
 from gateway.dashboard import dashboard_page, dashboard_gpu_current, dashboard_gpu_history, dashboard_services
+from gateway.pipeline import PipelineSpec, execute_pipeline
 from gateway.playground import playground_page, playground_services
+from gateway.poser import poser_presets, poser_preset_render
 from gateway.studio import studio_page, studio_apps, studio_switch, studio_release
 from registry.config import Config
 from services.registry import SERVICE_REGISTRY, get_service, resolve_model
@@ -80,38 +82,70 @@ def _model_name_for(service_name: str, entry) -> str:
 class APIIngress:
     """Main API router. GPU services go through the Forge."""
 
+    # ── Service dispatch (shared by TNAP + pipeline) ───────────────────────────
+
+    async def _dispatch_service(self, service_name: str, body: dict) -> dict:
+        """Dispatch a request to the correct backend (Forge/Wan2GP/direct)."""
+        entry = get_service(service_name)
+        if entry is None:
+            raise ValueError(
+                f"Unknown service: {service_name}. "
+                f"Available: {', '.join(sorted(SERVICE_REGISTRY.keys()))}"
+            )
+
+        if _is_forge_service(service_name):
+            forge = _get_forge()
+            return await forge.invoke.remote(service_name, body)
+
+        if entry.deployment == "wan2gp":
+            body.setdefault("model", _model_name_for(service_name, entry))
+            wan2gp = _get_wan2gp()
+            return await wan2gp.invoke.remote(body)
+
+        handle = serve.get_deployment_handle(entry.deployment, entry.app)
+        return await handle.remote(body)
+
     # ── Generic TNAP route ─────────────────────────────────────────────────────
 
     async def tnap_generate(self, request: Request) -> Response:
         """Generic route: POST /v1/{service}/generate"""
         service_name = request.path_params["service"]
-        entry = get_service(service_name)
-
-        if entry is None:
-            return JSONResponse(
-                {"error": f"Unknown service: {service_name}. "
-                          f"Available: {', '.join(sorted(SERVICE_REGISTRY.keys()))}"},
-                status_code=404,
-            )
-
-        # Forge-managed subprocess services — route through Forge
-        if _is_forge_service(service_name):
-            body = await request.json()
-            forge = _get_forge()
-            result = await forge.invoke.remote(service_name, body)
+        body = await request.json()
+        try:
+            result = await self._dispatch_service(service_name, body)
             return JSONResponse(result)
+        except ValueError as e:
+            return JSONResponse({"error": str(e)}, status_code=404)
 
-        # Wan2GP-managed services — route through Wan2GP deployment
-        if entry.deployment == "wan2gp":
-            body = await request.json()
-            body.setdefault("model", _model_name_for(service_name, entry))
-            wan2gp = _get_wan2gp()
-            result = await wan2gp.invoke.remote(body)
-            return JSONResponse(result)
+    # ── Pipeline execution ─────────────────────────────────────────────────────
 
-        # Direct deployments (legacy)
-        handle = serve.get_deployment_handle(entry.deployment, entry.app)
-        return await handle.remote(request)
+    async def execute_pipeline(self, request: Request) -> Response:
+        """POST /api/pipelines/execute — run a multi-step inference pipeline."""
+        body = await request.json()
+        try:
+            spec = PipelineSpec.from_dict(body)
+        except ValueError as e:
+            return JSONResponse({"error": str(e)}, status_code=400)
+
+        events = await execute_pipeline(spec, self._dispatch_service)
+
+        import json as _json
+        sse_lines = []
+        for event in events:
+            if event.get("event") == "pipeline_completed":
+                sse_lines.append(f"data: {_json.dumps(event)}\n\n")
+                sse_lines.append("data: [DONE]\n\n")
+            elif event.get("event") == "pipeline_error":
+                sse_lines.append(f"data: {_json.dumps(event)}\n\n")
+                sse_lines.append("data: [DONE]\n\n")
+            else:
+                sse_lines.append(f"data: {_json.dumps(event)}\n\n")
+
+        return Response(
+            content="".join(sse_lines),
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+        )
 
     # ── OpenAI-compatible routes ───────────────────────────────────────────────
 
@@ -345,6 +379,8 @@ def create_app() -> Starlette:
         # ComfyUI (proxy all paths — ComfyUI has its own routing)
         Route("/comfyui/{path:path}", ingress.comfyui_proxy, methods=["GET", "POST", "PUT", "DELETE"]),
         Route("/comfyui", ingress.comfyui_proxy, methods=["GET", "POST", "PUT", "DELETE"]),
+        # Pipeline execution
+        Route("/api/pipelines/execute", ingress.execute_pipeline, methods=["POST"]),
         # Admin
         Route("/admin/load", ingress.load_model, methods=["POST"]),
         Route("/admin/unload", ingress.unload_all, methods=["POST"]),
@@ -361,6 +397,9 @@ def create_app() -> Starlette:
         # Playground (interactive service UI)
         Route("/playground", playground_page),
         Route("/playground/api/services", playground_services),
+        # Poser (pose presets + skeleton renderer)
+        Route("/poser/presets", poser_presets),
+        Route("/poser/presets/{name}/render", poser_preset_render),
     ]
 
     middleware = []
