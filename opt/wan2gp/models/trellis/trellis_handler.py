@@ -10,8 +10,18 @@ Modules:
 """
 import os
 os.environ.setdefault("ATTN_BACKEND", "sdpa")
-os.environ.setdefault("SPARSE_ATTN_BACKEND", "sage")
-os.environ.setdefault("SPARSE_CONV_BACKEND", "spconv")
+os.environ["SPARSE_ATTN_BACKEND"] = "flash_attn"
+os.environ["SPARSE_CONV_BACKEND"] = "flex_gemm"
+
+# Patch mmgp safetensors2 to support complex dtypes
+try:
+    import mmgp.safetensors2 as _st2
+    import torch as _torch
+    _st2._map_to_dtype.setdefault("C64", _torch.complex64)
+    _st2._map_to_dtype.setdefault("C128", _torch.complex128)
+    _st2._map_to_dtype.setdefault("C32", _torch.complex32)
+except Exception:
+    pass
 
 import base64
 import gc
@@ -80,7 +90,8 @@ class family_handler:
         os.environ["TRELLIS_PIPELINE_ROOT"] = str(pipeline_json)
         pipeline = Trellis2ImageTo3DPipeline.from_pretrained(str(pipeline_json))
         dev = torch.device("cuda")
-        pipeline.to(dev)
+        # Do NOT call pipeline.to(dev) — all modules stay on CPU so mmgp can
+        # manage VRAM by swapping them to GPU just-in-time during forward().
 
         # Extract individual nn.Modules for mmgp
         key_map = {
@@ -104,14 +115,10 @@ class family_handler:
         if hasattr(pipeline, 'rembg_model') and pipeline.rembg_model is not None:
             pipe['rembg'] = pipeline.rembg_model
 
-        for k, v in list(pipe.items()):
+        # Set eval mode on all modules (no .to(dev) — mmgp handles placement)
+        for v in pipe.values():
             if isinstance(v, torch.nn.Module):
-                pipe[k] = v.to(dev)
-            elif hasattr(v, 'to') and callable(v.to):
-                try:
-                    v.to(str(dev))
-                except Exception:
-                    pass
+                v.eval()
 
         co_tenants = {
             "ss_flow_model": ["ss_decoder"],

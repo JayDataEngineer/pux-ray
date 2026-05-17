@@ -1,16 +1,32 @@
 [Unit]
-Description=Tech Noir Ray Cluster - Boot Services
-After=network-online.target tailscaled.service
-Wants=network-online.target
+Description=Tech Noir - Flux GitOps Boot Verification
+After=k3s.service network-online.target
+Wants=k3s.service network-online.target
+
+# Wait for k3s to be accepting connections before we start
+StartLimitIntervalSec=300
+StartLimitBurst=5
 
 [Service]
-Type=simple
+Type=oneshot
 User=user
-ExecStart=/bin/bash -c 'cd /home/user/Documents/programs/ray && /home/user/Documents/programs/ray/.venv/bin/python -m boot.cli boot'
-Restart=on-failure
-RestartSec=30
+RemainAfterExit=yes
+
+# Phase 1: Wait for k3s API server to be ready
+ExecStartPre=/bin/bash -c 'for i in $(seq 1 60); do kubectl get node &>/dev/null && exit 0; sleep 5; done; exit 1'
+
+# Phase 2: Ensure Flux is bootstrapped (idempotent — no-op if already done)
+ExecStartPre=/bin/bash -c 'cd /home/user/Documents/programs/ray && flux get kustomizations &>/dev/null || kubectl apply -f infra/flux/clusters/forge/kustomization.yaml'
+
+# Phase 3: Wait for all Flux Kustomizations to reach Ready state
+ExecStart=/home/user/Documents/programs/ray/.venv/bin/python -m boot.cli boot
+
+# Phase 4: Verify critical services are reachable
+ExecStartPost=/bin/bash -c 'for i in $(seq 1 30); do curl -sf http://127.0.0.1:30080/-/health &>/dev/null && exit 0; sleep 5; done; echo "WARN: health endpoint not ready after 150s"'
+
 StandardOutput=journal
 StandardError=journal
+SyslogIdentifier=tech-noir-boot
 
 [Install]
 WantedBy=multi-user.target

@@ -44,15 +44,13 @@ class family_handler(BaseFamilyHandler):
         from registry.models import ModelRegistry
         model_path = Path(ModelRegistry().get_path("tts", "vibevoice-tts"))
 
-        # Register vibevoice architecture with transformers
         from vibevoice.modular.configuration_vibevoice import VibeVoiceConfig
         from vibevoice.modular.modeling_vibevoice import VibeVoiceForConditionalGeneration
-        from transformers import AutoConfig, AutoModelForCausalLM
-        AutoConfig.register("vibevoice", VibeVoiceConfig)
-        AutoModelForCausalLM.register(VibeVoiceConfig, VibeVoiceForConditionalGeneration)
 
-        model = AutoModelForCausalLM.from_pretrained(
-            str(model_path), torch_dtype=dtype or torch.bfloat16,
+        config = VibeVoiceConfig.from_pretrained(str(model_path), local_files_only=True)
+        model = VibeVoiceForConditionalGeneration.from_pretrained(
+            str(model_path), config=config,
+            torch_dtype=dtype or torch.bfloat16,
             device_map="cpu", local_files_only=True,
         )
         model.eval()

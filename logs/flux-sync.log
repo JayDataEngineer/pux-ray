@@ -1,0 +1,123 @@
+[2026-05-17 19:21:06] Pushing OCI artifact from /home/user/Documents/programs/ray/infra/flux ...
+► pushing artifact to 10.43.6.55:5000/flux-manifests:latest
+✔ artifact successfully pushed to 10.43.6.55:5000/flux-manifests@sha256:6818e3bb6c9fe0459c39ef368d2702b777d6f1e3c4c7dd93bca3882717be0f78
+[2026-05-17 19:21:06] Artifact pushed successfully
+[2026-05-17 19:21:06] Reconciling Flux kustomizations from OCI source...
+► annotating OCIRepository flux-manifests in flux-system namespace
+✔ OCIRepository annotated
+◎ waiting for OCIRepository reconciliation
+✔ fetched revision latest@sha256:6818e3bb6c9fe0459c39ef368d2702b777d6f1e3c4c7dd93bca3882717be0f78
+► annotating Kustomization namespaces in flux-system namespace
+✔ Kustomization annotated
+◎ waiting for Kustomization reconciliation
+✔ applied revision latest@sha256:6818e3bb6c9fe0459c39ef368d2702b777d6f1e3c4c7dd93bca3882717be0f78
+► annotating OCIRepository flux-manifests in flux-system namespace
+✔ OCIRepository annotated
+◎ waiting for OCIRepository reconciliation
+✔ fetched revision latest@sha256:6818e3bb6c9fe0459c39ef368d2702b777d6f1e3c4c7dd93bca3882717be0f78
+► annotating Kustomization networking in flux-system namespace
+✔ Kustomization annotated
+◎ waiting for Kustomization reconciliation
+✔ applied revision latest@sha256:6818e3bb6c9fe0459c39ef368d2702b777d6f1e3c4c7dd93bca3882717be0f78
+► annotating OCIRepository flux-manifests in flux-system namespace
+✔ OCIRepository annotated
+◎ waiting for OCIRepository reconciliation
+✔ fetched revision latest@sha256:6818e3bb6c9fe0459c39ef368d2702b777d6f1e3c4c7dd93bca3882717be0f78
+► annotating Kustomization ai-services in flux-system namespace
+✔ Kustomization annotated
+◎ waiting for Kustomization reconciliation
+✔ applied revision latest@sha256:6818e3bb6c9fe0459c39ef368d2702b777d6f1e3c4c7dd93bca3882717be0f78
+[2026-05-17 19:21:19] Reconciliation triggered
+[2026-05-17 19:26:25] Pushing OCI artifact from /home/user/Documents/programs/ray/infra/flux ...
+► pushing artifact to 10.43.6.55:5000/flux-manifests:latest
+✔ artifact successfully pushed to 10.43.6.55:5000/flux-manifests@sha256:10ade87d79915bc1682b50a8f877e6bfb4ba0b7e1254399af689ba8b2c130a34
+[2026-05-17 19:26:25] Artifact pushed successfully
+[2026-05-17 19:26:25] Reconciling Flux kustomizations from OCI source...
+► annotating OCIRepository flux-manifests in flux-system namespace
+✔ OCIRepository annotated
+◎ waiting for OCIRepository reconciliation
+✔ fetched revision latest@sha256:10ade87d79915bc1682b50a8f877e6bfb4ba0b7e1254399af689ba8b2c130a34
+► annotating Kustomization namespaces in flux-system namespace
+✔ Kustomization annotated
+◎ waiting for Kustomization reconciliation
+✔ applied revision latest@sha256:10ade87d79915bc1682b50a8f877e6bfb4ba0b7e1254399af689ba8b2c130a34
+► annotating OCIRepository flux-manifests in flux-system namespace
+✔ OCIRepository annotated
+◎ waiting for OCIRepository reconciliation
+✔ fetched revision latest@sha256:10ade87d79915bc1682b50a8f877e6bfb4ba0b7e1254399af689ba8b2c130a34
+► annotating Kustomization networking in flux-system namespace
+✔ Kustomization annotated
+◎ waiting for Kustomization reconciliation
+✔ applied revision latest@sha256:10ade87d79915bc1682b50a8f877e6bfb4ba0b7e1254399af689ba8b2c130a34
+► annotating OCIRepository flux-manifests in flux-system namespace
+✔ OCIRepository annotated
+◎ waiting for OCIRepository reconciliation
+✔ fetched revision latest@sha256:10ade87d79915bc1682b50a8f877e6bfb4ba0b7e1254399af689ba8b2c130a34
+► annotating Kustomization ai-services in flux-system namespace
+✔ Kustomization annotated
+◎ waiting for Kustomization reconciliation
+✔ applied revision latest@sha256:10ade87d79915bc1682b50a8f877e6bfb4ba0b7e1254399af689ba8b2c130a34
+[2026-05-17 19:26:37] Reconciliation triggered
+[2026-05-17 19:31:31] Pushing OCI artifact from /home/user/Documents/programs/ray/infra/flux ...
+► pushing artifact to 10.43.6.55:5000/flux-manifests:latest
+✔ artifact successfully pushed to 10.43.6.55:5000/flux-manifests@sha256:380bf95e8b340eb9e181b70f1bd391ffc183ce16ab6e14bfc0b1a84c0798492f
+[2026-05-17 19:31:31] Artifact pushed successfully
+[2026-05-17 19:31:31] Reconciling Flux kustomizations from OCI source...
+► annotating OCIRepository flux-manifests in flux-system namespace
+✔ OCIRepository annotated
+◎ waiting for OCIRepository reconciliation
+✔ fetched revision latest@sha256:380bf95e8b340eb9e181b70f1bd391ffc183ce16ab6e14bfc0b1a84c0798492f
+► annotating Kustomization namespaces in flux-system namespace
+✔ Kustomization annotated
+◎ waiting for Kustomization reconciliation
+✔ applied revision latest@sha256:380bf95e8b340eb9e181b70f1bd391ffc183ce16ab6e14bfc0b1a84c0798492f
+► annotating OCIRepository flux-manifests in flux-system namespace
+✔ OCIRepository annotated
+◎ waiting for OCIRepository reconciliation
+✔ fetched revision latest@sha256:380bf95e8b340eb9e181b70f1bd391ffc183ce16ab6e14bfc0b1a84c0798492f
+► annotating Kustomization networking in flux-system namespace
+✔ Kustomization annotated
+◎ waiting for Kustomization reconciliation
+✔ applied revision latest@sha256:380bf95e8b340eb9e181b70f1bd391ffc183ce16ab6e14bfc0b1a84c0798492f
+► annotating OCIRepository flux-manifests in flux-system namespace
+✔ OCIRepository annotated
+◎ waiting for OCIRepository reconciliation
+✔ fetched revision latest@sha256:380bf95e8b340eb9e181b70f1bd391ffc183ce16ab6e14bfc0b1a84c0798492f
+► annotating Kustomization ai-services in flux-system namespace
+✔ Kustomization annotated
+◎ waiting for Kustomization reconciliation
+✔ applied revision latest@sha256:380bf95e8b340eb9e181b70f1bd391ffc183ce16ab6e14bfc0b1a84c0798492f
+[2026-05-17 19:31:43] Reconciliation triggered
+[2026-05-17 19:36:31] Pushing OCI artifact from /home/user/Documents/programs/ray/infra/flux ...
+► pushing artifact to 10.43.6.55:5000/flux-manifests:latest
+✔ artifact successfully pushed to 10.43.6.55:5000/flux-manifests@sha256:6f4b5091b27af5971856992415d91c3764444c754ec0b22468d284b5f81f8e1e
+[2026-05-17 19:36:31] Artifact pushed successfully
+[2026-05-17 19:36:31] Reconciling Flux kustomizations from OCI source...
+► annotating OCIRepository flux-manifests in flux-system namespace
+✔ OCIRepository annotated
+◎ waiting for OCIRepository reconciliation
+✔ fetched revision latest@sha256:6f4b5091b27af5971856992415d91c3764444c754ec0b22468d284b5f81f8e1e
+► annotating Kustomization namespaces in flux-system namespace
+✔ Kustomization annotated
+◎ waiting for Kustomization reconciliation
+✔ applied revision latest@sha256:6f4b5091b27af5971856992415d91c3764444c754ec0b22468d284b5f81f8e1e
+► annotating OCIRepository flux-manifests in flux-system namespace
+✔ OCIRepository annotated
+◎ waiting for OCIRepository reconciliation
+✔ fetched revision latest@sha256:6f4b5091b27af5971856992415d91c3764444c754ec0b22468d284b5f81f8e1e
+► annotating Kustomization networking in flux-system namespace
+✔ Kustomization annotated
+◎ waiting for Kustomization reconciliation
+✔ applied revision latest@sha256:6f4b5091b27af5971856992415d91c3764444c754ec0b22468d284b5f81f8e1e
+► annotating OCIRepository flux-manifests in flux-system namespace
+✔ OCIRepository annotated
+◎ waiting for OCIRepository reconciliation
+✔ fetched revision latest@sha256:6f4b5091b27af5971856992415d91c3764444c754ec0b22468d284b5f81f8e1e
+► annotating Kustomization ai-services in flux-system namespace
+✔ Kustomization annotated
+◎ waiting for Kustomization reconciliation
+✔ applied revision latest@sha256:6f4b5091b27af5971856992415d91c3764444c754ec0b22468d284b5f81f8e1e
+[2026-05-17 19:36:44] Reconciliation triggered
+[2026-05-17 19:41:31] Pushing OCI artifact from /home/user/Documents/programs/ray/infra/flux ...
+✗ error setting up transport: Get "https://10.43.6.55:5000/v2/": dial tcp 10.43.6.55:5000: connect: operation not permitted; Get "http://10.43.6.55:5000/v2/": dial tcp 10.43.6.55:5000: connect: operation not permitted
+[2026-05-17 19:41:31] WARN: OCI artifact push failed (non-fatal — GitRepository is primary)

@@ -11,6 +11,13 @@ import os
 os.environ.setdefault("ATTN_BACKEND", "sdpa")
 os.environ.setdefault("SPARSE_ATTN_BACKEND", "sage")
 
+# geffnet is required by AniGen but may not be in the Docker image yet
+try:
+    import geffnet  # noqa: F401
+except ImportError:
+    import subprocess, sys
+    subprocess.check_call([sys.executable, "-m", "pip", "install", "geffnet", "-q"])
+
 import contextlib
 import sys
 

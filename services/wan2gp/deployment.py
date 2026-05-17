@@ -545,6 +545,7 @@ class Wan2GPService:
         )
 
         pipe, co_tenants = self._unwrap_pipe(pipe_wrapper)
+
         self._apply_mmgp_profile(pipe, co_tenants, is_cpu, model_type)
 
         self._models[model_name] = {
@@ -560,10 +561,16 @@ class Wan2GPService:
             return pipe_wrapper.get("pipe", pipe_wrapper), pipe_wrapper.get("coTenantsMap", {})
         return {}, {}
 
+    # Models whose handlers manage GPU memory internally (no mmgp needed)
+    _NO_MMGP_MODELS = {"pixal3d"}
+
     @staticmethod
     def _apply_mmgp_profile(pipe: dict, co_tenants: dict, is_cpu: bool,
                             model_type: str) -> None:
         if not pipe or is_cpu:
+            return
+        if model_type in Wan2GPService._NO_MMGP_MODELS:
+            logger.info("Skipping mmgp for %s (self-managed GPU memory)", model_type)
             return
         from mmgp import offload
         offload.profile(

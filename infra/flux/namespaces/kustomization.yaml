@@ -5,3 +5,4 @@ resources:
   - ai-services.yaml
   - mcp.yaml
   - git.yaml
+  - ray-system.yaml

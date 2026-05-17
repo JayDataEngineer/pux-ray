@@ -1,0 +1,9 @@
+[Unit]
+Description=Watch infra/flux/ for changes → trigger flux-sync
+
+[Path]
+PathModified=/home/user/Documents/programs/ray/infra/flux
+Unit=flux-sync.service
+
+[Install]
+WantedBy=multi-user.target

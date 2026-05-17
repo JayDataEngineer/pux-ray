@@ -350,7 +350,16 @@ class family_handler:
         finally:
             ProcessorMixin.__init__ = _orig_init
 
-        pipe = {"model": model, "audio_tokenizer": audio_tokenizer}
+        # Decompose into sub-modules so mmgp can swap them independently.
+        # model.generate() calls forward() which uses all three — mmgp hooks
+        # each module's forward() for just-in-time CPU↔GPU swapping.
+        pipe = {
+            "transformer": model.language_model,  # Qwen3Model backbone (~16GB)
+            "emb_ext": model.emb_ext,              # Audio VQ embeddings (32 small layers)
+            "lm_heads": model.lm_heads,            # Text + audio prediction heads
+        }
+        # audio_tokenizer is NOT in the pipe dict — mmgp would intercept its
+        # forward calls and cause dtype mismatches during decode.
         return _Pipeline(model, processor, audio_tokenizer, base_model_type), pipe
 
     @staticmethod
@@ -469,18 +478,24 @@ class _Pipeline:
         input_ids = batch["input_ids"].to(dev)
         attention_mask = batch["attention_mask"].to(dev)
 
-        if torch.cuda.is_available():
-            self.model = self.model.cuda()
-            if self.audio_tokenizer is not None:
-                self.audio_tokenizer = self.audio_tokenizer.to(dev)
-
+        # No .cuda() — mmgp manages device placement via pipe dict hooks.
+        # model.generate() → forward() → language_model/emb_ext/lm_heads
+        # are swapped to GPU just-in-time by mmgp's profile() wrapper.
         with torch.no_grad():
             generated = self.model.generate(
                 input_ids=input_ids, attention_mask=attention_mask,
                 max_new_tokens=max_tokens,
             )
 
-        results = self.processor.decode(generated)
+        # Move generated output to CPU for decode — audio tokenizer stays on
+        # CPU (model uses ~22GB, no room for the 3.4GB tokenizer on GPU).
+        gen_cpu = generated
+        if isinstance(generated, torch.Tensor):
+            gen_cpu = generated.cpu()
+        elif isinstance(generated, (list, tuple)):
+            gen_cpu = [t.cpu() if isinstance(t, torch.Tensor) else t for t in generated]
+
+        results = self.processor.decode(gen_cpu)
         if not results:
             raise RuntimeError("No audio generated")
 

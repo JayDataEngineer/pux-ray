@@ -73,10 +73,19 @@ def _is_forge_service(service_name: str) -> bool:
 
 
 def _model_name_for(service_name: str, entry) -> str:
-    """Map a service name to the Wan2GP model name in the dynamic registry."""
-    if service_name == "wan2gp":
-        return entry.default_model
-    return entry.default_model
+    """Map a service name to the Wan2GP model name in the dynamic registry.
+
+    Wan2GP registry keys use 'family/variant' format (e.g. 'moss/moss-soundeffect').
+    Service entries may store just the short form. This function ensures the full
+    key is used by prepending the family name derived from the service name.
+    """
+    default = entry.default_model
+    if "/" in default:
+        return default
+    # Derive family from service_name convention: moss_soundeffect → moss
+    family = service_name.split("_")[0]
+    variant = default.replace("_", "-")
+    return f"{family}/{variant}"
 
 
 class APIIngress:
@@ -93,23 +102,31 @@ class APIIngress:
                 f"Available: {', '.join(sorted(SERVICE_REGISTRY.keys()))}"
             )
 
-        if _is_forge_service(service_name):
+        # Route through Forge if the service or its deployment is forge-managed.
+        # Individual model services (moss_soundeffect, ace_step, etc.) have
+        # deployment="wan2gp" which is a forge service — route them through
+        # the forge using the deployment name as the forge service key.
+        forge_key = service_name if _is_forge_service(service_name) else (
+            entry.deployment if _is_forge_service(entry.deployment) else None
+        )
+        if forge_key:
             forge = _get_forge()
-            return await forge.invoke.remote(service_name, body)
-
-        if entry.deployment == "wan2gp":
-            body.setdefault("model", _model_name_for(service_name, entry))
-            wan2gp = _get_wan2gp()
-            return await wan2gp.invoke.remote(body)
+            model_name = _model_name_for(service_name, entry)
+            body.setdefault("model", model_name)
+            model = body.get("model")
+            logger.info("DISPATCH service=%s forge_key=%s model=%s body_model=%s",
+                        service_name, forge_key, model, model_name)
+            return await forge.invoke.remote(forge_key, body, model)
 
         handle = serve.get_deployment_handle(entry.deployment, entry.app)
         return await handle.remote(body)
 
     # ── Generic TNAP route ─────────────────────────────────────────────────────
 
-    async def tnap_generate(self, request: Request) -> Response:
+    async def tnap_generate(self, request: Request, service_name: str = None) -> Response:
         """Generic route: POST /v1/{service}/generate"""
-        service_name = request.path_params["service"]
+        if service_name is None:
+            service_name = request.path_params.get("service", "")
         body = await request.json()
         try:
             result = await self._dispatch_service(service_name, body)
@@ -238,9 +255,10 @@ class APIIngress:
             })
         return JSONResponse(services)
 
-    async def service_info(self, request: Request) -> Response:
+    async def service_info(self, request: Request, service_name: str = None) -> Response:
         """GET /v1/services/{service} — info about a specific service."""
-        service_name = request.path_params["service"]
+        if service_name is None:
+            service_name = request.path_params.get("service", "")
         entry = get_service(service_name)
         if not entry:
             return JSONResponse({"error": f"Unknown service: {service_name}"}, status_code=404)

@@ -112,10 +112,12 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     starlette aiohttp httpx \
     openai huggingface-hub \
     pyyaml click rich \
-    "protobuf>=6,<7" packaging webcolors
+    "protobuf>=6,<7" packaging webcolors \
+    geffnet
 
-# natten needs build isolation off to see system torch
+# natten needs FORCE_CUDA=1 and build isolation off to see system torch
 RUN --mount=type=cache,target=/root/.cache/uv \
+    FORCE_CUDA=1 TORCH_CUDA_ARCH_LIST="${CUDA_ARCHITECTURES}" MAX_JOBS=${MAX_JOBS} \
     uv pip install natten==0.21.0 --no-build-isolation
 
 # qwen-tts (no-deps to avoid accelerate version conflict)
@@ -159,9 +161,10 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     MAX_JOBS=${MAX_JOBS} uv pip install --no-build-isolation . && \
     rm -rf /tmp/pytorch3d
 
-# spconv (PyPI wheel — CUDA ops partially work, mesh extraction needs workaround)
-RUN FORCE_CUDA=1 SPCONV_CUDA_ARCHITECTURES=8.9 MAX_JOBS=${MAX_JOBS} \
-    uv pip install spconv --no-cache
+# spconv + cumm (pre-built cu126 wheels — forward-compatible with CUDA 12.8 runtime)
+# The bare `spconv` package on PyPI is CPU-only (no .so extensions).
+# The -cu126 suffix wheels include compiled CUDA kernels.
+RUN uv pip install cumm-cu126 spconv-cu126
 
 # ── Clone git repos (for services that need full repo structure) ──────
 WORKDIR /opt
@@ -279,9 +282,9 @@ RUN uv pip install \
 # numpy 2.x after thinc was compiled against 1.x headers → dtype size mismatch)
 RUN uv pip install --no-cache-dir --force-reinstall thinc
 
-# ── spconv pre-warm (bakes JIT kernel cache into image, avoids 10+ min cold start) ──
-RUN python3 -c "import spconv; print(f'spconv {spconv.__version__} pre-warmed')" || \
-    echo "spconv pre-warm skipped (needs GPU at runtime)"
+# ── spconv + natten verification (needs GPU at runtime for full check) ──
+RUN python3 -c "import spconv; print(f'spconv {spconv.__version__} loaded')" && \
+    python3 -c "import natten; print(f'natten {natten.__version__} loaded')"
 
 # ── Env defaults (overridden per-deployment) ────────────────────────────
 ENV PYTHONPATH=/app:/opt/wan2gp:/opt/utils3d:/opt/hymotion:/opt/anigen:/opt/seethrough:/opt/vendor \

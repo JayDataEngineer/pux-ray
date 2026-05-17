@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: ray-system
+  labels:
+    app.kubernetes.io/part-of: tech-noir
+    tier: orchestration

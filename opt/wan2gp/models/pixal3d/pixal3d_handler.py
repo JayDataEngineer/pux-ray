@@ -18,8 +18,18 @@ Amendment A (Large Model Exception):
 """
 import os
 os.environ.setdefault("ATTN_BACKEND", "sdpa")
-os.environ.setdefault("SPARSE_ATTN_BACKEND", "sage")
-os.environ.setdefault("SPARSE_CONV_BACKEND", "spconv")
+os.environ["SPARSE_ATTN_BACKEND"] = "flash_attn"
+os.environ["SPARSE_CONV_BACKEND"] = "flex_gemm"
+
+# Patch mmgp safetensors2 to support complex dtypes (C64, C128, C32)
+try:
+    import mmgp.safetensors2 as _st2
+    import torch as _torch
+    _st2._map_to_dtype.setdefault("C64", _torch.complex64)
+    _st2._map_to_dtype.setdefault("C128", _torch.complex128)
+    _st2._map_to_dtype.setdefault("C32", _torch.complex32)
+except Exception:
+    pass
 
 import base64
 import gc
@@ -39,32 +49,43 @@ _HANDLER_DIR = Path(__file__).parent
 
 IMAGE_COND_CONFIGS = {
     "ss": {
-        "model_name": "camenduru/dinov3-vitl16-pretrain-lvd1689m",
         "image_size": 512,
         "grid_resolution": 16,
     },
     "shape_512": {
-        "model_name": "camenduru/dinov3-vitl16-pretrain-lvd1689m",
         "image_size": 512,
         "grid_resolution": 32,
         "use_naf_upsample": True,
         "naf_target_size": 512,
     },
     "shape_1024": {
-        "model_name": "camenduru/dinov3-vitl16-pretrain-lvd1689m",
         "image_size": 1024,
         "grid_resolution": 64,
         "use_naf_upsample": True,
         "naf_target_size": 512,
     },
     "tex_1024": {
-        "model_name": "camenduru/dinov3-vitl16-pretrain-lvd1689m",
         "image_size": 1024,
         "grid_resolution": 64,
         "use_naf_upsample": True,
         "naf_target_size": 1024,
     },
 }
+
+
+def _find_dinov3_path(model_root: Path) -> str:
+    """Resolve local DinoV3 weights from model root or models directory."""
+    candidates = [
+        model_root / "dinov3" / "facebook" / "dinov3-vitl16-pretrain-lvd1689m",
+        model_root / "dinov3",
+        Path("/models/3d/pixal3d/dinov3/facebook/dinov3-vitl16-pretrain-lvd1689m"),
+        Path("/models/3d/trellis/dinov3/facebook/dinov3-vitl16-pretrain-lvd1689m"),
+    ]
+    for c in candidates:
+        if c.is_dir() and (c / "config.json").exists():
+            return str(c)
+    # Fallback to HuggingFace repo ID
+    return "facebook/dinov3-vitl16-pretrain-lvd1689m"
 
 
 class family_handler(BaseFamilyHandler):
@@ -89,6 +110,7 @@ class family_handler(BaseFamilyHandler):
         from .pixal3d.pipelines.pixal3d_image_to_3d import Pixal3DImageTo3DPipeline
 
         pipeline_json = _find_pipeline_json(model_root)
+        logger.info("Pixal3D: model_root=%s pipeline_json=%s", model_root, pipeline_json)
         pipeline = Pixal3DImageTo3DPipeline.from_pretrained(str(pipeline_json))
         dev = torch.device("cuda")
 
@@ -96,11 +118,13 @@ class family_handler(BaseFamilyHandler):
         from .pixal3d.trainers.flow_matching.mixins.image_conditioned_proj import (
             DinoV3ProjFeatureExtractor,
         )
+        dinov3_path = _find_dinov3_path(model_root)
         image_cond_models = {}
         for stage, config in IMAGE_COND_CONFIGS.items():
+            config = {**config, "model_name": dinov3_path}
             cond_model = DinoV3ProjFeatureExtractor(**config)
             cond_model.eval()
-            cond_model.to(dev)
+            # No .to(dev) — mmgp swaps modules to GPU just-in-time
             image_cond_models[f"image_cond_{stage}"] = cond_model
 
         # Pre-load NAF upsampler weights
@@ -123,7 +147,7 @@ class family_handler(BaseFamilyHandler):
         pipe = {}
         for short_key, full_key in key_map.items():
             if full_key in pipeline.models:
-                pipe[short_key] = pipeline.models[full_key].to(dev)
+                pipe[short_key] = pipeline.models[full_key]
 
         pipe.update(image_cond_models)
 

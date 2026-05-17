@@ -1,15 +1,14 @@
 # Tech Noir Forge — Flux CD root configuration
 #
-# This file defines the GitRepository source and the Kustomization
-# layers that Flux reconciles. Push to master → Flux syncs the cluster.
+# Push to master → Flux syncs the cluster. Self-healing via health checks.
+# If any resource becomes unhealthy, Flux re-reconciles within the interval.
 #
-# Layers are applied in dependency order:
-#   namespaces → infra-storage → infra-secrets → git
-#   → infra-services → ai-services + mcp → networking
+# Layers (dependency order):
+#   namespaces → infra-storage → infra-secrets → helm
+#   → infra-services + git → ai-services + mcp → networking
 #
-# Setup:
-#   flux install --components=source-controller,kustomize-controller
-#   kubectl apply -f infra/flux/clusters/forge/kustomization.yaml
+# Setup (one-time):
+#   sudo python -m infra.setup bootstrap --fix
 #
 # Verify:
 #   flux get kustomizations
@@ -23,7 +22,7 @@ metadata:
   name: tech-noir
   namespace: flux-system
 spec:
-  interval: 5m
+  interval: 2m
   ref:
     branch: master
   url: https://github.com/JayDataEngineer/tech-noir-ray.git
@@ -42,12 +41,30 @@ metadata:
   name: namespaces
   namespace: flux-system
 spec:
-  interval: 10m
+  interval: 5m
+  retryInterval: 1m
   path: ./infra/flux/namespaces
   prune: true
   sourceRef:
     kind: GitRepository
     name: tech-noir
+  timeout: 2m
+  healthChecks:
+    - apiVersion: v1
+      kind: Namespace
+      name: ai-services
+    - apiVersion: v1
+      kind: Namespace
+      name: infra
+    - apiVersion: v1
+      kind: Namespace
+      name: mcp
+    - apiVersion: v1
+      kind: Namespace
+      name: git
+    - apiVersion: v1
+      kind: Namespace
+      name: ray-system
 
 ---
 # Layer 2: Storage — PVs and PVCs (depends on namespaces)
@@ -57,7 +74,8 @@ metadata:
   name: infra-storage
   namespace: flux-system
 spec:
-  interval: 10m
+  interval: 5m
+  retryInterval: 1m
   path: ./infra/flux/infra-storage
   prune: true
   sourceRef:
@@ -65,6 +83,12 @@ spec:
     name: tech-noir
   dependsOn:
     - name: namespaces
+  timeout: 2m
+  healthChecks:
+    - apiVersion: v1
+      kind: PersistentVolumeClaim
+      name: models-pvc
+      namespace: ai-services
 
 ---
 # Layer 3: Secrets — SOPS-encrypted (depends on namespaces)
@@ -74,7 +98,8 @@ metadata:
   name: infra-secrets
   namespace: flux-system
 spec:
-  interval: 10m
+  interval: 5m
+  retryInterval: 1m
   path: ./infra/flux/infra-secrets
   prune: true
   sourceRef:
@@ -86,9 +111,11 @@ spec:
     provider: sops
     secretRef:
       name: sops-age
+  timeout: 2m
 
 ---
-# Layer 3.5: Helm — HelmRepositories + HelmReleases (depends on secrets)
+# Layer 4: Helm — HelmRepositories + HelmReleases (depends on secrets + namespaces)
+# Includes: Traefik, KubeRay operator, monitoring, Flux Operator
 apiVersion: kustomize.toolkit.fluxcd.io/v1
 kind: Kustomization
 metadata:
@@ -96,16 +123,36 @@ metadata:
   namespace: flux-system
 spec:
   interval: 5m
+  retryInterval: 1m
   path: ./infra/flux/helm
   prune: true
   sourceRef:
     kind: GitRepository
     name: tech-noir
   dependsOn:
+    - name: namespaces
+    - name: infra-storage
     - name: infra-secrets
+  timeout: 5m
+  healthChecks:
+    # Traefik (DaemonSet — routes all traffic)
+    - apiVersion: apps/v1
+      kind: DaemonSet
+      name: traefik
+      namespace: kube-system
+    # KubeRay operator (manages Ray clusters)
+    - apiVersion: apps/v1
+      kind: Deployment
+      name: kuberay-operator
+      namespace: ray-system
+    # Forge Registry (image storage)
+    - apiVersion: apps/v1
+      kind: Deployment
+      name: forge-registry
+      namespace: infra
 
 ---
-# Layer 4: Git services — Gitea + Act Runners (depends on helm for Gitea chart)
+# Layer 5: Git services — Gitea + Act Runners (depends on helm for Gitea chart)
 apiVersion: kustomize.toolkit.fluxcd.io/v1
 kind: Kustomization
 metadata:
@@ -113,6 +160,7 @@ metadata:
   namespace: flux-system
 spec:
   interval: 5m
+  retryInterval: 2m
   path: ./infra/flux/git
   prune: true
   sourceRef:
@@ -122,9 +170,10 @@ spec:
     - name: infra-storage
     - name: infra-secrets
     - name: helm
+  timeout: 5m
 
 ---
-# Layer 5: Infrastructure services (depends on helm)
+# Layer 6: Infrastructure services (Postgres, Garage, monitoring, etc.)
 apiVersion: kustomize.toolkit.fluxcd.io/v1
 kind: Kustomization
 metadata:
@@ -132,6 +181,7 @@ metadata:
   namespace: flux-system
 spec:
   interval: 5m
+  retryInterval: 2m
   path: ./infra/flux/infra-services
   prune: true
   sourceRef:
@@ -141,9 +191,10 @@ spec:
     - name: infra-storage
     - name: infra-secrets
     - name: helm
+  timeout: 5m
 
 ---
-# Layer 6: AI services — Ray cluster (depends on namespaces + storage)
+# Layer 7: AI services — Ray cluster via KubeRay (depends on helm for KubeRay + secrets for HF_TOKEN)
 apiVersion: kustomize.toolkit.fluxcd.io/v1
 kind: Kustomization
 metadata:
@@ -151,6 +202,7 @@ metadata:
   namespace: flux-system
 spec:
   interval: 5m
+  retryInterval: 1m
   path: ./infra/flux/ai-services
   prune: true
   sourceRef:
@@ -159,9 +211,12 @@ spec:
   dependsOn:
     - name: namespaces
     - name: infra-storage
+    - name: infra-secrets
+    - name: helm
+  timeout: 5m
 
 ---
-# Layer 6: MCP servers (depends on namespaces + storage)
+# Layer 7: MCP servers (depends on namespaces + storage + secrets)
 apiVersion: kustomize.toolkit.fluxcd.io/v1
 kind: Kustomization
 metadata:
@@ -169,6 +224,7 @@ metadata:
   namespace: flux-system
 spec:
   interval: 5m
+  retryInterval: 2m
   path: ./infra/flux/mcp
   prune: true
   sourceRef:
@@ -177,9 +233,12 @@ spec:
   dependsOn:
     - name: namespaces
     - name: infra-storage
+    - name: infra-secrets
+    - name: helm
+  timeout: 5m
 
 ---
-# Layer 7: Networking — Traefik routes (depends on all services)
+# Layer 8: Networking — Traefik IngressRoutes (depends on all services being up)
 apiVersion: kustomize.toolkit.fluxcd.io/v1
 kind: Kustomization
 metadata:
@@ -187,6 +246,7 @@ metadata:
   namespace: flux-system
 spec:
   interval: 5m
+  retryInterval: 1m
   path: ./infra/flux/networking
   prune: true
   sourceRef:
@@ -195,6 +255,7 @@ spec:
   dependsOn:
     - name: ai-services
     - name: mcp
+  timeout: 3m
 
 ---
 # Dev branch source — watches dev for dev-specific resources

@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import base64
 import io
+import json
 from pathlib import Path
 from typing import Any, Union
 
@@ -165,6 +166,43 @@ class RayClient:
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_bytes(audio)
         return path
+
+    # ── Pipeline execution ────────────────────────────────────────────────────
+
+    async def execute_pipeline(self, steps: list[dict]) -> dict[str, Any]:
+        """Execute a multi-step inference pipeline.
+
+        Args:
+            steps: List of step dicts, each with name, service, params,
+                   and optional depends_on.
+
+        Returns:
+            Dict with final results keyed by step name.
+        """
+        async with self.client.stream(
+            "POST",
+            "/api/pipelines/execute",
+            json={"steps": steps},
+        ) as resp:
+            resp.raise_for_status()
+            results: dict[str, Any] = {}
+            async for line in resp.aiter_lines():
+                if not line.startswith("data: "):
+                    continue
+                payload = line[6:]
+                if payload == "[DONE]":
+                    break
+                try:
+                    event = json.loads(payload)
+                except (json.JSONDecodeError, ValueError):
+                    continue
+                if event.get("event") == "step_error":
+                    raise RuntimeError(
+                        f"Step '{event.get('step')}' failed: {event.get('error')}"
+                    )
+                if event.get("event") == "pipeline_completed":
+                    results = event.get("results", {})
+            return results
 
     # ── Infrastructure ─────────────────────────────────────────────────────────
 

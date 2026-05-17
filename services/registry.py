@@ -99,7 +99,7 @@ SERVICE_REGISTRY: dict[str, ServiceEntry] = {
     "moss_soundeffect": ServiceEntry(
         deployment="wan2gp", app="wan2gp",
         label="MOSS-SoundEffect", category="audio",
-        needs_gpu=True, default_model="moss_soundeffect",
+        needs_gpu=True, default_model="moss/moss-soundeffect",
         output_type="audio",
         description="MOSS-SoundEffect 8B — text-to-sound effects.",
     ),

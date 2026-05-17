@@ -1,0 +1,10 @@
+[Unit]
+Description=Periodic Flux OCI artifact sync (fallback if path watcher misses changes)
+
+[Timer]
+OnBootSec=5min
+OnUnitActiveSec=5min
+Persistent=true
+
+[Install]
+WantedBy=multi-user.target

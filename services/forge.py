@@ -285,7 +285,7 @@ class ForgeCore:
 @serve.deployment(
     name="forge",
     num_replicas=1,
-    max_ongoing_requests=1,
+    max_ongoing_requests=4,
     ray_actor_options={"num_gpus": 1.0},
 )
 class Forge:

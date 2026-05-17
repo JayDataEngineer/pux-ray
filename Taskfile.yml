@@ -326,6 +326,24 @@ tasks:
     cmds:
       - pre-commit run --all-files
 
+  # ── Flux OCI Sync (local IaC fallback — no GitHub needed) ─────────────────
+  flux:sync:
+    desc: "Push infra/flux/ as OCI artifact to forge-registry + reconcile Flux"
+    cmds:
+      - "{{.VENV_PYTHON}} -m infra.flux_sync push"
+
+  flux:sync:watch:
+    desc: "Watch infra/flux/ dir and sync on every change (blocks)"
+    cmds:
+      - "{{.VENV_PYTHON}} -m infra.flux_sync watch"
+
+  flux:sync:status:
+    desc: "Show flux-sync systemd watcher status"
+    cmds:
+      - systemctl status flux-sync.path flux-sync.timer --no-pager -l
+      - echo "---"
+      - journalctl -u flux-sync.service --no-pager -n 10
+
   # ── Renovate ───────────────────────────────────────────────────────────────
   renovate:run:
     desc: "Run Renovate dependency check manually (reads token from k8s secret)"

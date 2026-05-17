@@ -1,0 +1,17 @@
+[Unit]
+Description=Tech Noir Flux Sync — push infra/flux/ as OCI artifact to forge-registry
+Documentation=https://github.com/JayDataEngineer/tech-noir-ray
+After=network-online.target k3s.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=user
+Group=user
+WorkingDirectory=/home/user/Documents/programs/ray
+ExecStart=/home/user/Documents/programs/ray/infra/flux-sync.sh push
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

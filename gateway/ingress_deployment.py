@@ -57,14 +57,12 @@ class APIIngressDeployment:
             return await self._ingress.list_services(request)
         if path.startswith("/v1/services/") and method == "GET":
             service = path.split("/v1/services/")[1].rstrip("/")
-            request.path_params = {"service": service}
-            return await self._ingress.service_info(request)
+            return await self._ingress.service_info(request, service_name=service)
 
         # Generic TNAP generate
         if path.startswith("/v1/") and path.endswith("/generate") and method == "POST":
-            service = path.split("/v1/")[1].rstrip("/generate").rstrip("/")
-            request.path_params = {"service": service}
-            return await self._ingress.tnap_generate(request)
+            service = path[len("/v1/"):-len("/generate")]
+            return await self._ingress.tnap_generate(request, service_name=service)
 
         # OpenAI-compatible
         if path == "/v1/models" and method == "GET":
@@ -85,6 +83,10 @@ class APIIngressDeployment:
         # ComfyUI proxy
         if path == "/comfyui" or path.startswith("/comfyui/"):
             return await self._ingress.comfyui_proxy(request)
+
+        # Pipeline execution
+        if path == "/api/pipelines/execute" and method == "POST":
+            return await self._ingress.execute_pipeline(request)
 
         # Admin
         if path == "/admin/load" and method == "POST":
