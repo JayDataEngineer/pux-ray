@@ -19,19 +19,19 @@ vars:
 tasks:
   # ── Boot (main entry point) ──────────────────────────────────────────────
   boot:
-    desc: "Start all services (Ray + Docker)"
+    desc: "Verify k3s + Flux health, start Docker services"
     cmds:
       - "{{.VENV_PYTHON}} -m boot.cli boot"
 
-  boot:ray:
-    desc: "Start Ray cluster + deploy services + ingress"
-    cmds:
-      - "{{.VENV_PYTHON}} -m boot.cli boot ray"
-
   boot:docker:
-    desc: "Start all Docker Compose services"
+    desc: "Start all Docker Compose services only"
     cmds:
       - "{{.VENV_PYTHON}} -m boot.cli boot docker"
+
+  heal:
+    desc: "Force-reconcile all Flux Kustomizations"
+    cmds:
+      - "{{.VENV_PYTHON}} -m boot.cli heal"
 
   # ── Service lifecycle ────────────────────────────────────────────────────
   build:
