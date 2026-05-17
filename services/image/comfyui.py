@@ -39,8 +39,7 @@ class ComfyUIService(ForgeSubprocessMixin, ForgeService):
             mkdir -p /opt/ComfyUI/models
             for d in checkpoints clip clip_vision controlnet diffusion_models \
                      loras text_encoders unet upscale_models vae \
-                     latent_upscale_models HY-Motion RMBG sams ultralytics \
-                     bbox segm; do
+                     latent_upscale_models HY-Motion RMBG sams ultralytics; do
               target="/models/image-gen/comfyui/$d"
               link="/opt/ComfyUI/models/$d"
               if [ -d "$target" ]; then

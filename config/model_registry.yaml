@@ -453,24 +453,24 @@ comfyui:
     description: PrefectIllustrious XL v7.0 SDXL checkpoint.
   checkpoint-ilflatmix:
     path: image-gen/comfyui/checkpoints/Illustrious/ILFlatMix.safetensors
-    source: civitai://1188956
+    source: civitai://2044675
     download: civitai
     sha256: null
     size_gb: 6.8
     vram_estimate_gb: 7.5
     device: gpu
     description: "ALF mix IL v4.3 [final] — Illustrious 8-step checkpoint. VNCCS author's
-      mix (Shio_N). LCM/Euler A, CFG 1.8-2.0, 6-8 steps. Civitai model 1188956."
+      mix (Shio_N). LCM/Euler A, CFG 1.8-2.0, 6-8 steps. Civitai version 2044675."
   checkpoint-ilflatmix-v4:
     path: image-gen/comfyui/checkpoints/Illustrious/ILFlatMixV4_00001_.safetensors
-    source: civitai://1188956
+    source: civitai://2044675
     download: civitai
     sha256: null
     size_gb: 6.8
     vram_estimate_gb: 7.5
     device: gpu
-    description: "ALF mix IL v4 [00001] — Illustrious checkpoint. VNCCS SDXL pipeline.
-      Civitai model 1188956."
+    description: "ALF mix IL v4.3 [00001] — Illustrious checkpoint. VNCCS SDXL pipeline.
+      Civitai version 2044675."
   text-encoder-ltx-2.3-projection:
     path: image-gen/comfyui/text_encoders/ltx-2.3_text_projection_bf16.safetensors
     source: hf://Kijai/LTX2.3_comfy/text_encoders/ltx-2.3_text_projection_bf16.safetensors
