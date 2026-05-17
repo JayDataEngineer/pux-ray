@@ -8,4 +8,4 @@ resources:
   - equibles-mcp.yaml
   - equibles-worker.yaml
   - equibles-web.yaml
-  - equibles-scaledobject.yaml
+  # - equibles-scaledobject.yaml  # Requires KEDA — uncomment after KEDA Helm install succeeds

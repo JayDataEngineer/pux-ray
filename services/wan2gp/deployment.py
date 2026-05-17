@@ -29,7 +29,7 @@ import torch
 
 logger = logging.getLogger(__name__)
 
-WAN2GP_VENDOR = Path(__file__).parents[2] / "opt" / "wan2gp"
+WAN2GP_VENDOR = Path(os.environ.get("WAN2GP_ROOT", "/opt/wan2gp"))
 
 # ─── mmgp Profiles ────────────────────────────────────────────────────────────
 
@@ -220,7 +220,7 @@ def _get_family_handlers() -> list[str]:
     import importlib
 
     handlers: list[str] = []
-    models_dir = Path(__file__).resolve().parent.parent.parent / "opt" / "wan2gp" / "models"
+    models_dir = WAN2GP_VENDOR / "models"
 
     if models_dir.is_dir():
         for family_dir in sorted(models_dir.iterdir()):

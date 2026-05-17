@@ -156,6 +156,7 @@ class family_handler(BaseFamilyHandler):
 
         for v in pipe.values():
             if isinstance(v, torch.nn.Module):
+                v.to(dev)
                 v.eval()
 
         co_tenants = {

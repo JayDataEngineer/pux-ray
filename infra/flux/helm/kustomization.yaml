@@ -20,7 +20,7 @@ resources:
   - releases/infra/kube-state-metrics.yaml
   - releases/infra/flux-operator.yaml
   - releases/infra/flux-ui-nodeport.yaml
-  - releases/infra/keda.yaml
+  # - releases/infra/keda.yaml  # KEDA CRD install issues — uncomment when fixed
   - releases/git/gitea.yaml
   # Custom charts (in-repo GitRepository-based)
   - releases/infra/forge-registry.yaml

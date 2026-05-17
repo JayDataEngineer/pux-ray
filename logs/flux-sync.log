@@ -121,3 +121,34 @@
 [2026-05-17 19:41:31] Pushing OCI artifact from /home/user/Documents/programs/ray/infra/flux ...
 ✗ error setting up transport: Get "https://10.43.6.55:5000/v2/": dial tcp 10.43.6.55:5000: connect: operation not permitted; Get "http://10.43.6.55:5000/v2/": dial tcp 10.43.6.55:5000: connect: operation not permitted
 [2026-05-17 19:41:31] WARN: OCI artifact push failed (non-fatal — GitRepository is primary)
+[2026-05-17 19:46:31] WARN: forge-registry not found — skipping OCI push
+[2026-05-17 19:51:32] WARN: forge-registry not found — skipping OCI push
+[2026-05-17 19:56:31] Pushing OCI artifact from /home/user/Documents/programs/ray/infra/flux ...
+► pushing artifact to 10.43.42.100:5000/flux-manifests:latest
+✔ artifact successfully pushed to 10.43.42.100:5000/flux-manifests@sha256:bbcec91d60797943307d033b3e12fa562087104520332e0465c7ccd90bb2f624
+[2026-05-17 19:56:31] OCI artifact pushed
+[2026-05-17 20:01:31] Pushing OCI artifact from /home/user/Documents/programs/ray/infra/flux ...
+► pushing artifact to 10.43.42.100:5000/flux-manifests:latest
+✔ artifact successfully pushed to 10.43.42.100:5000/flux-manifests@sha256:b55b177432bb4548371a85058821591e4d2ceaaa8e75d8932b77a2113387eb31
+[2026-05-17 20:01:32] OCI artifact pushed
+[2026-05-17 20:06:31] Pushing OCI artifact from /home/user/Documents/programs/ray/infra/flux ...
+► pushing artifact to 10.43.42.100:5000/flux-manifests:latest
+✔ artifact successfully pushed to 10.43.42.100:5000/flux-manifests@sha256:09b06c84a6448f344c0d91500957eef421c079151c938807c086c8ca35f4f879
+[2026-05-17 20:06:33] OCI artifact pushed
+[2026-05-17 20:11:31] Pushing OCI artifact from /home/user/Documents/programs/ray/infra/flux ...
+► pushing artifact to 10.43.42.100:5000/flux-manifests:latest
+✔ artifact successfully pushed to 10.43.42.100:5000/flux-manifests@sha256:ebe9a72d4dabe50c2163685b551418e7f27674acbb8bc03de0997841e1a98599
+[2026-05-17 20:11:31] OCI artifact pushed
+[2026-05-17 20:16:31] WARN: forge-registry not found — skipping OCI push
+[2026-05-17 20:21:31] Pushing OCI artifact from /home/user/Documents/programs/ray/infra/flux ...
+► pushing artifact to 10.43.119.237:5000/flux-manifests:latest
+✔ artifact successfully pushed to 10.43.119.237:5000/flux-manifests@sha256:9cb31233d659ad4977abc3dd5386c53f49453898f562143cd72f43a85c2d8787
+[2026-05-17 20:21:32] OCI artifact pushed
+[2026-05-17 20:26:31] Pushing OCI artifact from /home/user/Documents/programs/ray/infra/flux ...
+► pushing artifact to 10.43.119.237:5000/flux-manifests:latest
+✔ artifact successfully pushed to 10.43.119.237:5000/flux-manifests@sha256:c7edc46444f6855133986b2fc4548701f57384eac60fa1f2f09984468554048e
+[2026-05-17 20:26:31] OCI artifact pushed
+[2026-05-17 20:31:31] Pushing OCI artifact from /home/user/Documents/programs/ray/infra/flux ...
+► pushing artifact to 10.43.119.237:5000/flux-manifests:latest
+✔ artifact successfully pushed to 10.43.119.237:5000/flux-manifests@sha256:3b2f0dc7b2b72aec57be83a7aff100d258a6f2cc7092839b89a20883670a5a92
+[2026-05-17 20:31:32] OCI artifact pushed
