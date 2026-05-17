@@ -15,9 +15,11 @@ Usage:
 
 from __future__ import annotations
 
+import json
 import logging
 import subprocess
 import sys
+import time
 
 from rich.console import Console
 from rich.table import Table
@@ -41,38 +43,39 @@ def _run(cmd: list[str], **kwargs) -> subprocess.CompletedProcess:
     return subprocess.run(cmd, capture_output=True, text=True, **kwargs)
 
 
+def _get_kustomizations() -> list[dict]:
+    """Get all Flux Kustomizations via kubectl."""
+    r = _run(["kubectl", "get", "kustomizations", "-n", "flux-system", "-o", "json"])
+    if r.returncode != 0:
+        return []
+    try:
+        data = json.loads(r.stdout)
+        return data.get("items", [])
+    except json.JSONDecodeError:
+        return []
+
+
 def _flux_healthy() -> bool:
     """Check if Flux is installed and reconciling."""
-    r = _run(["flux", "get", "kustomizations"])
-    return r.returncode == 0
+    kustomizations = _get_kustomizations()
+    return len(kustomizations) > 0
 
 
 def _wait_flux_healthy(timeout: int = 300) -> bool:
     """Wait for all Flux Kustomizations to be Ready."""
-    import time
     deadline = time.time() + timeout
     while time.time() < deadline:
-        r = _run(["flux", "get", "kustomizations", "-o", "json"])
-        if r.returncode != 0:
-            remaining = int(deadline - time.time())
-            if remaining > 0:
-                time.sleep(5)
-            continue
-        import json
-        try:
-            kustomizations = json.loads(r.stdout)
-        except json.JSONDecodeError:
+        kustomizations = _get_kustomizations()
+        if not kustomizations:
             time.sleep(5)
             continue
         all_ready = True
         for k in kustomizations:
-            ready = False
             for c in k.get("status", {}).get("conditions", []):
-                if c.get("type") == "Ready" and c.get("status") == "True":
-                    ready = True
+                if c.get("type") == "Ready" and c.get("status") != "True":
+                    all_ready = False
                     break
-            if not ready:
-                all_ready = False
+            if not all_ready:
                 break
         if all_ready:
             return True
@@ -84,12 +87,7 @@ def _wait_flux_healthy(timeout: int = 300) -> bool:
 
 
 def cmd_boot(target: str | None = None) -> None:
-    """Verify Flux health and start Docker services.
-
-    Args:
-        target: "docker" for Docker services only,
-                None for everything (Flux + Docker).
-    """
+    """Verify Flux health and start Docker services."""
     # Phase 1: Verify k3s
     r = _run(["kubectl", "get", "node"])
     if r.returncode != 0:
@@ -133,23 +131,15 @@ def cmd_heal() -> None:
     """Force-reconcile all Flux Kustomizations."""
     console.print("[cyan]Force-reconciling all Flux Kustomizations...[/cyan]\n")
 
-    r = _run(["flux", "get", "kustomizations", "-o", "json"])
-    if r.returncode != 0:
-        console.print("[red]Cannot list Flux Kustomizations. Is Flux installed?[/red]")
-        sys.exit(1)
-
-    import json
-    try:
-        kustomizations = json.loads(r.stdout)
-    except json.JSONDecodeError:
-        console.print("[red]Cannot parse Flux output[/red]")
+    kustomizations = _get_kustomizations()
+    if not kustomizations:
+        console.print("[red]No Flux Kustomizations found. Is Flux installed?[/red]")
         sys.exit(1)
 
     for k in kustomizations:
         name = k["metadata"]["name"]
-        ns = k["metadata"]["namespace"]
         console.print(f"  Reconciling {name}...", end=" ")
-        r = _run(["flux", "reconcile", "kustomization", name, "-n", ns, "--force"])
+        r = _run(["flux", "reconcile", "kustomization", name, "-n", "flux-system", "--force"])
         if r.returncode == 0:
             console.print("[green]OK[/green]")
         else:
@@ -204,35 +194,29 @@ def cmd_stop(name: str | None = None) -> None:
 def cmd_status() -> None:
     """Show Flux kustomization health + Docker service status."""
     # Flux Kustomizations
-    r = _run(["flux", "get", "kustomizations"])
-    if r.returncode == 0 and r.stdout.strip():
+    kustomizations = _get_kustomizations()
+    if kustomizations:
         flux_table = Table(title="Flux Kustomizations", show_header=True, header_style="bold")
         flux_table.add_column("Name", style="cyan")
         flux_table.add_column("Ready")
         flux_table.add_column("Status")
         flux_table.add_column("Message")
 
-        import json
-        rj = _run(["flux", "get", "kustomizations", "-o", "json"])
-        if rj.returncode == 0:
-            try:
-                kustomizations = json.loads(rj.stdout)
-                for k in kustomizations:
-                    name = k["metadata"]["name"]
-                    ready = "?"
-                    status = "?"
-                    message = ""
-                    for c in k.get("status", {}).get("conditions", []):
-                        if c.get("type") == "Ready":
-                            ready = c.get("status", "?")
-                            message = c.get("message", "")
-                        if c.get("type") == "Reconciling":
-                            status = c.get("status", "?")
-                    ready_str = "[green]True[/green]" if ready == "True" else f"[red]{ready}[/red]"
-                    status_str = "Reconciling" if status == "True" else "Idle"
-                    flux_table.add_row(name, ready_str, status_str, message[:60])
-            except json.JSONDecodeError:
-                console.print(r.stdout)
+        for k in kustomizations:
+            name = k["metadata"]["name"]
+            ready = "?"
+            status = "?"
+            message = ""
+            for c in k.get("status", {}).get("conditions", []):
+                if c.get("type") == "Ready":
+                    ready = c.get("status", "?")
+                    message = c.get("message", "")[:60]
+                if c.get("type") == "Reconciling":
+                    status = c.get("status", "?")
+            ready_str = "[green]True[/green]" if ready == "True" else f"[red]{ready}[/red]"
+            status_str = "Reconciling" if status == "True" else "Idle"
+            flux_table.add_row(name, ready_str, status_str, message)
+
         console.print(flux_table)
     else:
         console.print("[yellow]Flux not available (k3s may not be running)[/yellow]")
