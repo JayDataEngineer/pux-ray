@@ -22,7 +22,7 @@ ExecStartPre=/bin/bash -c 'cd /home/user/Documents/programs/ray && flux get kust
 ExecStart=/home/user/Documents/programs/ray/.venv/bin/python -m boot.cli boot
 
 # Phase 4: Verify critical services are reachable
-ExecStartPost=/bin/bash -c 'for i in $(seq 1 30); do curl -sf http://127.0.0.1:30080/-/health &>/dev/null && exit 0; sleep 5; done; echo "WARN: health endpoint not ready after 150s"'
+ExecStartPost=/bin/bash -c 'for i in $(seq 1 30); do curl -sf http://127.0.0.1:30080/health &>/dev/null && exit 0; sleep 5; done; echo "WARN: health endpoint not ready after 150s"'
 
 StandardOutput=journal
 StandardError=journal
