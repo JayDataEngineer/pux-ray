@@ -253,6 +253,11 @@ The project lives at `/home/user/Documents/programs/ray/` on the server. Models 
 ## Quick Commands
 
 ```bash
+# Flux GitOps (primary — push to master, Flux handles the rest)
+task boot              # Verify k3s + Flux health, start Docker services
+task heal              # Force-reconcile all Flux Kustomizations
+task status            # Show Flux kustomizations + Docker services + Ray status
+
 # KubeRay cluster
 bash infra/k8s/build_and_import.sh       # Build images + import to k3s
 kubectl apply -f infra/k8s/ray-service.yaml  # Deploy/update RayService
@@ -433,7 +438,16 @@ Auth: `X-API-Key` header or `?api_key=` query param. Unset = no auth (dev mode).
 1. Power on → LUKS encrypted drive → Dropbear SSH at `192.168.1.184`
 2. `ssh root@192.168.1.184` → `cryptroot-unlock` → type passphrase → OS boots
 3. Tailscale auto-starts → server reachable at `100.86.69.57`
-4. systemd `tech-noir.service` runs `tech-noir boot` → all services start
+4. k3s auto-starts via systemd → Flux controllers start
+5. systemd `tech-noir.service` waits for k3s → bootstraps Flux → verifies health
+6. Flux reconciles all Kustomization layers in dependency order → self-healing
+
+**Flux Kustomization layers** (dependency order):
+`namespaces → infra-storage → infra-secrets → helm → infra-services + git → ai-services + mcp → networking`
+
+Each layer has health checks and `retryInterval: 1m` for self-healing. Push to master → Flux auto-syncs within 2 minutes.
+
+**Recovery:** `task heal` force-reconciles all layers. Flux re-applies manifests on health check failure automatically.
 
 ## Cloud Burst (SkyPilot)
 
