@@ -48,6 +48,7 @@ _KEY_MAP = {
     "steps": "sampling_steps",
     "guidance": "guide_scale",
     "frames": "frame_num",
+    "reference_images": "input_ref_images",
 }
 
 _SAFE_PASSTHROUGH = {
@@ -98,6 +99,13 @@ _DEFAULT_OFFLOADOBJ = type("_DummyOffload", (), {
     "unload_all": lambda self: None,
     "release": lambda self: None,
 })()
+
+_logged_msgs: set = set()
+def log_once(msg: str) -> None:
+    if msg not in _logged_msgs:
+        _logged_msgs.add(msg)
+        logger.warning("Wan2GP: %s", msg)
+        print(f"[Wan2GP-debug] {msg}", flush=True)
 
 # ─── Vendor Path Setup ─────────────────────────────────────────────────────────
 
@@ -639,6 +647,16 @@ class Wan2GPService:
             logger.info("Skipping mmgp for %s (self-managed GPU memory)", model_type)
             return
         from mmgp import offload
+
+        # Normalize dtypes — mmgp asserts all pipe modules share one dtype
+        target_dtype = torch.bfloat16
+        for k, v in pipe.items():
+            if not isinstance(v, torch.nn.Module):
+                continue
+            dtypes = {p.dtype for p in v.parameters() if p.dtype != target_dtype}
+            if dtypes:
+                v.to(target_dtype)
+
         offload.profile(
             pipe,
             profile_no=MMGP_PROFILES["balanced"],
@@ -921,15 +939,32 @@ class Wan2GPService:
             raise RuntimeError("Model returned no output")
 
         frames_np = frames_tensor.cpu().numpy() if isinstance(frames_tensor, torch.Tensor) else frames_tensor
+        msg = f"encode_input: shape={frames_np.shape} dtype={frames_np.dtype} min={frames_np.min():.2f} max={frames_np.max():.2f}"
+        logger.info("Wan2GP: %s", msg)
+        print(f"[Wan2GP] {msg}", flush=True)
+
         if frames_np.dtype != np.uint8:
             frames_np = ((frames_np * 0.5 + 0.5).clip(0, 1) * 255).astype(np.uint8)
+
+        # Wan models output (C, F, H, W) — transpose to (F, H, W, C)
+        if frames_np.ndim == 4:
+            if frames_np.shape[0] in (1, 3, 4) and frames_np.shape[1] > 4:
+                logger.info("Wan2GP: transpose CFHW→FHWC")
+                frames_np = frames_np.transpose(1, 2, 3, 0)  # (F, H, W, C)
+            elif frames_np.shape[3] not in (1, 3, 4):
+                logger.info("Wan2GP: transpose FCHW→FHWC")
+                frames_np = frames_np.transpose(0, 2, 3, 1)  # (F, H, W, C)
+        elif frames_np.ndim == 3 and frames_np.shape[0] in (1, 3, 4):
+            logger.info("Wan2GP: transpose CHW→HWC")
+            frames_np = frames_np.transpose(1, 2, 0)     # (H, W, C)
+        logger.info("Wan2GP: final shape=%s dtype=%s", frames_np.shape, frames_np.dtype)
 
         import tempfile
         tmp = tempfile.NamedTemporaryFile(suffix=".mp4", delete=False)
         tmp_path = tmp.name
         tmp.close()
 
-        if len(frames_np.shape) == 4 and frames_np.shape[0] > 1:
+        if frames_np.ndim == 4 and frames_np.shape[0] > 1:
             import imageio
             fps = int(payload.get("fps", defaults.get("fps", 16)))
             writer = imageio.get_writer(tmp_path, fps=fps, codec="libx264", quality=8)
@@ -938,7 +973,7 @@ class Wan2GPService:
             writer.close()
         else:
             from PIL import Image as PILImage
-            img = frames_np[0] if len(frames_np.shape) == 4 else frames_np
+            img = frames_np[0] if frames_np.ndim == 4 else frames_np
             PILImage.fromarray(img).save(tmp_path, format="PNG")
 
         with open(tmp_path, "rb") as f:

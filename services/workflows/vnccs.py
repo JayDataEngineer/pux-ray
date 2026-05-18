@@ -189,11 +189,10 @@ def sprite(
             mesh_b64 = render_pose_b64(
                 pose, model_rotation_y=direction, backend=backend)
             skeleton_b64 = skeleton_from_image_b64(mesh_b64, 1024, 1024)
-            composite = _compose_images_side_by_side(mesh_b64, character_image_b64, skeleton_b64)
 
             result = svc.infer({
                 "input_prompt": VNCCS_INSTRUCTION,
-                "image_b64": composite,
+                "reference_images": [mesh_b64, character_image_b64, skeleton_b64],
                 "seed": seed,
                 "sampling_steps": 4,
                 "guide_scale": 1.0,
@@ -240,11 +239,10 @@ def pose_edit(
 
     mesh_b64 = render_pose_b64(rotations, model_rotation_y=model_rotation_y, backend=backend)
     skeleton_b64 = skeleton_from_image_b64(mesh_b64, 1024, 1024)
-    composite = _compose_images_side_by_side(mesh_b64, character_image_b64, skeleton_b64)
 
     result = svc.infer({
         "input_prompt": VNCCS_INSTRUCTION,
-        "image_b64": composite,
+        "reference_images": [mesh_b64, character_image_b64, skeleton_b64],
         "seed": seed,
         "sampling_steps": 4,
         "guide_scale": 1.0,

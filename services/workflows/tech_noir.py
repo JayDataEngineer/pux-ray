@@ -295,19 +295,20 @@ def sprites_animated(
         else:
             poses = [{}]
 
+    from services.workflows.utils.dwpose import skeleton_from_image_b64
     results = []
     for direction_name in directions:
         rotation_y = DIRECTION_ROTATIONS.get(direction_name, 0.0)
         for pose_idx, rotations in enumerate(poses):
             mesh_b64 = render_pose_b64(
                 rotations, model_rotation_y=rotation_y, backend=backend)
-            composite = _compose_images_side_by_side(mesh_b64, character_image_b64)
+            skeleton_b64 = skeleton_from_image_b64(mesh_b64, 1024, 1024)
 
             svc = get_service()
             svc.load("qwen-image-edit")
             result = svc.infer({
-                "input_prompt": VNCCS_PROMPT,
-                "image_b64": composite,
+                "input_prompt": VNCCS_INSTRUCTION,
+                "reference_images": [mesh_b64, character_image_b64, skeleton_b64],
                 "seed": seed + pose_idx,
                 "sampling_steps": 4,
                 "guide_scale": 1.0,

@@ -9,33 +9,70 @@ gaps are resolved. Add new gaps as they're discovered.
 
 ## GAP-001: VNCCS_QWEN_Encoder Reference Latent Injection
 
-**Status**: 🟡 Workaround in place
-**Impact**: HIGH — pose following quality is approximate
+**Status**: 🔵 Understood — would need QWEN pipeline modification
+**Impact**: MEDIUM — workaround may be sufficient for most cases
 **Affects**: vnccs/sprite, vnccs/pose-edit, tech-noir/sprites-animated
 
-### Problem
-The VNCCS_QWEN_Encoder ComfyUI node injects VAE-encoded reference latents
-at timestep zero with quadratic weighting. This is the core technique that
-gives VNCCS its character consistency — it's NOT just prompt engineering.
+### Investigation Result
 
-Our approximation: composite the mesh pose image + character image
-side-by-side and feed as a single `image_b64`. QWEN sees both references
-in one frame with the prompt "Draw the character on the right in the pose
-shown on the left."
+The Wan2GP QWEN handler (`models/qwen/qwen_main.py`) accepts
+`input_ref_images` as a list of PIL images, but **stitches them
+side-by-side into one composite** via `stitch_images()` (lines 236-244):
 
-### Fix Path
-1. Study `opt/wan2gp/models/qwen/qwen_main.py` — understand how QWEN
-   handles multiple reference images
-2. The `input_ref_images` parameter passes through `_SAFE_PASSTHROUGH`
-   and gets base64→PIL decoded in Wan2GPService.infer()
-3. Determine if QWEN's `generate()` accepts a list of reference images
-   and treats them as VNCCS-like reference latents
-4. If yes: pass images as `reference_images: [mesh_b64, char_b64, skeleton_b64]`
-5. If no: need to modify the QWEN handler to support reference latent injection
+```python
+if not qwen_edit_plus:
+    for new_img in input_ref_images[1:]:
+        stiched = stitch_images(stiched, new_img)
+    input_ref_images = [stiched]
+```
 
-### Verification
-- Compare output of ComfyUI VNCCS workflow vs workflow function
-- Same prompt, same seed, same character — does the pose follow match?
+The composite image is then VAE-encoded and injected into the denoising
+process as a single reference. This is **identical to our manual
+compositing approach** — same resize-to-match-height + horizontal
+concat.
+
+### What VNCCS Does Differently
+
+The real VNCCS_QWEN_Encoder ComfyUI node:
+1. VAE-encodes each of 3 reference images **separately** → 3 latent tensors
+2. Injects each at **timestep zero** with **quadratic weighting**
+   (weight1², weight2², weight3²)
+3. The weights control per-image influence independently
+4. The QWEN pipeline conditions on all 3 latents throughout denoising
+
+The Wan2GP handler's single-composite approach loses:
+- Independent per-image weighting
+- The quadratic emphasis/attenuation per reference
+- The ability to mix influence levels (e.g., weight1=2.0 for pose, weight2=0.5 for identity)
+
+### Can We Add This?
+
+Yes, but it requires modifying the QWEN pipeline's `__call__()` in
+`pipeline_qwenimage.py`:
+- Add `input_ref_latents` parameter (accepts list of pre-encoded latents)
+- Inject them at timestep zero with per-latent weights
+- The denoising loop already uses `image_latents` — we'd need to swap
+  the single composite for the multi-latent injection
+
+This is a **moderate-sized change** to Wan2GP pipeline code. Not trivial
+but well-scoped.
+
+### Current Workaround
+
+Our 3-image composite (mesh + character + skeleton side-by-side) with
+the VNCCS_INSTRUCTION prompt is equivalent to what the QWEN handler
+natively supports. The quality gap vs VNCCS is:
+
+| Aspect | VNCCS (ComfyUI) | Our Workflow |
+|--------|-----------------|--------------|
+| References | 3 separate latents + weights | 1 composite image |
+| Weight control | Per-image quadratic | Equal (side effect of composite) |
+| Consistency | Proven via LoRA + injection | Relies on QWEN's built-in consistency |
+
+### Next Steps
+- If quality gap is acceptable: close as "handled via composite"
+- If quality gap matters: implement multi-latent injection in QWEN pipeline
+- See GAP-010 (composite quality) for related tracking
 
 ---
 
