@@ -120,6 +120,21 @@ def _ensure_vendor_path():
     if vendor not in sys.path:
         sys.path.insert(0, vendor)
     os.environ.setdefault("WAN2GP_ROOT", vendor)
+
+    # Handlers that bundle vendor packages as subdirectories need their
+    # parent on sys.path so the inner package is importable at top level.
+    for subdir in (WAN2GP_VENDOR / "models").iterdir():
+        if not subdir.is_dir():
+            continue
+        for nested in subdir.iterdir():
+            if nested.is_dir() and (nested / "__init__.py").exists():
+                inner_name = nested.name
+                try:
+                    importlib.import_module(inner_name)
+                except ImportError:
+                    if str(subdir) not in sys.path:
+                        sys.path.insert(0, str(subdir))
+
     _ven_loaded = True
 
 
@@ -686,11 +701,41 @@ class Wan2GPService:
 
         # Add model path to Wan2GP's files_locator search paths so vendor
         # handlers can find tokenizer configs, VAE weights, etc.
+        # Also add parent dir so locate_folder() can find dirs by expected names.
         if model_path and model_path.is_dir():
             from shared.utils import files_locator as fl
             p = str(model_path)
             if p not in fl._checkpoints_paths:
                 fl._checkpoints_paths.append(p)
+            parent = str(model_path.parent)
+            if parent not in fl._checkpoints_paths:
+                fl._checkpoints_paths.append(parent)
+
+            # Handlers expect specific folder names — bind alternate names
+            _FOLDER_ALIASES = {
+                "index_tts2": "index-tts",
+            }
+            alias = _FOLDER_ALIASES.get(base_model_type)
+            if alias and model_path.name == alias:
+                # Create a virtual mapping: when locate_folder("index_tts2") is called,
+                # return this path. We do this by adding a ckpts subdirectory entry.
+                alias_dir = model_path.parent / base_model_type
+                if not alias_dir.exists():
+                    try:
+                        alias_dir.symlink_to(model_path, target_is_directory=True)
+                    except OSError:
+                        # Can't symlink (read-only FS) — patch locate_folder
+                        _orig_locate = fl.locate_folder
+                        _alias_name = base_model_type
+                        _alias_target = str(model_path)
+                        import functools
+
+                        @functools.wraps(_orig_locate)
+                        def _patched_locate(folder_name, **kw):
+                            if folder_name == _alias_name:
+                                return _alias_target
+                            return _orig_locate(folder_name, **kw)
+                        fl.locate_folder = _patched_locate
 
         # Resolve text encoder filename for vendor models that need it
         # (e.g., Wan's T5 encoder, Flux's text encoder)
@@ -1090,6 +1135,7 @@ class Wan2GPService:
         "ace_step_v1_5": ("acestep-v15-turbo", "model.safetensors"),
         "ace_step_v1_5_xl": ("acestep-v15-xl-turbo", "model.safetensors"),
         "ace_step_v1": ("ace_step", None),
+        "index_tts2": ("", "gpt.pth"),
     }
 
     def _resolve_model_filename(self, model_type: str, base_model_type: str,
@@ -1129,6 +1175,17 @@ class Wan2GPService:
                 continue
             if f.stat().st_size > 100 * 1024 * 1024:  # > 100MB
                 return [str(f)]
+
+        # Try .pth/.pt files if no safetensors found
+        for ext in ("*.pth", "*.pt"):
+            for f in sorted(model_path.glob(ext),
+                           key=lambda p: p.stat().st_size, reverse=True):
+                name = f.name
+                if any(p in name for p in exclude_patterns):
+                    continue
+                if f.stat().st_size > 100 * 1024 * 1024:
+                    return [str(f)]
+
         return []
 
     def _encode_output(self, output, payload: dict, defaults: dict) -> dict:
