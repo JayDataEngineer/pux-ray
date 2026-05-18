@@ -31,6 +31,8 @@ def pytest_configure(config):
     config.addinivalue_line("markers", "gpu: needs CUDA GPU with drivers")
     config.addinivalue_line("markers", "slow: takes >5 seconds")
     config.addinivalue_line("markers", "handler: tests a specific family_handler")
+    config.addinivalue_line("markers", "cpu: CPU-only model, no GPU needed")
+    config.addinivalue_line("markers", "autoregressive: >10min inference, skip by default")
 
 
 # ─── Session-scoped Ray mocking ────────────────────────────────────────────
