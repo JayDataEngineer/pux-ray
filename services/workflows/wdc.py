@@ -141,23 +141,70 @@ def timeline(
     segments: list[dict[str, Any]],
     seed: int = 42,
     fps: int = 24,
+    width: int = 768,
+    height: int = 512,
     **kwargs: Any,
 ) -> dict[str, Any]:
     """Multi-shot timeline video (LTX Director style).
 
-    Each segment defines a shot with prompt, duration, and optional
-    camera guidance. Rendered as a single continuous video.
+    Each segment is an independent video generation call:
+      {"prompt": "...", "frames": 97,
+       "first_frame_b64": "...",   # optional
+       "last_frame_b64": "..."}    # optional
+
+    LTXDirector's timeline/camera-guide logic lives in a ComfyUI custom node;
+    the Wan2GP LTX handler has no multi-shot or segment concept. Each segment
+    is generated separately and returned as a batch.
+
+    Returns:
+        dict with "segments" list, each containing "data" (base64 video bytes),
+        "media_type", "prompt", "frames", and "segment_index".
     """
     svc = get_service()
     svc.load("ltx2")
 
-    infer_kwargs: dict[str, Any] = {
-        "input_prompt": segments[0].get("prompt", "") if segments else "",
-        "seed": seed,
-        "fps": fps,
-        "segments": segments,
-    }
+    results = []
+    for seg_idx, segment in enumerate(segments):
+        seg_prompt = segment.get("prompt", "")
+        seg_frames = segment.get("frames", 97)
+        seg_seed = seed + seg_idx
 
-    infer_kwargs.update(kwargs)
-    result = svc.infer(infer_kwargs)
-    return result
+        infer_kwargs: dict[str, Any] = {
+            "input_prompt": seg_prompt,
+            "seed": seg_seed,
+            "fps": fps,
+            "width": width,
+            "height": height,
+            "frame_num": seg_frames,
+            "sampling_steps": 24,
+            "guide_scale": 3.0,
+        }
+
+        if segment.get("first_frame_b64"):
+            infer_kwargs["image_b64"] = segment["first_frame_b64"]
+        if segment.get("last_frame_b64"):
+            infer_kwargs["image_end_b64"] = segment["last_frame_b64"]
+
+        infer_kwargs.update(kwargs)
+        result = svc.infer(infer_kwargs)
+
+        if result.get("status") == "ok":
+            results.append({
+                "segment_index": seg_idx,
+                "prompt": seg_prompt,
+                "frames": seg_frames,
+                "data": result["data"],
+                "media_type": result.get("media_type", "video/mp4"),
+                "fps": fps,
+            })
+        else:
+            results.append({
+                "segment_index": seg_idx,
+                "error": result.get("error", "unknown"),
+            })
+
+    return {
+        "status": "ok",
+        "segments": results,
+        "total": len(results),
+    }

@@ -165,21 +165,37 @@ reloaded each time. Wan2GP may cache internally already.
 
 ## GAP-006: WDC Timeline Segmentation
 
-**Status**: 🔴 Not started
-**Impact**: LOW — timeline() stub exists, needs verification
+**Status**: ✅ Resolved
+**Impact**: Was LOW — now correctly generates per-segment videos
 **Affects**: wdc/timeline
 
-### Problem
-The `timeline()` workflow function passes `segments` to LTX Video's
-generate(), but it's unknown whether the LTX handler supports multi-shot
-timeline segments. The WDC LTXDirector workflow's logic is deeply embedded
-in ComfyUI custom nodes (LTXDirector, LTXDirectorGuide, etc.).
+### Fix Applied
+Investigation found that LTXDirector shot-planning lives entirely in the
+ComfyUI custom node (`whatdreamscost-comfyui` / LTXDirector +
+LTXDirectorGuide + LTXVCropGuides). The Wan2GP LTX handler has no
+multi-shot or segment concept — `segments` was being silently ignored.
 
-### Fix Path
-1. Check if Wan2GP LTX handler's generate() accepts segment/guide params
-2. If not: the timeline segmentation is pre-processing that runs before
-   the model call — generate combined conditioning, then single generate()
-3. Much of the "director" logic is shot planning, not model-specific
+Fixed `timeline()` in `services/workflows/wdc.py`:
+- Each segment is now an independent `svc.infer()` call
+- Segments accept: `prompt`, `frames`, `first_frame_b64`, `last_frame_b64`
+- Returns `segments` list with per-segment video bytes, prompt, frame count
+- No frame-level temporal coherence between segments (no cross-fade/cut logic)
+
+### Segment Schema
+```json
+{
+  "prompt": "wide shot of character walking",
+  "frames": 97,
+  "first_frame_b64": "...",   // optional
+  "last_frame_b64": "..."     // optional
+}
+```
+
+### Confirmed Working
+- `image_start`/`image_end` pass-through verified via `_build_generate_kwargs`
+  and `_SAFE_PASSTHROUGH` / `image_end_b64` handling
+- Last-frame conditioning verified: LTX2.generate() explicitly accepts
+  `image_end=None` as a parameter
 
 ---
 
