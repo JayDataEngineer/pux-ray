@@ -164,14 +164,27 @@ class _Pipeline:
 
         output = self.pipeline.decode_motion_from_latent(motion_latent, should_apply_smooothing=True)
         motion_data = {}
+        rot6d = None
         for k, v in output.items():
             if isinstance(v, torch.Tensor):
                 motion_data[k] = {"shape": list(v.shape), "dtype": str(v.dtype)}
+                if k == "rot6d":
+                    rot6d = v
+
+        import io, base64, numpy as np
+        if rot6d is not None:
+            buf = io.BytesIO()
+            np.savez_compressed(buf, rot6d=rot6d.cpu().numpy())
+            npz_b64 = base64.b64encode(buf.getvalue()).decode()
+        else:
+            npz_b64 = ""
 
         return {
             "status": "success", "text": text, "duration": duration,
             "cfg_scale": guidance, "motion_data": motion_data,
             "seeds": [int(s.strip()) for s in seeds_csv.split(",") if s.strip()],
+            "data": npz_b64,
+            "media_type": "application/x-npz",
         }
 
     def _sample_motion(self, vtxt_input, ctxt_input, ctxt_length, duration, cfg_scale):

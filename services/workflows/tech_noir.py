@@ -225,12 +225,19 @@ def motion_npz(
     prompt: str,
     seed: int = 42,
     duration: float = 4.0,
+    num_keyframes: int = 6,
 ) -> dict[str, Any]:
     """Stage: motion_npz — HY-Motion NPZ motion generation.
 
     Maps to the HY-Motion keyframe workflow in
     stages_character/stages/sprites_animated.py (hymotion path).
     Uses Wan2GP's hy_motion handler.
+
+    Returns:
+        dict with:
+          - "data": base64 NPZ bytes
+          - "keyframes": pre-extracted list of per-frame rotation dicts
+          - "num_keyframes": how many keyframes extracted
     """
     svc = get_service()
     svc.load("hy-motion-1.0")
@@ -241,6 +248,18 @@ def motion_npz(
         "duration_seconds": duration,
     })
 
+    if result.get("status") != "success":
+        return result
+
+    npz_b64 = result.get("data", "")
+    if not npz_b64:
+        return error_response("HY-Motion returned no NPZ data")
+
+    from services.workflows.utils.motion import npz_b64_to_keyframes
+    keyframes = npz_b64_to_keyframes(npz_b64, num_keyframes)
+
+    result["keyframes"] = keyframes
+    result["num_keyframes"] = len(keyframes)
     return result
 
 
@@ -261,6 +280,8 @@ def sprites_animated(
 
     Two pose sources:
       - motion_npz: result from motion_npz() containing extracted keyframes
+        (dict with "keyframes" list). Compatible with shared NPZ loading too:
+        use npz_bytes_to_keyframes() on loaded file bytes.
       - poses: explicit rotation dicts per frame
 
     Each direction (front/right/back/left) renders separately.
@@ -269,7 +290,10 @@ def sprites_animated(
         directions = ["front"]
 
     if poses is None:
-        poses = [{}]
+        if motion_npz and motion_npz.get("keyframes"):
+            poses = motion_npz["keyframes"]
+        else:
+            poses = [{}]
 
     results = []
     for direction_name in directions:

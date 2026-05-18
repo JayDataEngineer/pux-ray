@@ -64,26 +64,42 @@ character), skipping skeleton extraction.
 
 ## GAP-003: HY-Motion NPZ → Per-Frame Rotation Extraction
 
-**Status**: 🔴 Not started
-**Impact**: MEDIUM — motion_npz workflow returns NPZ but can't extract frames
+**Status**: ✅ Resolved
+**Impact**: Was MEDIUM — now fully chainable
 **Affects**: tech-noir/motion-npz, tech-noir/sprites-animated
 
-### Problem
-HY-Motion generates an NPZ file containing motion data. The animated sprite
-workflow needs per-frame joint rotation dicts from this NPZ to pass to
-BodyMeshRenderer. The extraction utility exists in
-`tech-noir-studio/tools/comfyui_nodes/utils/hymotion_converter.py` but isn't
-ported to services/workflows/utils/.
+### Fix Applied
+1. **HY-Motion handler fixed** (`opt/wan2gp/models/hy_motion/hy_motion_handler.py`):
+   `_Pipeline.generate()` now serializes `rot6d` tensor as NPZ and returns
+   it as `data` (base64) in the response dict.
 
-### Fix Path
-1. Extract `extract_keyframes()` from `hymotion_converter.py` as standalone
-2. Add it to `services/workflows/utils/motion.py`
-3. Chain: HY-Motion generate NPZ → extract_keyframes(NPZ) → per-frame poses
-   → BodyMesh render per frame → QWEN edit per frame
+2. **Converter extracted** (`services/workflows/utils/motion.py`):
+   - `extract_keyframes(path, num_keyframes)` — from NPZ file
+   - `npz_bytes_to_keyframes(bytes, num_keyframes)` — from NPZ bytes
+   - `npz_b64_to_keyframes(b64, num_keyframes)` — from base64 NPZ
+   - Helper functions: rot6d_to_matrix, matrix_to_euler_xyz, convert_yup_to_zup
+
+3. **tech_noir workflow functions updated**:
+   - `motion_npz()` now returns `keyframes` in the response (pre-extracted)
+   - `sprites_animated()` accepts either `poses` or `motion_npz` result containing
+     `keyframes` — if the latter, uses them as per-frame pose rotations
+
+### Full Chain
+```
+motion_npz(prompt="walking", duration=4.0, num_keyframes=6)
+  → HY-Motion inference → rot6d tensor → NPZ bytes → base64
+  → npz_b64_to_keyframes() → 6 rotation dicts
+  → returned as response["keyframes"]
+
+sprites_animated(character, motion_npz=response, directions=[...])
+  → for each keyframe: render_pose(rotations) → mesh_b64
+  → composite mesh + character → QWEN edit per frame
+  → returns list of frame results
+```
 
 ### Dependencies
-- `anny` package (already in services/workflows/utils/body_mesh.py)
-- Original NPZ format from HY-Motion
+- `numpy` only (motion converter has NO dependency on `anny` or `torch`)
+- `anny` needed only if calling `render_pose()` on the keyframes
 
 ---
 
