@@ -14,6 +14,7 @@ from starlette.responses import JSONResponse
 
 import services.workflows.vnccs as vnccs
 import services.workflows.wdc as wdc
+import services.workflows.tech_noir as tech_noir
 
 logger = logging.getLogger(__name__)
 
@@ -34,6 +35,19 @@ _register(wdc.ltx_fflf_2stage, "wdc/ltx-fflf-2stage", "Image-to-video with 2-sta
 _register(wdc.ltx_fflf_3stage, "wdc/ltx-fflf-3stage", "Image-to-video with 3-stage FFLF + upscale")
 _register(wdc.ltx_audio,       "wdc/ltx-audio",       "Image-to-video with audio conditioning")
 _register(wdc.timeline,        "wdc/timeline",        "Multi-shot timeline video")
+# Tech Noir Studio workflows
+_register(tech_noir.generate,     "tech-noir/generate",     "Z-Image character generation")
+_register(tech_noir.sheet,        "tech-noir/sheet",        "Clone/re-edit character sheet")
+_register(tech_noir.face_detailer, "tech-noir/face-detailer", "Face refinement via QWEN")
+_register(tech_noir.emotions,     "tech-noir/emotions",     "Emotion variation set")
+_register(tech_noir.sprites_static, "tech-noir/sprites-static", "Sprite extraction from sheet")
+_register(tech_noir.sprites_animated, "tech-noir/sprites-animated", "Animated sprite frames")
+_register(tech_noir.motion_npz,   "tech-noir/motion-npz",  "HY-Motion motion generation")
+_register(tech_noir.outfit,       "tech-noir/outfit",      "Outfit variant via QWEN")
+_register(tech_noir.state,        "tech-noir/state",       "Condition state variant")
+_register(tech_noir.trellis,      "tech-noir/trellis",     "TRELLIS 3D model generation")
+_register(tech_noir.video,        "tech-noir/video",       "LTX Video assembly")
+_register(tech_noir.lora_dataset, "tech-noir/lora-dataset", "LoRA dataset preparation")
 
 
 async def list_workflows(request: Request) -> JSONResponse:
