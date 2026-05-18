@@ -69,6 +69,7 @@ plus fixes applied in `services/wan2gp/deployment.py`.
 | `faster_whisper/faster_whisper` | CPU ASR | ✅ PASS | 9.3s | |
 | `faster_qwen3_tts/faster-qwen3-tts` | GPU TTS | ✅ PASS | 15.7s | |
 | `wan/t2v` | GPU Video | ✅ PASS | 95s (9fr@2st) | 14B model, mmgp-offloaded |
+| `LLM service` | GPU Text | ✅ PASS | ~60s | Qwen3.6-27B-Q5_K_S via llama-server subprocess |
 
 ## Models Requiring Additional Work
 
