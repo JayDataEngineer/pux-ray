@@ -84,10 +84,10 @@ plus fixes applied in `services/wan2gp/deployment.py`.
 | # | Gap | Status | Component | Notes |
 |---|-----|--------|-----------|-------|
 | 29 | **mmgp VRAM leak on sequential unload**: After model unload, rogue processes hold 19.93 GiB on GPU. `offload.flush_torch_caches()` creates a dummy 1GB embedding which itself leaks. Cascading OOM kills all subsequent model tests. | 🔧 Fix applied | `unload()` + `_apply_mmgp_profile` | Root cause: `offload.profile()` return value (offloadobj) was discarded — `self._offload` was always `None`, so `release()` never ran. mmgp held references to all model tensors. Fix: capture offloadobj from `_apply_mmgp_profile()`, save as `self._offload`, call `release()` in `unload()`. Also move modules to CPU before deleting, clear `shared_state["_cache"]`, removed `flush_torch_caches()` (it creates a dummy 1GB embedding). |
-| 30 | **index_tts2 generate() missing positional args**: `generate()` expects `input_prompt`, `model_mode`, `audio_guide` but `_build_generate_kwargs` doesn't map `text`→`input_prompt` or `audio_b64`→`audio_guide` for this handler | ❌ Active | `infer()` payload mapping | Need handler-specific key mapping or direct passthrough |
-| 31 | **trellis RMBG dtype mismatch**: BiRefNet background removal has weights on CPU but input tensor on CUDA — `Input type (torch.cuda.FloatTensor) and weight type (torch.FloatTensor)` | ❌ Active | `trellis_handler._preprocess_image` | RMBG model not moved to GPU by mmgp. Needs `.to(device)` before inference. |
-| 32 | **anigen import collision**: `from models import dsine` resolves to `/opt/wan2gp/models/ltx_video/models/__init__.py` instead of anigen's DSINE hub module | ❌ Active | `anigen_handler` + PYTHONPATH | Module name collision from broad PYTHONPATH. Needs sys.path isolation. |
-| 33 | **see_through import collision**: Relative import `from ..multitalk.multitalk_utils` fails because wan modules/__init__.py is triggered during see_through handler import | ❌ Active | `see_through_handler` + PYTHONPATH | Same root cause as #32 — broad PYTHONPATH causes cross-family imports. |
+| 30 | **index_tts2 generate() missing positional args**: `generate()` expects `input_prompt`, `model_mode`, `audio_guide` but `_build_generate_kwargs` doesn't map `text`→`input_prompt` or `audio_b64`→`audio_guide` for this handler | 🔧 Fix applied | `infer()` payload mapping | Added handler-specific remapping: `text`→`input_prompt`, `audio_b64`→decode to temp WAV file→`audio_guide` path, default `model_mode=None` |
+| 31 | **trellis RMBG dtype mismatch**: BiRefNet background removal has weights on CPU but input tensor on CUDA — `Input type (torch.cuda.FloatTensor) and weight type (torch.FloatTensor)` | 🔧 Fix applied | `infer()` pre-inference hook | Before trellis generate(), move `pipe["rembg"]` module to CUDA. mmgp may have offloaded it to CPU between loads. |
+| 32 | **anigen import collision**: `from models import dsine` resolves to `/opt/wan2gp/models/ltx_video/models/__init__.py` instead of anigen's DSINE hub module | 🔧 Fix applied | `infer()` sys.path fix | Before anigen generate(), prepend anigen directory to sys.path so `dsine` resolves to the anigen-internal module. |
+| 33 | **see_through import collision**: Relative import `from ..multitalk.multitalk_utils` fails because wan modules/__init__.py is triggered during see_through handler import | 🔧 Fix applied | `infer()` pre-import | Before see_through generate(), force-import `models.wan.multitalk.multitalk_utils` to ensure the relative import chain resolves correctly. |
 
 ## Verified Working Models
 
@@ -123,11 +123,11 @@ plus fixes applied in `services/wan2gp/deployment.py`.
 
 | # | Blocker | Impact | Priority |
 |---|---------|--------|----------|
-| 29 | **mmgp VRAM leak** — offloadobj never captured, release() never called | 🔧 Fix applied — needs testing on cluster | ~~Critical~~ → Medium |
-| 30 | **index_tts2 generate() payload mapping** | Infer fails for index_tts2 | Medium |
-| 31 | **trellis RMBG dtype mismatch** | Infer fails for trellis | Medium |
-| 32 | **anigen import collision** | Load fails after other models imported | Low |
-| 33 | **see_through import collision** | Load fails after other models imported | Low |
+| 29 | **mmgp VRAM leak** — offloadobj never captured, release() never called | 🔧 Fix applied — needs testing on cluster | ~~Critical~~ → Testing |
+| 30 | **index_tts2 generate() payload mapping** | 🔧 Fix applied — text→input_prompt, audio_b64→temp file | ~~Medium~~ → Testing |
+| 31 | **trellis RMBG dtype mismatch** | 🔧 Fix applied — rembg module moved to CUDA before generate | ~~Medium~~ → Testing |
+| 32 | **anigen import collision** | 🔧 Fix applied — sys.path prepend for anigen dir | ~~Low~~ → Testing |
+| 33 | **see_through import collision** | 🔧 Fix applied — pre-import multitalk_utils | ~~Low~~ → Testing |
 
 ## Models Requiring Additional Work
 

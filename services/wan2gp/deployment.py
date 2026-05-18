@@ -631,6 +631,56 @@ class Wan2GPService:
             # Wan models call callback() for progress — provide a no-op
             kwargs.setdefault("callback", lambda *a, **kw: None)
 
+            # Handler-specific kwarg remapping for models whose generate()
+            # uses different parameter names than our standard payload keys.
+            base_type = info.get("base_model_type", model_type)
+            if base_type == "index_tts2":
+                # index_tts2.generate(input_prompt, model_mode, audio_guide, ...)
+                if "input_prompt" not in kwargs and "text" in kwargs:
+                    kwargs["input_prompt"] = kwargs.pop("text")
+                kwargs.setdefault("model_mode", None)
+                if "audio_guide" not in kwargs and "audio_b64" in kwargs:
+                    audio_bytes = base64.b64decode(kwargs.pop("audio_b64"))
+                    import tempfile
+                    tmp = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
+                    tmp.write(audio_bytes)
+                    tmp.close()
+                    kwargs["audio_guide"] = tmp.name
+
+            elif base_type == "trellis":
+                # Trellis uses BiRefNet (rembg) for background removal.
+                # mmgp may offload it to CPU, causing dtype mismatch when
+                # the pipeline forwards CUDA tensors through it.
+                pipe_dict = m.get("pipe", {})
+                rembg_mod = pipe_dict.get("rembg")
+                if rembg_mod is not None and torch.cuda.is_available():
+                    try:
+                        rembg_mod.to("cuda")
+                    except Exception:
+                        pass
+
+            elif base_type == "anigen":
+                # AniGen lazily imports `dsine` during generate(). The
+                # `from models import dsine` resolves to wan2gp's `models/`
+                # package instead of the anigen-internal dsine module because
+                # wan2gp's root is on sys.path. Temporarily prepend the
+                # anigen directory so dsine resolves correctly.
+                anigen_dir = str(WAN2GP_VENDOR / "models" / "anigen")
+                if anigen_dir not in sys.path:
+                    sys.path.insert(0, anigen_dir)
+
+            elif base_type == "see_through":
+                # See-Through's generate() may trigger a re-import of
+                # models.wan.modules.model (which has a relative import from
+                # ..multitalk). After loading wan models, sys.modules has
+                # `models` registered, but a stale or incorrect resolution
+                # can break the relative import. Force-import the correct
+                # modules before generate() so relative imports resolve.
+                try:
+                    importlib.import_module("models.wan.multitalk.multitalk_utils")
+                except (ImportError, ModuleNotFoundError):
+                    pass
+
             result = model.generate(**kwargs)
 
             # If pipeline returns our custom format (status + data), pass through
