@@ -633,8 +633,7 @@ class Wan2GPService:
 
             # Handler-specific kwarg remapping for models whose generate()
             # uses different parameter names than our standard payload keys.
-            base_type = info.get("base_model_type", model_type)
-            if base_type == "index_tts2":
+            if base_model_type == "index_tts2":
                 # index_tts2.generate(input_prompt, model_mode, audio_guide, ...)
                 if "input_prompt" not in kwargs and "text" in kwargs:
                     kwargs["input_prompt"] = kwargs.pop("text")
@@ -647,7 +646,7 @@ class Wan2GPService:
                     tmp.close()
                     kwargs["audio_guide"] = tmp.name
 
-            elif base_type == "trellis":
+            elif base_model_type == "trellis":
                 # Trellis uses BiRefNet (rembg) for background removal.
                 # mmgp may offload it to CPU, causing dtype mismatch when
                 # the pipeline forwards CUDA tensors through it.
@@ -659,7 +658,7 @@ class Wan2GPService:
                     except Exception:
                         pass
 
-            elif base_type == "anigen":
+            elif base_model_type == "anigen":
                 # AniGen lazily imports `dsine` during generate(). The
                 # `from models import dsine` resolves to wan2gp's `models/`
                 # package instead of the anigen-internal dsine module because
@@ -669,7 +668,7 @@ class Wan2GPService:
                 if anigen_dir not in sys.path:
                     sys.path.insert(0, anigen_dir)
 
-            elif base_type == "see_through":
+            elif base_model_type == "see_through":
                 # See-Through's generate() may trigger a re-import of
                 # models.wan.modules.model (which has a relative import from
                 # ..multitalk). After loading wan models, sys.modules has
