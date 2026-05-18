@@ -93,6 +93,12 @@ _BLOCKED_KEYS = {
     "image_start", "image_end",
 }
 
+# Dummy offloadobj for WanAny2V.generate() which calls offloadobj.unload_all()
+_DEFAULT_OFFLOADOBJ = type("_DummyOffload", (), {
+    "unload_all": lambda self: None,
+    "release": lambda self: None,
+})()
+
 # ─── Vendor Path Setup ─────────────────────────────────────────────────────────
 
 _ven_loaded = False
@@ -276,6 +282,15 @@ _WEIGHT_SEARCH = {
     "hy-motion-1.0-lite": [("motion", "hy-motion-1.0-lite")],
     "vibevoice-asr": [("asr", "vibevoice-asr")],
     "vibevoice-tts": [("tts", "vibevoice-tts")],
+    # Wan2GP vendor models — registry keys use versioned names
+    "t2v":           [("wan2gp", "wan-t2v-14B")],
+    "i2v":           [("wan2gp", "wan-i2v-14B")],
+    "t2v_2_2":       [("wan2gp", "wan-t2v-14B")],
+    "i2v_2_2":       [("wan2gp", "wan-i2v-14B")],
+    "trellis":       [("3d", "trellis")],
+    "index_tts2":    [("tts", "index-tts")],
+    "kokoro":        [("tts", "kokoro")],
+    "faster_whisper": [("asr", "faster-whisper")],
 }
 
 
@@ -471,6 +486,13 @@ class Wan2GPService:
                     img = Image.open(io.BytesIO(base64.b64decode(image_b64))).convert("RGB")
                     kwargs["image_start"] = img
 
+            # Handle second image for last-frame conditioning (WDC FFLF)
+            if payload.get("image_end_b64"):
+                from PIL import Image
+                import io
+                img = Image.open(io.BytesIO(base64.b64decode(payload["image_end_b64"]))).convert("RGB")
+                kwargs["image_end"] = img
+
             # Handle reference_images for VNCCS (base64 strings → PIL images)
             if "reference_images" in kwargs and isinstance(kwargs["reference_images"], list):
                 from PIL import Image
@@ -486,6 +508,24 @@ class Wan2GPService:
 
             logger.info("Wan2GP generate: model=%s kwargs=%s",
                         self._loaded_model, list(kwargs.keys()))
+
+            # Some Wan2GP models need _interrupt flag and offloadobj parameter
+            if not getattr(model, "_interrupt", False):
+                model._interrupt = False
+
+            # WanAny2V.generate() has an offloadobj=None parameter that's
+            # called as offloadobj.unload_all() — provide a dummy no-op.
+            kwargs.setdefault("offloadobj", _DEFAULT_OFFLOADOBJ)
+
+            # mmgp shared_state needs _attention key for Wan models
+            from mmgp import offload as _moff
+            if "_attention" not in _moff.shared_state:
+                _moff.shared_state["_attention"] = "sdpa"
+
+            # Wan models expect loras_slists dict (not None) to avoid crash
+            kwargs.setdefault("loras_slists", {"phase1": [], "phase2": [], "phase3": []})
+            # Wan models call callback() for progress — provide a no-op
+            kwargs.setdefault("callback", lambda *a, **kw: None)
 
             result = model.generate(**kwargs)
 
@@ -536,6 +576,29 @@ class Wan2GPService:
         logger.info("Loading %s from %s (family_handler, quant=%s)", model_name, model_path or "N/A", quant)
         torch.set_default_device("cpu")
 
+        # Add model path to Wan2GP's files_locator search paths so vendor
+        # handlers can find tokenizer configs, VAE weights, etc.
+        if model_path and model_path.is_dir():
+            from shared.utils import files_locator as fl
+            p = str(model_path)
+            if p not in fl._checkpoints_paths:
+                fl._checkpoints_paths.append(p)
+
+        # Resolve text encoder filename for vendor models that need it
+        # (e.g., Wan's T5 encoder, Flux's text encoder)
+        text_encoder_path = None
+        if model_path and model_path.is_dir():
+            for f in sorted(model_path.iterdir()):
+                if f.suffix in (".safetensors", ".pth", ".pt"):
+                    name_lower = f.name.lower()
+                    if ("t5" in name_lower or "umt5" in name_lower
+                            or "text_encoder" in name_lower):
+                        # Prefer safetensors over pth to avoid format mismatch
+                        if f.suffix == ".safetensors":
+                            text_encoder_path = str(f)
+                        elif text_encoder_path is None:
+                            text_encoder_path = str(f)
+
         pipeline, pipe_wrapper = handler.load_model(
             model_filename, model_type, base_model_type, model_def,
             quantizeTransformer=not is_cpu,
@@ -544,6 +607,7 @@ class Wan2GPService:
             VAE_dtype=None if is_cpu else torch.float32,
             profile=0 if is_cpu else MMGP_PROFILES["balanced"],
             quant=quant,
+            text_encoder_filename=text_encoder_path,
         )
 
         pipe, co_tenants = self._unwrap_pipe(pipe_wrapper)
@@ -806,29 +870,40 @@ class Wan2GPService:
     def _resolve_model_filename(self, model_type: str, base_model_type: str,
                                  model_path: Path | None, model_def: dict):
         """Resolve transformer weights file path for models that need it via model_filename."""
-        tw_info = self._TRANSFORMER_WEIGHTS.get(base_model_type)
-        if tw_info is None or model_path is None:
+        if model_path is None:
             return []
 
-        variant_dir, default_file = tw_info
-        # Check model_def for explicit path
+        # Check model_def for explicit path first
         explicit = model_def.get("transformer_weights_path")
         if explicit and Path(explicit).is_file():
             return [explicit]
 
-        # Search model_path for the variant weights
-        for candidate in [
-            model_path / variant_dir / (default_file or "model.safetensors"),
-            model_path / "transformer" / "model.safetensors",
-        ]:
-            if candidate.is_file():
-                return [str(candidate)]
+        # Check transformer weights mapping
+        tw_info = self._TRANSFORMER_WEIGHTS.get(base_model_type)
+        if tw_info is not None:
+            variant_dir, default_file = tw_info
+            for candidate in [
+                model_path / variant_dir / (default_file or "model.safetensors"),
+                model_path / "transformer" / "model.safetensors",
+            ]:
+                if candidate.is_file():
+                    return [str(candidate)]
+            if (model_path / variant_dir).is_dir():
+                for f in (model_path / variant_dir).glob("*.safetensors"):
+                    return [str(f)]
 
-        # Fallback: search for any safetensors in variant dir
-        if (model_path / variant_dir).is_dir():
-            for f in (model_path / variant_dir).glob("*.safetensors"):
+        # Fallback for general vendor models: find the main model file
+        # (largest safetensors that isn't VAE, T5, or encoder)
+        exclude_patterns = ("VAE", "vae", "t5", "T5", "umt5", "clip", "CLIP",
+                           "text_encoder", "encoder")
+        candidates = sorted(model_path.glob("*.safetensors"),
+                           key=lambda p: p.stat().st_size, reverse=True)
+        for f in candidates:
+            name = f.name
+            if any(p in name for p in exclude_patterns):
+                continue
+            if f.stat().st_size > 100 * 1024 * 1024:  # > 100MB
                 return [str(f)]
-
         return []
 
     def _encode_output(self, output, payload: dict, defaults: dict) -> dict:

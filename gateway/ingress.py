@@ -27,6 +27,9 @@ from gateway.dashboard import dashboard_page, dashboard_gpu_current, dashboard_g
 from gateway.pipeline import PipelineSpec, execute_pipeline
 from gateway.playground import playground_page, playground_services
 from gateway.poser import poser_presets, poser_preset_render
+from gateway.routes.workflows import (
+    list_workflows, get_workflow, execute_workflow,
+)
 from gateway.studio import studio_page, studio_apps, studio_switch, studio_release
 from registry.config import Config
 from services.registry import SERVICE_REGISTRY, get_service, resolve_model, list_all_models
@@ -409,6 +412,10 @@ def create_app() -> Starlette:
         # Poser (pose presets + skeleton renderer)
         Route("/poser/presets", poser_presets),
         Route("/poser/presets/{name}/render", poser_preset_render),
+        # Workflows (multi-model orchestration — pseudo-OpenAI spec)
+        Route("/v1/workflows", list_workflows),
+        Route("/v1/workflows/{workflow}", get_workflow),
+        Route("/v1/workflows/{workflow}", execute_workflow, methods=["POST"]),
     ]
 
     middleware = []
