@@ -154,26 +154,16 @@ def face_detailer(
     image_b64: str,
     seed: int = 42,
     prompt: str = "detailed face, high quality, sharp focus, clear eyes",
-    negative_prompt: str = "blurry, low quality, deformed, artifacts",
+    **kwargs: Any,
 ) -> dict[str, Any]:
-    """Stage: face_detailer — Face refinement via QWEN inpainting.
+    """Stage: face_detailer — Face refinement via DWPose + QWEN crop-refine-composite.
 
     Maps to the inline FaceDetailer workflow in stages_character/stages/sheet.py.
-    Uses QWEN-Image-Edit to refine face region.
+    Uses DWPose keypoints for face detection (no extra model), then crops,
+    refines with QWEN, and composites back into the original image.
     """
-    svc = get_service()
-    svc.load("qwen-image-edit")
-
-    result = svc.infer({
-        "input_prompt": prompt,
-        "n_prompt": negative_prompt,
-        "image_b64": image_b64,
-        "seed": seed,
-        "sampling_steps": 4,
-        "guide_scale": 1.0,
-    })
-
-    return result
+    from services.workflows.utils.detailer import refine_faces
+    return refine_faces(image_b64, prompt=prompt, seed=seed)
 
 
 # ─── Stage 4: Emotions ────────────────────────────────────────────────────────
