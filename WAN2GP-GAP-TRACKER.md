@@ -79,23 +79,36 @@ plus fixes applied in `services/wan2gp/deployment.py`.
 | 27 | **VibeVoice pip package missing**: Handler does `from vibevoice.modular...` but the pip package wasn't in Docker image | ✅ Fixed | `Dockerfile.gpu-all` | Added `git clone + uv pip install -e .` for Microsoft/VibeVoice |
 | 28 | **hy-motion OOM on 24GB**: Full model (19.2GB) exceeds RTX 4090 VRAM | ✅ Fixed | `_ALIASES` | `hy_motion/hy-motion-1.0` aliased to `hy-motion-1.0-lite` (1.7GB, loads in 52s) |
 
+## Sequential VRAM Management
+
+| # | Gap | Status | Component | Notes |
+|---|-----|--------|-----------|-------|
+| 29 | **mmgp VRAM leak on sequential unload**: After model unload, rogue processes hold 19.93 GiB on GPU. `offload.flush_torch_caches()` creates a dummy 1GB embedding which itself leaks. Cascading OOM kills all subsequent model tests. | 🔧 Fix applied | `unload()` + `_apply_mmgp_profile` | Root cause: `offload.profile()` return value (offloadobj) was discarded — `self._offload` was always `None`, so `release()` never ran. mmgp held references to all model tensors. Fix: capture offloadobj from `_apply_mmgp_profile()`, save as `self._offload`, call `release()` in `unload()`. Also move modules to CPU before deleting, clear `shared_state["_cache"]`, removed `flush_torch_caches()` (it creates a dummy 1GB embedding). |
+| 30 | **index_tts2 generate() missing positional args**: `generate()` expects `input_prompt`, `model_mode`, `audio_guide` but `_build_generate_kwargs` doesn't map `text`→`input_prompt` or `audio_b64`→`audio_guide` for this handler | ❌ Active | `infer()` payload mapping | Need handler-specific key mapping or direct passthrough |
+| 31 | **trellis RMBG dtype mismatch**: BiRefNet background removal has weights on CPU but input tensor on CUDA — `Input type (torch.cuda.FloatTensor) and weight type (torch.FloatTensor)` | ❌ Active | `trellis_handler._preprocess_image` | RMBG model not moved to GPU by mmgp. Needs `.to(device)` before inference. |
+| 32 | **anigen import collision**: `from models import dsine` resolves to `/opt/wan2gp/models/ltx_video/models/__init__.py` instead of anigen's DSINE hub module | ❌ Active | `anigen_handler` + PYTHONPATH | Module name collision from broad PYTHONPATH. Needs sys.path isolation. |
+| 33 | **see_through import collision**: Relative import `from ..multitalk.multitalk_utils` fails because wan modules/__init__.py is triggered during see_through handler import | ❌ Active | `see_through_handler` + PYTHONPATH | Same root cause as #32 — broad PYTHONPATH causes cross-family imports. |
+
 ## Verified Working Models
 
-| Model | Type | Load | Infer | Disk Size | Notes |
-|-------|------|------|-------|-----------|-------|
-| `kokoro/kokoro` | CPU TTS | ✅ 3.1s | ✅ 3.1s | — | audio/wav output |
-| `faster_whisper/faster_whisper` | CPU ASR | ✅ 2.9s | ✅ 2.9s | — | Silent audio → empty text (expected) |
-| `wan/t2v` | GPU Video | ✅ 40s | ✅ 28s | 41.1 GB | 14B mmgp-offloaded. 5fr@480x480. |
-| `moss/moss-voicegenerator` | GPU Audio | ✅ 29s | — | 4.0 GB | LOAD_OK. Inference very slow (autoregressive 4096 tokens). |
-| `see_through/see-through` | GPU Image | ✅ 132s | — | 9.5 GB | LOAD_OK. Needs image input for inference. |
-| `trellis/trellis` | GPU 3D | ✅ 181s | — | 15.1 GB | LOAD_OK. spconv CPU-only blocks mesh extraction. |
-| `anigen/anigen` | GPU 3D | ✅ 92s | — | 20.4 GB | LOAD_OK, 1736MB VRAM. Self-managed GPU. |
-| `moss/moss-soundeffect` | GPU Audio | ✅ 21s | — | 15.6 GB | LOAD_OK. mmgp-offloaded. |
-| `moss/moss-tts` | GPU Audio | ✅ 23s | — | 15.8 GB | LOAD_OK. mmgp-offloaded. |
-| `hy_motion/hy-motion-1.0-lite` | GPU Motion | ✅ 52s | — | 1.7 GB | LOAD_OK. Lite variant (aliased from hy-motion-1.0). |
-| `tts/index_tts2` | GPU TTS | ✅ ~60s | — | — | LOAD_OK. mmgp-offloaded. semantic_codec auto-downloaded. |
-| `vibevoice_tts/vibevoice-tts` | GPU TTS | ✅ ~90s | — | — | LOAD_OK. 16.8GB mmgp-offloaded. HF cache redirected. |
-| `vibevoice_asr/vibevoice-asr` | GPU ASR | ✅ ~60s | — | — | LOAD_OK. Some uninitialized prediction_head weights (expected for ASR-only use). |
+| Model | Type | Load | Infer | Notes |
+|-------|------|------|-------|-------|
+| `espeak/espeak` | CPU TTS | ✅ | ✅ | WAV output, RIFF header verified |
+| `kokoro/kokoro` | CPU TTS | ✅ | ✅ | WAV output, 7.6s inference |
+| `faster_whisper/faster_whisper` | CPU ASR | ✅ | ✅ | Segments output, fixture audio |
+| `wan/t2v` | GPU Video | ✅ | ✅ | video/mp4 output, 3fr@256x256 |
+| `moss/moss-voicegenerator` | GPU Audio | ✅ | — | LOAD_OK. Autoregressive (170min). |
+| `moss/moss-soundeffect` | GPU Audio | ✅ | — | LOAD_OK. Autoregressive (170min). |
+| `moss/moss-tts` | GPU Audio | ✅ | — | LOAD_OK. Autoregressive. |
+| `hy_motion/hy-motion-1.0-lite` | GPU Motion | ✅ | — | LOAD_OK in isolation. OOM in sequential tests (VRAM leak #29). |
+| `tts/index_tts2` | GPU TTS | ✅ | ❌ | LOAD_OK. Infer fails: missing positional args (#30). |
+| `vibevoice_tts/vibevoice-tts` | GPU TTS | ✅* | — | LOAD_OK in isolation. Fails in current image (no vibevoice module). |
+| `vibevoice_asr/vibevoice-asr` | GPU ASR | ✅* | — | Same as vibevoice_tts. |
+| `trellis/trellis` | GPU 3D | ✅ | ❌ | LOAD_OK. Infer fails: RMBG dtype mismatch (#31). |
+| `anigen/anigen` | GPU 3D | ✅ | ❌ | LOAD_OK in isolation. Infer fails: import collision (#32). |
+| `see_through/see-through` | GPU Image | ✅ | ❌ | LOAD_OK in isolation. Infer fails: import collision (#33). |
+
+*✅ = verified in manual kubectl exec testing; fails in current Docker image (needs rebuild for vibevoice)
 
 ## Previously Blocked Models — Now Fixed
 
@@ -106,21 +119,29 @@ plus fixes applied in `services/wan2gp/deployment.py`.
 | `vibevoice_asr/vibevoice-asr` | Same as vibevoice_tts | Same fix | ✅ LOAD_OK |
 | `hy_motion/hy-motion-1.0` | CUDA OOM (19.2GB > 24GB VRAM) | Alias to `hy-motion-1.0-lite` (1.7GB) | ✅ LOAD_OK |
 
+## Active Blockers (E2E Inference)
+
+| # | Blocker | Impact | Priority |
+|---|---------|--------|----------|
+| 29 | **mmgp VRAM leak** — offloadobj never captured, release() never called | 🔧 Fix applied — needs testing on cluster | ~~Critical~~ → Medium |
+| 30 | **index_tts2 generate() payload mapping** | Infer fails for index_tts2 | Medium |
+| 31 | **trellis RMBG dtype mismatch** | Infer fails for trellis | Medium |
+| 32 | **anigen import collision** | Load fails after other models imported | Low |
+| 33 | **see_through import collision** | Load fails after other models imported | Low |
+
 ## Models Requiring Additional Work
 
 | Model | Issue | Notes |
 |-------|-------|-------|
 | `flux/*` | Main model auto-download slow | VAE/T5/CLIP download works. Main 12GB model needs longer timeout or pre-download. |
 | `wan/i2v` | No local weights | Needs auto-download or pre-download to test |
-| `spconv` | CUDA mesh extraction | spconv-cu126 loads but TRELLIS mesh extraction still needs verification. PyPI wheel is CPU-only. |
 
 ## Discovery Statistics
 
 - **Total models discovered**: 113 (from 15 family handlers)
-- **With local weights**: 17
-- **Auto-download capable**: ~96 (vendor handlers with HF access)
-- **Blocked**: 0 (auto-download path handles missing weights)
-- **CPU-only (no weights needed)**: 3 (kokoro, espeak, faster_whisper)
 - **Load verified**: 13 models (3 CPU + 10 GPU)
-- **End-to-end verified**: 4 models (kokoro, faster_whisper, wan/t2v, moss-voicegenerator)
-- **Previously blocked, now fixed**: 4 (index_tts2, vibevoice_tts, vibevoice_asr, hy_motion)
+- **E2E inference verified**: 4 models (espeak, kokoro, faster_whisper, wan/t2v)
+- **E2E blocked by VRAM leak (#29)**: 4 models (hy_motion, trellis, anigen, see_through)
+- **E2E blocked by payload mapping (#30)**: 1 model (index_tts2)
+- **Needs Docker rebuild**: 2 models (vibevoice_tts, vibevoice_asr)
+- **Autoregressive (skip by default)**: 3 models (moss_voicegenerator, moss_soundeffect, moss_tts)

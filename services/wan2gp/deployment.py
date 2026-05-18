@@ -483,33 +483,50 @@ class Wan2GPService:
         logger.info("Wan2GP: loaded %s (VRAM=%.0fMB)", model_name, vram)
 
     def unload(self) -> None:
+        # Release mmgp offloadobj — this is the critical step that unpins
+        # all tensors from mmgp's internal tracking. Without this, mmgp
+        # holds references to model weights even after we delete them.
         if self._offload is not None:
-            try:
-                self._offload.unload_all()
-            except Exception:
-                pass
             try:
                 self._offload.release()
             except Exception:
                 pass
             self._offload = None
 
-        # Release model references so GC can reclaim tensors
+        # Release model references so GC can reclaim tensors.
+        # Move modules to CPU first to release GPU allocations that
+        # mmgp may not have fully unpinned.
         for m in self._models.values():
             model = m.get("model")
             if model is not None:
-                for attr in list(vars(model)):
+                for attr_name in list(vars(model)):
+                    attr = getattr(model, attr_name, None)
+                    if isinstance(attr, torch.nn.Module):
+                        try:
+                            attr.cpu()
+                        except Exception:
+                            pass
                     try:
-                        delattr(model, attr)
+                        delattr(model, attr_name)
                     except Exception:
                         pass
+            pipe = m.get("pipe", {})
+            if isinstance(pipe, dict):
+                for mod in pipe.values():
+                    if isinstance(mod, torch.nn.Module):
+                        try:
+                            mod.cpu()
+                        except Exception:
+                            pass
         self._models.clear()
         self._loaded_model = None
 
+        # Clear mmgp shared state caches (wgp.py does this in release_model)
         try:
             from mmgp import offload
-            offload.flush_torch_caches()
-        except (ImportError, RuntimeError):
+            if "_cache" in offload.shared_state:
+                del offload.shared_state["_cache"]
+        except (ImportError, KeyError):
             pass
 
         gc.collect()
@@ -817,7 +834,9 @@ class Wan2GPService:
 
         pipe, co_tenants = self._unwrap_pipe(pipe_wrapper)
 
-        self._apply_mmgp_profile(pipe, co_tenants, is_cpu, model_type)
+        offloadobj = self._apply_mmgp_profile(pipe, co_tenants, is_cpu, model_type)
+        if offloadobj is not None:
+            self._offload = offloadobj
 
         self._models[model_name] = {
             "model": pipeline,
@@ -937,12 +956,13 @@ class Wan2GPService:
 
     @staticmethod
     def _apply_mmgp_profile(pipe: dict, co_tenants: dict, is_cpu: bool,
-                            model_type: str) -> None:
+                            model_type: str):
+        """Apply mmgp VRAM profile. Returns offloadobj or None."""
         if not pipe or is_cpu:
-            return
+            return None
         if model_type in Wan2GPService._NO_MMGP_MODELS:
             logger.info("Skipping mmgp for %s (self-managed GPU memory)", model_type)
-            return
+            return None
         from mmgp import offload
 
         # Normalize dtypes — mmgp asserts all params in a module share one dtype.
@@ -956,7 +976,7 @@ class Wan2GPService:
             if not hasattr(v, "_model_dtype"):
                 v._model_dtype = target_dtype
 
-        offload.profile(
+        offloadobj = offload.profile(
             pipe,
             profile_no=MMGP_PROFILES["balanced"],
             quantizeTransformer=False,
@@ -966,6 +986,7 @@ class Wan2GPService:
             vram_safety_coefficient=0.9,
             coTenantsMap=co_tenants,
         )
+        return offloadobj
 
     def _resolve_model_path(self, model_name: str, entry: dict,
                              registry, cfg) -> Path | None:
