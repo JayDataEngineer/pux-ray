@@ -341,6 +341,12 @@ def _find_weights(model_type: str, handler_path: str, registry, models_root: Pat
     if _has_weights(fallback):
         return fallback
 
+    # Fallback: ckpts/ (writable, used for auto-downloaded vendor models)
+    ckpts = Path("ckpts").resolve()
+    if (ckpts / f"{model_type}.safetensors").is_file() or \
+       (ckpts / f"{model_type}.pth").is_file():
+        return ckpts
+
     return None
 
 
@@ -779,24 +785,39 @@ class Wan2GPService:
         from huggingface_hub import hf_hub_download
         import re
 
-        for url in urls:
-            # Convert HF URL to hf_hub_download params
+        # Determine model path from registry
+        from registry.models import ModelRegistry
+        try:
+            reg = ModelRegistry()
+            model_dir = reg.get_path("wan2gp", base_model_type.replace("_", "-"))
+            model_dir.mkdir(parents=True, exist_ok=True)
+        except Exception:
+            model_dir = ckpts_base
+
+        # Prefer quantized variants (smaller downloads) — prefer *quanto* variants
+        sorted_urls = sorted(urls, key=lambda u: 0 if "quanto" in u else 1)
+
+        for url in sorted_urls:
             m = re.match(r"https://huggingface\.co/([^/]+/[^/]+)/resolve/main/(.+)", url)
             if not m:
                 continue
             repo_id = m.group(1)
             filename = m.group(2)
-            local = ckpts_base / filename
-            if local.exists():
+
+            # Check both ckpts and model_dir
+            if (ckpts_base / filename).exists() or (model_dir / filename).exists():
                 continue
 
             try:
                 hf_hub_download(
                     repo_id, filename,
-                    local_dir=str(ckpts_base),
+                    local_dir=str(model_dir),
                     local_dir_use_symlinks=False,
                 )
-                logger.info("Downloaded main model %s → %s", url, local)
+                logger.info("Downloaded main model %s → %s", url, model_dir / filename)
+                # Symlink to ckpts so files_locator finds it
+                if not (ckpts_base / filename).exists():
+                    (ckpts_base / filename).symlink_to(model_dir / filename)
             except Exception as e:
                 logger.debug("Main model download failed %s: %s", url, e)
 
@@ -865,6 +886,11 @@ class Wan2GPService:
         fallback = Path(cfg.models_root) / "wan2gp" / model_type
         if fallback.is_dir():
             return fallback
+
+        # Fallback: ckpts/ (writable, for auto-downloaded vendor models)
+        ckpts = Path("ckpts").resolve()
+        if any(ckpts.glob("*.safetensors")) or any(ckpts.glob("*.pth")):
+            return ckpts
 
         # CPU models may not have weight files
         if model_type in _CPU_ONLY_TYPES:
