@@ -647,16 +647,19 @@ class Wan2GPService:
                     kwargs["audio_guide"] = tmp.name
 
             elif base_model_type == "trellis":
-                # Trellis uses BiRefNet (rembg) for background removal.
-                # mmgp may offload it to CPU, causing dtype mismatch when
-                # the pipeline forwards CUDA tensors through it.
-                pipe_dict = m.get("pipe", {})
-                rembg_mod = pipe_dict.get("rembg")
-                if rembg_mod is not None and torch.cuda.is_available():
-                    try:
-                        rembg_mod.to("cuda")
-                    except Exception:
-                        pass
+                # Trellis uses BiRefNet (rembg wrapper) for background removal.
+                # The wrapper (model.rembg) is not an nn.Module and not in the
+                # pipe dict, so mmgp doesn't manage it. The inner model
+                # (model.rembg.model) stays on CPU after load, but the pipeline
+                # passes CUDA tensors to it during preprocessing.
+                rembg_wrapper = getattr(model, "rembg", None)
+                if rembg_wrapper is not None and torch.cuda.is_available():
+                    inner = getattr(rembg_wrapper, "model", None)
+                    if inner is not None:
+                        try:
+                            inner.to("cuda")
+                        except Exception:
+                            pass
 
             elif base_model_type == "anigen":
                 # AniGen lazily imports `dsine` during generate(). The
