@@ -530,7 +530,27 @@ class Wan2GPService:
             if "_attention" not in _moff.shared_state:
                 _moff.shared_state["_attention"] = "sdpa"
 
-            # Wan models expect loras_slists dict (not None) to avoid crash
+            # Load LoRAs if requested (loras_selected was silently ignored before)
+            loras_selected = payload.get("loras_selected", [])
+            if loras_selected and isinstance(loras_selected, list):
+                kwargs["loras_selected"] = loras_selected
+                pipe_dict = m.get("pipe", {})
+                transformer = self._find_transformer(pipe_dict)
+                if transformer is not None:
+                    resolved = self._resolve_lora_paths(loras_selected)
+                    if resolved:
+                        from mmgp import offload as _moff
+                        _moff.load_loras_into_model(
+                            transformer, resolved,
+                            [1.0] * len(resolved),
+                            activate_all_loras=True,
+                        )
+                        # Build slists so update_loras_slists activates them
+                        kwargs["loras_slists"] = {
+                            "phase1": [[1.0]] * len(resolved),
+                            "phase2": [],
+                            "phase3": [],
+                        }
             kwargs.setdefault("loras_slists", {"phase1": [], "phase2": [], "phase3": []})
             # Wan models call callback() for progress — provide a no-op
             kwargs.setdefault("callback", lambda *a, **kw: None)
@@ -550,6 +570,58 @@ class Wan2GPService:
         except Exception as e:
             logger.error("Wan2GP inference failed: %s", e, exc_info=True)
             return {"status": "error", "error": str(e)}
+
+    # ── LoRA Helpers ──────────────────────────────────────────────────────
+
+    @staticmethod
+    def _find_transformer(pipe: dict) -> Any | None:
+        """Find the transformer nn.Module in a pipe dict.
+
+        Tries common key names. Returns None if not found.
+        """
+        for key in ("transformer", "model", "unet", "dit"):
+            if key in pipe:
+                return pipe[key]
+        if "motion_transformer" in pipe:
+            return pipe["motion_transformer"]
+        return None
+
+    @staticmethod
+    def _resolve_lora_paths(loras_selected: list[str]) -> list[str]:
+        """Resolve LoRA filenames to full paths.
+
+        Searches models_root/loras/ and Wan2GP's files_locator paths.
+        """
+        from pathlib import Path
+        from registry.config import Config
+
+        models_root = Path(Config().models_root)
+        lora_dirs = [
+            models_root / "loras",
+            models_root / "wan2gp" / "loras",
+            models_root / "image-gen" / "comfyui" / "loras" / "qwen",
+            models_root / "image-gen" / "comfyui" / "loras",
+        ]
+
+        resolved = []
+        for name in loras_selected:
+            found = None
+            for ld in lora_dirs:
+                candidate = ld / name
+                if candidate.exists():
+                    found = str(candidate)
+                    break
+            if found is None:
+                try:
+                    from shared.utils import files_locator as fl
+                    found = fl.locate_file(name)
+                except Exception:
+                    pass
+            if found:
+                resolved.append(found)
+            else:
+                logger.warning("LoRA not found: %s (searched %s)", name, lora_dirs)
+        return resolved
 
     # ── Model Loading ─────────────────────────────────────────────────────
 

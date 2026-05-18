@@ -183,20 +183,45 @@ better results.
 
 ---
 
-## GAP-005: LoRA Cache
+## GAP-005: LoRA Loading in Wan2GPService
 
-**Status**: 🔴 Not started
-**Impact**: LOW — correctness not affected, only performance
-**Affects**: All VNCCS workflows with loops (emotions, sprite)
+**Status**: ✅ Resolved
+**Impact**: Was HIGH — LoRAs were silently ignored
+**Affects**: All VNCCS workflows with LoRAs (emotions, sprite, pose_edit)
 
-### Problem
-Each `svc.infer()` call loads LoRAs specified in `loras_selected`.
-When looping over 10 emotions with the same EmotionCore LoRA, it's
-reloaded each time. Wan2GP may cache internally already.
+### Discovery
+**This was a real bug, not a cache issue.** Wan2GPService.infer() passed
+`loras_selected` through to `model.generate()` via `**kwargs`, where it was
+**silently ignored** by every pipeline. mmgp's `load_loras_into_model()` was
+never called. All VNCCS workflow LoRAs (EmotionCore, PoseStudio, Lightning)
+were no-ops — the inference ran without any LoRA adapters.
 
-### Verification Needed
-- Does Wan2GP skip LoRA loading if already in VRAM?
-- If not: implement LRU LoRA cache in Wan2GPService or workflow base
+The actual Wan2GP caching (mmgp's `_loras_model_data`) works perfectly:
+once `load_loras_into_model` is called, adapter tensors persist in GPU
+memory across generate() calls. The problem was that the load step was
+**never invoked** from Wan2GPService.
+
+### Fix Applied
+Added LoRA loading to `Wan2GPService.infer()` before `model.generate()`:
+1. Reads `loras_selected` from payload
+2. Resolves filenames to full paths via `_resolve_lora_paths()`
+   (searches: models_root/loras/, models_root/wan2gp/loras/,
+    models_root/image-gen/comfyui/loras/)
+3. Finds transformer via `_find_transformer()` from pipe dict
+   (tries keys: transformer, model, unet, dit, motion_transformer)
+4. Calls `offload.load_loras_into_model()` with constant 1.0 multipliers
+5. Builds minimal `loras_slists` for `update_loras_slists()` activation
+
+The result: LoRAs now load once on first request, persist in mmgp's
+adapter cache, and are activated on every generate() call with zero
+additional disk I/O. Looping over 10 emotions with the same LoRA loads
+it exactly once.
+
+### Verification
+All 3 VNCCS LoRAs found on disk:
+- EmotionCoreV1_000003000.safetensors (326MB)
+- VNCCS_PoseStudioQIE2511_V2.safetensors (45MB)
+- Qwen-Image-Edit-2511-Lightning-4steps-V1.0-bf16.safetensors (45MB)
 
 ---
 
