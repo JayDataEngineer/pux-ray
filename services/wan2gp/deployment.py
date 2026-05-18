@@ -299,6 +299,12 @@ _WEIGHT_SEARCH = {
     "index_tts2":    [("tts", "index-tts")],
     "kokoro":        [("tts", "kokoro")],
     "faster_whisper": [("asr", "faster-whisper")],
+    # Flux models
+    "flux":          [("wan2gp", "flux")],
+    "flux_schnell":  [("wan2gp", "flux-schnell")],
+    "flux2_dev":     [("wan2gp", "flux2-dev")],
+    "flux2_klein_4b": [("wan2gp", "flux2-klein-4b")],
+    "flux_chroma":   [("wan2gp", "flux-chroma")],
 }
 
 
@@ -405,7 +411,8 @@ class Wan2GPService:
                 f"Unknown model: {model_name}. "
                 f"Available: {self.available_models()}"
             )
-        if entry.get("blocked"):
+        if entry.get("blocked") or ("weight_path" not in entry
+                                     and entry.get("model_type") not in _CPU_ONLY_TYPES):
             # Try auto-download from registry source
             model_type = entry.get("model_type", model_name)
             if self._try_download(model_type):
@@ -416,7 +423,7 @@ class Wan2GPService:
                         f"Model '{model_name}' still blocked after download: "
                         f"{entry.get('blocked_reason', 'unknown') if entry else 'not found'}"
                     )
-            else:
+            elif entry.get("blocked"):
                 raise RuntimeError(
                     f"Model '{model_name}' is blocked: {entry.get('blocked_reason', 'unknown')}"
                 )
@@ -644,6 +651,13 @@ class Wan2GPService:
         model_registry = ModelRegistry()
 
         model_path = self._resolve_model_path(model_name, entry, model_registry, cfg)
+
+        # If no local weights found, try downloading via handler's query_model_files
+        if model_path is None:
+            self._ensure_vendor_files(handler, base_model_type, model_def={})
+            # Re-resolve after download
+            model_path = self._resolve_model_path(model_name, entry, model_registry, cfg)
+
         extra_paths = self._resolve_handler_paths(
             model_type, model_registry, cfg, quant=quant)
         model_def = self._build_model_def(handler, base_model_type, model_path)
@@ -701,6 +715,91 @@ class Wan2GPService:
             "loaded_at": time.time(),
         }
 
+    def _ensure_vendor_files(self, handler, base_model_type: str,
+                              model_def: dict) -> None:
+        """Download missing model files via handler's query_model_files."""
+        ckpts_base = Path("ckpts").resolve()
+        ckpts_base.mkdir(parents=True, exist_ok=True)
+
+        # Step 1: query_model_files for supporting files (VAE, text encoders)
+        qmf = getattr(handler, "query_model_files", None)
+        if qmf is not None:
+            try:
+                download_defs = qmf([], base_model_type, model_def)
+            except Exception:
+                download_defs = []
+            if not isinstance(download_defs, list):
+                download_defs = [download_defs]
+
+            from huggingface_hub import hf_hub_download
+            for entry in (download_defs or []):
+                repo_id = entry.get("repoId")
+                source_folders = entry.get("sourceFolderList", [])
+                file_lists = entry.get("fileList", [])
+                if not repo_id:
+                    continue
+                for folder, files in zip(source_folders, file_lists):
+                    for fname in files:
+                        rel = Path(folder) / fname if folder else Path(fname)
+                        local = ckpts_base / rel
+                        if local.exists():
+                            continue
+                        try:
+                            hf_hub_download(
+                                repo_id, str(rel),
+                                local_dir=str(ckpts_base / folder) if folder else str(ckpts_base),
+                                local_dir_use_symlinks=False,
+                            )
+                            logger.info("Downloaded %s/%s → %s", repo_id, rel, local)
+                        except Exception as e:
+                            logger.debug("Download failed %s/%s: %s", repo_id, rel, e)
+
+        # Step 2: check defaults URL for the main model file, download to ckpts
+        self._ensure_main_model(handler, base_model_type, ckpts_base)
+
+    def _ensure_main_model(self, handler, base_model_type: str,
+                            ckpts_base: Path) -> None:
+        """Download the main model file from the defaults URL if missing."""
+        defaults_file = Path.home() / ".wan2gp" / "defaults" / f"{base_model_type}.json"
+        alt = Path("/opt/wan2gp/defaults") / f"{base_model_type}.json"
+        if not defaults_file.exists() and alt.exists():
+            defaults_file = alt
+        if not defaults_file.exists():
+            return
+        try:
+            import json
+            with open(defaults_file) as f:
+                defaults = json.load(f)
+            urls = defaults.get("model", {}).get("URLs", [])
+        except Exception:
+            return
+        if not urls:
+            return
+
+        from huggingface_hub import hf_hub_download
+        import re
+
+        for url in urls:
+            # Convert HF URL to hf_hub_download params
+            m = re.match(r"https://huggingface\.co/([^/]+/[^/]+)/resolve/main/(.+)", url)
+            if not m:
+                continue
+            repo_id = m.group(1)
+            filename = m.group(2)
+            local = ckpts_base / filename
+            if local.exists():
+                continue
+
+            try:
+                hf_hub_download(
+                    repo_id, filename,
+                    local_dir=str(ckpts_base),
+                    local_dir_use_symlinks=False,
+                )
+                logger.info("Downloaded main model %s → %s", url, local)
+            except Exception as e:
+                logger.debug("Main model download failed %s: %s", url, e)
+
     @staticmethod
     def _unwrap_pipe(pipe_wrapper) -> tuple[dict, dict]:
         if isinstance(pipe_wrapper, dict):
@@ -708,7 +807,7 @@ class Wan2GPService:
         return {}, {}
 
     # Models whose handlers manage GPU memory internally (no mmgp needed)
-    _NO_MMGP_MODELS = {"pixal3d"}
+    _NO_MMGP_MODELS = {"pixal3d", "anigen"}
 
     @staticmethod
     def _apply_mmgp_profile(pipe: dict, co_tenants: dict, is_cpu: bool,
