@@ -9,3 +9,5 @@ resources:
   - equibles-worker.yaml
   - equibles-web.yaml
   # - equibles-scaledobject.yaml  # Requires KEDA — uncomment after KEDA Helm install succeeds
+  - wan2gp-studio.yaml
+  - wan2gp-studio-web.yaml

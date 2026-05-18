@@ -1,0 +1,64 @@
+# Wan2GP Studio MCP Server — wraps Forge GPU inference gateway
+#
+# MCP tools: generate_video, generate_image, generate_3d, generate_audio,
+#            list_models, forge_status
+#
+# Access: http://100.86.69.57:30080/mcp/wan2gp-studio/mcp
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: wan2gp-studio-mcp
+  namespace: mcp
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: wan2gp-studio-mcp
+  template:
+    metadata:
+      labels:
+        app: wan2gp-studio-mcp
+    spec:
+      containers:
+        - name: wan2gp-studio
+          image: forge-reg.local:30500/tech-noir/mcp-wan2gp-studio:latest
+          ports:
+            - containerPort: 8002
+          env:
+            - name: FORGE_URL
+              value: "http://tech-noir-ray-serve-svc.ai-services:8000/forge"
+            - name: HOST
+              value: "0.0.0.0"
+            - name: PORT
+              value: "8002"
+          resources:
+            requests:
+              memory: 128Mi
+            limits:
+              memory: 512Mi
+          livenessProbe:
+            httpGet:
+              path: /mcp
+              port: 8002
+            initialDelaySeconds: 10
+            periodSeconds: 30
+          readinessProbe:
+            httpGet:
+              path: /mcp
+              port: 8002
+            initialDelaySeconds: 5
+            periodSeconds: 10
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: wan2gp-studio-mcp
+  namespace: mcp
+spec:
+  selector:
+    app: wan2gp-studio-mcp
+  ports:
+    - port: 8002
+      targetPort: 8002

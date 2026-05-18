@@ -2,6 +2,9 @@
 # Build MCP server images and push to the Forge Registry.
 # Source lives in mcp/ directory (in-repo), no external clones needed.
 #
+# Flux handles deployment — push to master and Flux auto-syncs within 2 minutes.
+# This script only builds and pushes images.
+#
 # Usage: bash infra/k8s/build_mcp.sh
 set -euo pipefail
 
@@ -14,6 +17,8 @@ PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 declare -A MCP_IMAGES=(
     ["mcp/media-analysis/Dockerfile"]="mcp-media-analysis"
     ["mcp/web-research/Dockerfile"]="mcp-web-research"
+    ["mcp/wan2gp-studio/Dockerfile"]="mcp-wan2gp-studio"
+    ["mcp/wan2gp-studio-web/Dockerfile"]="wan2gp-studio-web"
 )
 
 cd "$PROJECT_ROOT"
@@ -40,17 +45,6 @@ for dockerfile in "${!MCP_IMAGES[@]}"; do
     echo "OK: ${image_name}"
 done
 
-echo ""
-echo "=== Deploying MCP services ==="
-python3 infra/secrets_sync.py
-kubectl apply -f infra/k8s/mcp/namespace.yaml
-kubectl apply -f infra/k8s/mcp/pvcs.yaml
-kubectl apply -f infra/k8s/mcp/web-research-deps.yaml
-kubectl apply -f infra/k8s/mcp/web-research-worker.yaml
-kubectl apply -f infra/k8s/mcp/web-research.yaml
-kubectl apply -f infra/k8s/mcp/media-analysis.yaml
-kubectl apply -f infra/k8s/traefik-ingress.yaml
-
 # ── Equibles (vendor clone, builds from upstream source) ──
 EQUIBLES_DIR="vendor/equibles"
 if [ -d "$EQUIBLES_DIR" ]; then
@@ -71,15 +65,10 @@ if [ -d "$EQUIBLES_DIR" ]; then
     docker build -f "$EQUIBLES_DIR/src/Equibles.Web/Dockerfile" \
         -t "${PUSH_REGISTRY}/tech-noir/mcp-equibles-web:latest" "$EQUIBLES_DIR"
     docker push "${PUSH_REGISTRY}/tech-noir/mcp-equibles-web:latest"
-
-    echo "Deploying Equibles..."
-    kubectl apply -f infra/flux/mcp/equibles-deps.yaml
-    kubectl apply -f infra/flux/mcp/equibles-mcp.yaml
-    kubectl apply -f infra/flux/mcp/equibles-worker.yaml
-    kubectl apply -f infra/flux/mcp/equibles-web.yaml
-    kubectl apply -f infra/flux/shared/keda.yaml
-    kubectl apply -f infra/flux/mcp/equibles-scaledobject.yaml
 fi
 
 echo ""
-echo "Done. Watch: kubectl get pods -n mcp -w"
+echo "=== Done. Deploy via Flux ==="
+echo "Images built and pushed. Flux will auto-deploy from infra/flux/mcp/ on next sync."
+echo "Force reconcile: flux reconcile kustomization mcp --with-source"
+echo "Watch pods:      kubectl get pods -n mcp -w"

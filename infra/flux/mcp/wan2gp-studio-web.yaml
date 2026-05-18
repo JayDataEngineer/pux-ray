@@ -1,0 +1,63 @@
+# Wan2GP Studio Web — Next.js chat UI + direct generation
+#
+# Access: http://100.86.69.57:30080/studio/
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: wan2gp-studio-web
+  namespace: mcp
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: wan2gp-studio-web
+  template:
+    metadata:
+      labels:
+        app: wan2gp-studio-web
+    spec:
+      containers:
+        - name: wan2gp-studio-web
+          image: forge-reg.local:30500/tech-noir/wan2gp-studio-web:latest
+          ports:
+            - containerPort: 3000
+          env:
+            - name: MCP_SERVER_URL
+              value: "http://wan2gp-studio-mcp.mcp.svc.cluster.local:8002/mcp"
+            - name: LLM_BASE_URL
+              value: "http://tech-noir-ray-serve-svc.ai-services:8000/llm/v1"
+            - name: LLM_MODEL
+              value: "default"
+            - name: LLM_API_KEY
+              value: "not-needed"
+          resources:
+            requests:
+              memory: 256Mi
+            limits:
+              memory: 512Mi
+          livenessProbe:
+            httpGet:
+              path: /api/health
+              port: 3000
+            initialDelaySeconds: 15
+            periodSeconds: 30
+          readinessProbe:
+            httpGet:
+              path: /api/health
+              port: 3000
+            initialDelaySeconds: 5
+            periodSeconds: 10
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: wan2gp-studio-web
+  namespace: mcp
+spec:
+  selector:
+    app: wan2gp-studio-web
+  ports:
+    - port: 3000
+      targetPort: 3000
