@@ -40,7 +40,7 @@ PLAYGROUND_META: dict[str, dict] = {
     "kokoro": {
         "category": "TTS",
         "gpu": False,
-        "route": "/tts/kokoro",
+        "route": "/v1/kokoro/generate",
         "format": "tnap",
         "input_fields": [
             {"key": "text", "label": "Text to speak", "type": "textarea", "required": True, "placeholder": "Enter text to synthesize..."},
@@ -51,7 +51,7 @@ PLAYGROUND_META: dict[str, dict] = {
     "espeak": {
         "category": "TTS",
         "gpu": False,
-        "route": "/tts/espeak",
+        "route": "/v1/espeak/generate",
         "format": "tnap",
         "input_fields": [
             {"key": "text", "label": "Text to speak", "type": "textarea", "required": True, "placeholder": "Enter text to synthesize..."},
@@ -62,7 +62,7 @@ PLAYGROUND_META: dict[str, dict] = {
     "faster_whisper": {
         "category": "ASR",
         "gpu": False,
-        "route": "/asr/whisper",
+        "route": "/v1/faster_whisper/generate",
         "format": "tnap",
         "input_fields": [
             {"key": "audio", "label": "Audio file", "type": "audio", "required": True, "help": "Upload audio to transcribe (WAV, MP3, M4A, etc.)"},
@@ -72,7 +72,7 @@ PLAYGROUND_META: dict[str, dict] = {
     "index_tts": {
         "category": "TTS",
         "gpu": True,
-        "route": "/tts/index-tts",
+        "route": "/v1/index_tts/generate",
         "format": "tnap",
         "input_fields": [
             {"key": "text", "label": "Text to speak", "type": "textarea", "required": True, "placeholder": "Enter text to synthesize..."},
@@ -82,7 +82,7 @@ PLAYGROUND_META: dict[str, dict] = {
     "moss_soundeffect": {
         "category": "Audio",
         "gpu": True,
-        "route": "/audio/moss-sfx",
+        "route": "/v1/moss_soundeffect/generate",
         "format": "tnap",
         "input_fields": [
             {"key": "prompt", "label": "Sound description", "type": "textarea", "required": True, "placeholder": "e.g., thunder and heavy rain, ocean waves crashing, footsteps on gravel..."},
@@ -91,7 +91,7 @@ PLAYGROUND_META: dict[str, dict] = {
     "ace_step": {
         "category": "Music",
         "gpu": True,
-        "route": "/music/ace-step",
+        "route": "/v1/ace_step/generate",
         "format": "tnap",
         "input_fields": [
             {"key": "prompt", "label": "Music description", "type": "textarea", "required": True, "placeholder": "e.g., upbeat electronic dance music with a driving bass line"},
@@ -103,7 +103,7 @@ PLAYGROUND_META: dict[str, dict] = {
     "llm": {
         "category": "LLM",
         "gpu": True,
-        "route": "/llm",
+        "route": "/v1/chat/completions",
         "format": "openai",
         "input_fields": [
             {"key": "system", "label": "System prompt", "type": "textarea", "required": False, "placeholder": "You are a helpful assistant...", "default": ""},
@@ -115,7 +115,7 @@ PLAYGROUND_META: dict[str, dict] = {
     "trellis": {
         "category": "3D",
         "gpu": True,
-        "route": "/3d/trellis",
+        "route": "/v1/trellis/generate",
         "format": "tnap",
         "input_fields": [
             {"key": "image", "label": "Source image", "type": "image", "required": True, "help": "Upload an image to convert to 3D mesh"},
@@ -127,7 +127,7 @@ PLAYGROUND_META: dict[str, dict] = {
     "anigen": {
         "category": "3D",
         "gpu": True,
-        "route": "/3d/anigen",
+        "route": "/v1/anigen/generate",
         "format": "tnap",
         "input_fields": [
             {"key": "image", "label": "Anime image", "type": "image", "required": True, "help": "Upload an anime-style image to convert to 3D"},
@@ -139,7 +139,7 @@ PLAYGROUND_META: dict[str, dict] = {
     "see_through": {
         "category": "Creative",
         "gpu": True,
-        "route": "/creative/see-through",
+        "route": "/v1/see_through/generate",
         "format": "tnap",
         "input_fields": [
             {"key": "image", "label": "Anime image", "type": "image", "required": True, "help": "Upload an anime image for layer decomposition"},
@@ -148,7 +148,7 @@ PLAYGROUND_META: dict[str, dict] = {
     "faster_qwen3_tts": {
         "category": "TTS",
         "gpu": True,
-        "route": "/tts/faster-qwen3-tts",
+        "route": "/v1/faster_qwen3_tts/generate",
         "format": "tnap",
         "input_fields": [
             {"key": "text", "label": "Text to speak", "type": "textarea", "required": True, "placeholder": "Enter text to synthesize..."},
@@ -167,7 +167,7 @@ PLAYGROUND_META: dict[str, dict] = {
     "hy_motion": {
         "category": "3D",
         "gpu": True,
-        "route": "/3d/hy-motion",
+        "route": "/v1/hy_motion/generate",
         "format": "tnap",
         "input_fields": [
             {"key": "text", "label": "Motion description", "type": "textarea", "required": True, "placeholder": "e.g., a person walking then waving..."},

@@ -29,7 +29,7 @@ from gateway.playground import playground_page, playground_services
 from gateway.poser import poser_presets, poser_preset_render
 from gateway.studio import studio_page, studio_apps, studio_switch, studio_release
 from registry.config import Config
-from services.registry import SERVICE_REGISTRY, get_service, resolve_model
+from services.registry import SERVICE_REGISTRY, get_service, resolve_model, list_all_models
 from services.forge import SERVICE_MAP as FORGE_SERVICES
 
 logger = logging.getLogger(__name__)
@@ -73,19 +73,8 @@ def _is_forge_service(service_name: str) -> bool:
 
 
 def _model_name_for(service_name: str, entry) -> str:
-    """Map a service name to the Wan2GP model name in the dynamic registry.
-
-    Wan2GP registry keys use 'family/variant' format (e.g. 'moss/moss-soundeffect').
-    Service entries may store just the short form. This function ensures the full
-    key is used by prepending the family name derived from the service name.
-    """
-    default = entry.default_model
-    if "/" in default:
-        return default
-    # Derive family from service_name convention: moss_soundeffect → moss
-    family = service_name.split("_")[0]
-    variant = default.replace("_", "-")
-    return f"{family}/{variant}"
+    """Map a service name to the Wan2GP model name."""
+    return entry.default_model
 
 
 class APIIngress:
@@ -167,18 +156,20 @@ class APIIngress:
     # ── OpenAI-compatible routes ───────────────────────────────────────────────
 
     async def list_models(self, request: Request) -> Response:
-        """GET /v1/models — OpenAI-compatible model list."""
-        from registry.models import ModelRegistry
-        registry = ModelRegistry()
-        llm_models = registry.list_models("llm").get("llm", {})
+        """GET /v1/models — unified model list across all service types."""
+        category = request.query_params.get("category")
+        models_raw = list_all_models(category)
         models = []
-        for name, meta in llm_models.items():
-            if "dflash-draft" in name:
-                continue
+        for m in models_raw:
             models.append({
-                "id": name,
+                "id": m["id"],
                 "object": "model",
                 "owned_by": "tech-noir",
+                "category": m["category"],
+                "label": m["label"],
+                "output_type": m["output_type"],
+                "needs_gpu": m["needs_gpu"],
+                "description": m["description"],
             })
         return JSONResponse({"object": "list", "data": models})
 

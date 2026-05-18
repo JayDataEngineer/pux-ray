@@ -124,6 +124,50 @@ SERVICE_REGISTRY: dict[str, ServiceEntry] = {
         output_type="audio",
         description="VibeVoice TTS — multi-speaker text-to-speech.",
     ),
+
+    # ── Additional Wan2GP services (previously missing from registry) ──────────
+    "trellis": ServiceEntry(
+        deployment="wan2gp", app="wan2gp",
+        label="TRELLIS 3D", category="3d",
+        needs_gpu=True, default_model="trellis",
+        output_type="model_3d",
+        description="TRELLIS.2 4B — image-to-3D mesh generation.",
+    ),
+    "anigen": ServiceEntry(
+        deployment="wan2gp", app="wan2gp",
+        label="AniGen 3D", category="3d",
+        needs_gpu=True, default_model="anigen",
+        output_type="model_3d",
+        description="AniGen — anime image-to-rigged-3D generation.",
+    ),
+    "z_image": ServiceEntry(
+        deployment="wan2gp", app="wan2gp",
+        label="Wan2GP Image", category="image",
+        needs_gpu=True, default_model="z_image",
+        output_type="image",
+        description="Wan2GP image generation (Flux, SD variants).",
+    ),
+    "faster_qwen3_tts": ServiceEntry(
+        deployment="wan2gp", app="wan2gp",
+        label="Faster Qwen3-TTS", category="tts",
+        needs_gpu=True, default_model="faster_qwen3_tts",
+        output_type="audio",
+        description="Qwen3-TTS with CUDA graph acceleration — 5x faster than baseline.",
+    ),
+    "hy_motion": ServiceEntry(
+        deployment="wan2gp", app="wan2gp",
+        label="HY-Motion", category="motion",
+        needs_gpu=True, default_model="hy_motion",
+        output_type="json",
+        description="HY-Motion 1.0 — text-to-3D motion generation.",
+    ),
+    "see_through": ServiceEntry(
+        deployment="wan2gp", app="wan2gp",
+        label="See-Through", category="creative",
+        needs_gpu=True, default_model="see_through",
+        output_type="image",
+        description="See-Through — anime layer decomposition.",
+    ),
 }
 
 
@@ -140,3 +184,22 @@ def resolve_model(model_name: str) -> Optional[tuple[str, ServiceEntry]]:
 
 def get_all_services() -> dict[str, ServiceEntry]:
     return dict(SERVICE_REGISTRY)
+
+
+def list_all_models(category: str | None = None) -> list[dict]:
+    """Return all service entries as model dicts for API discovery."""
+    models = []
+    for key, entry in SERVICE_REGISTRY.items():
+        if category and entry.category != category:
+            continue
+        models.append({
+            "id": key,
+            "label": entry.label,
+            "category": entry.category,
+            "needs_gpu": entry.needs_gpu,
+            "output_type": entry.output_type,
+            "default_model": entry.default_model,
+            "description": entry.description,
+            "model_aliases": list(entry.model_aliases.keys()),
+        })
+    return models

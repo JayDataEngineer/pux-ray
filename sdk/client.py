@@ -88,6 +88,15 @@ class RayClient:
         resp.raise_for_status()
         return resp.json()
 
+    async def models(self, category: str | None = None) -> list[dict[str, Any]]:
+        """List all available models, optionally filtered by category."""
+        params = {}
+        if category:
+            params["category"] = category
+        resp = await self.client.get("/v1/models", params=params)
+        resp.raise_for_status()
+        return resp.json().get("data", [])
+
     async def service_info(self, service: str) -> dict[str, Any]:
         """Get info about a specific service."""
         resp = await self.client.get(f"/v1/services/{service}")
@@ -234,19 +243,19 @@ class RayClient:
     # parameter mapping for a specific Wan2GP model family.
 
     async def generate_image(
-        self, model: str = "z_image", prompt: str = "",
+        self, service: str = "z_image", prompt: str = "",
         seed: int = 42, width: int = 1024, height: int = 1024,
         steps: int = 8, **kwargs,
     ) -> bytes:
         """Generate an image. Returns PNG bytes."""
         return await self.generate_binary(
-            model, input={"prompt": prompt, "seed": seed,
+            service, input={"prompt": prompt, "seed": seed,
                           "width": width, "height": height, "steps": steps},
             **kwargs,
         )
 
     async def generate_image_edit(
-        self, model: str = "z_image", prompt: str = "",
+        self, service: str = "z_image", prompt: str = "",
         image: bytes | Path | None = None,
         seed: int = 42, **kwargs,
     ) -> bytes:
@@ -255,10 +264,10 @@ class RayClient:
         if image is not None:
             img_bytes = Path(image).read_bytes() if isinstance(image, Path) else image
             input_dict["image_b64"] = base64.b64encode(img_bytes).decode()
-        return await self.generate_binary(model, input=input_dict, **kwargs)
+        return await self.generate_binary(service, input=input_dict, **kwargs)
 
     async def generate_3d(
-        self, image: bytes | Path, model: str = "trellis",
+        self, image: bytes | Path, service: str = "trellis",
         name: str = "", seed: int = 1, steps: int = 12,
         guidance: float = 7.5, **kwargs,
     ) -> bytes:
@@ -266,54 +275,54 @@ class RayClient:
         img_bytes = Path(image).read_bytes() if isinstance(image, Path) else image
         b64 = base64.b64encode(img_bytes).decode()
         return await self.generate_binary(
-            model, input={"name": name, "seed": seed, "steps": steps,
+            service, input={"name": name, "seed": seed, "steps": steps,
                           "guidance": guidance, "image_b64": b64},
             **kwargs,
         )
 
     async def generate_music(
-        self, model: str = "ace_step", prompt: str = "",
+        self, service: str = "ace_step", prompt: str = "",
         duration_seconds: float = 120, seed: int = -1,
         steps: int = 8, temperature: float = 0.85,
         top_p: float = 0.9, **kwargs,
     ) -> bytes:
         """Generate music via ACE-Step. Returns WAV bytes."""
         return await self.generate_binary(
-            model, input={"prompt": prompt, "duration_seconds": duration_seconds,
+            service, input={"prompt": prompt, "duration_seconds": duration_seconds,
                           "seed": seed, "steps": steps,
                           "temperature": temperature, "top_p": top_p},
             **kwargs,
         )
 
     async def generate_sfx(
-        self, model: str = "moss_soundeffect", prompt: str = "",
+        self, service: str = "moss_soundeffect", prompt: str = "",
         seed: int = -1, **kwargs,
     ) -> bytes:
         """Generate a sound effect via MOSS. Returns WAV bytes."""
         return await self.generate_binary(
-            model, input={"prompt": prompt, "seed": seed}, **kwargs,
+            service, input={"prompt": prompt, "seed": seed}, **kwargs,
         )
 
     async def generate_tts(
-        self, model: str = "faster_qwen3_tts", text: str = "",
+        self, service: str = "faster_qwen3_tts", text: str = "",
         voice: str = "Aiden", language: str = "English",
         instruct: str = "", seed: int = -1, **kwargs,
     ) -> bytes:
         """Generate speech via TTS. Returns WAV bytes."""
         return await self.generate_binary(
-            model, input={"text": text, "voice": voice, "language": language,
+            service, input={"text": text, "voice": voice, "language": language,
                           "instruct": instruct, "seed": seed},
             **kwargs,
         )
 
     async def generate_motion(
-        self, model: str = "hy_motion", text: str = "",
+        self, service: str = "hy_motion", text: str = "",
         guidance: float = 3.0, duration: float = 3.0,
         seeds_csv: str = "42", **kwargs,
     ) -> dict[str, Any]:
         """Generate motion data. Returns raw JSON."""
         return await self.generate(
-            model, input={"text": text, "guidance": guidance,
+            service, input={"text": text, "guidance": guidance,
                           "duration": duration, "seeds_csv": seeds_csv},
             **kwargs,
         )
