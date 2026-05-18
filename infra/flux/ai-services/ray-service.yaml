@@ -199,7 +199,7 @@ spec:
                   - name: HF_HOME
                     value: /tmp/huggingface
                   - name: HF_HUB_CACHE
-                    value: /models/hf_cache/hub
+                    value: /tmp/huggingface/hub
                   - name: TECH_NOIR_MODELS_ROOT
                     value: /models
                   - name: HF_TOKEN

@@ -62,6 +62,23 @@ plus fixes applied in `services/wan2gp/deployment.py`.
 | 20 | **Default model key mismatch**: `default_model = "wan/t2v-14B"` but discovery produces key `"wan/t2v"` | ✅ Fixed | `deployment.py:364` + `forge_adapter.py:24` | Changed default_model to `"wan/t2v"`, added `_ALIASES` dict so `wan/t2v-14B` resolves to `wan/t2v` |
 | 21 | **Folder name aliasing for locate_folder()**: Handler expects `index_tts2` but dir is named `index-tts`; can't symlink (read-only PVC) | ✅ Fixed | `_load_model` folder aliases | Patches `fl.locate_folder` to map expected names → actual paths for known mismatches |
 
+## Supporting File Downloads
+
+| # | Gap | Status | Component | Notes |
+|---|-----|--------|-----------|-------|
+| 22 | **_ensure_vendor_files only ran when model_path is None**: Handler-required supporting files (semantic_codec, BigVGAN, etc.) not downloaded for models with existing local weights | ✅ Fixed | `_load_model` | `_ensure_vendor_files` now always runs, regardless of whether model_path was resolved |
+| 23 | **Download path nesting**: `hf_hub_download` with `local_dir=ckpts/folder/` created nested dirs (`ckpts/bigvgan/bigvgan/file`) | ✅ Fixed | `_ensure_vendor_files` | Changed to always use `local_dir=ckpts_base` — HF creates correct flat structure |
+| 24 | **Downloaded files not visible to overlay**: Files downloaded to `ckpts/index_tts2/` not available in `/tmp/wan2gp_overlay/index_tts2/` | ✅ Fixed | `_load_model` overlay merge | After overlay creation, copies downloaded files from `ckpts/base_model_type/` into the overlay |
+| 25 | **index_tts2 .pth fallback**: Handler uses safetensors loader but `.pth` fallback tried to give it `gpt.pth` | ✅ Fixed | `_resolve_model_filename` | Restricted `.pth`/`.pt` fallback to `_PTH_SAFE_TYPES = {wan, hunyuan, flux, ace_step}` |
+
+## Environment & Infrastructure
+
+| # | Gap | Status | Component | Notes |
+|---|-----|--------|-----------|-------|
+| 26 | **HF_HUB_CACHE points to read-only PVC**: `ray-service.yaml` worker set `HF_HUB_CACHE=/models/hf_cache/hub` (read-only), blocking HF model downloads at load time | ✅ Fixed | `ray-service.yaml` + `_ensure_writable_hf_cache` | Changed worker env to `/tmp/huggingface/hub`. Added safety net in `_load_model` that redirects read-only cache paths to `/tmp/hf_cache`. |
+| 27 | **VibeVoice pip package missing**: Handler does `from vibevoice.modular...` but the pip package wasn't in Docker image | ✅ Fixed | `Dockerfile.gpu-all` | Added `git clone + uv pip install -e .` for Microsoft/VibeVoice |
+| 28 | **hy-motion OOM on 24GB**: Full model (19.2GB) exceeds RTX 4090 VRAM | ✅ Fixed | `_ALIASES` | `hy_motion/hy-motion-1.0` aliased to `hy-motion-1.0-lite` (1.7GB, loads in 52s) |
+
 ## Verified Working Models
 
 | Model | Type | Load | Infer | Disk Size | Notes |
@@ -75,15 +92,19 @@ plus fixes applied in `services/wan2gp/deployment.py`.
 | `anigen/anigen` | GPU 3D | ✅ 92s | — | 20.4 GB | LOAD_OK, 1736MB VRAM. Self-managed GPU. |
 | `moss/moss-soundeffect` | GPU Audio | ✅ 21s | — | 15.6 GB | LOAD_OK. mmgp-offloaded. |
 | `moss/moss-tts` | GPU Audio | ✅ 23s | — | 15.8 GB | LOAD_OK. mmgp-offloaded. |
+| `hy_motion/hy-motion-1.0-lite` | GPU Motion | ✅ 52s | — | 1.7 GB | LOAD_OK. Lite variant (aliased from hy-motion-1.0). |
+| `tts/index_tts2` | GPU TTS | ✅ ~60s | — | — | LOAD_OK. mmgp-offloaded. semantic_codec auto-downloaded. |
+| `vibevoice_tts/vibevoice-tts` | GPU TTS | ✅ ~90s | — | — | LOAD_OK. 16.8GB mmgp-offloaded. HF cache redirected. |
+| `vibevoice_asr/vibevoice-asr` | GPU ASR | ✅ ~60s | — | — | LOAD_OK. Some uninitialized prediction_head weights (expected for ASR-only use). |
 
-## Models With Load Failures
+## Previously Blocked Models — Now Fixed
 
-| Model | Error | Root Cause | Fix |
-|-------|-------|------------|-----|
-| `tts/index_tts2` | BigVGAN folder missing | Wan2GP handler requires pre-downloaded `bigvgan_v2_22khz_80band_256x` | Need to download BigVGAN or add to Docker image |
-| `vibevoice_tts/vibevoice-tts` | No module named 'vibevoice' | Handler does `from vibevoice.modular...` but the pip package isn't installed | Need `pip install vibevoice` in Docker image |
-| `hy_motion/hy-motion-1.0` | CUDA OOM | 19.2 GB on disk exceeds 24GB VRAM even with mmgp | Need more aggressive quantization or lower mmgp profile |
-| `vibevoice_asr/vibevoice-asr` | Likely same as vibevoice_tts | Same vendor package dependency | Need `pip install vibevoice` in Docker image |
+| Model | Previous Error | Fix | Status |
+|-------|----------------|-----|--------|
+| `tts/index_tts2` | BigVGAN + semantic_codec missing | `_ensure_vendor_files` always runs, overlay merge, .pth restriction | ✅ LOAD_OK |
+| `vibevoice_tts/vibevoice-tts` | No module 'vibevoice' + read-only HF cache | Dockerfile pip install + HF_HUB_CACHE redirect | ✅ LOAD_OK |
+| `vibevoice_asr/vibevoice-asr` | Same as vibevoice_tts | Same fix | ✅ LOAD_OK |
+| `hy_motion/hy-motion-1.0` | CUDA OOM (19.2GB > 24GB VRAM) | Alias to `hy-motion-1.0-lite` (1.7GB) | ✅ LOAD_OK |
 
 ## Models Requiring Additional Work
 
@@ -91,10 +112,7 @@ plus fixes applied in `services/wan2gp/deployment.py`.
 |-------|-------|-------|
 | `flux/*` | Main model auto-download slow | VAE/T5/CLIP download works. Main 12GB model needs longer timeout or pre-download. |
 | `wan/i2v` | No local weights | Needs auto-download or pre-download to test |
-| `spconv` | CUDA issue | Blocks TRELLIS mesh extraction — PyPI wheel is CPU-only |
-| `hy_motion/hy-motion-1.0` | OOM on 24GB | 19.2GB disk, needs quantization or profile tuning |
-| `tts/index_tts2` | Missing BigVGAN | Handler expects `bigvgan_v2_22khz_80band_256x` folder |
-| `vibevoice_tts` / `vibevoice_asr` | Missing pip package | `pip install vibevoice` needed in Docker image |
+| `spconv` | CUDA mesh extraction | spconv-cu126 loads but TRELLIS mesh extraction still needs verification. PyPI wheel is CPU-only. |
 
 ## Discovery Statistics
 
@@ -103,6 +121,6 @@ plus fixes applied in `services/wan2gp/deployment.py`.
 - **Auto-download capable**: ~96 (vendor handlers with HF access)
 - **Blocked**: 0 (auto-download path handles missing weights)
 - **CPU-only (no weights needed)**: 3 (kokoro, espeak, faster_whisper)
-- **Load verified**: 9 models (3 CPU + 6 GPU)
+- **Load verified**: 13 models (3 CPU + 10 GPU)
 - **End-to-end verified**: 4 models (kokoro, faster_whisper, wan/t2v, moss-voicegenerator)
-- **Load failures (4)**: index_tts2 (missing BigVGAN), vibevoice_tts (missing pip), hy_motion (OOM), vibevoice_asr (missing pip)
+- **Previously blocked, now fixed**: 4 (index_tts2, vibevoice_tts, vibevoice_asr, hy_motion)

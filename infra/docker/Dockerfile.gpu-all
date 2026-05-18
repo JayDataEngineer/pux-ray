@@ -219,6 +219,11 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 # ── Wan2GP fork (our custom models registered as native families) ────────
 COPY opt/wan2gp/ /opt/wan2gp/
 
+# VibeVoice — Microsoft's ASR + TTS package (required by vibevoice handlers)
+# TTS has no transformers-native path; must install from GitHub.
+RUN git clone --depth 1 https://github.com/microsoft/VibeVoice.git /tmp/vibevoice && \
+    cd /tmp/vibevoice && uv pip install -e . && rm -rf /tmp/vibevoice
+
 # TRELLIS.2 trellis2 package lives inside the Wan2GP fork at
 # opt/wan2gp/models/trellis/trellis2/ — with sage attention built-in.
 # The handler adds its own directory to sys.path at load time.

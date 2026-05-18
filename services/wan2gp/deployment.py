@@ -158,6 +158,18 @@ def _ensure_transformers_compat():
         _gcu.QUANT_BACKEND_CLASSES_MAPPING = {}
 
 
+def _ensure_writable_hf_cache():
+    """Redirect HF cache env vars to /tmp if the PVC is read-only."""
+    import tempfile
+    writable = Path(tempfile.gettempdir()) / "hf_cache"
+    for var in ("HF_HUB_CACHE", "HF_HOME"):
+        val = os.environ.get(var, "")
+        if val and not os.access(val, os.W_OK):
+            writable.mkdir(parents=True, exist_ok=True)
+            os.environ[var] = str(writable)
+            logger.info("%s redirected to writable %s (PVC read-only)", var, writable)
+
+
 # ─── Dynamic Model Discovery ──────────────────────────────────────────────────
 
 def discover_models(models_root: Path | None = None) -> dict:
@@ -373,10 +385,11 @@ class Wan2GPService:
     service_name = "wan2gp"
     default_model = "wan/t2v"
 
-    # Aliases: old versioned names → discovered keys
+    # Aliases: old versioned names → discovered keys, heavy → lite variants
     _ALIASES = {
         "wan/t2v-14B": "wan/t2v",
         "wan/i2v-14B": "wan/i2v",
+        "hy_motion/hy-motion-1.0": "hy_motion/hy-motion-1.0-lite",
     }
 
     def __init__(self, models_root: Path | None = None):
@@ -666,6 +679,7 @@ class Wan2GPService:
         _ensure_vendor_path()
         _ensure_quantized_cache()
         _ensure_transformers_compat()
+        _ensure_writable_hf_cache()
 
         handler_path = entry["handler_path"]
         model_type = entry["model_type"]
@@ -681,9 +695,12 @@ class Wan2GPService:
 
         model_path = self._resolve_model_path(model_name, entry, model_registry, cfg)
 
-        # If no local weights found, try downloading via handler's query_model_files
+        # Download supporting files (VAE, text encoders, vocoders, etc.) via
+        # handler's query_model_files. Also run when model_path exists because
+        # some handlers need auxiliary files (e.g. index_tts2 semantic_codec)
+        # that aren't in the local weights directory.
+        self._ensure_vendor_files(handler, base_model_type, model_def={})
         if model_path is None:
-            self._ensure_vendor_files(handler, base_model_type, model_def={})
             # Re-resolve after download
             model_path = self._resolve_model_path(model_name, entry, model_registry, cfg)
 
@@ -701,41 +718,66 @@ class Wan2GPService:
 
         # Add model path to Wan2GP's files_locator search paths so vendor
         # handlers can find tokenizer configs, VAE weights, etc.
-        # Also add parent dir so locate_folder() can find dirs by expected names.
+        # Also add parent dir and wan2gp dir for shared dependencies like BigVGAN.
         if model_path and model_path.is_dir():
             from shared.utils import files_locator as fl
-            p = str(model_path)
-            if p not in fl._checkpoints_paths:
-                fl._checkpoints_paths.append(p)
-            parent = str(model_path.parent)
-            if parent not in fl._checkpoints_paths:
-                fl._checkpoints_paths.append(parent)
+            from registry.config import Config
+            models_root = Path(Config().models_root)
 
-            # Handlers expect specific folder names — bind alternate names
+            for search_path in [model_path, model_path.parent,
+                                models_root / "wan2gp", models_root]:
+                sp = str(search_path)
+                if search_path.is_dir() and sp not in fl._checkpoints_paths:
+                    fl._checkpoints_paths.append(sp)
+
+            # Handlers expect specific folder names — bind alternate names.
+            # Some handlers also write to model_dir (e.g. index_tts2 caches a
+            # runtime config). If the PVC is read-only, create a writable overlay.
             _FOLDER_ALIASES = {
                 "index_tts2": "index-tts",
             }
             alias = _FOLDER_ALIASES.get(base_model_type)
             if alias and model_path.name == alias:
-                # Create a virtual mapping: when locate_folder("index_tts2") is called,
-                # return this path. We do this by adding a ckpts subdirectory entry.
-                alias_dir = model_path.parent / base_model_type
-                if not alias_dir.exists():
-                    try:
-                        alias_dir.symlink_to(model_path, target_is_directory=True)
-                    except OSError:
-                        # Can't symlink (read-only FS) — patch locate_folder
-                        _orig_locate = fl.locate_folder
-                        _alias_name = base_model_type
-                        _alias_target = str(model_path)
-                        import functools
+                _orig_locate = fl.locate_folder
+                _alias_name = base_model_type
 
-                        @functools.wraps(_orig_locate)
-                        def _patched_locate(folder_name, **kw):
-                            if folder_name == _alias_name:
-                                return _alias_target
-                            return _orig_locate(folder_name, **kw)
-                        fl.locate_folder = _patched_locate
+                # Try creating a writable overlay in /tmp
+                import tempfile, shutil
+                overlay = Path(tempfile.gettempdir()) / "wan2gp_overlay" / base_model_type
+                if not overlay.exists():
+                    # Copy structure but symlink large files to avoid duplication
+                    shutil.copytree(
+                        model_path, overlay,
+                        symlinks=True,
+                        copy_function=lambda src, dst: Path(dst).symlink_to(src)
+                        if Path(src).is_file() else shutil.copy2(src, dst),
+                        dirs_exist_ok=True,
+                    )
+                    # Ensure configs/ dir is writable (handler writes runtime config)
+                    configs_dir = overlay / "configs"
+                    configs_dir.mkdir(parents=True, exist_ok=True)
+
+                _alias_target = str(overlay)
+
+                # Merge files downloaded by _ensure_vendor_files into the
+                # overlay so the handler finds them in its expected model_dir.
+                ckpts_dir = Path("ckpts").resolve() / base_model_type
+                if ckpts_dir.is_dir():
+                    for f in ckpts_dir.iterdir():
+                        dst = overlay / f.name
+                        if not dst.exists():
+                            if f.is_dir():
+                                shutil.copytree(f, dst, symlinks=True)
+                            else:
+                                shutil.copy2(f, dst)
+
+                import functools
+                @functools.wraps(_orig_locate)
+                def _patched_locate(folder_name, **kw):
+                    if folder_name == _alias_name:
+                        return _alias_target
+                    return _orig_locate(folder_name, **kw)
+                fl.locate_folder = _patched_locate
 
         # Resolve text encoder filename for vendor models that need it
         # (e.g., Wan's T5 encoder, Flux's text encoder)
@@ -806,7 +848,7 @@ class Wan2GPService:
                         try:
                             hf_hub_download(
                                 repo_id, str(rel),
-                                local_dir=str(ckpts_base / folder) if folder else str(ckpts_base),
+                                local_dir=str(ckpts_base),
                                 local_dir_use_symlinks=False,
                             )
                             logger.info("Downloaded %s/%s → %s", repo_id, rel, local)
@@ -1135,7 +1177,6 @@ class Wan2GPService:
         "ace_step_v1_5": ("acestep-v15-turbo", "model.safetensors"),
         "ace_step_v1_5_xl": ("acestep-v15-xl-turbo", "model.safetensors"),
         "ace_step_v1": ("ace_step", None),
-        "index_tts2": ("", "gpt.pth"),
     }
 
     def _resolve_model_filename(self, model_type: str, base_model_type: str,
@@ -1176,15 +1217,17 @@ class Wan2GPService:
             if f.stat().st_size > 100 * 1024 * 1024:  # > 100MB
                 return [str(f)]
 
-        # Try .pth/.pt files if no safetensors found
-        for ext in ("*.pth", "*.pt"):
-            for f in sorted(model_path.glob(ext),
-                           key=lambda p: p.stat().st_size, reverse=True):
-                name = f.name
-                if any(p in name for p in exclude_patterns):
-                    continue
-                if f.stat().st_size > 100 * 1024 * 1024:
-                    return [str(f)]
+        # Try .pth/.pt files if no safetensors found (not all handlers support these)
+        _PTH_SAFE_TYPES = {"wan", "hunyuan", "flux", "ace_step", "ace_step_v1_5"}
+        if base_model_type in _PTH_SAFE_TYPES:
+            for ext in ("*.pth", "*.pt"):
+                for f in sorted(model_path.glob(ext),
+                               key=lambda p: p.stat().st_size, reverse=True):
+                    name = f.name
+                    if any(p in name for p in exclude_patterns):
+                        continue
+                    if f.stat().st_size > 100 * 1024 * 1024:
+                        return [str(f)]
 
         return []
 
