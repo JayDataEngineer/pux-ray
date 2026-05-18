@@ -41,24 +41,43 @@ shown on the left."
 
 ## GAP-002: OpenPose Skeleton Extraction
 
-**Status**: 🔴 Not started
-**Impact**: MEDIUM — missing third conditioning image
+**Status**: ✅ Resolved
+**Impact**: Was MEDIUM — third conditioning image now available
 **Affects**: vnccs/sprite, vnccs/pose-edit, tech-noir/sprites-animated
 
-### Problem
-VNCCS uses 3 reference images: (1) BodyMesh render, (2) character, (3) OpenPose
-skeleton. The skeleton guides limb positioning. We only use 2 images (mesh +
-character), skipping skeleton extraction.
+### Fix Applied
+1. **Standalone DWPose utility** (`services/workflows/utils/dwpose.py`):
+   - `Wholebody` class: YOLOX detection + RTMPose pose estimation via ONNXRuntime
+   - `skeleton_from_image(image_np, width, height) -> np.ndarray` — skeleton overlay
+   - `skeleton_from_image_b64(b64, width, height) -> str` — base64 in/out
+   - `detect_poses(image_np) -> np.ndarray` — raw keypoints
+   - Models auto-downloaded from HuggingFace `yzd-v/DWPose` on first use
+     (yolox_l.onnx ~217MB, dw-ll_ucoco_384.onnx ~134MB)
+   - COCO-18 skeleton rendering with colored bones (matching VNCCS style)
 
-### Fix Path
-1. Extract DWPose from `comfyui_controlnet_aux` as standalone utility
-2. The OpenPose preprocessor takes a mesh image → outputs skeleton overlay
-3. Add it to services/workflows/utils/ as `openpose.py` with a `extract_skeleton()`
-4. Chain: BodyMesh render → OpenPose skeleton → composite 3 images → QWEN edit
+2. **Composition upgraded** (`services/workflows/vnccs.py`):
+   - `_compose_images_side_by_side(*images_b64) -> str` — now accepts N images
+   - `sprite()` and `pose_edit()` now use 3-image composite:
+     mesh (pose guide) + character (identity) + skeleton (limb guide)
+   - Instruction prompt updated to match VNCCS 3-image format
+
+### 3-Image Chain
+```
+BodyMesh render (pose)          → mesh_b64
+  → DWPose.skeleton_from_image  → skeleton_b64
+  → compose side-by-side (mesh + character + skeleton)
+  → QWEN infer with VNCCS_INSTRUCTION
+
+VNCCS_INSTRUCTION:
+  "Match the body pose shown in Picture 1 (3D body mesh).
+   Picture 2 is the character to draw. Picture 3 shows the skeleton overlay.
+   Replicate the exact pose, limb positions, and body orientation from Picture 1
+   while maintaining the character's identity, clothing, and appearance."
+```
 
 ### Dependencies
-- `controlnet_aux` pip package or dwpose model files
-- Model: `yolox_l.onnx` + `dw-ll_ucoco_384_bs5.torchscript.pt`
+- `onnxruntime`, `cv2`, `numpy`, `huggingface_hub` (all already available)
+- Models downloaded on-demand to `~/.cache/tech-noir/dwpose/`
 
 ---
 

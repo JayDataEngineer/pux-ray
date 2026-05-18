@@ -44,16 +44,17 @@ def get_workflows() -> list[dict[str, str]]:
     return list(WORKFLOWS)
 
 
-def _compose_images_side_by_side(b64_a: str, b64_b: str) -> str:
-    """Place two base64-encoded images side by side, return composite as base64."""
+def _compose_images_side_by_side(*images_b64: str) -> str:
+    """Place base64-encoded images side by side, return composite as base64."""
     from PIL import Image
-    img_a = Image.open(io.BytesIO(base64.b64decode(b64_a))).convert("RGB")
-    img_b = Image.open(io.BytesIO(base64.b64decode(b64_b))).convert("RGB")
-    h = max(img_a.height, img_b.height)
-    w = img_a.width + img_b.width
-    composite = Image.new("RGB", (w, h), (255, 255, 255))
-    composite.paste(img_a, (0, 0))
-    composite.paste(img_b, (img_a.width, 0))
+    imgs = [Image.open(io.BytesIO(base64.b64decode(b))).convert("RGB") for b in images_b64]
+    h = max(img.height for img in imgs)
+    total_w = sum(img.width for img in imgs)
+    composite = Image.new("RGB", (total_w, h), (255, 255, 255))
+    x = 0
+    for img in imgs:
+        composite.paste(img, (x, 0))
+        x += img.width
     buf = io.BytesIO()
     composite.save(buf, format="PNG")
     return base64.b64encode(buf.getvalue()).decode()
@@ -180,15 +181,18 @@ def sprite(
     if directions is None:
         directions = [0.0]
 
+    from services.workflows.utils.dwpose import skeleton_from_image_b64
+    import numpy as np
     results = []
     for pose_idx, pose in enumerate(poses):
         for direction in directions:
             mesh_b64 = render_pose_b64(
                 pose, model_rotation_y=direction, backend=backend)
-            composite = _compose_images_side_by_side(mesh_b64, sheet_image_b64)
+            skeleton_b64 = skeleton_from_image_b64(mesh_b64, 1024, 1024)
+            composite = _compose_images_side_by_side(mesh_b64, character_image_b64, skeleton_b64)
 
             result = svc.infer({
-                "input_prompt": "Draw the character on the right in the pose shown on the left",
+                "input_prompt": VNCCS_INSTRUCTION,
                 "image_b64": composite,
                 "seed": seed,
                 "sampling_steps": 4,
@@ -226,17 +230,20 @@ def pose_edit(
 
     Pipeline:
       1. BodyMeshRenderer renders the target pose as 3D mesh (CPU)
-      2. Mesh composited with character side-by-side
-      3. QWEN edits the character to match the pose
+      2. DWPose extracts skeleton from mesh
+      3. Mesh + character + skeleton composited side-by-side
+      4. QWEN edits the character to match the pose
     """
+    from services.workflows.utils.dwpose import skeleton_from_image_b64
     svc = get_service()
     svc.load("qwen-image-edit")
 
     mesh_b64 = render_pose_b64(rotations, model_rotation_y=model_rotation_y, backend=backend)
-    composite = _compose_images_side_by_side(mesh_b64, character_image_b64)
+    skeleton_b64 = skeleton_from_image_b64(mesh_b64, 1024, 1024)
+    composite = _compose_images_side_by_side(mesh_b64, character_image_b64, skeleton_b64)
 
     result = svc.infer({
-        "input_prompt": "Draw the character on the right in the pose shown on the left",
+        "input_prompt": VNCCS_INSTRUCTION,
         "image_b64": composite,
         "seed": seed,
         "sampling_steps": 4,
