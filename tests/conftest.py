@@ -127,6 +127,11 @@ def sample_wav_bytes() -> bytes:
 
 
 @pytest.fixture(scope="session")
+def sample_wav_bytes_22k() -> bytes:
+    return _make_wav(duration_s=1.0, sample_rate=22050, freq=440)
+
+
+@pytest.fixture(scope="session")
 def sample_png_bytes() -> bytes:
     return _make_png()
 
@@ -134,6 +139,11 @@ def sample_png_bytes() -> bytes:
 @pytest.fixture(scope="session")
 def sample_wav_b64(sample_wav_bytes) -> str:
     return base64.b64encode(sample_wav_bytes).decode()
+
+
+@pytest.fixture(scope="session")
+def sample_wav_22k_b64(sample_wav_bytes_22k) -> str:
+    return base64.b64encode(sample_wav_bytes_22k).decode()
 
 
 @pytest.fixture(scope="session")
