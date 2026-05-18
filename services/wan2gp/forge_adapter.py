@@ -21,7 +21,7 @@ class Wan2GPForgeService(ForgeService):
     """ForgeService adapter around Wan2GPService — reports real VRAM usage."""
 
     service_name = "wan2gp"
-    default_model = "wan/t2v-14B"
+    default_model = "wan/t2v"
 
     def __init__(self):
         super().__init__()

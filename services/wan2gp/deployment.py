@@ -356,7 +356,13 @@ class Wan2GPService:
     """Standalone Wan2GP service — unified model discovery via family_handlers."""
 
     service_name = "wan2gp"
-    default_model = "wan/t2v-14B"
+    default_model = "wan/t2v"
+
+    # Aliases: old versioned names → discovered keys
+    _ALIASES = {
+        "wan/t2v-14B": "wan/t2v",
+        "wan/i2v-14B": "wan/i2v",
+    }
 
     def __init__(self, models_root: Path | None = None):
         self._registry = discover_models(models_root)
@@ -410,6 +416,9 @@ class Wan2GPService:
             return
 
         self.unload()
+
+        # Resolve aliases (versioned names → discovered keys)
+        model_name = self._ALIASES.get(model_name, model_name)
 
         entry = self._registry.get(model_name)
         if entry is None:
@@ -499,13 +508,12 @@ class Wan2GPService:
 
             # Handle image for i2v / image-input models
             base_model_type = info.get("base_model_type", "")
-            if base_model_type in ("i2v", "i2v_2_2") or payload.get("image_b64"):
-                image_b64 = payload.get("image_b64", "")
-                if image_b64:
-                    from PIL import Image
-                    import io
-                    img = Image.open(io.BytesIO(base64.b64decode(image_b64))).convert("RGB")
-                    kwargs["image_start"] = img
+            image_b64 = payload.get("image_b64", "")
+            if image_b64 and base_model_type in ("i2v", "i2v_2_2"):
+                from PIL import Image
+                import io
+                img = Image.open(io.BytesIO(base64.b64decode(image_b64))).convert("RGB")
+                kwargs["image_start"] = img
 
             # Handle second image for last-frame conditioning (WDC FFLF)
             if payload.get("image_end_b64"):
@@ -840,14 +848,16 @@ class Wan2GPService:
             return
         from mmgp import offload
 
-        # Normalize dtypes — mmgp asserts all pipe modules share one dtype
+        # Normalize dtypes — mmgp asserts all params in a module share one dtype.
+        # Quantized models (e.g. quanto int8) leave some params as float32.
+        # Set _model_dtype so mmgp knows the target dtype and uses its own
+        # convertWeightsFloatTo logic rather than asserting on mixed dtypes.
         target_dtype = torch.bfloat16
         for k, v in pipe.items():
             if not isinstance(v, torch.nn.Module):
                 continue
-            dtypes = {p.dtype for p in v.parameters() if p.dtype != target_dtype}
-            if dtypes:
-                v.to(target_dtype)
+            if not hasattr(v, "_model_dtype"):
+                v._model_dtype = target_dtype
 
         offload.profile(
             pipe,
