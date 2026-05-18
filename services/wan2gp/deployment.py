@@ -494,16 +494,26 @@ class Wan2GPService:
                 pass
             self._offload = None
 
+        # Release model references so GC can reclaim tensors
+        for m in self._models.values():
+            model = m.get("model")
+            if model is not None:
+                for attr in list(vars(model)):
+                    try:
+                        delattr(model, attr)
+                    except Exception:
+                        pass
         self._models.clear()
         self._loaded_model = None
 
         try:
             from mmgp import offload
             offload.flush_torch_caches()
-        except ImportError:
+        except (ImportError, RuntimeError):
             pass
 
         gc.collect()
+        gc.collect()  # second pass to reclaim cyclic refs
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
 
