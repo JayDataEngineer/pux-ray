@@ -127,6 +127,7 @@ WORKDIR /app
 # Copy virtual environment and source from builder
 COPY --from=builder /app/.venv /app/.venv
 COPY --from=builder /app/src /app/src
+COPY docs_config.yaml /app/docs_config.yaml
 COPY profiling/ /app/profiling/
 COPY tests/ /app/tests/
 COPY pyproject.toml /app/pyproject.toml
