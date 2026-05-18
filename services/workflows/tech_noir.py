@@ -22,6 +22,7 @@ from services.workflows.vnccs import (
     pose_edit as _vnccs_pose_edit,
     clone as _vnccs_clone,
     detailer as _vnccs_detailer,
+    VNCCS_INSTRUCTION,
 )
 
 logger = logging.getLogger(__name__)
@@ -31,13 +32,6 @@ DIRECTION_ROTATIONS = {
 }
 
 VNCCS_PROMPT = "Draw character from image2"
-VNCCS_INSTRUCTION = (
-    "Match the body pose shown in Picture 1 (3D body mesh). "
-    "Picture 2 is the character to draw. Picture 3 shows the skeleton overlay. "
-    "Replicate the exact pose, limb positions, and body orientation from Picture 1 "
-    "while maintaining the character's identity, clothing, and appearance."
-)
-
 WORKFLOWS = [
     {"id": "tech-noir/generate",
      "description": "Z-Image character generation from text prompt"},

@@ -152,12 +152,13 @@ def _render_pil(vertices: np.ndarray, faces: np.ndarray,
 
     img = Image.new("RGB", (width, height), (255, 255, 255))
     draw = ImageDraw.Draw(img)
+    face_depths = depths[faces].mean(axis=1)
     for fi in order:
         tri = faces[fi]
         pts = [(int(sx[tri[0]]), int(sy[tri[0]])),
                (int(sx[tri[1]]), int(sy[tri[1]])),
                (int(sx[tri[2]]), int(sy[tri[2]]))]
-        shade = max(120, min(220, int(170 + depths[fi] * 30)))
+        shade = max(120, min(220, int(170 + face_depths[fi] * 30)))
         draw.polygon(pts, fill=(shade, shade, shade))
     return np.array(img)
 

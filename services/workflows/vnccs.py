@@ -23,6 +23,12 @@ from services.workflows.utils.body_mesh import render_pose_b64
 
 logger = logging.getLogger(__name__)
 
+VNCCS_INSTRUCTION = (
+    "Match the body pose shown in Picture 1 (3D body mesh). "
+    "Picture 2 is the character to draw. Picture 3 shows the skeleton overlay. "
+    "Replicate the exact pose, limb positions, and body orientation from Picture 1 "
+    "while maintaining the character's identity, clothing, and appearance."
+)
 
 WORKFLOWS = [
     {"id": "vnccs/char-sheet",
@@ -192,7 +198,7 @@ def sprite(
 
             result = svc.infer({
                 "input_prompt": VNCCS_INSTRUCTION,
-                "reference_images": [mesh_b64, character_image_b64, skeleton_b64],
+                "reference_images": [mesh_b64, sheet_image_b64, skeleton_b64],
                 "seed": seed,
                 "sampling_steps": 4,
                 "guide_scale": 1.0,

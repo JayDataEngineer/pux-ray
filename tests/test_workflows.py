@@ -35,6 +35,20 @@ try:
 except ImportError:
     pass
 
+_CV2_AVAILABLE = False
+try:
+    import cv2  # noqa: F401
+    _CV2_AVAILABLE = True
+except ImportError:
+    pass
+
+_ONNX_AVAILABLE = False
+try:
+    import onnxruntime  # noqa: F401
+    _ONNX_AVAILABLE = True
+except ImportError:
+    pass
+
 
 # =============================================================================
 # Route registration
@@ -183,7 +197,7 @@ class TestVNCCSWorkflows:
         detailer(image_b64=_VALID_PNG_B64, region_prompt="fix eyes", seed=42)
         assert mock_svc.infer_calls[0]["input_prompt"] == "fix eyes"
 
-    @pytest.mark.skipif(not _ANNY_AVAILABLE, reason="requires anny package")
+    @pytest.mark.skipif(not _ANNY_AVAILABLE or not _ONNX_AVAILABLE, reason="requires anny + onnxruntime")
     def test_sprite_uses_reference_images(self, mock_svc):
         """sprite() should pass reference_images list (not manual composite)."""
         from services.workflows.vnccs import sprite
@@ -260,6 +274,7 @@ class TestTechNoirWorkflows:
         assert mock_svc.load_calls == ["ltx2"]
         assert mock_svc.infer_calls[0]["frame_num"] == 97
 
+    @pytest.mark.skipif(not _ONNX_AVAILABLE, reason="requires onnxruntime")
     def test_face_detailer_detects_face(self, mock_svc):
         """face_detailer calls QWEN fallback on blank image (no face detected)."""
         from services.workflows.tech_noir import face_detailer
@@ -397,12 +412,14 @@ class TestBodyMeshRotationMath:
 class TestFaceDetailer:
     """Face detection via DWPose keypoints + mask creation."""
 
+    @pytest.mark.skipif(not _ONNX_AVAILABLE, reason="requires onnxruntime")
     def test_face_bbox_from_blank_image_returns_none(self):
         from services.workflows.utils.detailer import _detect_face_bbox
         img = np.full((512, 512, 3), 200, dtype=np.uint8)
         bbox = _detect_face_bbox(img)
         assert bbox is None
 
+    @pytest.mark.skipif(not _ONNX_AVAILABLE, reason="requires onnxruntime")
     def test_refine_faces_falls_back_on_no_face(self):
         """refine_faces on a blank image should fall back to full-image QWEN."""
         from services.workflows.utils.detailer import refine_faces
@@ -421,6 +438,7 @@ class TestFaceDetailer:
 class TestDWPose:
     """DWPose skeleton extraction."""
 
+    @pytest.mark.skipif(not _ONNX_AVAILABLE, reason="requires onnxruntime")
     def test_skeleton_from_blank_image_returns_blank(self):
         from services.workflows.utils.dwpose import skeleton_from_image
         img = np.full((480, 640, 3), 200, dtype=np.uint8)
@@ -428,12 +446,14 @@ class TestDWPose:
         assert skeleton.shape == (512, 512, 3)
         assert skeleton.dtype == np.uint8
 
+    @pytest.mark.skipif(not _ONNX_AVAILABLE, reason="requires onnxruntime")
     def test_skeleton_b64_roundtrip(self):
         from services.workflows.utils.dwpose import skeleton_from_image_b64
         result = skeleton_from_image_b64(_VALID_512_B64, 512, 512)
         assert isinstance(result, str)
         assert len(base64.b64decode(result)) > 0
 
+    @pytest.mark.skipif(not _ONNX_AVAILABLE, reason="requires onnxruntime")
     def test_detect_poses_returns_2d_array(self):
         from services.workflows.utils.dwpose import detect_poses
         img = np.full((480, 640, 3), 200, dtype=np.uint8)
