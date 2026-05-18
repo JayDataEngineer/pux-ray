@@ -38,14 +38,12 @@ spec:
             limits:
               memory: 512Mi
           livenessProbe:
-            httpGet:
-              path: /mcp
+            tcpSocket:
               port: 8002
             initialDelaySeconds: 10
             periodSeconds: 30
           readinessProbe:
-            httpGet:
-              path: /mcp
+            tcpSocket:
               port: 8002
             initialDelaySeconds: 5
             periodSeconds: 10
