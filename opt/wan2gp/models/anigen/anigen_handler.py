@@ -186,9 +186,11 @@ class _Pipeline:
         return next(self.m["ss_flow_model"].parameters()).device
 
     @torch.no_grad()
-    def generate(self, *, image=None, seed=42, ss_steps=25, slat_steps=25,
+    def generate(self, *, image=None, image_b64=None, seed=42, ss_steps=25, slat_steps=25,
                  cfg_scale_ss=7.5, cfg_scale_slat=3.0, simplify_ratio=0.95,
                  **kwargs):
+        if image is None and image_b64 is not None:
+            image = image_b64
         img_data = image
         if isinstance(img_data, str):
             img_data = base64.b64decode(img_data)

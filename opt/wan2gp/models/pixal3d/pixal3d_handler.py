@@ -205,12 +205,14 @@ class _Pipeline:
         self.device = device
 
     @torch.inference_mode()
-    def generate(self, *, image=None, seed=1, steps=12, guidance=7.5,
+    def generate(self, *, image=None, image_b64=None, seed=1, steps=12, guidance=7.5,
                  resolution="1024_cascade", camera_angle_x=0.8575,
                  camera_distance=2.0, mesh_scale=1.0,
                  decimation=50000, texture_size=2048, **kwargs):
         from .pixal3d.modules.sparse.basic import SparseTensor
 
+        if image is None and image_b64 is not None:
+            image = image_b64
         img_data = image
         if isinstance(img_data, str):
             img_data = base64.b64decode(img_data)

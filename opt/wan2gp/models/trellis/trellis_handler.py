@@ -115,16 +115,34 @@ class family_handler:
         if hasattr(pipeline, 'rembg_model') and pipeline.rembg_model is not None:
             pipe['rembg'] = pipeline.rembg_model
 
-        # Set eval mode on all modules (no .to(dev) — mmgp handles placement)
-        for v in pipe.values():
-            if isinstance(v, torch.nn.Module):
+        # Normalize dtypes to bfloat16 for mmgp — it asserts all params share one dtype.
+        # rembg (BiRefNet) is float32 and lightweight; exclude from mmgp pipe.
+        target_dtype = torch.bfloat16
+        mmgp_pipe = {}
+        for k, v in pipe.items():
+            if not isinstance(v, torch.nn.Module):
+                continue
+            dtypes = {p.dtype for p in v.parameters()}
+            if dtypes == {torch.float32} and k == "rembg":
                 v.eval()
+                continue  # BiRefNet stays float32, outside mmgp
+            if torch.float32 in dtypes:
+                v.to(target_dtype)
+            v.eval()
+            mmgp_pipe[k] = v
+
+        pipe = mmgp_pipe
 
         co_tenants = {
             "ss_flow_model": ["ss_decoder"],
             "slat_flow_512": ["shape_decoder"],
             "slat_flow_1024": ["tex_slat_flow_1024"],
         }
+
+        # Pass rembg separately — it stays float32, not managed by mmgp
+        rembg_model = None
+        if hasattr(pipeline, 'rembg_model') and pipeline.rembg_model is not None:
+            rembg_model = pipeline.rembg_model
 
         pl = _Pipeline(
             modules=pipe,
@@ -139,6 +157,7 @@ class family_handler:
             },
             pbr_layout=getattr(pipeline, 'pbr_attr_layout', None),
             device=dev,
+            rembg=rembg_model,
         )
         return pl, {"pipe": pipe, "coTenantsMap": co_tenants}
 
@@ -148,17 +167,21 @@ class family_handler:
 
 
 class _Pipeline:
-    def __init__(self, modules, samplers, normalization, pbr_layout, device):
+    def __init__(self, modules, samplers, normalization, pbr_layout, device, rembg=None):
         self.m = modules
         self.samplers = samplers
         self.norm = normalization
         self.pbr_layout = pbr_layout
         self.device = device
+        self.rembg = rembg
 
     @torch.inference_mode()
-    def generate(self, *, image=None, seed=1, steps=12, guidance=7.5,
+    def generate(self, *, image=None, image_b64=None, seed=1, steps=12, guidance=7.5,
                  resolution="1024_cascade", decimation=50000,
                  texture_size=4096, **kwargs):
+        # Support both image (raw bytes/base64) and image_b64 (from forge API)
+        if image is None and image_b64 is not None:
+            image = image_b64
         from PIL import Image
         import numpy as np
         from .trellis2.modules.sparse.basic import SparseTensor
@@ -247,11 +270,11 @@ class _Pipeline:
                              Image.Resampling.LANCZOS)
 
         if not has_alpha:
-            rembg = self.m.get('rembg')
+            rembg = self.rembg
             if rembg is not None:
                 img = rembg(img.convert('RGB'))
 
-        if has_alpha or (self.m.get('rembg') and not has_alpha):
+        if has_alpha or (self.rembg and not has_alpha):
             arr = np.array(img)
             if arr.ndim == 3 and arr.shape[2] == 4:
                 alpha = arr[:, :, 3]

@@ -531,11 +531,13 @@ class Wan2GPService:
             model_def.update(extra_paths)
 
         is_cpu = model_type in _CPU_ONLY_TYPES
+        model_filename = self._resolve_model_filename(
+            model_type, base_model_type, model_path, model_def)
         logger.info("Loading %s from %s (family_handler, quant=%s)", model_name, model_path or "N/A", quant)
         torch.set_default_device("cpu")
 
         pipeline, pipe_wrapper = handler.load_model(
-            [], model_type, base_model_type, model_def,
+            model_filename, model_type, base_model_type, model_def,
             quantizeTransformer=not is_cpu,
             text_encoder_quantization="int8" if not is_cpu else None,
             dtype=None if is_cpu else torch.bfloat16,
@@ -793,6 +795,41 @@ class Wan2GPService:
             base["group"] = base_model_type
 
         return handler.query_model_def(base_model_type, base)
+
+    # model_type → (variant_dir_name, default_filename) for transformer weights
+    _TRANSFORMER_WEIGHTS = {
+        "ace_step_v1_5": ("acestep-v15-turbo", "model.safetensors"),
+        "ace_step_v1_5_xl": ("acestep-v15-xl-turbo", "model.safetensors"),
+        "ace_step_v1": ("ace_step", None),
+    }
+
+    def _resolve_model_filename(self, model_type: str, base_model_type: str,
+                                 model_path: Path | None, model_def: dict):
+        """Resolve transformer weights file path for models that need it via model_filename."""
+        tw_info = self._TRANSFORMER_WEIGHTS.get(base_model_type)
+        if tw_info is None or model_path is None:
+            return []
+
+        variant_dir, default_file = tw_info
+        # Check model_def for explicit path
+        explicit = model_def.get("transformer_weights_path")
+        if explicit and Path(explicit).is_file():
+            return [explicit]
+
+        # Search model_path for the variant weights
+        for candidate in [
+            model_path / variant_dir / (default_file or "model.safetensors"),
+            model_path / "transformer" / "model.safetensors",
+        ]:
+            if candidate.is_file():
+                return [str(candidate)]
+
+        # Fallback: search for any safetensors in variant dir
+        if (model_path / variant_dir).is_dir():
+            for f in (model_path / variant_dir).glob("*.safetensors"):
+                return [str(f)]
+
+        return []
 
     def _encode_output(self, output, payload: dict, defaults: dict) -> dict:
         if isinstance(output, dict):
