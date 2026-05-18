@@ -9,7 +9,7 @@
 set -euo pipefail
 
 REGISTRY="forge-reg.local:30500/tech-noir"      # K3s containerd resolves via registries.yaml
-PUSH_REGISTRY="100.86.69.57:30500"  # Traefik NodePort for host Docker push
+PUSH_REGISTRY="forge-reg.local:30500"            # Docker push — must match insecure-registries in daemon.json
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 

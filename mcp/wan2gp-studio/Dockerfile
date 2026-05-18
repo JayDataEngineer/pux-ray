@@ -16,7 +16,7 @@ COPY pyproject.toml ./
 
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv venv /app/.venv && \
-    uv sync --no-dev
+    uv pip install --python /app/.venv/bin/python .
 
 COPY src/ /app/src/
 
