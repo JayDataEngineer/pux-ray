@@ -261,22 +261,7 @@ Fixed `timeline()` in `services/workflows/wdc.py`:
 
 ---
 
-## GAP-007: FaceDetailer Equivalent
 
-**Status**: 🟡 Workaround exists
-**Impact**: LOW — QWEN detailer is a reasonable approximation
-**Affects**: tech-noir/face-detailer
-
-### Problem
-The FaceDetailer ComfyUI node (from Impact Pack) does face detection →
-bbox expansion → SAM masking → inpainting. Our `face_detailer()` workflow
-just calls QWEN-Edit with "improve face details" — no bbox guidance, no
-SAM mask. QWEN may not focus on the face specifically.
-
-### Fix Path
-- If quality gap is visible: port face detection from `ultralytics` or
-  `insightface`, then pass SAM-like region via inpainting parameters
-- For now: the QWEN prompt approach works acceptably for most cases
 
 ---
 
