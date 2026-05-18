@@ -19,6 +19,8 @@ dependencies = [
     "modelscope>=1.20",
     # Database — PostgreSQL with Apache AGE (graph) extension
     "psycopg[binary,pool]>=3.2",
+    # 3D body mesh rendering for BodyMeshRenderer (lazy import in body_mesh.py)
+    "anny>=0.3.1",
     # Heavy AI service deps (kokoro, transformers, torchaudio, diffusers, spconv,
     # pytorch3d, nvdiffrast, flash_attn, etc.) live in the golden Docker image
     # (infra/docker/Dockerfile.gpu-all). Service-specific extras (rembg[cpu],
