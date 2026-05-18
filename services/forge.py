@@ -316,6 +316,20 @@ class Forge:
             return JSONResponse(await self.status())
 
         body = await request.json()
+
+        # Action routes (don't require a service)
+        action = body.get("action", "")
+        if action == "release":
+            svc = body.get("service")
+            return JSONResponse(await self.release(svc))
+        if action == "status":
+            return JSONResponse(await self.status())
+        if action == "preload":
+            service = body.get("service")
+            model = body.get("model")
+            quant = body.get("quant")
+            return JSONResponse(await self.preload(service, model, quant))
+
         service = body.get("service")
         if not service or service not in SERVICE_MAP:
             return JSONResponse(
