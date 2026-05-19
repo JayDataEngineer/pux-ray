@@ -712,7 +712,10 @@ class Wan2GPService:
                     def _rembg_call_bf16_safe(self_rembg, image, _orig=_orig_rembg_call):
                         import torchvision.transforms as transforms
                         image_size = image.size
-                        input_images = self_rembg.transform_image(image).unsqueeze(0).to("cuda")
+                        # Run rembg on CPU to avoid GPU OOM when mmgp has
+                        # most VRAM pinned for the main model
+                        self_rembg.model.cpu()
+                        input_images = self_rembg.transform_image(image).unsqueeze(0)
                         with torch.no_grad():
                             preds = self_rembg.model(input_images)[-1].sigmoid().cpu()
                         pred = preds[0].squeeze().float()
