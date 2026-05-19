@@ -887,21 +887,37 @@ class Wan2GPService:
                         elif text_encoder_path is None:
                             text_encoder_path = str(f)
 
-        # AniGen's DSINE hub module does `from models import dsine` which
-        # resolves to wan2gp's models package due to sys.modules cache.
-        # Temporarily clear the cached 'models' entry and add DSINE hub dir
-        # to sys.path[0] so Python finds DSINE's own models/ package.
-        _anigen_path_fix = None
-        _anigen_modules_backup = None
+        # AniGen's DSINE hub module does `from models import dsine` inside
+        # torch.hub.load(). By the time that runs, handler's own top-level
+        # imports have already cached wan2gp's 'models' in sys.modules.
+        # Patch torch.hub._load_local to temporarily remove that cache entry
+        # so Python re-resolves 'models' from DSINE's own directory.
+        _torch_hub_original = None
         if base_model_type == "anigen":
+            import torch.hub as _torch_hub
+            _torch_hub_original = _torch_hub._load_local
+            _dsine_hub_dir = None
             for hub_dir in (Path(cfg.models_root) / "3d" / "anigen" / "hub").glob("hugoycj_DSINE*"):
-                if str(hub_dir) not in sys.path:
-                    sys.path.insert(0, str(hub_dir))
-                    _anigen_path_fix = str(hub_dir)
-                # Back up and clear cached 'models' so Python re-resolves import
-                _anigen_modules_backup = sys.modules.get("models")
-                sys.modules["models"] = None
+                _dsine_hub_dir = str(hub_dir)
                 break
+            if _dsine_hub_dir:
+                _saved_models_ref = sys.modules.get("models")
+                def _patched_load_local(repo_or_dir, model, *args, **kwargs):
+                    _prev = sys.modules.get("models")
+                    if "models" in sys.modules:
+                        del sys.modules["models"]
+                    if _dsine_hub_dir not in sys.path:
+                        sys.path.insert(0, _dsine_hub_dir)
+                    try:
+                        return _torch_hub_original(repo_or_dir, model, *args, **kwargs)
+                    finally:
+                        if _dsine_hub_dir in sys.path:
+                            sys.path.remove(_dsine_hub_dir)
+                        if _prev is not None:
+                            sys.modules["models"] = _prev
+                        elif "models" in sys.modules:
+                            del sys.modules["models"]
+                _torch_hub._load_local = _patched_load_local
 
         try:
             pipeline, pipe_wrapper = handler.load_model(
@@ -915,12 +931,9 @@ class Wan2GPService:
             text_encoder_filename=text_encoder_path,
         )
         finally:
-            if _anigen_path_fix and _anigen_path_fix in sys.path:
-                sys.path.remove(_anigen_path_fix)
-            if _anigen_modules_backup is not None:
-                sys.modules["models"] = _anigen_modules_backup
-            elif base_model_type == "anigen" and "models" in sys.modules and sys.modules["models"] is None:
-                del sys.modules["models"]
+            if _torch_hub_original is not None:
+                import torch.hub as _torch_hub
+                _torch_hub._load_local = _torch_hub_original
 
         pipe, co_tenants = self._unwrap_pipe(pipe_wrapper)
 
