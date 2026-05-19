@@ -678,40 +678,32 @@ class Wan2GPService:
                     lambda self: torch.device("cuda"))
 
             elif base_model_type == "see-through":
-                # Same device mismatch as anigen: mmgp keeps modules on CPU,
-                # nn.Parameter objects (self.params in layerdiff3d) stay on CPU
-                # while inputs are on CUDA.
                 _see_through_cls = type(model)
                 _see_through_cls.device = property(
                     lambda self: torch.device("cuda"))
-                # Force-import correct modules for relative import resolution
                 try:
                     importlib.import_module("models.wan.multitalk.multitalk_utils")
                 except (ImportError, ModuleNotFoundError):
                     pass
-                # GroupEmbedding.forward() does x + self.params[:, None] for 3D
-                # inputs, but encoder_hidden_states has shape [batch, 77, dim]
-                # while self.params has shape [n_cls, dim]. Broadcast fails
-                # when batch != n_cls. Fix: average params across groups and
-                # broadcast as [1, 1, dim] which works for any batch/seq size.
-                # Also ensures params are on CUDA (mmgp leaves them on CPU).
+                # mmgp profile 5 moves ld_unet to GPU for forward but doesn't
+                # move internal submodules (GroupEmbedding params, timestep
+                # embeddings, aug embeddings) back to CUDA after swapping out.
+                # Fix: pre-hook on ld_unet that moves ALL sub-parameters to
+                # CUDA before each forward call.
                 _ld_unet = getattr(model, "ld_unet", None)
                 if _ld_unet is not None:
-                    for _name, _mod in _ld_unet.named_modules():
-                        if hasattr(_mod, "params") and isinstance(
-                                getattr(_mod, "params", None),
-                                torch.nn.Parameter):
-                            _orig_params = _mod.params
-                            _orig_linear = _mod.linear
-                            def _make_fwd(p, lin):
-                                def _fwd(x):
-                                    bias = p.to(x.device).mean(0)
-                                    return torch.nn.functional.linear(
-                                        x + bias,
-                                        lin.weight.to(x.device),
-                                        lin.bias.to(x.device) if lin.bias is not None else None)
-                                return _fwd
-                            _mod.forward = _make_fwd(_orig_params.data, _orig_linear)
+                    def _ensure_cuda(module, args):
+                        for p in module.parameters():
+                            if p.device.type != "cuda":
+                                p.data = p.data.cuda()
+                        for b in module.buffers():
+                            if b.device.type != "cuda":
+                                b.data = b.data.cuda()
+                    _ld_unet.register_forward_pre_hook(_ensure_cuda)
+                    # Same for mg_unet (Marigold UNet used in stage 2)
+                    _mg_unet = getattr(model, "mg_unet", None)
+                    if _mg_unet is not None:
+                        _mg_unet.register_forward_pre_hook(_ensure_cuda)
                 # Trellis uses BiRefNet (rembg wrapper) for background removal.
                 # The wrapper (model.rembg) is not an nn.Module and not in the
                 # pipe dict, so mmgp doesn't manage it. The inner model
@@ -1333,16 +1325,6 @@ class Wan2GPService:
         if n_modules > 4 and model_type not in ("see-through",):
             profile = MMGP_PROFILES["minimum"]
             budgets_override = {"*": 2000}
-        elif model_type == "see-through":
-            # See-through UNet has deeply nested internal parameters
-            # (GroupEmbedding, timestep embeddings, aug embeddings) that
-            # mmgp's module-level swapping doesn't track properly, causing
-            # cascading device mismatches. Skip mmgp and load to GPU directly.
-            # Total model: ~12.8 GB, fits in 24 GB VRAM.
-            for v in pipe.values():
-                if isinstance(v, torch.nn.Module):
-                    v.to("cuda")
-            return None
         else:
             profile = MMGP_PROFILES["low_vram"]
             budgets_override = {"transformer": 250, "text_encoder": 250,
