@@ -683,17 +683,30 @@ class Wan2GPService:
                 except (ImportError, ModuleNotFoundError):
                     pass
 
-            # Trellis handler converts models to bfloat16 for mmgp, but the
-            # sampler creates float32 tensors (torch.randn without dtype).
-            # Set default dtype to bfloat16 so sampler tensors match models
-            # and flash_attn works. Restore after generate.
+            # Trellis handler converts flow models to bfloat16 for mmgp VRAM
+            # savings, but the sampler creates float32 noise/tensors. Wrap
+            # each flow model's forward call to autocast inputs to bfloat16
+            # so mixed-dtype matmul works (flash_attn needs bf16).
             if base_model_type == "trellis":
-                _prev_dtype = torch.get_default_dtype()
-                torch.set_default_dtype(torch.bfloat16)
+                _orig_forwards = {}
+                for k in ("ss_flow_model", "slat_flow_512", "slat_flow_1024",
+                          "tex_slat_flow_512", "tex_slat_flow_1024"):
+                    mod = model.m.get(k)
+                    if mod is not None and hasattr(mod, "forward"):
+                        _orig_forwards[k] = mod.forward
+                        def _make_autocast(orig_fn):
+                            def _wrapped(*args, **kwargs):
+                                args = tuple(a.to(torch.bfloat16) if isinstance(a, torch.Tensor) and a.is_floating_point() else a for a in args)
+                                kwargs = {k2: v.to(torch.bfloat16) if isinstance(v, torch.Tensor) and v.is_floating_point() else v for k2, v in kwargs.items()}
+                                return orig_fn(*args, **kwargs)
+                            return _wrapped
+                        mod.forward = _make_autocast(mod.forward)
+
                 try:
                     result = model.generate(**kwargs)
                 finally:
-                    torch.set_default_dtype(_prev_dtype)
+                    for k, orig_fn in _orig_forwards.items():
+                        model.m[k].forward = orig_fn
             else:
                 result = model.generate(**kwargs)
 
@@ -924,9 +937,6 @@ class Wan2GPService:
                         if model_name_rel:
                             abs_model = (pj / model_name_rel).resolve()
                             ic_model = DinoV3FeatureExtractor(model_name=str(abs_model))
-                            # Match mmgp pipe dtype so matmul doesn't fail
-                            if hasattr(ic_model, "to"):
-                                ic_model.to(torch.bfloat16)
                             pipeline.m["image_cond"] = ic_model
                             logger.info("Injected image_cond into trellis pipeline from %s", abs_model)
                 except Exception as e:
