@@ -683,13 +683,17 @@ class Wan2GPService:
                 except (ImportError, ModuleNotFoundError):
                     pass
 
-            # Trellis flow sampler creates float32 tensors for bfloat16 models.
-            # Use autocast to handle mixed-dtype matmul. Float32 autocast
-            # allows bfloat16 weights to participate in float32 ops without
-            # the "unsupported ScalarType BFloat16" error that spconv hits.
+            # Trellis handler converts models to bfloat16 for mmgp, but the
+            # sampler creates float32 tensors (torch.randn without dtype).
+            # Set default dtype to bfloat16 so sampler tensors match models
+            # and flash_attn works. Restore after generate.
             if base_model_type == "trellis":
-                with torch.amp.autocast("cuda", dtype=torch.float32, enabled=True):
+                _prev_dtype = torch.get_default_dtype()
+                torch.set_default_dtype(torch.bfloat16)
+                try:
                     result = model.generate(**kwargs)
+                finally:
+                    torch.set_default_dtype(_prev_dtype)
             else:
                 result = model.generate(**kwargs)
 
