@@ -112,8 +112,7 @@ class NsfwService:
                 return {"success": False, "error": f"Classification error: {str(e)[:200]}"}
 
     def _classify_sync(self, image: Image.Image, threshold: float) -> dict:
-        # NudeNet expects 224x224 input
-        image = image.convert("RGB").resize((224, 224))
+        image = image.convert("RGB").resize((256, 256))
         img_array = np.array(image, dtype=np.float32) / 255.0
         img_array = np.expand_dims(img_array, axis=0)  # [1, 224, 224, 3]
 

@@ -142,7 +142,7 @@ class Settings(BaseSettings):
 
     # Image segmentation (SAM 2, ~200MB)
     segment_enabled: bool | None = None
-    segment_model: str = "sam2_hiera_small"
+    segment_model: str = "sam2_hiera_s"
 
     # Speaker diarization (Pyannote 3.1, ~1GB) — always requires token
     pyannote_enabled: bool | None = None
@@ -152,11 +152,11 @@ class Settings(BaseSettings):
     grounding_dino_enabled: bool | None = None
     grounding_dino_model: str = "IDEA-Research/grounding-dino-tiny"
 
-    # Gemma 4 E4B vision — visual reasoning via llama-cpp-python GGUF (4.84GB IQ4_NL, CPU-only)
+    # Qwen2.5-VL vision — visual reasoning via llama-cpp-python GGUF (4.68GB Q4_K_M, CPU-only)
     phi4_vision_enabled: bool | None = None
-    phi4_vision_model: str = "unsloth/gemma-4-E4B-it-GGUF"
-    phi4_vision_filename: str = "gemma-4-E4B-it-IQ4_NL.gguf"
-    phi4_vision_mmproj: str = "mmproj-BF16.gguf"
+    phi4_vision_model: str = "ggml-org/Qwen2.5-VL-7B-Instruct-GGUF"
+    phi4_vision_filename: str = "Qwen2.5-VL-7B-Instruct-Q4_K_M.gguf"
+    phi4_vision_mmproj: str = "mmproj-Qwen2.5-VL-7B-Instruct-f16.gguf"
     phi4_vision_n_threads: int = 8
 
     # Kosmos-2.5 — document OCR and markdown (1.3B, ~3-4GB VRAM)

@@ -84,13 +84,18 @@ class VisionService:
 
         settings = get_settings()
         device = get_device()
+        # Pin model revision for transformers 4.45.2 compat
+        _florence2_kwargs = dict(
+            trust_remote_code=True,
+            revision="ceaf371f01ef",
+        )
         self._processor = AutoProcessor.from_pretrained(
             settings.vision_model,
-            trust_remote_code=True,
+            **_florence2_kwargs,
         )
         self._model = AutoModelForCausalLM.from_pretrained(
             settings.vision_model,
-            trust_remote_code=True,
+            **_florence2_kwargs,
         ).to(device)
         self._model.eval()
 
@@ -167,13 +172,13 @@ class VisionService:
             async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
                 response = await client.get(image_url, headers={"User-Agent": "MediaAnalysis/1.0"})
                 response.raise_for_status()
-            image = Image.open(io.BytesIO(response.content))
+            image = Image.open(io.BytesIO(response.content)).convert("RGB")
             image.load()
             return image
 
         elif image_base64:
             data = base64.b64decode(image_base64)
-            image = Image.open(io.BytesIO(data))
+            image = Image.open(io.BytesIO(data)).convert("RGB")
             image.load()
             return image
 

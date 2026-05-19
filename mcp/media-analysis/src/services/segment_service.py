@@ -17,11 +17,11 @@ from PIL import Image
 
 from ..settings import get_settings, get_device
 
-SAM2_CONFIGS = {
-    "sam2_hiera_t": "sam2/sam2_hiera_t.yaml",
-    "sam2_hiera_s": "sam2/sam2_hiera_s.yaml",
-    "sam2_hiera_b+": "sam2/sam2_hiera_b+.yaml",
-    "sam2_hiera_l": "sam2/sam2_hiera_l.yaml",
+SAM2_MODELS = {
+    "sam2_hiera_s": "facebook/sam2-hiera-small",
+    "sam2_hiera_t": "facebook/sam2-hiera-tiny",
+    "sam2_hiera_b+": "facebook/sam2-hiera-base-plus",
+    "sam2_hiera_l": "facebook/sam2-hiera-large",
 }
 
 
@@ -29,7 +29,7 @@ class SegmentService:
     """SAM 2 image segmentation."""
 
     def __init__(self):
-        self._model = None
+        self._predictor = None
         self._lock = asyncio.Lock()
         self._loaded = False
         self._load_error: Optional[str] = None
@@ -71,26 +71,14 @@ class SegmentService:
                 raise
 
     def _load_model_sync(self) -> None:
-        from sam2.build_sam import build_sam2
-        from huggingface_hub import hf_hub_download
+        from sam2.sam2_image_predictor import SAM2ImagePredictor
 
         settings = get_settings()
         device = get_device()
         model_name = settings.segment_model
-        config_file = SAM2_CONFIGS.get(model_name, "sam2/sam2_hiera_s.yaml")
+        repo_id = SAM2_MODELS.get(model_name, "facebook/sam2-hiera-small")
 
-        # Download checkpoint from HuggingFace
-        ckpt_path = hf_hub_download(
-            f"facebook/{model_name}",
-            filename=f"{model_name}.pt",
-            cache_dir=settings.model_cache_dir,
-        )
-
-        self._model = build_sam2(
-            config_file=config_file,
-            ckpt_path=ckpt_path,
-            device=device,
-        )
+        self._predictor = SAM2ImagePredictor.from_pretrained(repo_id, device=device)
 
     async def segment(
         self,
@@ -131,18 +119,15 @@ class SegmentService:
         box: list[float] | None,
     ) -> dict:
         import torch
-        from sam2.sam2_image_predictor import SAM2ImagePredictor
-
-        predictor = SAM2ImagePredictor(self._model)
 
         img_array = np.array(image.convert("RGB"))
 
         with torch.inference_mode():
-            predictor.set_image(img_array)
+            self._predictor.set_image(img_array)
 
             if mode == "box" and box:
                 box_np = np.array(box, dtype=np.float32)
-                masks, scores, _ = predictor.predict(
+                masks, scores, _ = self._predictor.predict(
                     box=box_np,
                     multimask_output=True,
                 )
@@ -153,7 +138,7 @@ class SegmentService:
                     point_labels or [1] * len(points),
                     dtype=np.int32,
                 )
-                masks, scores, _ = predictor.predict(
+                masks, scores, _ = self._predictor.predict(
                     point_coords=points_np,
                     point_labels=labels_np,
                     multimask_output=True,
@@ -168,7 +153,7 @@ class SegmentService:
                 grid_points = np.stack([xx.ravel(), yy.ravel()], axis=-1).astype(np.float32)
                 grid_labels = np.ones(len(grid_points), dtype=np.int32)
 
-                masks, scores, _ = predictor.predict(
+                masks, scores, _ = self._predictor.predict(
                     point_coords=grid_points,
                     point_labels=grid_labels,
                     multimask_output=True,
@@ -201,9 +186,9 @@ class SegmentService:
         return image
 
     async def close(self) -> None:
-        if self._model is not None:
-            del self._model
-            self._model = None
+        if self._predictor is not None:
+            del self._predictor
+            self._predictor = None
             self._loaded = False
             logger.info("Segmentation model unloaded")
 

@@ -1,7 +1,7 @@
-"""Gemma 4 E4B vision service — visual reasoning via llama-cpp-python GGUF.
+"""Qwen2.5-VL vision service — visual reasoning via llama-cpp-python GGUF.
 
-Uses unsloth/gemma-4-E4B-it-GGUF (IQ4_NL, 4.84GB) with mmproj vision encoder.
-Runs on CPU/DRAM only (n_gpu_layers=0). ~10-20 tok/s.
+Uses ggml-org/Qwen2.5-VL-7B-Instruct-GGUF (Q4_K_M, 4.68GB) with mmproj vision encoder.
+Runs on CPU/DRAM only (n_gpu_layers=0). ~5-15 tok/s depending on image complexity.
 """
 
 import asyncio
@@ -40,12 +40,12 @@ class Phi4VisionService:
                 raise RuntimeError("Phi-4 vision is disabled")
 
             try:
-                logger.info(f"Loading Gemma 4 vision: {settings.phi4_vision_model}")
+                logger.info(f"Loading Qwen2.5-VL vision: {settings.phi4_vision_model}")
                 start = time.time()
                 loop = asyncio.get_event_loop()
                 await loop.run_in_executor(None, self._load_model_sync)
                 elapsed = time.time() - start
-                logger.info(f"Gemma 4 vision loaded in {elapsed:.1f}s")
+                logger.info(f"Qwen2.5-VL vision loaded in {elapsed:.1f}s")
                 self._loaded = True
 
                 from .idle_watcher import get_idle_watcher
@@ -54,19 +54,36 @@ class Phi4VisionService:
             except Exception as e:
                 self._load_error = str(e)
                 self._loaded = True
-                logger.error(f"Failed to load Gemma 4 vision: {e}")
+                logger.error(f"Failed to load Qwen2.5-VL vision: {e}")
                 raise
 
     def _load_model_sync(self) -> None:
         from llama_cpp import Llama
+        from llama_cpp.llama_chat_format import Qwen25VLChatHandler
+        from huggingface_hub import hf_hub_download
 
         settings = get_settings()
         n_threads = settings.phi4_vision_n_threads
 
-        self._llm = Llama.from_pretrained(
+        model_path = hf_hub_download(
             repo_id=settings.phi4_vision_model,
             filename=settings.phi4_vision_filename,
-            mmproj=settings.phi4_vision_mmproj,
+            cache_dir=settings.model_cache_dir,
+        )
+        mmproj_path = hf_hub_download(
+            repo_id=settings.phi4_vision_model,
+            filename=settings.phi4_vision_mmproj,
+            cache_dir=settings.model_cache_dir,
+        )
+
+        handler = Qwen25VLChatHandler(
+            clip_model_path=mmproj_path,
+            verbose=False,
+        )
+
+        self._llm = Llama(
+            model_path=model_path,
+            chat_handler=handler,
             n_gpu_layers=0,
             n_ctx=4096,
             n_threads=n_threads,
@@ -107,7 +124,7 @@ class Phi4VisionService:
             except asyncio.TimeoutError:
                 return {"success": False, "error": "Inference timed out after 300s"}
             except Exception as e:
-                logger.error(f"Gemma 4 vision inference error: {e}")
+                logger.error(f"Qwen2.5-VL vision inference error: {e}")
                 return {"success": False, "error": f"Inference error: {str(e)[:200]}"}
 
     def _infer_sync(self, image_input: str, prompt: str, max_new_tokens: int) -> str:
@@ -138,7 +155,7 @@ class Phi4VisionService:
             del self._llm
             self._llm = None
             self._loaded = False
-            logger.info("Gemma 4 vision unloaded")
+            logger.info("Qwen2.5-VL vision unloaded")
 
 
 _phi4_vision_service: Phi4VisionService | None = None
