@@ -661,16 +661,6 @@ class Wan2GPService:
                         except Exception:
                             pass
 
-            elif base_model_type == "anigen":
-                # AniGen lazily imports `dsine` during generate(). The
-                # `from models import dsine` resolves to wan2gp's `models/`
-                # package instead of the anigen-internal dsine module because
-                # wan2gp's root is on sys.path. Temporarily prepend the
-                # anigen directory so dsine resolves correctly.
-                anigen_dir = str(WAN2GP_VENDOR / "models" / "anigen")
-                if anigen_dir not in sys.path:
-                    sys.path.insert(0, anigen_dir)
-
             elif base_model_type == "see_through":
                 # See-Through's generate() may trigger a re-import of
                 # models.wan.modules.model (which has a relative import from
@@ -897,7 +887,19 @@ class Wan2GPService:
                         elif text_encoder_path is None:
                             text_encoder_path = str(f)
 
-        pipeline, pipe_wrapper = handler.load_model(
+        # AniGen's DSINE hub module does `from models import dsine` which
+        # resolves to wan2gp's models package. Insert the DSINE hub dir
+        # at sys.path[0] so Python finds DSINE's own models/ package first.
+        _anigen_path_fix = None
+        if base_model_type == "anigen":
+            for hub_dir in (Path(cfg.models_root) / "3d" / "anigen" / "hub").glob("hugoycj_DSINE*"):
+                if str(hub_dir) not in sys.path:
+                    sys.path.insert(0, str(hub_dir))
+                    _anigen_path_fix = str(hub_dir)
+                break
+
+        try:
+            pipeline, pipe_wrapper = handler.load_model(
             model_filename, model_type, base_model_type, model_def,
             quantizeTransformer=not is_cpu,
             text_encoder_quantization="int8" if not is_cpu else None,
@@ -907,6 +909,9 @@ class Wan2GPService:
             quant=quant,
             text_encoder_filename=text_encoder_path,
         )
+        finally:
+            if _anigen_path_fix and _anigen_path_fix in sys.path:
+                sys.path.remove(_anigen_path_fix)
 
         pipe, co_tenants = self._unwrap_pipe(pipe_wrapper)
 
