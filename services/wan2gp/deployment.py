@@ -890,6 +890,33 @@ class Wan2GPService:
         if offloadobj is not None:
             self._offload = offloadobj
 
+        # Trellis handler filters out image_cond (DinoV3FeatureExtractor
+        # is not nn.Module) and rembg (stays float32). The _Pipeline.m
+        # dict is missing image_cond, which generate() needs.
+        # Load it from the pipeline config and inject into the wrapper.
+        if base_model_type == "trellis" and hasattr(pipeline, "m"):
+            if "image_cond" not in pipeline.m:
+                try:
+                    from trellis2.modules.image_feature_extractor import DinoV3FeatureExtractor
+                    # Find pipeline.json to get model_name path
+                    model_root = Path(model_path) if model_path else Path("ckpts") / base_model_type
+                    pj = None
+                    for p in model_root.rglob("pipeline.json"):
+                        pj = p.parent
+                        break
+                    if pj is not None:
+                        with open(pj / "pipeline.json") as f:
+                            pconfig = json.load(f)
+                        ic = pconfig.get("args", {}).get("image_cond_model", {})
+                        model_name_rel = ic.get("args", {}).get("model_name", "")
+                        if model_name_rel:
+                            abs_model = (pj / model_name_rel).resolve()
+                            ic_model = DinoV3FeatureExtractor(model_name=str(abs_model))
+                            pipeline.m["image_cond"] = ic_model
+                            logger.info("Injected image_cond into trellis pipeline from %s", abs_model)
+                except Exception as e:
+                    logger.warning("Failed to inject trellis image_cond: %s", e)
+
         self._models[model_name] = {
             "model": pipeline,
             "pipe": pipe,
