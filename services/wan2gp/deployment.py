@@ -955,21 +955,13 @@ class Wan2GPService:
         # which shadows the dist-packages modules/ that has layerdiffuse/.
         # Pre-import the correct modules package so sys.modules is cached.
         _prev_modules = None
-        if base_model_type == "see_through" and "modules" not in sys.modules:
-            try:
-                _dist_modules = importlib.import_module("modules")
-                # Verify it has layerdiffuse (dist-packages version)
-                if hasattr(_dist_modules, "__path__"):
-                    _prev_modules = sys.modules.get("modules")
-                    sys.modules["modules"] = _dist_modules
-            except ImportError:
-                pass
-        elif base_model_type == "see_through":
-            _prev_modules = sys.modules.get("modules")
-            # The cached modules might be wan's version — reload from dist-packages
-            _wan_paths = [p for p in sys.path
-                          if p.startswith("/opt/wan2gp/models/") and p != "/opt/wan2gp"]
-            for _wp in _wan_paths:
+        if base_model_type == "see_through":
+            _prev_modules = sys.modules.pop("modules", None)
+            # Temporarily remove wan model dirs from sys.path so dist-packages
+            # modules/ is found first
+            _wan_model_paths = [p for p in sys.path
+                                if p.startswith("/opt/wan2gp/models/")]
+            for _wp in _wan_model_paths:
                 sys.path.remove(_wp)
             try:
                 _dist_modules = importlib.import_module("modules")
@@ -977,7 +969,7 @@ class Wan2GPService:
             except ImportError:
                 pass
             finally:
-                for _wp in _wan_paths:
+                for _wp in _wan_model_paths:
                     sys.path.insert(0, _wp)
 
         try:
