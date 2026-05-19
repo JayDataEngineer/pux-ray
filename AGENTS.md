@@ -29,7 +29,7 @@ The server runs three types of services, all managed from `boot/services.py`:
 
 ### 1. Ray Serve (AI Compute)
 GPU-accelerated AI services managed by Ray Serve with a Starlette ingress on port 18080.
-- LLM (llama.cpp), TTS (Kokoro, IndexTTS, Qwen-TTS), ASR (Faster-Whisper)
+- LLM (llama.cpp), TTS (Kokoro, IndexTTS, Qwen-TTS), ASR (VibeVoice, Faster-Whisper)
 - Image gen (ComfyUI), 3D (TRELLIS, AniGen), Music (ACE-Step), Creative (See-Through)
 - GPU scheduler coordinates model swaps (only one GPU model at a time, 24GB VRAM)
 - Web UIs: Dashboard (`/dashboard`), Studio (`/studio`)
@@ -116,6 +116,7 @@ All heavy GPU services run through the **Forge** (`services/forge.py`), a single
 - **Self-managed services** (`vram_mb=0`): Wan2GP uses mmgp for dynamic VRAM management. Always passes `_can_fit()`, coexists with other services.
 - **Testable**: `ForgeCore` has zero Ray dependency — fully testable without a cluster. `Forge` is a thin `@serve.deployment` wrapper.
 - **12 services registered** in `SERVICE_MAP`: trellis, ace_step, comfyui, hy_motion, moss_soundeffect, anigen, see_through, llm, wan2gp, vibevoice_microsoft, vibevoice_community_tts, phi4mm.
+- **VibeVoice ASR (`vibevoice_microsoft`)** now uses vendored model code (`opt/wan2gp/models/vibevoice_asr/vibevoice_asr/model.py`) matching the HF checkpoint state dict keys exactly (797/797 keys). No external `vibevoice` pip package needed. Key architectural decision: the checkpoint uses separate `downsample_layers` + `stages` ModuleLists (not the combined `EncoderStage` from `blocks.py`), 3-level conv nesting (`Sequential` wrapping `DepthwiseConv` wrapping `SConv1d`), and unbounded channel growth (`32 * 2^i`). The `ConvRMSNorm` in `blocks.py` had a dtype bug (didn't preserve original dtype) that was fixed.
 
 ```python
 # services/forge.py — VRAM-aware GPU manager
