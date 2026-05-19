@@ -669,8 +669,23 @@ class Wan2GPService:
                 _see_through_cls = type(model)
                 _see_through_cls.device = property(
                     lambda self: torch.device("cuda"))
-
-            elif base_model_type == "trellis":
+                # Force-import correct modules for relative import resolution
+                try:
+                    importlib.import_module("models.wan.multitalk.multitalk_utils")
+                except (ImportError, ModuleNotFoundError):
+                    pass
+                # mmgp profile 5 swaps modules in/out of GPU. GroupEmbedding
+                # submodules inside ld_unet have nn.Parameter (self.params)
+                # that mmgp doesn't always move back to CUDA.
+                _ld_unet = getattr(model, "ld_unet", None)
+                if _ld_unet is not None:
+                    for _name, _mod in _ld_unet.named_modules():
+                        if hasattr(_mod, "params") and isinstance(
+                                getattr(_mod, "params", None),
+                                torch.nn.Parameter):
+                            _mod.register_forward_pre_hook(
+                                lambda m, _: m.params.data.cuda()
+                            )
                 # Trellis uses BiRefNet (rembg wrapper) for background removal.
                 # The wrapper (model.rembg) is not an nn.Module and not in the
                 # pipe dict, so mmgp doesn't manage it. The inner model
@@ -684,31 +699,6 @@ class Wan2GPService:
                             inner.to("cuda")
                         except Exception:
                             pass
-
-            elif base_model_type == "see-through":
-                # See-Through's generate() may trigger a re-import of
-                # models.wan.modules.model (which has a relative import from
-                # ..multitalk). After loading wan models, sys.modules has
-                # `models` registered, but a stale or incorrect resolution
-                # can break the relative import. Force-import the correct
-                # modules before generate() so relative imports resolve.
-                try:
-                    importlib.import_module("models.wan.multitalk.multitalk_utils")
-                except (ImportError, ModuleNotFoundError):
-                    pass
-                # mmgp profile 5 swaps modules in/out of GPU. GroupEmbedding
-                # submodules inside ld_unet have nn.Parameter (self.params)
-                # that mmgp doesn't always move back to CUDA. Register a
-                # forward pre-hook to ensure params are on the right device.
-                _ld_unet = getattr(model, "ld_unet", None)
-                if _ld_unet is not None:
-                    for _name, _mod in _ld_unet.named_modules():
-                        if hasattr(_mod, "params") and isinstance(
-                                getattr(_mod, "params", None),
-                                torch.nn.Parameter):
-                            _mod.register_forward_pre_hook(
-                                lambda m, _: m.params.data.cuda()
-                            )
 
             # Trellis: mmgp converts weights to bfloat16, but the sampler
             # creates float32 noise tensors causing dtype mismatches
