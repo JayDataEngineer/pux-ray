@@ -161,10 +161,9 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     MAX_JOBS=${MAX_JOBS} uv pip install --no-build-isolation . && \
     rm -rf /tmp/pytorch3d
 
-# spconv + cumm (pre-built cu126 wheels — forward-compatible with CUDA 12.8 runtime)
-# The bare `spconv` package on PyPI is CPU-only (no .so extensions).
-# The -cu126 suffix wheels include compiled CUDA kernels.
-RUN uv pip install cumm-cu126 spconv-cu126
+# spconv + cumm: installed at the end (after all other deps) to prevent
+# uv's resolver from replacing cu126 variants with CPU-only plain packages.
+# See line ~310 for the actual install.
 
 # ── Clone git repos (for services that need full repo structure) ──────
 WORKDIR /opt
@@ -303,6 +302,13 @@ RUN uv pip install \
 # thinc Cython ext must be rebuilt against final numpy (pip installs may pull
 # numpy 2.x after thinc was compiled against 1.x headers → dtype size mismatch)
 RUN uv pip install --no-cache-dir --force-reinstall thinc
+
+# ── spconv + cumm (must be LAST pip install — cu126 CUDA wheels) ───────
+# Plain `spconv`/`cumm` on PyPI are CPU-only (67KB). The -cu126 suffix wheels
+# are 25-67 MB with compiled CUDA kernels. Earlier pip installs may resolve
+# transitive deps that pull in the CPU variant, so this must come last.
+# --no-deps prevents uv from "helpfully" downgrading to the CPU variant.
+RUN uv pip install --no-cache-dir --no-deps --force-reinstall cumm-cu126 spconv-cu126
 
 # ── spconv + natten verification (needs GPU at runtime for full check) ──
 RUN python3 -c "import spconv; print(f'spconv {spconv.__version__} loaded')" && \
