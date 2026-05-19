@@ -1324,6 +1324,16 @@ class Wan2GPService:
         if n_modules > 4 and model_type not in ("see-through",):
             profile = MMGP_PROFILES["minimum"]
             budgets_override = {"*": 2000}
+        elif model_type == "see-through":
+            # See-through UNet has deeply nested internal parameters
+            # (GroupEmbedding, timestep embeddings, aug embeddings) that
+            # mmgp's module-level swapping doesn't track properly, causing
+            # cascading device mismatches. Skip mmgp and load to GPU directly.
+            # Total model: ~12.8 GB, fits in 24 GB VRAM.
+            for v in pipe.values():
+                if isinstance(v, torch.nn.Module):
+                    v.to("cuda")
+            return None
         else:
             profile = MMGP_PROFILES["low_vram"]
             budgets_override = {"transformer": 250, "text_encoder": 250,
