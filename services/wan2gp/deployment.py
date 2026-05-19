@@ -790,7 +790,7 @@ class Wan2GPService:
         # handler's query_model_files. Also run when model_path exists because
         # some handlers need auxiliary files (e.g. index_tts2 semantic_codec)
         # that aren't in the local weights directory.
-        self._ensure_vendor_files(handler, base_model_type, model_def={})
+        self._ensure_vendor_files(handler, base_model_type, model_def={}, model_path=model_path)
         if model_path is None:
             # Re-resolve after download
             model_path = self._resolve_model_path(model_name, entry, model_registry, cfg)
@@ -1043,7 +1043,7 @@ class Wan2GPService:
         }
 
     def _ensure_vendor_files(self, handler, base_model_type: str,
-                              model_def: dict) -> None:
+                              model_def: dict, model_path: Path | None = None) -> None:
         """Download missing model files via handler's query_model_files."""
         ckpts_base = Path("ckpts").resolve()
         ckpts_base.mkdir(parents=True, exist_ok=True)
