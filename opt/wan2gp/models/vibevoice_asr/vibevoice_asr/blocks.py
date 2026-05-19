@@ -48,10 +48,11 @@ class ConvRMSNorm(nn.Module):
         self.eps = eps
 
     def forward(self, x):
+        orig_dtype = x.dtype
         x = x.transpose(1, 2).float()
         rms = x.pow(2).mean(-1, keepdim=True).add(self.eps).rsqrt()
         out = x * rms * self.weight.float()
-        return out.transpose(1, 2).to(x.dtype)
+        return out.transpose(1, 2).to(orig_dtype)
 
 
 class SConv1d(nn.Module):
