@@ -694,11 +694,15 @@ class Wan2GPService:
                                 torch.nn.Parameter):
                             _orig_params = _mod.params
                             _orig_linear = _mod.linear
-                            _make_fwd = lambda p, l: (
-                                lambda x: l(x + p.to(x.device).mean(0))
-                            )
-                            _mod.forward = _make_fwd(
-                                _orig_params.data, _orig_linear)
+                            def _make_fwd(p, lin):
+                                def _fwd(x):
+                                    bias = p.to(x.device).mean(0)
+                                    return torch.nn.functional.linear(
+                                        x + bias,
+                                        lin.weight.to(x.device),
+                                        lin.bias.to(x.device) if lin.bias is not None else None)
+                                return _fwd
+                            _mod.forward = _make_fwd(_orig_params.data, _orig_linear)
                 # Trellis uses BiRefNet (rembg wrapper) for background removal.
                 # The wrapper (model.rembg) is not an nn.Module and not in the
                 # pipe dict, so mmgp doesn't manage it. The inner model
