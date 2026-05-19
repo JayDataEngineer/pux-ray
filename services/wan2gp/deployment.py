@@ -1321,7 +1321,7 @@ class Wan2GPService:
         # Exception: see_through needs profile 4 because profile 5 causes
         # cascading device mismatches in its deeply nested UNet submodules
         # (GroupEmbedding, timestep_encoder, etc.).
-        if n_modules > 4 and base_model_type not in ("see-through",):
+        if n_modules > 4 and model_type not in ("see-through",):
             profile = MMGP_PROFILES["minimum"]
             budgets_override = {"*": 2000}
         else:
