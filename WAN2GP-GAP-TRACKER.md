@@ -100,15 +100,15 @@ plus fixes applied in `services/wan2gp/deployment.py`.
 | `moss/moss-voicegenerator` | GPU Audio | ✅ | — | LOAD_OK. Autoregressive (170min). |
 | `moss/moss-soundeffect` | GPU Audio | ✅ | — | LOAD_OK. Autoregressive (170min). |
 | `moss/moss-tts` | GPU Audio | ✅ | — | LOAD_OK. Autoregressive. |
-| `hy_motion/hy-motion-1.0-lite` | GPU Motion | ✅ | — | LOAD_OK in isolation. OOM in sequential tests (VRAM leak #29). |
+| `hy_motion/hy-motion-1.0-lite` | GPU Motion | ✅ | ⚠️ | LOAD_OK. Infer: VRAM OOM (needs <20GB model). |
 | `tts/index_tts2` | GPU TTS | ✅ | ✅ | LOAD_OK. Generates audio output. Payload mapping: text→input_prompt, audio_b64→temp WAV→audio_guide. |
-| `vibevoice_tts/vibevoice-tts` | GPU TTS | ✅* | — | LOAD_OK in isolation. Fails in current image (no vibevoice module). |
+| `vibevoice_tts/vibevoice-tts` | GPU TTS | ✅* | — | LOAD_OK in isolation. Needs Docker rebuild for vibevoice module. |
 | `vibevoice_asr/vibevoice-asr` | GPU ASR | ✅* | — | Same as vibevoice_tts. |
-| `trellis/trellis` | GPU 3D | ✅ | ❌ | LOAD_OK. Infer fails: RMBG dtype mismatch (#31). |
-| `anigen/anigen` | GPU 3D | ✅ | ❌ | LOAD_OK (45s). Infer fails: flash_attn CPU backend (separate from #32). |
-| `see_through/see-through` | GPU Image | ✅ | ❌ | LOAD_OK in isolation. Infer fails: import collision (#33). |
+| `trellis/trellis` | GPU 3D | ✅ | ⚠️ | LOAD_OK. All dtype errors fixed (#31). VRAM OOM during mmgp module swap. |
+| `anigen/anigen` | GPU 3D | ✅ | ⚠️ | LOAD_OK (45s). sdpa attention fix (#34). VRAM OOM during inference. |
+| `see_through/see-through` | GPU Image | ✅ | ⚠️ | LOAD_OK. Import collision fixed (#33). VRAM OOM during inference. |
 
-*✅ = verified in manual kubectl exec testing; fails in current Docker image (needs rebuild for vibevoice)
+*✅ = verified in manual kubectl exec testing; needs Docker rebuild for vibevoice
 
 ## Previously Blocked Models — Now Fixed
 
@@ -125,10 +125,11 @@ plus fixes applied in `services/wan2gp/deployment.py`.
 |---|---------|--------|--------|
 | 29 | **mmgp VRAM leak** — offloadobj never captured, release() never called | ✅ Fixed — verified sequential wan/t2v→espeak→wan/t2v, final VRAM 9MB |
 | 30 | **index_tts2 generate() payload mapping** | ✅ Fixed — text→input_prompt, audio_b64→temp WAV→audio_guide. Generates audio. |
-| 31 | **trellis dtype cascade** — handler bfloat16 conflicts with float32 sampler | 🔧 Partial — RMBG + image_cond fixed, dtype mismatch remains |
+| 31 | **trellis dtype cascade** — handler bfloat16 conflicts with float32 sampler | ✅ Fixed — sdpa attention + bfloat16 autocast + rembg bf16→float32. All dtype errors resolved. VRAM OOM blocks inference (6 flow models = 15GB > available GPU). |
 | 32 | **anigen import collision** — DSINE namespace pkg vs wan2gp regular pkg | ✅ Fixed — temp dir with __init__.py + sys.path isolation. Load: 45s |
-| 33 | **see_through import collision** — relative import fails during handler import | 🔧 Fix applied — pre-import multitalk_utils, untested |
-| 34 | **anigen flash_attn CPU** — model components on CPU during inference | ❌ New — flash_attn_forward called with CPU tensors |
+| 33 | **see_through import collision** — relative import fails during handler import | ✅ Fixed — pre-import correct modules, keep /opt/seethrough/common first in sys.path during load |
+| 34 | **anigen flash_attn CPU** — model components on CPU during inference | ✅ Fixed — patch full_attn.BACKEND to sdpa (handles CPU+CUDA) |
+| 35 | **VRAM ceiling** — trellis/anigen/see_through/hy_motion all OOM during inference | ⚠️ Infrastructure — 24GB RTX 4090 insufficient for mmgp module swapping with these models. Code fixes all work; models need more VRAM or different mmgp profile. |
 
 ## Models Requiring Additional Work
 
@@ -141,8 +142,8 @@ plus fixes applied in `services/wan2gp/deployment.py`.
 
 - **Total models discovered**: 113 (from 15 family handlers)
 - **Load verified**: 13 models (3 CPU + 10 GPU)
-- **E2E inference verified**: 4 models (espeak, kokoro, faster_whisper, wan/t2v)
-- **E2E blocked by VRAM leak (#29)**: 4 models (hy_motion, trellis, anigen, see_through)
-- **E2E blocked by payload mapping (#30)**: 1 model (index_tts2)
+- **E2E inference verified**: 5 models (espeak, kokoro, faster_whisper, wan/t2v, index_tts2)
+- **E2E blocked by VRAM ceiling (#35)**: 4 models (hy_motion, trellis, anigen, see_through)
+- **Needs Docker rebuild**: 2 models (vibevoice_tts, vibevoice_asr)
 - **Needs Docker rebuild**: 2 models (vibevoice_tts, vibevoice_asr)
 - **Autoregressive (skip by default)**: 3 models (moss_voicegenerator, moss_soundeffect, moss_tts)
