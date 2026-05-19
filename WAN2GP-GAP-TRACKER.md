@@ -100,14 +100,13 @@ plus fixes applied in `services/wan2gp/deployment.py`.
 | `moss/moss-voicegenerator` | GPU Audio | ✅ | — | LOAD_OK. Autoregressive (170min). |
 | `moss/moss-soundeffect` | GPU Audio | ✅ | — | LOAD_OK. Autoregressive (170min). |
 | `moss/moss-tts` | GPU Audio | ✅ | — | LOAD_OK. Autoregressive. |
-| `hy_motion/hy-motion-1.0-lite` | GPU Motion | ✅ | ⚠️ | LOAD_OK. Infer: VRAM OOM (needs <20GB model). |
 | `tts/index_tts2` | GPU TTS | ✅ | ✅ | LOAD_OK. Generates audio output. Payload mapping: text→input_prompt, audio_b64→temp WAV→audio_guide. |
 | `vibevoice_tts/vibevoice-tts` | GPU TTS | ✅* | — | LOAD_OK in isolation. Needs Docker rebuild for vibevoice module. |
-| `vibevoice_asr/vibevoice-asr` | GPU ASR | ✅* | — | Same as vibevoice_tts. |
+| `vibevoice_asr/vibevoice-asr` | GPU ASR | ✅ | ✅ | Vendored model, no pip dependency. 797/797 keys. Random noise → `[Music]`. |
 | `trellis/trellis` | GPU 3D | ✅ | ✅ | FULL E2E. sdpa fix + bfloat16 autocast + profile 5. 77MB GLB output. |
-| `anigen/anigen` | GPU 3D | ✅ | 🔧 | LOAD_OK. SS sampling passes. SLAT blocked by spconv CPU-only build (Docker fix pending). |
-| `see_through/see-through` | GPU Image | ✅ | 🔧 | LOAD_OK. Device+dtype fixed. Infer blocked: GroupEmbedding shape mismatch (handler-level issue). |
 | `hy_motion/hy-motion-1.0-lite` | GPU Motion | ✅ | ✅ | FULL E2E. bfloat16 autocast + device override. rot6d + keypoints3d output. |
+| `anigen/anigen` | GPU 3D | ✅ | 🔧 | LOAD_OK. SS sampling passes. SLAT blocked by spconv CPU-only. Fix found: build spconv from source with TensorViewBind patch. 570 CUDA kernels for sm_89 compile correctly on pod. Needs Dockerfile update. |
+| `see_through/see-through` | GPU Image | ✅ | ⚠️ | LOAD_OK + LayerDiff + Marigold encode pass. VRAM OOM in Marigold VAE decode (12.8GB model + 7GB activations at 1280x1280 > 24GB). Infrastructure limit. |
 
 *✅ = verified in manual kubectl exec testing; needs Docker rebuild for vibevoice
 
@@ -131,7 +130,7 @@ plus fixes applied in `services/wan2gp/deployment.py`.
 | 33 | **see_through import collision** — relative import fails during handler import | ✅ Fixed — pre-import correct modules, keep /opt/seethrough/common first in sys.path during load |
 | 34 | **anigen flash_attn CPU** — model components on CPU during inference | ✅ Fixed — patch full_attn.BACKEND to sdpa (handles CPU+CUDA) |
 | 35 | **hy_motion bfloat16 dtype** — mmgp converts to bf16, input tensors float32 | ✅ Fixed — bfloat16 autocast + device property override. FULL E2E. |
-| 36 | **anigen spconv CPU-only** — spconv-cu126 was replaced by plain spconv during Docker build | 🔧 Fix committed — Dockerfile: moved cumm-cu126/spconv-cu126 to LAST pip install with --no-deps --force-reinstall. Needs rebuild. |
+| 36 | **anigen spconv CPU-only** — spconv-cu126 wheel was compiled without TensorViewBind pybind11 type registration, causing `tv::Tensor` import error on GPU | ✅ Fixed — Root cause: `spconv-cu126` wheel has `GemmTunerSimple.run_with_tuned_result(workspace: tv::Tensor = tv::Tensor())` but `tv::Tensor` wasn't registered in spconv's `core_cc` module. Fix: clone spconv source, apply `patch_spconv.py` (adds `TensorViewBind()` to PCCM module list), build from source. Build compiles 570 CUDA kernels for sm_89, outputs `spconv/core_cc` .so with proper type registration. Verified on pod: spconv GPU forward pass works. Needs Dockerfile update to build from source instead of using the pre-compiled cu126 wheel. |
 | 37 | **see_through GroupEmbedding shape** — handler creates 77-token text embeds but UNet expects group-conditioned (n_cls=13) input | ⚠️ Handler-level issue — GroupEmbedding.forward() does `x + self.params[:, None]` where dims don't match (77 vs 13). Needs handler code investigation. |
 | 38 | **mmgp module device drift** — mmgp profile 5 moves modules back to CPU after forward; GroupEmbedding.params stays on CPU | 🔧 Partial — forward pre-hook registered but see_through has deeper issue (#37). Device override + autocast work for trellis/anigen/hy_motion. |
 
