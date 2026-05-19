@@ -763,10 +763,9 @@ class Wan2GPService:
                         return image
                     rembg_wrapper.__class__.__call__ = _rembg_call_bf16_safe
                     _trellis_rembg_patch = True
-            # Trellis: wrap in bfloat16 autocast to handle float32 sampler
-            # inputs mixing with bfloat16 mmgp weights. Rembg is patched
-            # separately to convert bf16→float32 for ToPILImage.
-            if base_model_type == "trellis":
+            # bfloat16 autocast for models with bf16 weights from mmgp but
+            # float32 input tensors (noise, conditioning, etc).
+            if base_model_type in ("trellis", "anigen"):
                 with torch.amp.autocast("cuda", dtype=torch.bfloat16):
                     result = model.generate(**kwargs)
             else:
