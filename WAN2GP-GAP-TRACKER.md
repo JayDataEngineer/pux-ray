@@ -105,7 +105,7 @@ plus fixes applied in `services/wan2gp/deployment.py`.
 | `vibevoice_asr/vibevoice-asr` | GPU ASR | ✅ | ✅ | Vendored model, no pip dependency. 797/797 keys matched. Forward pass + generate OK. |
 | `trellis/trellis` | GPU 3D | ✅ | ✅ | FULL E2E. sdpa fix + bfloat16 autocast + profile 5. 77MB GLB output. |
 | `hy_motion/hy-motion-1.0-lite` | GPU Motion | ✅ | ✅ | FULL E2E. bfloat16 autocast + device override. rot6d + keypoints3d output. |
-| `anigen/anigen` | GPU 3D | ✅ | 🔧 | LOAD_OK. SS sampling passes. SLAT blocked by spconv CPU-only. Fix: import cumm.core_cc before spconv.core_cc. SubMConv3d + SparseConv3d GPU forward verified on pod. Dockerfile patched. Needs rebuild. |
+| `anigen/anigen` | GPU 3D | ✅ | ✅ | FULL E2E (tested on pod). Load 19s. All blockers resolved: spconv GPU (cumm.core_cc pre-import), flash_attn namespace collision (patch inspect.getfile), flash_attn CPU (force SDPA backend). SS + SLAT sampling runs. Docker build still needed for production image. |
 | `see_through/see-through` | GPU Image | ✅ | ❓ | Undetermined. Load OK. Two reported issues may be test-config dependent. See blockers #37/#38. |
 
 ## Previously Blocked Models — Now Fixed
@@ -127,7 +127,7 @@ plus fixes applied in `services/wan2gp/deployment.py`.
 | 31 | **trellis dtype cascade** — handler bfloat16 conflicts with float32 sampler | ✅ Fixed — sdpa attention + bfloat16 autocast + rembg bf16→float32. FULL E2E: 77MB GLB output. |
 | 32 | **anigen import collision** — DSINE namespace pkg vs wan2gp regular pkg | ✅ Fixed — temp dir with __init__.py + sys.path isolation. Load: 45s |
 | 33 | **see_through import collision** — relative import fails during handler import | ✅ Fixed — pre-import correct modules, keep /opt/seethrough/common first in sys.path during load |
-| 34 | **anigen flash_attn CPU** — model components on CPU during inference | ✅ Fixed — patch full_attn.BACKEND to sdpa (handles CPU+CUDA) |
+| 34 | **anigen flash_attn CPU** — model components on CPU during inference | ✅ Fixed — patch full_attn.BACKEND to sdpa in handler's load_model + deployment.py. Also needed inspect.getfile patch for flash_attn custom_ops namespace collision. |
 | 35 | **hy_motion bfloat16 dtype** — mmgp converts to bf16, input tensors float32 | ✅ Fixed — bfloat16 autocast + device property override. FULL E2E. |
 | 36 | **anigen spconv CPU-only** — spconv-cu126 wheel was compiled without TensorViewBind pybind11 type registration, causing `tv::Tensor` import error on GPU | ✅ Fixed — Root cause: `spconv-cu126` wheel's `GemmTunerSimple` uses `tv::Tensor` as default arg but type isn't registered in spconv's module. Fix: `import cumm.core_cc` before `import spconv.core_cc` — both share pybind11 internals, cumm registers `tv::Tensor`. Verified on pod: SubMConv3d + SparseConv3d forward on GPU. Dockerfile: `patch_spconv_cppconstants.py` patches spconv's `cppconstants.py` to add the pre-import. |
 | 37 | **see_through GroupEmbedding shape** — `GroupEmbedding.forward()` does `x + self.params[:, None]` where `self.params` dim is `n_cls` (13 for v3 body) but `x` dim is `77` (text tokens). Reported during v3 body pass with mmgp. Handler code passes `group_index` to UNet, but it's unclear if GroupEmbedding error only occurs with mmgp profile 5 or always. | ❓ Undetermined — may be specific to mmgp profile 5 config. Needs isolated test without mmgp to confirm. |
@@ -144,7 +144,7 @@ plus fixes applied in `services/wan2gp/deployment.py`.
 
 - **Total models discovered**: 113 (from 15 family handlers)
 - **Load verified**: 13 models (3 CPU + 10 GPU)
-- **E2E inference verified**: 8 models (espeak, kokoro, faster_whisper, wan/t2v, index_tts2, trellis, hy_motion, vibevoice_asr)
-- **E2E blocked or undetermined**: 2 models (see_through: #37/#38 need investigation, anigen: SLAT needs rebuild)
+- **E2E inference verified**: 9 models (espeak, kokoro, faster_whisper, wan/t2v, index_tts2, trellis, hy_motion, vibevoice_asr, anigen)
+- **E2E blocked or undetermined**: 1 model (see_through: #37/#38 need investigation)
 - **Needs Docker rebuild**: 2 models (vibevoice_tts, anigen)
 - **Autoregressive (skip by default)**: 3 models (moss_voicegenerator, moss_soundeffect, moss_tts)

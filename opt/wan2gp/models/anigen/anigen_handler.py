@@ -135,6 +135,20 @@ class family_handler(BaseFamilyHandler):
                 slat_flow_path = str(p)
                 break
 
+        # Patch inspect.getfile to handle namespace packages (flash_attn's
+        # custom_ops decorator introspects source location, crashes on
+        # namespace packages without __file__).
+        import inspect
+        if not hasattr(inspect, "_anigen_patched_getfile"):
+            _orig_getfile = inspect.getfile
+            def _safe_getfile(obj):
+                try:
+                    return _orig_getfile(obj)
+                except TypeError:
+                    return "/dev/null"
+            inspect.getfile = _safe_getfile
+            inspect._anigen_patched_getfile = True
+
         # DSINE's hubconf.py does `from models import dsine` which conflicts
         # with Wan2GP's `models` package. Use isolated import context.
         dsine_hub_dir = model_path / "hub" / "hugoycj_DSINE-hub_main"
@@ -149,6 +163,13 @@ class family_handler(BaseFamilyHandler):
                 )
         finally:
             os.chdir(prev_cwd)
+
+        # Force SDPA backend — flash_attn only supports CUDA, but model
+        # modules may be on CPU during mmgp-managed inference.
+        import anigen.modules.attention.full_attn as _anigen_full_attn
+        _anigen_full_attn.BACKEND = "sdpa"
+        if not hasattr(_anigen_full_attn, 'sdpa'):
+            _anigen_full_attn.sdpa = torch.nn.functional.scaled_dot_product_attention
 
         # Extract nn.Modules for mmgp
         pipe = {
@@ -239,7 +260,9 @@ class _Pipeline:
         torch.cuda.empty_cache()
 
         # 5. Decode
-        mesh_result, skeleton_result = self.m["slat_decoder"](slat, slat_skl)
+        meshes, skeletons = self.m["slat_decoder"](slat, slat_skl)
+        mesh_result = meshes[0]
+        skeleton_result = skeletons[0]
         del slat, slat_skl
         torch.cuda.empty_cache()
 
@@ -286,7 +309,7 @@ class _Pipeline:
             mainland_cd = mainland_t.unsqueeze(0).expand(ch, -1, -1, -1)
             decoded_ss_skl[b] = torch.where(
                 mainland_cd, decoded_ss_skl[b],
-                torch.full_like(decoded_ss_skl[b], -1e9),
+                torch.full_like(decoded_ss_skl[b], -6e4),
             )
 
         coords = torch.argwhere(decoded_ss > 0)[:, [0, 2, 3, 4]].int()
