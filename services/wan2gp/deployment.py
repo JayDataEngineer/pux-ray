@@ -1273,11 +1273,26 @@ class Wan2GPService:
             if not hasattr(v, "_model_dtype"):
                 v._model_dtype = target_dtype
 
+        n_modules = sum(1 for v in pipe.values()
+                        if isinstance(v, torch.nn.Module))
+
+        # Models with many modules (trellis: 8, anigen: many) need the most
+        # aggressive mmgp profile — profile 5 does no RAM pinning and swaps
+        # modules to GPU one at a time. Simpler models (wan, hunyuan) can use
+        # profile 4 which pins the transformer for speed.
+        if n_modules > 4:
+            profile = MMGP_PROFILES["minimum"]
+            budgets_override = {"*": 2000}
+        else:
+            profile = MMGP_PROFILES["low_vram"]
+            budgets_override = {"transformer": 250, "text_encoder": 250,
+                                "*": 3000}
+
         offloadobj = offload.profile(
             pipe,
-            profile_no=MMGP_PROFILES["low_vram"],
+            profile_no=profile,
             quantizeTransformer=False,
-            budgets={"transformer": 250, "text_encoder": 250, "*": 3000},
+            budgets=budgets_override,
             loras=[],
             perc_reserved_mem_max=0.5,
             vram_safety_coefficient=0.9,
