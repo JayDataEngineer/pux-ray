@@ -888,11 +888,13 @@ class Wan2GPService:
                             text_encoder_path = str(f)
 
         # AniGen's DSINE hub module does `from models import dsine` inside
-        # torch.hub.load(). By the time that runs, handler's own top-level
-        # imports have already cached wan2gp's 'models' in sys.modules.
-        # Patch torch.hub._load_local to temporarily remove that cache entry
-        # so Python re-resolves 'models' from DSINE's own directory.
+        # torch.hub.load(). By that point wan2gp's 'models' package is cached
+        # in sys.modules. DSINE's models/ is a namespace package (no __init__.py)
+        # so Python's regular-package-first resolution skips it. Fix: temporarily
+        # remove /opt/wan2gp from sys.path and delete sys.modules["models"] so
+        # Python finds DSINE's namespace package instead.
         _torch_hub_original = None
+        _wan2gp_path_idx = None
         if base_model_type == "anigen":
             import torch.hub as _torch_hub
             _torch_hub_original = _torch_hub._load_local
@@ -901,11 +903,15 @@ class Wan2GPService:
                 _dsine_hub_dir = str(hub_dir)
                 break
             if _dsine_hub_dir:
-                _saved_models_ref = sys.modules.get("models")
+                try:
+                    _wan2gp_path_idx = sys.path.index("/opt/wan2gp")
+                except ValueError:
+                    _wan2gp_path_idx = None
                 def _patched_load_local(repo_or_dir, model, *args, **kwargs):
-                    _prev = sys.modules.get("models")
-                    if "models" in sys.modules:
-                        del sys.modules["models"]
+                    _prev_models = sys.modules.pop("models", None)
+                    _removed_path = None
+                    if _wan2gp_path_idx is not None:
+                        _removed_path = sys.path.pop(_wan2gp_path_idx)
                     if _dsine_hub_dir not in sys.path:
                         sys.path.insert(0, _dsine_hub_dir)
                     try:
@@ -913,8 +919,10 @@ class Wan2GPService:
                     finally:
                         if _dsine_hub_dir in sys.path:
                             sys.path.remove(_dsine_hub_dir)
-                        if _prev is not None:
-                            sys.modules["models"] = _prev
+                        if _removed_path is not None:
+                            sys.path.insert(_wan2gp_path_idx, _removed_path)
+                        if _prev_models is not None:
+                            sys.modules["models"] = _prev_models
                         elif "models" in sys.modules:
                             del sys.modules["models"]
                 _torch_hub._load_local = _patched_load_local
