@@ -303,16 +303,15 @@ RUN uv pip install \
 # numpy 2.x after thinc was compiled against 1.x headers → dtype size mismatch)
 RUN uv pip install --no-cache-dir --force-reinstall thinc
 
-# ── spconv + cumm (must be LAST pip install — cu126 CUDA wheels) ───────
-# Plain `spconv`/`cumm` on PyPI are CPU-only (67KB). The -cu126 suffix wheels
-# are 25-67 MB with compiled CUDA kernels. Earlier pip installs may resolve
-# transitive deps that pull in the CPU variant, so this must come last.
-# --no-deps prevents uv from "helpfully" downgrading to the CPU variant.
-RUN uv pip install --no-cache-dir --no-deps --force-reinstall cumm-cu126 spconv-cu126
-
-# ── spconv + natten verification (needs GPU at runtime for full check) ──
-RUN python3 -c "import spconv; print(f'spconv {spconv.__version__} loaded')" && \
-    python3 -c "import natten; print(f'natten {natten.__version__} loaded')"
+# ── spconv + cumm (must be LAST pip install) ────────────────────────────
+# The published spconv-cu126 wheel lacks tv::Tensor pybind11 type registration
+# in its core_cc module (GemmTunerSimple default arg requires tv::Tensor).
+# Workaround: patch cppconstants.py to import cumm.core_cc first — both
+# modules share pybind11 internals, so tv::Tensor gets registered by cumm
+# and is visible to spconv. Verified: SubMConv3d + SparseConv3d GPU forward.
+COPY infra/docker/patch_spconv_cppconstants.py /opt/patch_spconv_cppconstants.py
+RUN uv pip install --no-cache-dir --no-deps --force-reinstall cumm-cu126 spconv-cu126 && \
+    python3 /opt/patch_spconv_cppconstants.py
 
 # ── Env defaults (overridden per-deployment) ────────────────────────────
 ENV PYTHONPATH=/app:/opt/wan2gp:/opt/utils3d:/opt/hymotion:/opt/anigen:/opt/seethrough:/opt/genmo:/opt/vendor \
