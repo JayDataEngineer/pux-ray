@@ -1268,21 +1268,17 @@ class Wan2GPService:
         from mmgp import offload
 
         # Normalize dtypes — mmgp asserts all params in a module share one dtype.
-        # Quantized models (e.g. quanto int8) leave some params as float32.
-        # Set _model_dtype so mmgp knows the target dtype and uses its own
-        # convertWeightsFloatTo logic rather than asserting on mixed dtypes.
+        # Some models have mixed float32 + float16 (e.g. anigen from partial
+        # fp16 checkpoint saving). Pre-convert everything to bfloat16 so mmgp's
+        # assertion passes.
         target_dtype = torch.bfloat16
         for k, v in pipe.items():
             if not isinstance(v, torch.nn.Module):
                 continue
             if not hasattr(v, "_model_dtype"):
                 v._model_dtype = target_dtype
-            # Pre-convert float32 params to bfloat16 so mmgp's dtype
-            # assertion passes. mmgp's own conversion only handles the
-            # case where ALL params are float32, but some models have a
-            # mix of float32 + bfloat16 from partial quantization.
             for p in v.parameters():
-                if p.data.dtype == torch.float32:
+                if p.data.dtype in (torch.float32, torch.float16):
                     p.data = p.data.to(target_dtype)
 
         n_modules = sum(1 for v in pipe.values()
