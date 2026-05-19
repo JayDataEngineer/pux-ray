@@ -106,7 +106,7 @@ plus fixes applied in `services/wan2gp/deployment.py`.
 | `trellis/trellis` | GPU 3D | ✅ | ✅ | FULL E2E. sdpa fix + bfloat16 autocast + profile 5. 77MB GLB output. |
 | `hy_motion/hy-motion-1.0-lite` | GPU Motion | ✅ | ✅ | FULL E2E. bfloat16 autocast + device override. rot6d + keypoints3d output. |
 | `anigen/anigen` | GPU 3D | ✅ | 🔧 | LOAD_OK. SS sampling passes. SLAT blocked by spconv CPU-only. Fix: import cumm.core_cc before spconv.core_cc. SubMConv3d + SparseConv3d GPU forward verified on pod. Dockerfile patched. Needs rebuild. |
-| `see_through/see-through` | GPU Image | ✅ | ⚠️ | LOAD_OK + LayerDiff + Marigold encode pass. VRAM OOM in Marigold VAE decode (12.8GB model + 7GB activations at 1280x1280 > 24GB). Infrastructure limit. |
+| `see_through/see-through` | GPU Image | ✅ | ❓ | Undetermined. Load OK. Two reported issues may be test-config dependent. See blockers #37/#38. |
 
 ## Previously Blocked Models — Now Fixed
 
@@ -130,8 +130,8 @@ plus fixes applied in `services/wan2gp/deployment.py`.
 | 34 | **anigen flash_attn CPU** — model components on CPU during inference | ✅ Fixed — patch full_attn.BACKEND to sdpa (handles CPU+CUDA) |
 | 35 | **hy_motion bfloat16 dtype** — mmgp converts to bf16, input tensors float32 | ✅ Fixed — bfloat16 autocast + device property override. FULL E2E. |
 | 36 | **anigen spconv CPU-only** — spconv-cu126 wheel was compiled without TensorViewBind pybind11 type registration, causing `tv::Tensor` import error on GPU | ✅ Fixed — Root cause: `spconv-cu126` wheel's `GemmTunerSimple` uses `tv::Tensor` as default arg but type isn't registered in spconv's module. Fix: `import cumm.core_cc` before `import spconv.core_cc` — both share pybind11 internals, cumm registers `tv::Tensor`. Verified on pod: SubMConv3d + SparseConv3d forward on GPU. Dockerfile: `patch_spconv_cppconstants.py` patches spconv's `cppconstants.py` to add the pre-import. |
-| 37 | **see_through GroupEmbedding shape** — handler creates 77-token text embeds but UNet expects group-conditioned (n_cls=13) input | ⚠️ Handler-level issue — GroupEmbedding.forward() does `x + self.params[:, None]` where dims don't match (77 vs 13). Needs handler code investigation. |
-| 38 | **mmgp module device drift** — mmgp profile 5 moves modules back to CPU after forward; GroupEmbedding.params stays on CPU | 🔧 Partial — forward pre-hook registered but see_through has deeper issue (#37). Device override + autocast work for trellis/anigen/hy_motion. |
+| 37 | **see_through GroupEmbedding shape** — `GroupEmbedding.forward()` does `x + self.params[:, None]` where `self.params` dim is `n_cls` (13 for v3 body) but `x` dim is `77` (text tokens). Reported during v3 body pass with mmgp. Handler code passes `group_index` to UNet, but it's unclear if GroupEmbedding error only occurs with mmgp profile 5 or always. | ❓ Undetermined — may be specific to mmgp profile 5 config. Needs isolated test without mmgp to confirm. |
+| 38 | **see_through Marigold VAE decode VRAM** — OOM reported during `mg_vae.decoder(z)` at 768x768 with ~20 layers. But 12GB total VRAM + VAE decode at 768x768 shouldn't exceed 24GB. Possibly caused by modules on wrong device (mmgp drift from #38 old entry) or memory fragmentation. | ❓ Undetermined — needs retest with clean device placement. |
 
 ## Models Requiring Additional Work
 
@@ -145,8 +145,6 @@ plus fixes applied in `services/wan2gp/deployment.py`.
 - **Total models discovered**: 113 (from 15 family handlers)
 - **Load verified**: 13 models (3 CPU + 10 GPU)
 - **E2E inference verified**: 8 models (espeak, kokoro, faster_whisper, wan/t2v, index_tts2, trellis, hy_motion, vibevoice_asr)
-- **E2E blocked by code**: 1 model (see_through: GroupEmbedding shape #37)
-- **SLAT blocked (spconv GPU fixed, needs rebuild)**: 1 model (anigen)
+- **E2E blocked or undetermined**: 2 models (see_through: #37/#38 need investigation, anigen: SLAT needs rebuild)
 - **Needs Docker rebuild**: 2 models (vibevoice_tts, anigen)
-- **Infrastructure limit**: 1 model (see_through: Marigold VAE decode OOM on 24GB)
 - **Autoregressive (skip by default)**: 3 models (moss_voicegenerator, moss_soundeffect, moss_tts)
