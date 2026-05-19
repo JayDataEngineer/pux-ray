@@ -682,8 +682,12 @@ class Wan2GPService:
                     pass
 
             # Trellis: mmgp converts weights to bfloat16, but the sampler
-            # creates float32 noise tensors. flash_attn rejects float32.
-            # Fix: patch attention backend to sdpa which handles mixed dtype.
+            # creates float32 noise tensors causing dtype mismatches
+            # (Float vs BFloat16 in linear layers, flash_attn rejection).
+            # Fix: patch attention to sdpa + wrap generate() in bfloat16
+            # autocast. Also patch rembg to convert bf16→float32 for
+            # ToPILImage which doesn't support bfloat16.
+            _trellis_rembg_patch = False
             if base_model_type == "trellis":
                 try:
                     import models.trellis.trellis2.modules.attention.config as _trellis_attn_cfg
@@ -700,7 +704,32 @@ class Wan2GPService:
                             _fa.sdpa = _sdpa_fn
                 except (ImportError, AttributeError):
                     pass
-            result = model.generate(**kwargs)
+                # Patch rembg to float() before ToPILImage
+                rembg_wrapper = getattr(model, "rembg", None)
+                if rembg_wrapper is not None:
+                    _orig_rembg_call = rembg_wrapper.__call__
+                    def _rembg_call_bf16_safe(image, _orig=_orig_rembg_call):
+                        from PIL import Image as PILImage
+                        import torchvision.transforms as transforms
+                        image_size = image.size
+                        input_images = rembg_wrapper.transform_image(image).unsqueeze(0).to("cuda")
+                        with torch.no_grad():
+                            preds = rembg_wrapper.model(input_images)[-1].sigmoid().cpu()
+                        pred = preds[0].squeeze().float()
+                        pred_pil = transforms.ToPILImage()(pred)
+                        mask = pred_pil.resize(image_size)
+                        image.putalpha(mask)
+                        return image
+                    rembg_wrapper.__call__ = _rembg_call_bf16_safe
+                    _trellis_rembg_patch = True
+            # Trellis: wrap in bfloat16 autocast to handle float32 sampler
+            # inputs mixing with bfloat16 mmgp weights. Rembg is patched
+            # separately to convert bf16→float32 for ToPILImage.
+            if base_model_type == "trellis":
+                with torch.amp.autocast("cuda", dtype=torch.bfloat16):
+                    result = model.generate(**kwargs)
+            else:
+                result = model.generate(**kwargs)
 
             # If pipeline returns our custom format (status + data), pass through
             if isinstance(result, dict) and "status" in result:
