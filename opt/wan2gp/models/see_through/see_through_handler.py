@@ -297,7 +297,7 @@ class _Pipeline:
             rgb_latent_list.append(latent)
         rgb_latent = torch.cat(rgb_latent_list, dim=1)
 
-        cond_full_page = img_tensor_stack[-1][None]
+        cond_full_page = img_tensor_stack[-1][None, None]
         cond_latent_full = encode_argb_list(self.mg_vae, cond_full_page, pad_argb=True, dtype=self.mg_vae.dtype)
         ncls = len(img_arrays)
         cond_latent = torch.cat([cond_latent_full.expand(-1, ncls, -1, -1, -1), rgb_latent], dim=2)[0]
