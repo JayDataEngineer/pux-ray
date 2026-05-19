@@ -680,18 +680,24 @@ class Wan2GPService:
                     importlib.import_module("models.wan.multitalk.multitalk_utils")
                 except (ImportError, ModuleNotFoundError):
                     pass
-                # mmgp profile 5 swaps modules in/out of GPU. GroupEmbedding
-                # submodules inside ld_unet have nn.Parameter (self.params)
-                # that mmgp doesn't always move back to CUDA.
+                # GroupEmbedding.forward() does x + self.params[:, None] for 3D
+                # inputs, but encoder_hidden_states has shape [batch, 77, dim]
+                # while self.params has shape [n_cls, dim]. Broadcast fails
+                # when batch != n_cls. Fix: average params across groups and
+                # broadcast as [1, 1, dim] which works for any batch/seq size.
                 _ld_unet = getattr(model, "ld_unet", None)
                 if _ld_unet is not None:
                     for _name, _mod in _ld_unet.named_modules():
                         if hasattr(_mod, "params") and isinstance(
                                 getattr(_mod, "params", None),
                                 torch.nn.Parameter):
-                            _mod.register_forward_pre_hook(
-                                lambda m, _: m.params.data.cuda()
+                            _orig_params = _mod.params
+                            _orig_linear = _mod.linear
+                            _make_fwd = lambda p, l: (
+                                lambda x: l(x + p.mean(0))
                             )
+                            _mod.forward = _make_fwd(
+                                _orig_params.data, _orig_linear)
                 # Trellis uses BiRefNet (rembg wrapper) for background removal.
                 # The wrapper (model.rembg) is not an nn.Module and not in the
                 # pipe dict, so mmgp doesn't manage it. The inner model
