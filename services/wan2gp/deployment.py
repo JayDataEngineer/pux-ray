@@ -1036,7 +1036,7 @@ class Wan2GPService:
             text_encoder_quantization="int8" if not is_cpu else None,
             dtype=None if is_cpu else torch.bfloat16,
             VAE_dtype=None if is_cpu else torch.float32,
-            profile=0 if is_cpu else MMGP_PROFILES["balanced"],
+            profile=0 if is_cpu else MMGP_PROFILES["low_vram"],
             quant=quant,
             text_encoder_filename=text_encoder_path,
         )
@@ -1242,7 +1242,7 @@ class Wan2GPService:
 
         offloadobj = offload.profile(
             pipe,
-            profile_no=MMGP_PROFILES["balanced"],
+            profile_no=MMGP_PROFILES["low_vram"],
             quantizeTransformer=False,
             budgets={"transformer": 250, "text_encoder": 250, "*": 3000},
             loras=[],
