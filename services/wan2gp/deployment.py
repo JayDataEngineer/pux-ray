@@ -925,6 +925,7 @@ class Wan2GPService:
                     pass
                 def _patched_load_local(repo_or_dir, model, *args, **kwargs):
                     _prev_models = sys.modules.pop("models", None)
+                    _prev_utils = sys.modules.pop("utils", None)
                     _removed_wan2gp = None
                     if _wan2gp_path_idx is not None:
                         _removed_wan2gp = sys.path.pop(_wan2gp_path_idx)
@@ -942,6 +943,10 @@ class Wan2GPService:
                             sys.modules["models"] = _prev_models
                         elif "models" in sys.modules:
                             del sys.modules["models"]
+                        if _prev_utils is not None:
+                            sys.modules["utils"] = _prev_utils
+                        elif "utils" in sys.modules:
+                            del sys.modules["utils"]
                 _torch_hub._load_local = _patched_load_local
                 _anigen_cleanup = _tmp_dir
 
