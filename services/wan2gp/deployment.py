@@ -683,7 +683,13 @@ class Wan2GPService:
                 except (ImportError, ModuleNotFoundError):
                     pass
 
-            result = model.generate(**kwargs)
+            # Trellis flow sampler creates float32 tensors for bfloat16 models.
+            # Wrap in autocast so mixed-dtype matmul works automatically.
+            if base_model_type == "trellis":
+                with torch.autocast("cuda", dtype=torch.bfloat16):
+                    result = model.generate(**kwargs)
+            else:
+                result = model.generate(**kwargs)
 
             # If pipeline returns our custom format (status + data), pass through
             if isinstance(result, dict) and "status" in result:
