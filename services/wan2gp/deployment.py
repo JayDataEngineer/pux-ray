@@ -1072,7 +1072,15 @@ class Wan2GPService:
                         local = ckpts_base / rel
                         if local.exists():
                             continue
+                        # File exists at model_path — symlink into ckpts so
+                        # the handler's files_locator can discover it.
                         if model_path and (model_path / fname).exists():
+                            if not local.parent.exists():
+                                local.parent.mkdir(parents=True, exist_ok=True)
+                            try:
+                                local.symlink_to(model_path / fname)
+                            except OSError:
+                                pass
                             continue
                         try:
                             hf_hub_download(
