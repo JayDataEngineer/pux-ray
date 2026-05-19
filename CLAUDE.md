@@ -33,8 +33,9 @@ Reliable, tested, deployed by default. Registered in `infra/k8s/serve_config.py`
 | anigen | GPU 3D | AniGen image-to-rigged-3D |
 | see_through | GPU Image | See-Through anime layer decomposition |
 | llm | GPU LLM | llama.cpp server (GGUF models via subprocess) |
+| avatar | GPU Avatar | GEM + SOMA + FluxRT text-to-avatar pipeline |
 
-The **Forge** (`services/forge.py`) is a VRAM-aware GPU manager that claims `num_gpus: 1.0`, tracks VRAM in MB per service, and allows concurrent GPU services when VRAM permits. Evicts only when needed. Services implement `ForgeService` (3 methods: `load()`, `unload()`, `infer(dict) -> dict`). Accessed via route `/forge` with `{"service": "trellis|ace_step|comfyui|hy_motion|moss_soundeffect|anigen|see_through|llm|wan2gp|vibevoice_microsoft|vibevoice_community_tts|phi4mm", ...}`.
+The **Forge** (`services/forge.py`) is a VRAM-aware GPU manager that claims `num_gpus: 1.0`, tracks VRAM in MB per service, and allows concurrent GPU services when VRAM permits. Evicts only when needed. Services implement `ForgeService` (3 methods: `load()`, `unload()`, `infer(dict) -> dict`). Accessed via route `/forge` with `{"service": "trellis|ace_step|comfyui|hy_motion|moss_soundeffect|anigen|see_through|llm|avatar|wan2gp|vibevoice_microsoft|vibevoice_community_tts|phi4mm", ...}`.
 
 ### Tier 2 — Available via Forge (not auto-deployed)
 Registered in `services/forge.py` SERVICE_MAP. Available on demand through `/forge`. Models present on PVC.
@@ -394,8 +395,9 @@ Heavy GPU services share a single RTX 4090 with VRAM-aware scheduling. Send `{"s
 | `hy_motion` | HY-Motion 1.0 text-to-3D motion |
 | `moss_soundeffect` | MOSS-SoundEffect 8B text-to-sound |
 | `anigen` | AniGen image-to-rigged-3D |
-| `see_through` | See-Through anime layer decomposition |
+| `see_through` | See-Through — anime layer decomposition |
 | `llm` | llama.cpp GGUF inference |
+| `avatar` | Avatar Pipeline — GEM gesture gen + SOMA body + FluxRT render |
 
 ### MCP Services (standalone K8s, `mcp` namespace)
 | Route | Service |

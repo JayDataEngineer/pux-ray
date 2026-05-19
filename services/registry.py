@@ -168,6 +168,15 @@ SERVICE_REGISTRY: dict[str, ServiceEntry] = {
         output_type="image",
         description="See-Through — anime layer decomposition.",
     ),
+
+    # ── Avatar Pipeline (Forge-managed, staged VRAM) ──────────────────────────
+    "avatar": ServiceEntry(
+        deployment="forge", app="forge",
+        label="Avatar Pipeline", category="avatar",
+        needs_gpu=True, default_model="gem_smpl",
+        output_type="video",
+        description="Text-to-avatar: GEM gesture gen + SOMA body model + FluxRT rendering.",
+    ),
 }
 
 

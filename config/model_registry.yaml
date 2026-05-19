@@ -877,6 +877,15 @@ comfyui:
     vram_estimate_gb: 0.5
     device: gpu
     description: LTX 2.3 Video VAE (BF16). From Kijai ComfyUI repo.
+  unet-zimage-base:
+    path: image-gen/comfyui/unet/z_image_bf16.safetensors
+    source: hf://Comfy-Org/z_image/split_files/diffusion_models/z_image_bf16.safetensors
+    download: file
+    sha256: null
+    size_gb: 12.0
+    vram_estimate_gb: 12.0
+    device: gpu
+    description: Z-Image Base UNet (BF16). Non-distilled foundation model — full diversity for training data generation. Apache 2.0.
   unet-zimage-turbo:
     path: image-gen/comfyui/unet/z_image_turbo_bf16.safetensors
     source: hf://Comfy-Org/z_image_turbo/split_files/diffusion_models/z_image_turbo_bf16.safetensors
@@ -885,7 +894,7 @@ comfyui:
     size_gb: 4.0
     vram_estimate_gb: 4.0
     device: gpu
-    description: Z-Image Turbo UNet (BF16). From Comfy-Org repackaged.
+    description: Z-Image Turbo UNet (BF16). Distilled variant — faster but less diversity. From Comfy-Org repackaged.
   vae-zimage:
     path: image-gen/comfyui/vae/ae.safetensors
     source: hf://Comfy-Org/z_image_turbo/split_files/vae/ae.safetensors
@@ -1347,3 +1356,45 @@ cache:
     vram_estimate_gb: 0.0
     device: cpu
     description: HuggingFace model cache. Auto-populated.
+
+avatar:
+  gem-smpl:
+    path: avatar/gem/gem_smpl.ckpt
+    source: hf://nvidia/GEM-X
+    download: file
+    sha256: null
+    size_gb: 2.0
+    vram_estimate_gb: 6.0
+    device: gpu
+    description: GEM-SMPL generative motion model. Text/audio -> SMPL body motion.
+      T5-3B text encoder + diffusion denoiser. 30 FPS output.
+  flux-klein-4b-int8:
+    path: avatar/fluxrt/FLUX.2-klein-4B-int8/
+    source: hf://aydin99/FLUX.2-klein-4B-int8
+    download: snapshot
+    sha256: null
+    size_gb: 4.0
+    vram_estimate_gb: 10.0
+    device: gpu
+    description: FLUX.2 Klein 4B int8 for avatar rendering. 15-30 FPS on RTX 4090.
+      Spatial KV Cache for efficient streaming.
+  soma-assets:
+    path: avatar/soma/
+    source: hf://NVlabs/SOMA-X
+    download: snapshot
+    sha256: null
+    size_gb: 0.5
+    vram_estimate_gb: 0.5
+    device: gpu
+    description: SOMA unified body model assets. 77-joint parametric model.
+      SMPL->SOMA conversion, 1279 FPS pose inversion.
+  gem-smpl-body-model:
+    path: avatar/gem/body_models/
+    source: null
+    download: manual
+    sha256: null
+    size_gb: 0.3
+    vram_estimate_gb: 0.5
+    device: gpu
+    description: SMPL body model files for GEM. Download from http://smpl.is.tue.mpg.com
+      and place under this directory.

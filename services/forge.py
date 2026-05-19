@@ -41,6 +41,8 @@ SERVICE_MAP: dict[str, tuple[str, str]] = {
     "comfyui":   ("services.image.comfyui",          "ComfyUIService"),
     # llama.cpp — subprocess, separate GPU
     "llm":       ("services.llm.deployment",          "LLMService"),
+    # Avatar pipeline — GEM + SOMA + FluxRT orchestrator
+    "avatar":    ("services.avatar.forge_avatar",     "AvatarForgeService"),
 }
 
 # ─── GPU Node (multi-node prep) ──────────────────────────────────────────────

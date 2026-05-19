@@ -184,6 +184,9 @@ RUN git clone --depth 1 https://github.com/Tencent-Hunyuan/HY-Motion-1.0.git /op
 # See-Through (needs common/ + inference/ + annotators/ for internal imports)
 RUN git clone --depth 1 https://github.com/shitagaki-lab/see-through.git /opt/seethrough
 
+# GEM/GENMO (generative motion model — text/audio -> SMPL)
+RUN git clone --depth 1 https://github.com/NVlabs/GENMO.git /opt/genmo
+
 # vibevoice.cpp (C++ GGML inference for VibeVoice TTS + ASR — quantized GGUF models)
 # Build CPU-only; CUDA backend needs dev libs not in golden image
 RUN git clone --recursive --depth 1 https://github.com/localai-org/vibevoice.cpp.git /tmp/vv-cpp && \
@@ -215,6 +218,20 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     grep -v -E 'PyQt|qtpy|natsort|py7zr|ipykernel|Cython|pytest' > /tmp/reqs_seethrough.txt && \
     uv pip install -r /tmp/reqs_seethrough.txt || true && \
     uv pip install ./common ./annotators || true && rm /tmp/reqs_seethrough.txt
+
+# ── GEM/GENMO deps (filtered) ───────────────────────────────────────────
+RUN --mount=type=cache,target=/root/.cache/uv \
+    cd /opt/genmo && \
+    grep -v -i -E '^(torch|torchvision|torchaudio|xformers|flash-attn)' setup.cfg > /dev/null && \
+    grep -v -i -E '^(torch|torchvision|torchaudio|xformers|flash-attn|wandb)' \
+        <(python3 -c "import configparser; c=configparser.ConfigParser(); c.read('setup.cfg'); print(c['options']['install_requires'])" 2>/dev/null || cat setup.cfg) \
+        > /tmp/reqs_genmo.txt 2>/dev/null || true && \
+    uv pip install hydra-core hydra-zen hydra-colorlog smplx lightning || true && \
+    rm -f /tmp/reqs_genmo.txt
+
+# ── SOMA body model (pip install) ───────────────────────────────────────
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv pip install py-soma-x || true
 
 # ── Wan2GP fork (our custom models registered as native families) ────────
 COPY opt/wan2gp/ /opt/wan2gp/
@@ -292,7 +309,7 @@ RUN python3 -c "import spconv; print(f'spconv {spconv.__version__} loaded')" && 
     python3 -c "import natten; print(f'natten {natten.__version__} loaded')"
 
 # ── Env defaults (overridden per-deployment) ────────────────────────────
-ENV PYTHONPATH=/app:/opt/wan2gp:/opt/utils3d:/opt/hymotion:/opt/anigen:/opt/seethrough:/opt/vendor \
+ENV PYTHONPATH=/app:/opt/wan2gp:/opt/utils3d:/opt/hymotion:/opt/anigen:/opt/seethrough:/opt/genmo:/opt/vendor \
     HF_HOME=/tmp/huggingface \
     HF_HUB_CACHE=/tmp/huggingface \
     ATTN_BACKEND=flash_attn
