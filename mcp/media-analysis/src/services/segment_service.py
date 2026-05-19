@@ -17,6 +17,13 @@ from PIL import Image
 
 from ..settings import get_settings, get_device
 
+SAM2_CONFIGS = {
+    "sam2_hiera_t": "sam2/sam2_hiera_t.yaml",
+    "sam2_hiera_s": "sam2/sam2_hiera_s.yaml",
+    "sam2_hiera_b+": "sam2/sam2_hiera_b+.yaml",
+    "sam2_hiera_l": "sam2/sam2_hiera_l.yaml",
+}
+
 
 class SegmentService:
     """SAM 2 image segmentation."""
@@ -54,6 +61,9 @@ class SegmentService:
                 logger.info(f"Segmentation model loaded in {elapsed:.1f}s")
                 self._loaded = True
 
+                from .idle_watcher import get_idle_watcher
+                get_idle_watcher().watch("segment", self)
+
             except Exception as e:
                 self._load_error = str(e)
                 self._loaded = True
@@ -61,15 +71,24 @@ class SegmentService:
                 raise
 
     def _load_model_sync(self) -> None:
-        import torch
-        from sam2 import build_sam2
+        from sam2.build_sam import build_sam2
+        from huggingface_hub import hf_hub_download
 
         settings = get_settings()
         device = get_device()
+        model_name = settings.segment_model
+        config_file = SAM2_CONFIGS.get(model_name, "sam2/sam2_hiera_s.yaml")
 
-        # Build SAM 2 with small model
+        # Download checkpoint from HuggingFace
+        ckpt_path = hf_hub_download(
+            f"facebook/{model_name}",
+            filename=f"{model_name}.pt",
+            cache_dir=settings.model_cache_dir,
+        )
+
         self._model = build_sam2(
-            settings.segment_model,
+            config_file=config_file,
+            ckpt_path=ckpt_path,
             device=device,
         )
 
@@ -81,7 +100,6 @@ class SegmentService:
         point_labels: list[int] | None = None,
         box: list[float] | None = None,
     ) -> dict:
-        """Segment an image using SAM 2."""
         await self._ensure_loaded()
 
         try:
@@ -91,6 +109,9 @@ class SegmentService:
 
         async with self._lock:
             try:
+                from .idle_watcher import get_idle_watcher
+                get_idle_watcher().touch("segment")
+
                 loop = asyncio.get_event_loop()
                 result = await loop.run_in_executor(
                     None, self._segment_sync, image, mode, points, point_labels, box,
@@ -112,7 +133,6 @@ class SegmentService:
         import torch
         from sam2.sam2_image_predictor import SAM2ImagePredictor
 
-        device = get_device()
         predictor = SAM2ImagePredictor(self._model)
 
         img_array = np.array(image.convert("RGB"))
@@ -121,7 +141,6 @@ class SegmentService:
             predictor.set_image(img_array)
 
             if mode == "box" and box:
-                # Box prompt: [x1, y1, x2, y2]
                 box_np = np.array(box, dtype=np.float32)
                 masks, scores, _ = predictor.predict(
                     box=box_np,
@@ -129,7 +148,6 @@ class SegmentService:
                 )
 
             elif mode == "points" and points:
-                # Point prompt
                 points_np = np.array(points, dtype=np.float32)
                 labels_np = np.array(
                     point_labels or [1] * len(points),
@@ -142,7 +160,6 @@ class SegmentService:
                 )
 
             else:
-                # Auto mode: generate grid of points
                 h, w = img_array.shape[:2]
                 grid_size = 16
                 x_points = np.linspace(0, w - 1, grid_size)
@@ -157,7 +174,6 @@ class SegmentService:
                     multimask_output=True,
                 )
 
-        # Convert masks to results
         result_masks = []
         for i in range(masks.shape[0]):
             mask = masks[i]
@@ -167,7 +183,6 @@ class SegmentService:
                 "percentage": round(float(mask.sum()) / (h * w) * 100, 2),
             })
 
-        # Sort by score descending
         result_masks.sort(key=lambda x: x["score"], reverse=True)
 
         return {

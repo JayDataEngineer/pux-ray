@@ -73,8 +73,8 @@ class NsfwService:
 
         # NudeNet classifier model from HuggingFace
         model_path = hf_hub_download(
-            "notpro/nudenet",
-            filename="nudenet_classifier.onnx",
+            "gqfwqgw/NudeNet_classifier_model",
+            filename="classifier_model.onnx",
         )
 
         self._session = ort.InferenceSession(model_path, providers=providers)

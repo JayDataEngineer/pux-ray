@@ -25,6 +25,10 @@ spec:
             - name: {{ $k }}
               value: {{ $v | quote }}
             {{- end }}
+          envFrom:
+            - secretRef:
+                name: shared-infra
+                optional: true
           volumeMounts:
             - name: models
               mountPath: {{ .Values.persistence.mountPath }}
