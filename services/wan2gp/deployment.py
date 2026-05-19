@@ -662,6 +662,14 @@ class Wan2GPService:
                 _anigen_pipeline_cls.device = property(
                     lambda self: torch.device("cuda"))
 
+            elif base_model_type == "see-through":
+                # Same device mismatch as anigen: mmgp keeps modules on CPU,
+                # nn.Parameter objects (self.params in layerdiff3d) stay on CPU
+                # while inputs are on CUDA.
+                _see_through_cls = type(model)
+                _see_through_cls.device = property(
+                    lambda self: torch.device("cuda"))
+
             elif base_model_type == "trellis":
                 # Trellis uses BiRefNet (rembg wrapper) for background removal.
                 # The wrapper (model.rembg) is not an nn.Module and not in the
@@ -768,7 +776,7 @@ class Wan2GPService:
                     _trellis_rembg_patch = True
             # bfloat16 autocast for models with bf16 weights from mmgp but
             # float32 input tensors (noise, conditioning, etc).
-            if base_model_type in ("trellis", "anigen"):
+            if base_model_type in ("trellis", "anigen", "see-through"):
                 with torch.amp.autocast("cuda", dtype=torch.bfloat16):
                     result = model.generate(**kwargs)
             else:
