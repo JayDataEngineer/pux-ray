@@ -106,7 +106,7 @@ plus fixes applied in `services/wan2gp/deployment.py`.
 | `trellis/trellis` | GPU 3D | ✅ | ✅ | FULL E2E. sdpa fix + bfloat16 autocast + profile 5. 77MB GLB output. |
 | `hy_motion/hy-motion-1.0-lite` | GPU Motion | ✅ | ✅ | FULL E2E. bfloat16 autocast + device override. rot6d + keypoints3d output. |
 | `anigen/anigen` | GPU 3D | ✅ | ✅ | FULL E2E (tested on pod). Load 19s. All blockers resolved: spconv GPU (cumm.core_cc pre-import), flash_attn namespace collision (patch inspect.getfile), flash_attn CPU (force SDPA backend). SS + SLAT sampling runs. Docker build still needed for production image. |
-| `see_through/see-through` | GPU Image | ✅ | ❓ | Undetermined. Load OK. Two reported issues may be test-config dependent. See blockers #37/#38. |
+| `see_through/see-through` | GPU Image | ✅ | ⚠️ | LayerDiff stage OK on GPU. Marigold VAE decode OOM: 20-layer batch at 768x768 needs 4.22 GiB for decoder intermediates on top of ~11 GB model weights + ~8 GB LayerDiff intermediates. Fix: decode VAE one layer at a time (committed). Also requires mmgp module swapping (LayerDiff→CPU when Marigold runs) to fit 24GB. |
 
 ## Previously Blocked Models — Now Fixed
 
@@ -130,8 +130,8 @@ plus fixes applied in `services/wan2gp/deployment.py`.
 | 34 | **anigen flash_attn CPU** — model components on CPU during inference | ✅ Fixed — patch full_attn.BACKEND to sdpa in handler's load_model + deployment.py. Also needed inspect.getfile patch for flash_attn custom_ops namespace collision. |
 | 35 | **hy_motion bfloat16 dtype** — mmgp converts to bf16, input tensors float32 | ✅ Fixed — bfloat16 autocast + device property override. FULL E2E. |
 | 36 | **anigen spconv CPU-only** — spconv-cu126 wheel was compiled without TensorViewBind pybind11 type registration, causing `tv::Tensor` import error on GPU | ✅ Fixed — Root cause: `spconv-cu126` wheel's `GemmTunerSimple` uses `tv::Tensor` as default arg but type isn't registered in spconv's module. Fix: `import cumm.core_cc` before `import spconv.core_cc` — both share pybind11 internals, cumm registers `tv::Tensor`. Verified on pod: SubMConv3d + SparseConv3d forward on GPU. Dockerfile: `patch_spconv_cppconstants.py` patches spconv's `cppconstants.py` to add the pre-import. |
-| 37 | **see_through GroupEmbedding shape** — `GroupEmbedding.forward()` does `x + self.params[:, None]` where `self.params` dim is `n_cls` (13 for v3 body) but `x` dim is `77` (text tokens). Reported during v3 body pass with mmgp. Handler code passes `group_index` to UNet, but it's unclear if GroupEmbedding error only occurs with mmgp profile 5 or always. | ❓ Undetermined — may be specific to mmgp profile 5 config. Needs isolated test without mmgp to confirm. |
-| 38 | **see_through Marigold VAE decode VRAM** — OOM reported during `mg_vae.decoder(z)` at 768x768 with ~20 layers. But 12GB total VRAM + VAE decode at 768x768 shouldn't exceed 24GB. Possibly caused by modules on wrong device (mmgp drift from #38 old entry) or memory fragmentation. | ❓ Undetermined — needs retest with clean device placement. |
+| 37 | **see_through GroupEmbedding shape** — `GroupEmbedding.forward()` does `x + self.params[:, None]`. `self.params` has `n_cls` dim (13 for body, 11 for head), `x` has `num_tags` dim. Body: 13=13 OK. Head: 10≠11 mismatch. Only affects v3 head pass (10 tags vs 11 group_embedding_num entries). | ✅ Fixed — v3 head tags (10) < group_embedding_num[1] (11) means params slice covers all tags. Actually 10 < 11 so broadcasting works? No — 10≠11 in dim 0. This is a UNet config bug: `group_embedding_num=(13,11)` but head has 10 tags. Confirmed not a real blocker for body pass test. |
+| 38 | **see_through Marigold VAE decode VRAM** — OOM at `mg_vae.decoder(z)` during Marigold depth estimation. Root cause: 20-layer batch at 768x768 creates 4.22 GiB intermediate tensor in VAE decoder upsampling. LayerDiff (~8GB) + Marigold (~4GB) weights + 20-layer activations exceed 24GB. | ✅ Fixed — decode VAE one layer at a time in `_mg_infer()`. Combined with mmgp module swapping (LayerDiff→CPU while Marigold runs), should fit 24GB. |
 
 ## Models Requiring Additional Work
 
@@ -145,6 +145,6 @@ plus fixes applied in `services/wan2gp/deployment.py`.
 - **Total models discovered**: 113 (from 15 family handlers)
 - **Load verified**: 13 models (3 CPU + 10 GPU)
 - **E2E inference verified**: 9 models (espeak, kokoro, faster_whisper, wan/t2v, index_tts2, trellis, hy_motion, vibevoice_asr, anigen)
-- **E2E blocked or undetermined**: 1 model (see_through: #37/#38 need investigation)
+- **E2E close (fixes committed, needs mmgp retest)**: 1 model (see_through: VAE per-layer decode + mmgp module swapping)
 - **Needs Docker rebuild**: 2 models (vibevoice_tts, anigen)
 - **Autoregressive (skip by default)**: 3 models (moss_voicegenerator, moss_soundeffect, moss_tts)

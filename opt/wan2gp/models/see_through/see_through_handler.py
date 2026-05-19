@@ -328,9 +328,14 @@ class _Pipeline:
 
         depth_latent = target_latent.to(device=self.mg_vae.device, dtype=self.mg_vae.dtype) / 0.18215
         z = self.mg_vae.post_quant_conv(depth_latent)
-        stacked = self.mg_vae.decoder(z)
-        depth = stacked.mean(dim=1, keepdim=False).clip(-1.0, 1.0)
-        return (depth + 1.0) / 2.0
+        # Decode one layer at a time to avoid OOM (20 layers * 4CH * 768*768 
+        # creates 4+ GiB intermediates in VAE decoder upsampling)
+        depths = []
+        for i in range(b):
+            zi = self.mg_vae.decoder(z[i:i+1])
+            depths.append(zi.mean(dim=1, keepdim=False).clip(-1.0, 1.0))
+        stacked = torch.stack(depths, dim=0)
+        return (stacked + 1.0) / 2.0
 
     def _stage_post(self, fullpage, layer_images, depth_maps):
         parts = []
