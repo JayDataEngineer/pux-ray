@@ -896,6 +896,19 @@ class Wan2GPService:
         _torch_hub_original = None
         _anigen_cleanup = None
         if base_model_type == "anigen":
+            # AniGen's attention modules default to flash_attn, which only
+            # works on CUDA tensors. mmgp offloads modules to CPU during
+            # generate(), causing flash_attn to fail. Patch the attention
+            # backend to sdpa which works on both CPU and CUDA.
+            try:
+                import anigen.modules.attention.full_attn as _anigen_full_attn
+                _anigen_full_attn.BACKEND = "sdpa"
+                # Need sdpa function available for the sdpa branch
+                from torch.nn.functional import scaled_dot_product_attention as _sdpa
+                if not hasattr(_anigen_full_attn, 'sdpa'):
+                    _anigen_full_attn.sdpa = _sdpa
+            except (ImportError, AttributeError):
+                pass
             import torch.hub as _torch_hub
             _torch_hub_original = _torch_hub._load_local
             _dsine_hub_dir = None
