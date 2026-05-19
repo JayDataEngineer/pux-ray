@@ -684,9 +684,9 @@ class Wan2GPService:
                     pass
 
             # Trellis handler converts flow models to bfloat16 for mmgp VRAM
-            # savings, but the sampler creates float32 noise/tensors. Wrap
-            # each flow model's forward call to autocast inputs to bfloat16
-            # so mixed-dtype matmul works (flash_attn needs bf16).
+            # savings, but the sampler creates float32 tensors and internal
+            # ops also produce float32. Wrap each flow model forward with
+            # autocast so mixed-dtype matmul works without affecting decoders.
             if base_model_type == "trellis":
                 _orig_forwards = {}
                 for k in ("ss_flow_model", "slat_flow_512", "slat_flow_1024",
@@ -696,9 +696,8 @@ class Wan2GPService:
                         _orig_forwards[k] = mod.forward
                         def _make_autocast(orig_fn):
                             def _wrapped(*args, **kwargs):
-                                args = tuple(a.to(torch.bfloat16) if isinstance(a, torch.Tensor) and a.is_floating_point() else a for a in args)
-                                kwargs = {k2: v.to(torch.bfloat16) if isinstance(v, torch.Tensor) and v.is_floating_point() else v for k2, v in kwargs.items()}
-                                return orig_fn(*args, **kwargs)
+                                with torch.amp.autocast("cuda", dtype=torch.bfloat16):
+                                    return orig_fn(*args, **kwargs)
                             return _wrapped
                         mod.forward = _make_autocast(mod.forward)
 
