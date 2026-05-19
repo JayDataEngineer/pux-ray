@@ -956,6 +956,8 @@ class Wan2GPService:
         # Pre-import the correct modules package so sys.modules is cached.
         _prev_modules = None
         if base_model_type == "see_through":
+            logger.info("see_through: fixing modules import, current sys.modules['modules']=%s",
+                        sys.modules.get("modules", "<missing>"))
             _prev_modules = sys.modules.pop("modules", None)
             # Temporarily remove wan model dirs from sys.path so dist-packages
             # modules/ is found first
