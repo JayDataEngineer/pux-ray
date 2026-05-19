@@ -685,6 +685,7 @@ class Wan2GPService:
                 # while self.params has shape [n_cls, dim]. Broadcast fails
                 # when batch != n_cls. Fix: average params across groups and
                 # broadcast as [1, 1, dim] which works for any batch/seq size.
+                # Also ensures params are on CUDA (mmgp leaves them on CPU).
                 _ld_unet = getattr(model, "ld_unet", None)
                 if _ld_unet is not None:
                     for _name, _mod in _ld_unet.named_modules():
@@ -694,7 +695,7 @@ class Wan2GPService:
                             _orig_params = _mod.params
                             _orig_linear = _mod.linear
                             _make_fwd = lambda p, l: (
-                                lambda x: l(x + p.mean(0))
+                                lambda x: l(x + p.to(x.device).mean(0))
                             )
                             _mod.forward = _make_fwd(
                                 _orig_params.data, _orig_linear)
