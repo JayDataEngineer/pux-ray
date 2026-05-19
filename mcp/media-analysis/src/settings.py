@@ -152,11 +152,11 @@ class Settings(BaseSettings):
     grounding_dino_enabled: bool | None = None
     grounding_dino_model: str = "IDEA-Research/grounding-dino-tiny"
 
-    # Qwen2.5-VL vision — visual reasoning via llama-cpp-python GGUF (4.68GB Q4_K_M, CPU-only)
+    # Gemma 4 E4B vision — visual reasoning via llama-cpp-python GGUF (Q4_K_M 5.34GB, CPU-only)
     phi4_vision_enabled: bool | None = None
-    phi4_vision_model: str = "ggml-org/Qwen2.5-VL-7B-Instruct-GGUF"
-    phi4_vision_filename: str = "Qwen2.5-VL-7B-Instruct-Q4_K_M.gguf"
-    phi4_vision_mmproj: str = "mmproj-Qwen2.5-VL-7B-Instruct-f16.gguf"
+    phi4_vision_model: str = "ggml-org/gemma-4-E4B-it-GGUF"
+    phi4_vision_filename: str = "gemma-4-E4B-it-Q4_K_M.gguf"
+    phi4_vision_mmproj: str = "mmproj-gemma-4-E4B-it-bf16.gguf"
     phi4_vision_n_threads: int = 8
 
     # Kosmos-2.5 — document OCR and markdown (1.3B, ~3-4GB VRAM)
