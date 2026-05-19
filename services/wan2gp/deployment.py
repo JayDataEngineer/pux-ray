@@ -681,20 +681,26 @@ class Wan2GPService:
                 except (ImportError, ModuleNotFoundError):
                     pass
 
-            # Trellis handler converts flow models to bfloat16 for mmgp VRAM
-            # savings, but the sampler creates float32 noise tensors that
-            # flash_attn rejects (needs fp16/bf16). Wrap generate() in
-            # bfloat16 autocast so float32 inputs are safely downcast.
-            _autocast_dtypes = {
-                "trellis": torch.bfloat16,
-                "hy_motion": torch.bfloat16,
-            }
-            if base_model_type in _autocast_dtypes:
-                _ac_dtype = _autocast_dtypes[base_model_type]
-                with torch.amp.autocast("cuda", dtype=_ac_dtype):
-                    result = model.generate(**kwargs)
-            else:
-                result = model.generate(**kwargs)
+            # Trellis: mmgp converts weights to bfloat16, but the sampler
+            # creates float32 noise tensors. flash_attn rejects float32.
+            # Fix: patch attention backend to sdpa which handles mixed dtype.
+            if base_model_type == "trellis":
+                try:
+                    import models.trellis.trellis2.modules.attention.config as _trellis_attn_cfg
+                    _trellis_attn_cfg.BACKEND = "sdpa"
+                except (ImportError, AttributeError):
+                    pass
+                try:
+                    _fa = sys.modules.get(
+                        "models.trellis.trellis2.modules.attention.full_attn")
+                    if _fa is not None:
+                        _fa.BACKEND = "sdpa"
+                        if not hasattr(_fa, 'sdpa'):
+                            from torch.nn.functional import scaled_dot_product_attention as _sdpa_fn
+                            _fa.sdpa = _sdpa_fn
+                except (ImportError, AttributeError):
+                    pass
+            result = model.generate(**kwargs)
 
             # If pipeline returns our custom format (status + data), pass through
             if isinstance(result, dict) and "status" in result:
