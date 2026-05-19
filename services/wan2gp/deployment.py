@@ -648,6 +648,12 @@ class Wan2GPService:
                     tmp.close()
                     kwargs["audio_guide"] = tmp.name
 
+            elif base_model_type in ("hy-motion-1.0-lite",):
+                # mmgp keeps motion_transformer on CPU; handler's device property
+                # returns parameter device = CPU, creating y0/t on CPU. Override.
+                _hy_cls = type(model)
+                _hy_cls.device = property(lambda self: torch.device("cuda"))
+
             elif base_model_type == "anigen":
                 # AniGen handler passes seed to np.random.seed() which requires
                 # uint32 range. Clamp any value to valid range.
