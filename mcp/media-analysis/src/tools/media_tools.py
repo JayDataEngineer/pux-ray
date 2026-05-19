@@ -433,7 +433,7 @@ async def phi4_vision(
 ) -> dict:
     """Analyze an image using advanced AI vision models with comprehensive understanding capabilities.
 
-    Uses Phi-4-multimodal for visual reasoning — describe, reason, and answer questions about images.
+    Uses Gemma 4 E4B (GGUF, IQ4_NL) for visual reasoning — describe, reason, and answer questions about images.
     More capable than Florence-2 for complex reasoning tasks, chart analysis, and multi-step visual understanding.
     """
     from ..services.phi4_vision_service import get_phi4_vision_service

@@ -230,6 +230,6 @@ if __name__ == "__main__":
     logger.info("Image tools: analyze_image, detect_objects, tag_image, extract_colors, read_barcodes, extract_exif, detect_faces, classify_nsfw, segment_image")
     logger.info("Audio tools: transcribe_audio, classify_audio, fingerprint_audio, diarize_audio")
     logger.info("Video tools: check_video, detect_scenes")
-    logger.info("Microsoft vision: detect_objects_text, phi4_vision, kosmos_ocr")
+    logger.info("Microsoft vision: detect_objects_text, phi4_vision (Gemma 4 E4B GGUF), kosmos_ocr")
 
     mcp.run(transport="http", host=host, port=port)

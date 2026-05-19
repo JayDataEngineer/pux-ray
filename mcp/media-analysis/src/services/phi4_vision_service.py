@@ -1,21 +1,16 @@
-"""Phi-4-multimodal service — visual reasoning via multimodal LLM.
+"""Gemma 4 E4B vision service — visual reasoning via llama-cpp-python GGUF.
 
-Uses microsoft/Phi-4-multimodal-instruct (5.6B params).
-Chat about images: describe, reason, answer questions about visual content.
-Falls back to eager attention on CPU (no flash-attn required).
+Uses unsloth/gemma-4-E4B-it-GGUF (IQ4_NL, 4.84GB) with mmproj vision encoder.
+Runs on CPU/DRAM only (n_gpu_layers=0). ~10-20 tok/s.
 """
 
 import asyncio
 import time
 from typing import Optional
 
-import httpx
-import io
-import base64
 from loguru import logger
-from PIL import Image
 
-from ..settings import get_settings, get_device
+from ..settings import get_settings
 
 
 class Phi4VisionService:
@@ -23,8 +18,7 @@ class Phi4VisionService:
     _instance = None
 
     def __init__(self):
-        self._model = None
-        self._processor = None
+        self._llm = None
         self._lock = asyncio.Lock()
         self._loaded = False
         self._load_error: Optional[str] = None
@@ -46,12 +40,12 @@ class Phi4VisionService:
                 raise RuntimeError("Phi-4 vision is disabled")
 
             try:
-                logger.info(f"Loading Phi-4 multimodal: {settings.phi4_vision_model}")
+                logger.info(f"Loading Gemma 4 vision: {settings.phi4_vision_model}")
                 start = time.time()
                 loop = asyncio.get_event_loop()
                 await loop.run_in_executor(None, self._load_model_sync)
                 elapsed = time.time() - start
-                logger.info(f"Phi-4 multimodal loaded in {elapsed:.1f}s (device={get_device()})")
+                logger.info(f"Gemma 4 vision loaded in {elapsed:.1f}s")
                 self._loaded = True
 
                 from .idle_watcher import get_idle_watcher
@@ -60,32 +54,25 @@ class Phi4VisionService:
             except Exception as e:
                 self._load_error = str(e)
                 self._loaded = True
-                logger.error(f"Failed to load Phi-4 multimodal: {e}")
+                logger.error(f"Failed to load Gemma 4 vision: {e}")
                 raise
 
     def _load_model_sync(self) -> None:
-        import torch
-        from transformers import AutoModelForCausalLM, AutoProcessor, GenerationConfig
+        from llama_cpp import Llama
 
         settings = get_settings()
-        device = get_device()
-        attn = "flash_attention_2" if device == "cuda" else "eager"
+        n_threads = settings.phi4_vision_n_threads
 
-        self._processor = AutoProcessor.from_pretrained(
-            settings.phi4_vision_model,
-            trust_remote_code=True,
+        self._llm = Llama.from_pretrained(
+            repo_id=settings.phi4_vision_model,
+            filename=settings.phi4_vision_filename,
+            mmproj=settings.phi4_vision_mmproj,
+            n_gpu_layers=0,
+            n_ctx=4096,
+            n_threads=n_threads,
+            n_threads_batch=n_threads,
+            verbose=False,
         )
-        self._model = AutoModelForCausalLM.from_pretrained(
-            settings.phi4_vision_model,
-            device_map=device if device == "cuda" else None,
-            torch_dtype=torch.float16 if device == "cuda" else torch.float32,
-            trust_remote_code=True,
-            _attn_implementation=attn,
-        )
-        if device == "cpu":
-            self._model = self._model.to("cpu")
-        self._model.eval()
-        self._generation_config = GenerationConfig.from_pretrained(settings.phi4_vision_model)
 
     async def chat(
         self,
@@ -99,79 +86,59 @@ class Phi4VisionService:
         from .idle_watcher import get_idle_watcher
         get_idle_watcher().touch("phi4_vision")
 
-        try:
-            image = await self._load_image(image_url, image_base64)
-        except Exception as e:
-            return {"success": False, "error": f"Failed to load image: {str(e)[:200]}"}
+        if not image_url and not image_base64:
+            return {"success": False, "error": "Either image_url or image_base64 must be provided"}
+
+        image_input = image_url
+        if not image_input and image_base64:
+            image_input = f"data:image/png;base64,{image_base64}"
 
         async with self._lock:
             try:
                 loop = asyncio.get_event_loop()
                 result = await asyncio.wait_for(
                     loop.run_in_executor(
-                        None, self._infer_sync, image, prompt, max_new_tokens
+                        None, self._infer_sync, image_input, prompt, max_new_tokens
                     ),
-                    timeout=120.0,
+                    timeout=300.0,
                 )
                 return {"success": True, "response": result}
 
             except asyncio.TimeoutError:
-                return {"success": False, "error": "Inference timed out after 120s"}
+                return {"success": False, "error": "Inference timed out after 300s"}
             except Exception as e:
-                logger.error(f"Phi-4 vision inference error: {e}")
+                logger.error(f"Gemma 4 vision inference error: {e}")
                 return {"success": False, "error": f"Inference error: {str(e)[:200]}"}
 
-    def _infer_sync(self, image: Image.Image, prompt: str, max_new_tokens: int) -> str:
-        import torch
+    def _infer_sync(self, image_input: str, prompt: str, max_new_tokens: int) -> str:
+        messages = [
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": prompt},
+                    {
+                        "type": "image_url",
+                        "image_url": {"url": image_input},
+                    },
+                ],
+            }
+        ]
 
-        user_prompt = "<|user|>"
-        assistant_prompt = "<|assistant|)"
-        prompt_suffix = "<|end|>"
-
-        full_prompt = f"{user_prompt}<|image_1|>{prompt}{prompt_suffix}{assistant_prompt}"
-
-        inputs = self._processor(
-            text=full_prompt,
-            images=image,
-            return_tensors="pt",
-        ).to(self._model.device)
-
-        generate_ids = self._model.generate(
-            **inputs,
-            max_new_tokens=max_new_tokens,
-            generation_config=self._generation_config,
+        response = self._llm.create_chat_completion(
+            messages=messages,
+            max_tokens=max_new_tokens,
+            temperature=1.0,
+            top_p=0.95,
         )
-        generate_ids = generate_ids[:, inputs["input_ids"].shape[1]:]
 
-        response = self._processor.batch_decode(
-            generate_ids, skip_special_tokens=True, clean_up_tokenization_spaces=False
-        )[0]
-        return response
-
-    async def _load_image(self, image_url: str | None, image_base64: str | None) -> Image.Image:
-        if image_url:
-            async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
-                response = await client.get(image_url, headers={"User-Agent": "MediaAnalysis/1.0"})
-                response.raise_for_status()
-            image = Image.open(io.BytesIO(response.content))
-            image.load()
-            return image
-        elif image_base64:
-            data = base64.b64decode(image_base64)
-            image = Image.open(io.BytesIO(data))
-            image.load()
-            return image
-        else:
-            raise ValueError("Either image_url or image_base64 must be provided")
+        return response["choices"][0]["message"]["content"]
 
     async def close(self) -> None:
-        if self._model is not None:
-            del self._model
-            del self._processor
-            self._model = None
-            self._processor = None
+        if self._llm is not None:
+            del self._llm
+            self._llm = None
             self._loaded = False
-            logger.info("Phi-4 multimodal unloaded")
+            logger.info("Gemma 4 vision unloaded")
 
 
 _phi4_vision_service: Phi4VisionService | None = None

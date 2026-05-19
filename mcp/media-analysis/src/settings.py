@@ -152,9 +152,12 @@ class Settings(BaseSettings):
     grounding_dino_enabled: bool | None = None
     grounding_dino_model: str = "IDEA-Research/grounding-dino-tiny"
 
-    # Phi-4 multimodal — visual reasoning LLM (5.6B, ~12GB FP16 / ~6GB INT8)
+    # Gemma 4 E4B vision — visual reasoning via llama-cpp-python GGUF (4.84GB IQ4_NL, CPU-only)
     phi4_vision_enabled: bool | None = None
-    phi4_vision_model: str = "microsoft/Phi-4-multimodal-instruct"
+    phi4_vision_model: str = "unsloth/gemma-4-E4B-it-GGUF"
+    phi4_vision_filename: str = "gemma-4-E4B-it-IQ4_NL.gguf"
+    phi4_vision_mmproj: str = "mmproj-BF16.gguf"
+    phi4_vision_n_threads: int = 8
 
     # Kosmos-2.5 — document OCR and markdown (1.3B, ~3-4GB VRAM)
     kosmos_enabled: bool | None = None

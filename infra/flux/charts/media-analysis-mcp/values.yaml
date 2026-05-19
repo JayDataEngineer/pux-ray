@@ -9,7 +9,8 @@ env:
   MEDIA_HOST: "0.0.0.0"
   MEDIA_PORT: "8001"
   MEDIA_DEVICE: cpu
-  MEDIA_PROFILE: standard
+  MEDIA_PROFILE: full
+  MEDIA_PHI4_VISION_ENABLED: "true"
   MEDIA_IDLE_TIMEOUT: "1800"
   MEDIA_ROUTER_ENABLED: "false"
 
@@ -24,14 +25,18 @@ resources:
   requests:
     memory: 2Gi
   limits:
-    memory: 4Gi
+    memory: 16Gi
 
 probes:
   readiness:
     port: 8001
     initialDelaySeconds: 10
     periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 6
   liveness:
     port: 8001
     initialDelaySeconds: 30
     periodSeconds: 30
+    timeoutSeconds: 10
+    failureThreshold: 3
