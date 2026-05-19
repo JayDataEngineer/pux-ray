@@ -779,7 +779,7 @@ class Wan2GPService:
                     _trellis_rembg_patch = True
             # bfloat16 autocast for models with bf16 weights from mmgp but
             # float32 input tensors (noise, conditioning, etc).
-            if base_model_type in ("trellis", "anigen", "see-through"):
+            if base_model_type in ("trellis", "anigen", "see-through", "hy-motion-1.0-lite"):
                 with torch.amp.autocast("cuda", dtype=torch.bfloat16):
                     result = model.generate(**kwargs)
             else:
