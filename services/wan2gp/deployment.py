@@ -1277,6 +1277,13 @@ class Wan2GPService:
                 continue
             if not hasattr(v, "_model_dtype"):
                 v._model_dtype = target_dtype
+            # Pre-convert float32 params to bfloat16 so mmgp's dtype
+            # assertion passes. mmgp's own conversion only handles the
+            # case where ALL params are float32, but some models have a
+            # mix of float32 + bfloat16 from partial quantization.
+            for p in v.parameters():
+                if p.data.dtype == torch.float32:
+                    p.data = p.data.to(target_dtype)
 
         n_modules = sum(1 for v in pipe.values()
                         if isinstance(v, torch.nn.Module))
