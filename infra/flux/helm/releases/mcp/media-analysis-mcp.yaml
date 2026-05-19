@@ -18,8 +18,13 @@ spec:
       tag: latest
     persistence:
       existingClaim: media-models
+    env:
+      MEDIA_PROFILE: full
+      MEDIA_PHI4_VISION_ENABLED: "true"
+      MEDIA_IDLE_TIMEOUT: "1800"
+      MEDIA_ROUTER_ENABLED: "false"
     resources:
       requests:
         memory: 2Gi
       limits:
-        memory: 4Gi
+        memory: 16Gi
