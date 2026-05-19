@@ -1318,7 +1318,10 @@ class Wan2GPService:
         # aggressive mmgp profile — profile 5 does no RAM pinning and swaps
         # modules to GPU one at a time. Simpler models (wan, hunyuan) can use
         # profile 4 which pins the transformer for speed.
-        if n_modules > 4:
+        # Exception: see_through needs profile 4 because profile 5 causes
+        # cascading device mismatches in its deeply nested UNet submodules
+        # (GroupEmbedding, timestep_encoder, etc.).
+        if n_modules > 4 and base_model_type not in ("see-through",):
             profile = MMGP_PROFILES["minimum"]
             budgets_override = {"*": 2000}
         else:
