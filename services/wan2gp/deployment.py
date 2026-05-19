@@ -707,20 +707,20 @@ class Wan2GPService:
                 # Patch rembg to float() before ToPILImage
                 rembg_wrapper = getattr(model, "rembg", None)
                 if rembg_wrapper is not None:
-                    _orig_rembg_call = rembg_wrapper.__call__
-                    def _rembg_call_bf16_safe(image, _orig=_orig_rembg_call):
-                        from PIL import Image as PILImage
+                    import types
+                    _orig_rembg_call = rembg_wrapper.__class__.__call__
+                    def _rembg_call_bf16_safe(self_rembg, image, _orig=_orig_rembg_call):
                         import torchvision.transforms as transforms
                         image_size = image.size
-                        input_images = rembg_wrapper.transform_image(image).unsqueeze(0).to("cuda")
+                        input_images = self_rembg.transform_image(image).unsqueeze(0).to("cuda")
                         with torch.no_grad():
-                            preds = rembg_wrapper.model(input_images)[-1].sigmoid().cpu()
+                            preds = self_rembg.model(input_images)[-1].sigmoid().cpu()
                         pred = preds[0].squeeze().float()
                         pred_pil = transforms.ToPILImage()(pred)
                         mask = pred_pil.resize(image_size)
                         image.putalpha(mask)
                         return image
-                    rembg_wrapper.__call__ = _rembg_call_bf16_safe
+                    rembg_wrapper.__class__.__call__ = _rembg_call_bf16_safe
                     _trellis_rembg_patch = True
             # Trellis: wrap in bfloat16 autocast to handle float32 sampler
             # inputs mixing with bfloat16 mmgp weights. Rembg is patched
