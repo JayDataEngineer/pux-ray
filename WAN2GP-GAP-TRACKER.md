@@ -104,9 +104,10 @@ plus fixes applied in `services/wan2gp/deployment.py`.
 | `tts/index_tts2` | GPU TTS | ✅ | ✅ | LOAD_OK. Generates audio output. Payload mapping: text→input_prompt, audio_b64→temp WAV→audio_guide. |
 | `vibevoice_tts/vibevoice-tts` | GPU TTS | ✅* | — | LOAD_OK in isolation. Needs Docker rebuild for vibevoice module. |
 | `vibevoice_asr/vibevoice-asr` | GPU ASR | ✅* | — | Same as vibevoice_tts. |
-| `trellis/trellis` | GPU 3D | ✅ | ⚠️ | LOAD_OK. All dtype errors fixed (#31). VRAM OOM during mmgp module swap. |
-| `anigen/anigen` | GPU 3D | ✅ | ⚠️ | LOAD_OK (45s). sdpa attention fix (#34). VRAM OOM during inference. |
-| `see_through/see-through` | GPU Image | ✅ | ⚠️ | LOAD_OK. Import collision fixed (#33). VRAM OOM during inference. |
+| `trellis/trellis` | GPU 3D | ✅ | ✅ | FULL E2E. sdpa fix + bfloat16 autocast + profile 5. 77MB GLB output. |
+| `anigen/anigen` | GPU 3D | ✅ | 🔧 | LOAD_OK. SS sampling passes. SLAT blocked by spconv CPU-only build (Docker fix pending). |
+| `see_through/see-through` | GPU Image | ✅ | 🔧 | LOAD_OK. Device+dtype fixed. Infer blocked: GroupEmbedding shape mismatch (handler-level issue). |
+| `hy_motion/hy-motion-1.0-lite` | GPU Motion | ✅ | ✅ | FULL E2E. bfloat16 autocast + device override. rot6d + keypoints3d output. |
 
 *✅ = verified in manual kubectl exec testing; needs Docker rebuild for vibevoice
 
@@ -125,11 +126,14 @@ plus fixes applied in `services/wan2gp/deployment.py`.
 |---|---------|--------|--------|
 | 29 | **mmgp VRAM leak** — offloadobj never captured, release() never called | ✅ Fixed — verified sequential wan/t2v→espeak→wan/t2v, final VRAM 9MB |
 | 30 | **index_tts2 generate() payload mapping** | ✅ Fixed — text→input_prompt, audio_b64→temp WAV→audio_guide. Generates audio. |
-| 31 | **trellis dtype cascade** — handler bfloat16 conflicts with float32 sampler | ✅ Fixed — sdpa attention + bfloat16 autocast + rembg bf16→float32. All dtype errors resolved. VRAM OOM blocks inference (6 flow models = 15GB > available GPU). |
+| 31 | **trellis dtype cascade** — handler bfloat16 conflicts with float32 sampler | ✅ Fixed — sdpa attention + bfloat16 autocast + rembg bf16→float32. FULL E2E: 77MB GLB output. |
 | 32 | **anigen import collision** — DSINE namespace pkg vs wan2gp regular pkg | ✅ Fixed — temp dir with __init__.py + sys.path isolation. Load: 45s |
 | 33 | **see_through import collision** — relative import fails during handler import | ✅ Fixed — pre-import correct modules, keep /opt/seethrough/common first in sys.path during load |
 | 34 | **anigen flash_attn CPU** — model components on CPU during inference | ✅ Fixed — patch full_attn.BACKEND to sdpa (handles CPU+CUDA) |
-| 35 | **VRAM ceiling** — trellis/anigen/see_through/hy_motion all OOM during inference | ⚠️ Infrastructure — 24GB RTX 4090 insufficient for mmgp module swapping with these models. Code fixes all work; models need more VRAM or different mmgp profile. |
+| 35 | **hy_motion bfloat16 dtype** — mmgp converts to bf16, input tensors float32 | ✅ Fixed — bfloat16 autocast + device property override. FULL E2E. |
+| 36 | **anigen spconv CPU-only** — spconv-cu126 was replaced by plain spconv during Docker build | 🔧 Fix committed — Dockerfile: moved cumm-cu126/spconv-cu126 to LAST pip install with --no-deps --force-reinstall. Needs rebuild. |
+| 37 | **see_through GroupEmbedding shape** — handler creates 77-token text embeds but UNet expects group-conditioned (n_cls=13) input | ⚠️ Handler-level issue — GroupEmbedding.forward() does `x + self.params[:, None]` where dims don't match (77 vs 13). Needs handler code investigation. |
+| 38 | **mmgp module device drift** — mmgp profile 5 moves modules back to CPU after forward; GroupEmbedding.params stays on CPU | 🔧 Partial — forward pre-hook registered but see_through has deeper issue (#37). Device override + autocast work for trellis/anigen/hy_motion. |
 
 ## Models Requiring Additional Work
 
@@ -142,8 +146,7 @@ plus fixes applied in `services/wan2gp/deployment.py`.
 
 - **Total models discovered**: 113 (from 15 family handlers)
 - **Load verified**: 13 models (3 CPU + 10 GPU)
-- **E2E inference verified**: 5 models (espeak, kokoro, faster_whisper, wan/t2v, index_tts2)
-- **E2E blocked by VRAM ceiling (#35)**: 4 models (hy_motion, trellis, anigen, see_through)
-- **Needs Docker rebuild**: 2 models (vibevoice_tts, vibevoice_asr)
-- **Needs Docker rebuild**: 2 models (vibevoice_tts, vibevoice_asr)
+- **E2E inference verified**: 7 models (espeak, kokoro, faster_whisper, wan/t2v, index_tts2, trellis, hy_motion)
+- **E2E blocked by code**: 2 models (see_through: GroupEmbedding shape, anigen: spconv rebuild needed)
+- **Needs Docker rebuild**: 3 models (vibevoice_tts, vibevoice_asr, anigen)
 - **Autoregressive (skip by default)**: 3 models (moss_voicegenerator, moss_soundeffect, moss_tts)
