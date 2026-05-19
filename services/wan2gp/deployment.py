@@ -648,8 +648,9 @@ class Wan2GPService:
 
             elif base_model_type == "anigen":
                 # AniGen handler passes seed to np.random.seed() which requires
-                # uint32 range. Default to a valid seed if not provided.
-                if "seed" not in kwargs:
+                # uint32 range. Clamp any value to valid range.
+                seed = kwargs.get("seed", -1)
+                if seed < 0 or seed >= 2**32:
                     import random
                     kwargs["seed"] = random.randint(0, 2**32 - 1)
 
@@ -1070,6 +1071,8 @@ class Wan2GPService:
                         rel = Path(folder) / fname if folder else Path(fname)
                         local = ckpts_base / rel
                         if local.exists():
+                            continue
+                        if model_path and (model_path / fname).exists():
                             continue
                         try:
                             hf_hub_download(
