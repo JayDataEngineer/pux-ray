@@ -912,6 +912,9 @@ class Wan2GPService:
                         if model_name_rel:
                             abs_model = (pj / model_name_rel).resolve()
                             ic_model = DinoV3FeatureExtractor(model_name=str(abs_model))
+                            # Match mmgp pipe dtype so matmul doesn't fail
+                            if hasattr(ic_model, "to"):
+                                ic_model.to(torch.bfloat16)
                             pipeline.m["image_cond"] = ic_model
                             logger.info("Injected image_cond into trellis pipeline from %s", abs_model)
                 except Exception as e:
