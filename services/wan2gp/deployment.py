@@ -890,11 +890,12 @@ class Wan2GPService:
         # AniGen's DSINE hub module does `from models import dsine` inside
         # torch.hub.load(). By that point wan2gp's 'models' package is cached
         # in sys.modules. DSINE's models/ is a namespace package (no __init__.py)
-        # so Python's regular-package-first resolution skips it. Fix: temporarily
-        # remove /opt/wan2gp from sys.path and delete sys.modules["models"] so
-        # Python finds DSINE's namespace package instead.
+        # so Python's regular-package-first resolution skips it in favor of
+        # wan2gp's. Fix: create a temp dir with a proper models/ package (with
+        # __init__.py), remove /opt/wan2gp from sys.path, and add both the temp
+        # dir and DSINE hub dir so Python finds DSINE's models first.
         _torch_hub_original = None
-        _wan2gp_path_idx = None
+        _anigen_cleanup = None
         if base_model_type == "anigen":
             import torch.hub as _torch_hub
             _torch_hub_original = _torch_hub._load_local
@@ -903,29 +904,43 @@ class Wan2GPService:
                 _dsine_hub_dir = str(hub_dir)
                 break
             if _dsine_hub_dir:
+                import tempfile, shutil
+                _dsine_src = os.path.join(_dsine_hub_dir, "models")
+                _tmp_dir = tempfile.mkdtemp()
+                _tmp_models = os.path.join(_tmp_dir, "models")
+                os.makedirs(_tmp_models)
+                with open(os.path.join(_tmp_models, "__init__.py"), "w") as _f:
+                    pass
+                for _fname in os.listdir(_dsine_src):
+                    _src = os.path.join(_dsine_src, _fname)
+                    if os.path.isfile(_src):
+                        shutil.copy2(_src, os.path.join(_tmp_models, _fname))
+                _wan2gp_path_idx = None
                 try:
                     _wan2gp_path_idx = sys.path.index("/opt/wan2gp")
                 except ValueError:
-                    _wan2gp_path_idx = None
+                    pass
                 def _patched_load_local(repo_or_dir, model, *args, **kwargs):
                     _prev_models = sys.modules.pop("models", None)
-                    _removed_path = None
+                    _removed_wan2gp = None
                     if _wan2gp_path_idx is not None:
-                        _removed_path = sys.path.pop(_wan2gp_path_idx)
-                    if _dsine_hub_dir not in sys.path:
-                        sys.path.insert(0, _dsine_hub_dir)
+                        _removed_wan2gp = sys.path.pop(_wan2gp_path_idx)
+                    sys.path.insert(0, _dsine_hub_dir)
+                    sys.path.insert(0, _tmp_dir)
                     try:
                         return _torch_hub_original(repo_or_dir, model, *args, **kwargs)
                     finally:
-                        if _dsine_hub_dir in sys.path:
-                            sys.path.remove(_dsine_hub_dir)
-                        if _removed_path is not None:
-                            sys.path.insert(_wan2gp_path_idx, _removed_path)
+                        for _p in (_tmp_dir, _dsine_hub_dir):
+                            if _p in sys.path:
+                                sys.path.remove(_p)
+                        if _removed_wan2gp is not None:
+                            sys.path.insert(_wan2gp_path_idx, _removed_wan2gp)
                         if _prev_models is not None:
                             sys.modules["models"] = _prev_models
                         elif "models" in sys.modules:
                             del sys.modules["models"]
                 _torch_hub._load_local = _patched_load_local
+                _anigen_cleanup = _tmp_dir
 
         try:
             pipeline, pipe_wrapper = handler.load_model(
@@ -942,6 +957,9 @@ class Wan2GPService:
             if _torch_hub_original is not None:
                 import torch.hub as _torch_hub
                 _torch_hub._load_local = _torch_hub_original
+            if _anigen_cleanup is not None:
+                import shutil
+                shutil.rmtree(_anigen_cleanup, ignore_errors=True)
 
         pipe, co_tenants = self._unwrap_pipe(pipe_wrapper)
 
