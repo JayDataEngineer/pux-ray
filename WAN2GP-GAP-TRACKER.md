@@ -86,7 +86,7 @@ plus fixes applied in `services/wan2gp/deployment.py`.
 | 29 | **mmgp VRAM leak on sequential unload**: After model unload, rogue processes hold 19.93 GiB on GPU. `offload.flush_torch_caches()` creates a dummy 1GB embedding which itself leaks. Cascading OOM kills all subsequent model tests. | ✅ Fixed | `unload()` + `_apply_mmgp_profile` | Root cause: `offload.profile()` return value (offloadobj) was discarded — `self._offload` was always `None`, so `release()` never ran. Fix: capture offloadobj, save as `self._offload`, call `release()` in `unload()`. Move modules to CPU, clear `shared_state["_cache"]`. Verified: wan/t2v → espeak → wan/t2v sequential loads all pass, final VRAM 9 MB. |
 | 30 | **index_tts2 generate() missing positional args**: `generate()` expects `input_prompt`, `model_mode`, `audio_guide` but `_build_generate_kwargs` doesn't map `text`→`input_prompt` or `audio_b64`→`audio_guide` for this handler | ✅ Fixed | `infer()` payload mapping | Added handler-specific remapping: `text`→`input_prompt`, `audio_b64`→decode to temp WAV file→`audio_guide` path, default `model_mode=None`. Verified: index_tts2 generates audio output. |
 | 31 | **trellis RMBG dtype mismatch**: BiRefNet background removal has weights on CPU but input tensor on CUDA — `Input type (torch.cuda.FloatTensor) and weight type (torch.FloatTensor)` | 🔧 Partial | `infer()` + `_load_model` | RMBG device fix works (inner model moved to CUDA). DINOv3 image_cond injected. But handler's bfloat16 conversion conflicts with float32 sampler tensors — cascading dtype errors (Float/BFloat16 mismatch, unsupported ScalarType). Needs handler source fix to use consistent dtype throughout pipeline. |
-| 32 | **anigen import collision**: `from models import dsine` resolves to `/opt/wan2gp/models/ltx_video/models/__init__.py` instead of anigen's DSINE hub module | 🔧 Fix applied | `infer()` sys.path fix | Before anigen generate(), prepend anigen directory to sys.path so `dsine` resolves to the anigen-internal module. |
+| 32 | **anigen import collision**: `from models import dsine` resolves to `/opt/wan2gp/models/ltx_video/models/__init__.py` instead of anigen's DSINE hub module | ✅ Fixed | `_load_model` torch.hub patch | Root cause: DSINE's `models/` is a namespace package (no `__init__.py`), Python prefers wan2gp's regular package. Fix: patch `torch.hub._load_local` to create temp dir with `__init__.py` for both `models/` and `utils/`, remove `/opt/wan2gp` from sys.path, clear `sys.modules["models"]` and `sys.modules["utils"]` during DSINE load. Load verified: 45s. Inference fails separately (flash_attn CPU backend). |
 | 33 | **see_through import collision**: Relative import `from ..multitalk.multitalk_utils` fails because wan modules/__init__.py is triggered during see_through handler import | 🔧 Fix applied | `infer()` pre-import | Before see_through generate(), force-import `models.wan.multitalk.multitalk_utils` to ensure the relative import chain resolves correctly. |
 
 ## Verified Working Models
@@ -101,11 +101,11 @@ plus fixes applied in `services/wan2gp/deployment.py`.
 | `moss/moss-soundeffect` | GPU Audio | ✅ | — | LOAD_OK. Autoregressive (170min). |
 | `moss/moss-tts` | GPU Audio | ✅ | — | LOAD_OK. Autoregressive. |
 | `hy_motion/hy-motion-1.0-lite` | GPU Motion | ✅ | — | LOAD_OK in isolation. OOM in sequential tests (VRAM leak #29). |
-| `tts/index_tts2` | GPU TTS | ✅ | ❌ | LOAD_OK. Infer fails: missing positional args (#30). |
+| `tts/index_tts2` | GPU TTS | ✅ | ✅ | LOAD_OK. Generates audio output. Payload mapping: text→input_prompt, audio_b64→temp WAV→audio_guide. |
 | `vibevoice_tts/vibevoice-tts` | GPU TTS | ✅* | — | LOAD_OK in isolation. Fails in current image (no vibevoice module). |
 | `vibevoice_asr/vibevoice-asr` | GPU ASR | ✅* | — | Same as vibevoice_tts. |
 | `trellis/trellis` | GPU 3D | ✅ | ❌ | LOAD_OK. Infer fails: RMBG dtype mismatch (#31). |
-| `anigen/anigen` | GPU 3D | ✅ | ❌ | LOAD_OK in isolation. Infer fails: import collision (#32). |
+| `anigen/anigen` | GPU 3D | ✅ | ❌ | LOAD_OK (45s). Infer fails: flash_attn CPU backend (separate from #32). |
 | `see_through/see-through` | GPU Image | ✅ | ❌ | LOAD_OK in isolation. Infer fails: import collision (#33). |
 
 *✅ = verified in manual kubectl exec testing; fails in current Docker image (needs rebuild for vibevoice)
@@ -121,13 +121,14 @@ plus fixes applied in `services/wan2gp/deployment.py`.
 
 ## Active Blockers (E2E Inference)
 
-| # | Blocker | Impact | Priority |
-|---|---------|--------|----------|
-| 29 | **mmgp VRAM leak** — offloadobj never captured, release() never called | 🔧 Fix applied — needs testing on cluster | ~~Critical~~ → Testing |
-| 30 | **index_tts2 generate() payload mapping** | 🔧 Fix applied — text→input_prompt, audio_b64→temp file | ~~Medium~~ → Testing |
-| 31 | **trellis RMBG dtype mismatch** | 🔧 Fix applied — rembg module moved to CUDA before generate | ~~Medium~~ → Testing |
-| 32 | **anigen import collision** | 🔧 Fix applied — sys.path prepend for anigen dir | ~~Low~~ → Testing |
-| 33 | **see_through import collision** | 🔧 Fix applied — pre-import multitalk_utils | ~~Low~~ → Testing |
+| # | Blocker | Impact | Status |
+|---|---------|--------|--------|
+| 29 | **mmgp VRAM leak** — offloadobj never captured, release() never called | ✅ Fixed — verified sequential wan/t2v→espeak→wan/t2v, final VRAM 9MB |
+| 30 | **index_tts2 generate() payload mapping** | ✅ Fixed — text→input_prompt, audio_b64→temp WAV→audio_guide. Generates audio. |
+| 31 | **trellis dtype cascade** — handler bfloat16 conflicts with float32 sampler | 🔧 Partial — RMBG + image_cond fixed, dtype mismatch remains |
+| 32 | **anigen import collision** — DSINE namespace pkg vs wan2gp regular pkg | ✅ Fixed — temp dir with __init__.py + sys.path isolation. Load: 45s |
+| 33 | **see_through import collision** — relative import fails during handler import | 🔧 Fix applied — pre-import multitalk_utils, untested |
+| 34 | **anigen flash_attn CPU** — model components on CPU during inference | ❌ New — flash_attn_forward called with CPU tensors |
 
 ## Models Requiring Additional Work
 

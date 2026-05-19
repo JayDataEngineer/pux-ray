@@ -950,6 +950,36 @@ class Wan2GPService:
                 _torch_hub._load_local = _patched_load_local
                 _anigen_cleanup = _tmp_dir
 
+        # See-Through's handler does `from modules.layerdiffuse...` but
+        # _ensure_vendor_path() added /opt/wan2gp/models/wan/ to sys.path
+        # which shadows the dist-packages modules/ that has layerdiffuse/.
+        # Pre-import the correct modules package so sys.modules is cached.
+        _prev_modules = None
+        if base_model_type == "see_through" and "modules" not in sys.modules:
+            try:
+                _dist_modules = importlib.import_module("modules")
+                # Verify it has layerdiffuse (dist-packages version)
+                if hasattr(_dist_modules, "__path__"):
+                    _prev_modules = sys.modules.get("modules")
+                    sys.modules["modules"] = _dist_modules
+            except ImportError:
+                pass
+        elif base_model_type == "see_through":
+            _prev_modules = sys.modules.get("modules")
+            # The cached modules might be wan's version — reload from dist-packages
+            _wan_paths = [p for p in sys.path
+                          if p.startswith("/opt/wan2gp/models/") and p != "/opt/wan2gp"]
+            for _wp in _wan_paths:
+                sys.path.remove(_wp)
+            try:
+                _dist_modules = importlib.import_module("modules")
+                sys.modules["modules"] = _dist_modules
+            except ImportError:
+                pass
+            finally:
+                for _wp in _wan_paths:
+                    sys.path.insert(0, _wp)
+
         try:
             pipeline, pipe_wrapper = handler.load_model(
             model_filename, model_type, base_model_type, model_def,
@@ -968,6 +998,8 @@ class Wan2GPService:
             if _anigen_cleanup is not None:
                 import shutil
                 shutil.rmtree(_anigen_cleanup, ignore_errors=True)
+            if _prev_modules is not None:
+                sys.modules["modules"] = _prev_modules
 
         pipe, co_tenants = self._unwrap_pipe(pipe_wrapper)
 
