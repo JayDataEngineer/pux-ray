@@ -699,9 +699,9 @@ class Wan2GPService:
                         "models.trellis.trellis2.modules.attention.full_attn")
                     if _fa is not None:
                         _fa.BACKEND = "sdpa"
-                        if not hasattr(_fa, 'sdpa'):
+                        if 'sdpa' not in _fa.__dict__:
                             from torch.nn.functional import scaled_dot_product_attention as _sdpa_fn
-                            _fa.sdpa = _sdpa_fn
+                            _fa.__dict__['sdpa'] = _sdpa_fn
                 except (ImportError, AttributeError):
                     pass
                 # Patch rembg to float() before ToPILImage
