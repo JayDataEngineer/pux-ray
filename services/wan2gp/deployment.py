@@ -684,9 +684,11 @@ class Wan2GPService:
                     pass
 
             # Trellis flow sampler creates float32 tensors for bfloat16 models.
-            # Wrap in autocast so mixed-dtype matmul works automatically.
+            # Use autocast to handle mixed-dtype matmul. Float32 autocast
+            # allows bfloat16 weights to participate in float32 ops without
+            # the "unsupported ScalarType BFloat16" error that spconv hits.
             if base_model_type == "trellis":
-                with torch.autocast("cuda", dtype=torch.bfloat16):
+                with torch.amp.autocast("cuda", dtype=torch.float32, enabled=True):
                     result = model.generate(**kwargs)
             else:
                 result = model.generate(**kwargs)
