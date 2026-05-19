@@ -157,7 +157,7 @@ class Settings(BaseSettings):
     phi4_vision_model: str = "ggml-org/gemma-4-E4B-it-GGUF"
     phi4_vision_filename: str = "gemma-4-E4B-it-Q4_K_M.gguf"
     phi4_vision_mmproj: str = "mmproj-gemma-4-E4B-it-bf16.gguf"
-    phi4_vision_n_threads: int = 8
+    phi4_vision_n_threads: int = 8  # sweet spot for GGUF on CPU; env overrides
 
     # Kosmos-2.5 — document OCR and markdown (1.3B, ~3-4GB VRAM)
     kosmos_enabled: bool | None = None

@@ -127,7 +127,7 @@ class Phi4VisionService:
         from huggingface_hub import hf_hub_download
 
         settings = get_settings()
-        n_threads = settings.phi4_vision_n_threads
+        n_threads = settings.phi4_vision_n_threads or None  # None = llama-cpp default (all cores)
 
         model_path = hf_hub_download(
             repo_id=settings.phi4_vision_model,
