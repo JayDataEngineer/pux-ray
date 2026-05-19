@@ -570,10 +570,7 @@ class Wan2GPService:
                 img = Image.open(io.BytesIO(base64.b64decode(image_b64))).convert("RGB")
                 kwargs["image_start"] = img
             elif image_b64 and base_model_type in ("see-through",):
-                from PIL import Image
-                import io
-                img = Image.open(io.BytesIO(base64.b64decode(image_b64))).convert("RGB")
-                kwargs["image"] = img
+                kwargs["image"] = image_b64
 
             # Handle second image for last-frame conditioning (WDC FFLF)
             if payload.get("image_end_b64"):
