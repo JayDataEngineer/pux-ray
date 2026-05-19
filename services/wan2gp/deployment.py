@@ -905,16 +905,19 @@ class Wan2GPService:
                 break
             if _dsine_hub_dir:
                 import tempfile, shutil
-                _dsine_src = os.path.join(_dsine_hub_dir, "models")
                 _tmp_dir = tempfile.mkdtemp()
-                _tmp_models = os.path.join(_tmp_dir, "models")
-                os.makedirs(_tmp_models)
-                with open(os.path.join(_tmp_models, "__init__.py"), "w") as _f:
-                    pass
-                for _fname in os.listdir(_dsine_src):
-                    _src = os.path.join(_dsine_src, _fname)
-                    if os.path.isfile(_src):
-                        shutil.copy2(_src, os.path.join(_tmp_models, _fname))
+                for _pkg in ("models", "utils"):
+                    _pkg_src = os.path.join(_dsine_hub_dir, _pkg)
+                    if not os.path.isdir(_pkg_src):
+                        continue
+                    _pkg_dst = os.path.join(_tmp_dir, _pkg)
+                    os.makedirs(_pkg_dst)
+                    with open(os.path.join(_pkg_dst, "__init__.py"), "w") as _f:
+                        pass
+                    for _fname in os.listdir(_pkg_src):
+                        _src = os.path.join(_pkg_src, _fname)
+                        if os.path.isfile(_src):
+                            shutil.copy2(_src, os.path.join(_pkg_dst, _fname))
                 _wan2gp_path_idx = None
                 try:
                     _wan2gp_path_idx = sys.path.index("/opt/wan2gp")
