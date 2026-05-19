@@ -682,14 +682,12 @@ class Wan2GPService:
                     pass
 
             # Trellis handler converts flow models to bfloat16 for mmgp VRAM
-            # savings, but the sampler creates float32 tensors and decoders
-            # also produce float32. Same issue affects hy_motion (timestep
-            # encoder has float32 input but bfloat16 weights from mmgp).
-            # Fix: wrap entire generate() in float32 autocast so bfloat16
-            # weights are safely upcast at matmul boundaries.
+            # savings, but the sampler creates float32 noise tensors that
+            # flash_attn rejects (needs fp16/bf16). Wrap generate() in
+            # bfloat16 autocast so float32 inputs are safely downcast.
             _autocast_dtypes = {
-                "trellis": torch.float32,
-                "hy_motion": torch.float32,
+                "trellis": torch.bfloat16,
+                "hy_motion": torch.bfloat16,
             }
             if base_model_type in _autocast_dtypes:
                 _ac_dtype = _autocast_dtypes[base_model_type]
@@ -973,12 +971,13 @@ class Wan2GPService:
         _prev_modules = None
         _prev_utils = None
         _seethrough_common = None
+        _seethrough_wan_paths = None
         if base_model_type == "see-through":
             _prev_modules = sys.modules.pop("modules", None)
             _prev_utils = sys.modules.pop("utils", None)
-            _wan_model_paths = [p for p in sys.path
+            _seethrough_wan_paths = [p for p in sys.path
                                 if p.startswith("/opt/wan2gp/models/")]
-            for _wp in _wan_model_paths:
+            for _wp in _seethrough_wan_paths:
                 sys.path.remove(_wp)
             # Add seethrough/common so layerdiffuse's utils.cv import works
             _seethrough_common = "/opt/seethrough/common"
@@ -987,11 +986,10 @@ class Wan2GPService:
             try:
                 _dist_modules = importlib.import_module("modules")
                 sys.modules["modules"] = _dist_modules
+                # Also pre-import utils so the module is cached correctly
+                importlib.import_module("utils")
             except ImportError:
                 pass
-            finally:
-                for _wp in _wan_model_paths:
-                    sys.path.insert(0, _wp)
 
         try:
             pipeline, pipe_wrapper = handler.load_model(
@@ -1015,6 +1013,11 @@ class Wan2GPService:
                 sys.modules["modules"] = _prev_modules
             if _prev_utils is not None:
                 sys.modules["utils"] = _prev_utils
+            # Restore wan2gp model paths that were removed for see-through
+            if _seethrough_wan_paths:
+                for _wp in _seethrough_wan_paths:
+                    if _wp not in sys.path:
+                        sys.path.insert(0, _wp)
 
         pipe, co_tenants = self._unwrap_pipe(pipe_wrapper)
 
