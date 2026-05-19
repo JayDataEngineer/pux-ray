@@ -570,7 +570,16 @@ class Wan2GPService:
                 img = Image.open(io.BytesIO(base64.b64decode(image_b64))).convert("RGB")
                 kwargs["image_start"] = img
             elif image_b64 and base_model_type in ("see-through",):
-                kwargs["image"] = image_b64
+                # Decode and resize to handler's default resolution (1280).
+                # The handler's _stage_marigold blends layer_images (at
+                # resolution) with the input, so sizes must match.
+                from PIL import Image
+                import io as _io
+                _img = Image.open(_io.BytesIO(base64.b64decode(image_b64))).convert("RGBA")
+                _default_res = defaults.get("resolution", 1280)
+                if _img.size[0] != _default_res or _img.size[1] != _default_res:
+                    _img = _img.resize((_default_res, _default_res), Image.LANCZOS)
+                kwargs["image"] = _img
 
             # Handle second image for last-frame conditioning (WDC FFLF)
             if payload.get("image_end_b64"):
