@@ -888,14 +888,19 @@ class Wan2GPService:
                             text_encoder_path = str(f)
 
         # AniGen's DSINE hub module does `from models import dsine` which
-        # resolves to wan2gp's models package. Insert the DSINE hub dir
-        # at sys.path[0] so Python finds DSINE's own models/ package first.
+        # resolves to wan2gp's models package due to sys.modules cache.
+        # Temporarily clear the cached 'models' entry and add DSINE hub dir
+        # to sys.path[0] so Python finds DSINE's own models/ package.
         _anigen_path_fix = None
+        _anigen_modules_backup = None
         if base_model_type == "anigen":
             for hub_dir in (Path(cfg.models_root) / "3d" / "anigen" / "hub").glob("hugoycj_DSINE*"):
                 if str(hub_dir) not in sys.path:
                     sys.path.insert(0, str(hub_dir))
                     _anigen_path_fix = str(hub_dir)
+                # Back up and clear cached 'models' so Python re-resolves import
+                _anigen_modules_backup = sys.modules.get("models")
+                sys.modules["models"] = None
                 break
 
         try:
@@ -912,6 +917,10 @@ class Wan2GPService:
         finally:
             if _anigen_path_fix and _anigen_path_fix in sys.path:
                 sys.path.remove(_anigen_path_fix)
+            if _anigen_modules_backup is not None:
+                sys.modules["models"] = _anigen_modules_backup
+            elif base_model_type == "anigen" and "models" in sys.modules and sys.modules["models"] is None:
+                del sys.modules["models"]
 
         pipe, co_tenants = self._unwrap_pipe(pipe_wrapper)
 
