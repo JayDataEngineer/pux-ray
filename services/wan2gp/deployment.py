@@ -658,6 +658,13 @@ class Wan2GPService:
                 if seed < 0 or seed >= 2**32:
                     import random
                     kwargs["seed"] = random.randint(0, 2**32 - 1)
+                # mmgp keeps modules on CPU between forward passes, so
+                # model.device returns "cpu" and noise tensors end up on CPU.
+                # Override the device property to always return "cuda".
+                _anigen_pipeline_cls = type(model)
+                _anigen_pipeline_cls.device = property(
+                    lambda self: torch.device("cuda"))
+                    kwargs["seed"] = random.randint(0, 2**32 - 1)
 
             elif base_model_type == "trellis":
                 # Trellis uses BiRefNet (rembg wrapper) for background removal.
