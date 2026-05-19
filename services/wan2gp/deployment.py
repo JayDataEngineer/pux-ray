@@ -1254,7 +1254,7 @@ class Wan2GPService:
         return {}, {}
 
     # Models whose handlers manage GPU memory internally (no mmgp needed)
-    _NO_MMGP_MODELS = {"pixal3d", "anigen"}
+    _NO_MMGP_MODELS = {"pixal3d"}
 
     @staticmethod
     def _apply_mmgp_profile(pipe: dict, co_tenants: dict, is_cpu: bool,
