@@ -664,7 +664,6 @@ class Wan2GPService:
                 _anigen_pipeline_cls = type(model)
                 _anigen_pipeline_cls.device = property(
                     lambda self: torch.device("cuda"))
-                    kwargs["seed"] = random.randint(0, 2**32 - 1)
 
             elif base_model_type == "trellis":
                 # Trellis uses BiRefNet (rembg wrapper) for background removal.
