@@ -694,14 +694,47 @@ class Wan2GPService:
                     _trellis_attn_cfg.BACKEND = "sdpa"
                 except (ImportError, AttributeError):
                     pass
+                # full_attn.scaled_dot_product_attention has `from ... import
+                # ... as sdpa` inside an `if` block, which makes Python compile
+                # `sdpa` as a function-local variable. __dict__ injection cannot
+                # reach function locals, so we must replace the entire function.
                 try:
                     _fa = sys.modules.get(
                         "models.trellis.trellis2.modules.attention.full_attn")
-                    if _fa is not None:
-                        _fa.BACKEND = "sdpa"
-                        if 'sdpa' not in _fa.__dict__:
-                            from torch.nn.functional import scaled_dot_product_attention as _sdpa_fn
-                            _fa.__dict__['sdpa'] = _sdpa_fn
+                    if _fa is not None and hasattr(_fa, 'scaled_dot_product_attention'):
+                        import math as _math
+                        from torch.nn.functional import (
+                            scaled_dot_product_attention as _torch_sdpa,
+                        )
+
+                        def _trellis_sdpa_replacement(*args, **kwargs):
+                            arg_names_dict = {
+                                1: ['qkv'],
+                                2: ['q', 'kv'],
+                                3: ['q', 'k', 'v'],
+                            }
+                            n = len(args) + len(kwargs)
+                            assert n in arg_names_dict
+                            for key in arg_names_dict[n][len(args):]:
+                                assert key in kwargs
+                            if n == 1:
+                                qkv = args[0] if args else kwargs['qkv']
+                                q, k, v = qkv.unbind(dim=2)
+                            elif n == 2:
+                                q = args[0] if args else kwargs['q']
+                                kv = args[1] if len(args) > 1 else kwargs['kv']
+                                k, v = kv.unbind(dim=2)
+                            else:
+                                q = args[0] if args else kwargs['q']
+                                k = args[1] if len(args) > 1 else kwargs['k']
+                                v = args[2] if len(args) > 2 else kwargs['v']
+                            q = q.permute(0, 2, 1, 3)
+                            k = k.permute(0, 2, 1, 3)
+                            v = v.permute(0, 2, 1, 3)
+                            out = _torch_sdpa(q, k, v)
+                            return out.permute(0, 2, 1, 3)
+
+                        _fa.scaled_dot_product_attention = _trellis_sdpa_replacement
                 except (ImportError, AttributeError):
                     pass
                 # Patch rembg to float() before ToPILImage
