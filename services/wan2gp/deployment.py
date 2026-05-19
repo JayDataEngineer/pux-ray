@@ -646,6 +646,13 @@ class Wan2GPService:
                     tmp.close()
                     kwargs["audio_guide"] = tmp.name
 
+            elif base_model_type == "anigen":
+                # AniGen handler passes seed to np.random.seed() which requires
+                # uint32 range. Default to a valid seed if not provided.
+                if "seed" not in kwargs:
+                    import random
+                    kwargs["seed"] = random.randint(0, 2**32 - 1)
+
             elif base_model_type == "trellis":
                 # Trellis uses BiRefNet (rembg wrapper) for background removal.
                 # The wrapper (model.rembg) is not an nn.Module and not in the
@@ -674,28 +681,19 @@ class Wan2GPService:
                     pass
 
             # Trellis handler converts flow models to bfloat16 for mmgp VRAM
-            # savings, but the sampler creates float32 tensors and internal
-            # ops also produce float32. Wrap each flow model forward with
-            # autocast so mixed-dtype matmul works without affecting decoders.
-            if base_model_type == "trellis":
-                _orig_forwards = {}
-                for k in ("ss_flow_model", "slat_flow_512", "slat_flow_1024",
-                          "tex_slat_flow_512", "tex_slat_flow_1024"):
-                    mod = model.m.get(k)
-                    if mod is not None and hasattr(mod, "forward"):
-                        _orig_forwards[k] = mod.forward
-                        def _make_autocast(orig_fn):
-                            def _wrapped(*args, **kwargs):
-                                with torch.amp.autocast("cuda", dtype=torch.bfloat16):
-                                    return orig_fn(*args, **kwargs)
-                            return _wrapped
-                        mod.forward = _make_autocast(mod.forward)
-
-                try:
+            # savings, but the sampler creates float32 tensors and decoders
+            # also produce float32. Same issue affects hy_motion (timestep
+            # encoder has float32 input but bfloat16 weights from mmgp).
+            # Fix: wrap entire generate() in float32 autocast so bfloat16
+            # weights are safely upcast at matmul boundaries.
+            _autocast_dtypes = {
+                "trellis": torch.float32,
+                "hy_motion": torch.float32,
+            }
+            if base_model_type in _autocast_dtypes:
+                _ac_dtype = _autocast_dtypes[base_model_type]
+                with torch.amp.autocast("cuda", dtype=_ac_dtype):
                     result = model.generate(**kwargs)
-                finally:
-                    for k, orig_fn in _orig_forwards.items():
-                        model.m[k].forward = orig_fn
             else:
                 result = model.generate(**kwargs)
 
@@ -953,18 +951,25 @@ class Wan2GPService:
         # See-Through's handler does `from modules.layerdiffuse...` but
         # _ensure_vendor_path() added /opt/wan2gp/models/wan/ to sys.path
         # which shadows the dist-packages modules/ that has layerdiffuse/.
-        # Pre-import the correct modules package so sys.modules is cached.
+        # Also, layerdiffuse code does `from utils.cv import ...` which needs
+        # /opt/seethrough/common on sys.path (the handler's vendor path
+        # points to /app/vendor which doesn't exist).
+        # Fix: pre-import correct modules, add seethrough/common to sys.path,
+        # and clear stale utils from sys.modules.
         _prev_modules = None
+        _prev_utils = None
+        _seethrough_common = None
         if base_model_type == "see-through":
-            logger.info("see_through: fixing modules import, current sys.modules['modules']=%s",
-                        sys.modules.get("modules", "<missing>"))
             _prev_modules = sys.modules.pop("modules", None)
-            # Temporarily remove wan model dirs from sys.path so dist-packages
-            # modules/ is found first
+            _prev_utils = sys.modules.pop("utils", None)
             _wan_model_paths = [p for p in sys.path
                                 if p.startswith("/opt/wan2gp/models/")]
             for _wp in _wan_model_paths:
                 sys.path.remove(_wp)
+            # Add seethrough/common so layerdiffuse's utils.cv import works
+            _seethrough_common = "/opt/seethrough/common"
+            if _seethrough_common not in sys.path:
+                sys.path.insert(0, _seethrough_common)
             try:
                 _dist_modules = importlib.import_module("modules")
                 sys.modules["modules"] = _dist_modules
@@ -994,6 +999,8 @@ class Wan2GPService:
                 shutil.rmtree(_anigen_cleanup, ignore_errors=True)
             if _prev_modules is not None:
                 sys.modules["modules"] = _prev_modules
+            if _prev_utils is not None:
+                sys.modules["utils"] = _prev_utils
 
         pipe, co_tenants = self._unwrap_pipe(pipe_wrapper)
 
@@ -1075,10 +1082,10 @@ class Wan2GPService:
                             logger.debug("Download failed %s/%s: %s", repo_id, rel, e)
 
         # Step 2: check defaults URL for the main model file, download to ckpts
-        self._ensure_main_model(handler, base_model_type, ckpts_base)
+        self._ensure_main_model(handler, base_model_type, ckpts_base, model_path)
 
     def _ensure_main_model(self, handler, base_model_type: str,
-                            ckpts_base: Path) -> None:
+                            ckpts_base: Path, model_path: Path | None = None) -> None:
         """Download the main model file from the defaults URL if missing."""
         defaults_file = Path.home() / ".wan2gp" / "defaults" / f"{base_model_type}.json"
         alt = Path("/opt/wan2gp/defaults") / f"{base_model_type}.json"
@@ -1118,8 +1125,10 @@ class Wan2GPService:
             repo_id = m.group(1)
             filename = m.group(2)
 
-            # Check both ckpts and model_dir
-            if (ckpts_base / filename).exists() or (model_dir / filename).exists():
+            # Check ckpts, model_dir, and the resolved model_path
+            if ((ckpts_base / filename).exists()
+                    or (model_dir / filename).exists()
+                    or (model_path and (model_path / filename).exists())):
                 continue
 
             try:
