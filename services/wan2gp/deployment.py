@@ -661,7 +661,7 @@ class Wan2GPService:
                         except Exception:
                             pass
 
-            elif base_model_type == "see_through":
+            elif base_model_type == "see-through":
                 # See-Through's generate() may trigger a re-import of
                 # models.wan.modules.model (which has a relative import from
                 # ..multitalk). After loading wan models, sys.modules has
@@ -955,7 +955,7 @@ class Wan2GPService:
         # which shadows the dist-packages modules/ that has layerdiffuse/.
         # Pre-import the correct modules package so sys.modules is cached.
         _prev_modules = None
-        if base_model_type == "see_through":
+        if base_model_type == "see-through":
             logger.info("see_through: fixing modules import, current sys.modules['modules']=%s",
                         sys.modules.get("modules", "<missing>"))
             _prev_modules = sys.modules.pop("modules", None)
