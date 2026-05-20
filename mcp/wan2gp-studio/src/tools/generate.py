@@ -1,123 +1,38 @@
-"""Generation tools — video, image, 3D, audio via the Tech Noir API.
+"""Generation tool — thin passthrough to /v1/run.
 
-All requests go through /v1/run which provides the same dispatch
-pipeline as external clients: service registry lookup, model resolution,
-key normalization, and proper routing. No duplicated logic.
+One tool, one code path. The service registry defines what services exist.
+The service handlers define what params they accept. The MCP just passes it
+through.
 """
 from __future__ import annotations
 
-from typing import Annotated
+from typing import Annotated, Any
 
 from fastmcp import Context
 from pydantic import Field
 
 
-async def _invoke(ctx: Context | None, payload: dict) -> dict:
-    """Send a /v1/run request through the ForgeClient."""
+async def run(
+    service: Annotated[str, Field(
+        description="Service name from the registry. Use list_models to discover.",
+    )],
+    params: Annotated[dict[str, Any], Field(
+        description="Parameters passed through to the service. Common: model, prompt, "
+                    "text, image_b64, audio_b64, seed, steps, guidance, width, height, "
+                    "frames, negative_prompt, voice, language. All optional.",
+        default_factory=dict,
+    )] = None,
+    ctx: Context | None = None,
+) -> dict:
+    """Run any registered service. Single entry point for all inference.
+
+    Use list_models to discover available services, categories, and models.
+    Pass whatever keys the service needs — they go straight through.
+    """
     if ctx is None:
         raise RuntimeError("No MCP context available")
-    forge = ctx.lifespan_context.get("forge_client")
-    if forge is None:
-        raise RuntimeError("Forge client not initialized")
-    return await forge.invoke(payload)
-
-
-async def generate_video(
-    prompt: Annotated[str, Field(description="Text description of the video to generate")],
-    model: Annotated[str, Field(
-        description="Model: wan/t2v, wan/i2v, hunyuan/t2v, hunyuan/i2v, ltx2",
-    )] = "wan/t2v",
-    image_b64: Annotated[str | None, Field(
-        description="Base64-encoded input image (required for i2v models)",
-    )] = None,
-    width: Annotated[int, Field(description="Output width", ge=256, le=1920)] = 768,
-    height: Annotated[int, Field(description="Output height", ge=256, le=1920)] = 512,
-    frames: Annotated[int, Field(description="Number of frames", ge=8, le=200)] = 81,
-    fps: Annotated[int, Field(description="Frames per second", ge=8, le=60)] = 24,
-    steps: Annotated[int, Field(description="Denoising steps", ge=1, le=100)] = 30,
-    guidance: Annotated[float, Field(description="CFG scale", ge=0.0, le=20.0)] = 5.0,
-    seed: Annotated[int, Field(description="Random seed (-1 for random)")] = -1,
-    negative_prompt: Annotated[str | None, Field(
-        description="Negative prompt (what to avoid)",
-    )] = None,
-    ctx: Context | None = None,
-) -> dict:
-    """Generate a video from text or image input using GPU models."""
-    payload = {k: v for k, v in {
-        "service": "wan2gp", "model": model,
-        "prompt": prompt, "negative_prompt": negative_prompt,
-        "image_b64": image_b64,
-        "width": width, "height": height,
-        "frames": frames, "fps": fps,
-        "steps": steps, "guidance": guidance, "seed": seed,
-    }.items() if v is not None}
-    return await _invoke(ctx, payload)
-
-
-async def generate_image(
-    prompt: Annotated[str, Field(description="Text description of the image to generate")],
-    model: Annotated[str, Field(
-        description="Model: flux, flux_schnell, flux2_dev, flux2_klein_4b, qwen-image-edit",
-    )] = "flux",
-    image_b64: Annotated[str | None, Field(
-        description="Base64 input image (for editing models)",
-    )] = None,
-    width: Annotated[int, Field(description="Output width", ge=256, le=2048)] = 1024,
-    height: Annotated[int, Field(description="Output height", ge=256, le=2048)] = 1024,
-    steps: Annotated[int, Field(description="Denoising steps", ge=1, le=100)] = 24,
-    guidance: Annotated[float, Field(description="CFG scale", ge=0.0, le=20.0)] = 3.5,
-    seed: Annotated[int, Field(description="Random seed (-1 for random)")] = -1,
-    negative_prompt: Annotated[str | None, Field(
-        description="Negative prompt (what to avoid)",
-    )] = None,
-    ctx: Context | None = None,
-) -> dict:
-    """Generate an image from text using diffusion models."""
-    payload = {k: v for k, v in {
-        "service": "wan2gp", "model": model,
-        "prompt": prompt, "negative_prompt": negative_prompt,
-        "image_b64": image_b64,
-        "width": width, "height": height,
-        "steps": steps, "guidance": guidance, "seed": seed,
-    }.items() if v is not None}
-    return await _invoke(ctx, payload)
-
-
-async def generate_3d(
-    image_b64: Annotated[str, Field(
-        description="Base64-encoded input image to convert to 3D mesh",
-    )],
-    model: Annotated[str, Field(
-        description="Model: trellis or anigen",
-    )] = "trellis",
-    steps: Annotated[int, Field(description="Generation steps", ge=1, le=200)] = 50,
-    ctx: Context | None = None,
-) -> dict:
-    """Convert an image to a 3D mesh model (trellis, anigen)."""
-    return await _invoke(ctx, {
-        "service": "wan2gp", "model": model,
-        "image_b64": image_b64, "steps": steps,
-    })
-
-
-async def generate_audio(
-    prompt: Annotated[str, Field(
-        description="Text for TTS or sound effect description",
-    )],
-    model: Annotated[str, Field(
-        description="Audio model: moss-soundeffect, kokoro, espeak, vibevoice_cpp_gpu, vibevoice_cpp_cpu",
-    )] = "moss-soundeffect",
-    voice: Annotated[str | None, Field(description="Voice name (for TTS)")] = None,
-    language: Annotated[str | None, Field(description="Language code (e.g. en, zh)")] = None,
-    duration_seconds: Annotated[float | None, Field(
-        description="Target duration in seconds (music/SFX)",
-    )] = None,
-    ctx: Context | None = None,
-) -> dict:
-    """Generate audio: speech (TTS), sound effects, or music."""
-    payload = {k: v for k, v in {
-        "service": "wan2gp", "model": model,
-        "text": prompt, "voice": voice, "language": language,
-        "duration_seconds": duration_seconds,
-    }.items() if v is not None}
-    return await _invoke(ctx, payload)
+    client = ctx.lifespan_context.get("forge_client")
+    if client is None:
+        raise RuntimeError("API client not initialized")
+    payload = {"service": service, **(params or {})}
+    return await client.invoke(payload)

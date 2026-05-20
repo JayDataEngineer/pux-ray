@@ -38,10 +38,9 @@ async def service_lifespan(server: FastMCP):
 mcp = FastMCP(
     name="wan2gp-studio",
     instructions=(
-        "GPU inference server for video, image, 3D, and audio generation. "
-        "Use generate_video for video creation, generate_image for images, "
-        "generate_3d for 3D meshes, generate_audio for TTS and sound effects. "
-        "Use list_models to discover available models, forge_status to check GPU state."
+        "GPU inference server. Use `run` to call any registered service with "
+        "any parameters. Use `list_models` to discover available services and "
+        "models. Use `forge_status` to check GPU/VRAM state."
     ),
     lifespan=service_lifespan,
 )
@@ -49,13 +48,10 @@ mcp = FastMCP(
 
 # ========== TOOL REGISTRATION ==========
 
-from .tools.generate import generate_video, generate_image, generate_3d, generate_audio
+from .tools.generate import run
 from .tools.status import list_models, forge_status
 
-mcp.add_tool(generate_video)
-mcp.add_tool(generate_image)
-mcp.add_tool(generate_3d)
-mcp.add_tool(generate_audio)
+mcp.add_tool(run)
 mcp.add_tool(list_models)
 mcp.add_tool(forge_status)
 
