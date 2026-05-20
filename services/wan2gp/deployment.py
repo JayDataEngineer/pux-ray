@@ -293,6 +293,7 @@ def discover_models(models_root: Path | None = None) -> dict:
     """
     from registry.config import Config
     from registry.models import ModelRegistry
+    from services.wan2gp.custom_models.base_handler import register_handler_meta
 
     cfg = Config()
     models_root = models_root or Path(cfg.models_root)
@@ -308,10 +309,17 @@ def discover_models(models_root: Path | None = None) -> dict:
         try:
             handler_mod = importlib.import_module(handler_path)
             handler = handler_mod.family_handler
+
+            handler_meta = getattr(handler_mod, "HANDLER_META", None)
             supported = handler.query_supported_types()
 
             for model_type in sorted(supported):
                 model_key = _derive_key(model_type, handler_path)
+
+                # Register HANDLER_META for this type
+                if handler_meta is not None:
+                    register_handler_meta(model_type, handler_meta)
+
                 weight_path = _find_weights(model_type, handler_path, registry, models_root)
 
                 entry = {
@@ -761,156 +769,22 @@ class Wan2GPService:
             # Wan models call callback() for progress — provide a no-op
             kwargs.setdefault("callback", lambda *a, **kw: None)
 
-            # Handler-specific kwarg remapping for models whose generate()
-            # uses different parameter names than our standard payload keys.
-            if base_model_type == "index_tts2":
-                # index_tts2.generate(input_prompt, model_mode, audio_guide, ...)
-                if "input_prompt" not in kwargs and "text" in kwargs:
-                    kwargs["input_prompt"] = kwargs.pop("text")
-                kwargs.setdefault("model_mode", None)
-                if "audio_guide" not in kwargs and "audio_b64" in kwargs:
-                    audio_bytes = base64.b64decode(kwargs.pop("audio_b64"))
-                    import tempfile
-                    tmp = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
-                    tmp.write(audio_bytes)
-                    tmp.close()
-                    kwargs["audio_guide"] = tmp.name
+            # Handler-specific kwarg remapping and device patching via
+            # HANDLER_META hooks. Falls back to no-op if no meta registered.
+            from services.wan2gp.custom_models.base_handler import get_handler_meta
+            meta = get_handler_meta(base_model_type)
 
-            elif base_model_type in ("hy-motion-1.0-lite",):
-                # mmgp keeps motion_transformer on CPU; handler's device property
-                # returns parameter device = CPU, creating y0/t on CPU. Override.
-                _hy_cls = type(model)
-                _hy_cls.device = property(lambda self: torch.device("cuda"))
+            # Apply device patch before generate()
+            if meta and getattr(meta.get("hooks"), "needs_device_patch", False):
+                type(model).device = property(lambda self: torch.device("cuda"))
 
-            elif base_model_type == "anigen":
-                # AniGen handler passes seed to np.random.seed() which requires
-                # uint32 range. Clamp any value to valid range.
-                seed = kwargs.get("seed", -1)
-                if seed < 0 or seed >= 2**32:
-                    import random
-                    kwargs["seed"] = random.randint(0, 2**32 - 1)
-                # mmgp keeps modules on CPU between forward passes, so
-                # model.device returns "cpu" and noise tensors end up on CPU.
-                # Override the device property to always return "cuda".
-                _anigen_pipeline_cls = type(model)
-                _anigen_pipeline_cls.device = property(
-                    lambda self: torch.device("cuda"))
+            # Apply before_generate hooks (kwarg remapping, inner device patches)
+            if meta and meta.get("hooks"):
+                kwargs = meta["hooks"].before_generate(model, kwargs)
 
-            elif base_model_type.startswith("moss-"):
-                # MossTTSDelayModel inherits from PreTrainedModel whose
-                # device property returns the parameter device (CPU — mmgp
-                # keeps weights there). transformers generate() calls
-                # input_ids.to(self.device) which would move inputs to CPU,
-                # but mmgp swaps modules to GPU for forward → mismatch.
-                _inner = getattr(model, "model", None)
-                if _inner is not None:
-                    type(_inner).device = property(
-                        lambda self: torch.device("cuda:0"))
-
-            elif base_model_type == "see-through":
-                _see_through_cls = type(model)
-                _see_through_cls.device = property(
-                    lambda self: torch.device("cuda"))
-                try:
-                    importlib.import_module("models.wan.multitalk.multitalk_utils")
-                except (ImportError, ModuleNotFoundError):
-                    pass
-                # Trellis uses BiRefNet (rembg wrapper) for background removal.
-                # The wrapper (model.rembg) is not an nn.Module and not in the
-                # pipe dict, so mmgp doesn't manage it. The inner model
-                # (model.rembg.model) stays on CPU after load, but the pipeline
-                # passes CUDA tensors to it during preprocessing.
-                rembg_wrapper = getattr(model, "rembg", None)
-                if rembg_wrapper is not None and torch.cuda.is_available():
-                    inner = getattr(rembg_wrapper, "model", None)
-                    if inner is not None:
-                        try:
-                            inner.to("cuda")
-                        except Exception:
-                            pass
-
-            # Trellis: mmgp converts weights to bfloat16, but the sampler
-            # creates float32 noise tensors causing dtype mismatches
-            # (Float vs BFloat16 in linear layers, flash_attn rejection).
-            # Fix: patch attention to sdpa + wrap generate() in bfloat16
-            # autocast. Also patch rembg to convert bf16→float32 for
-            # ToPILImage which doesn't support bfloat16.
-            _trellis_rembg_patch = False
-            if base_model_type == "trellis":
-                try:
-                    import models.trellis.trellis2.modules.attention.config as _trellis_attn_cfg
-                    _trellis_attn_cfg.BACKEND = "sdpa"
-                except (ImportError, AttributeError):
-                    pass
-                # full_attn.scaled_dot_product_attention has `from ... import
-                # ... as sdpa` inside an `if` block, which makes Python compile
-                # `sdpa` as a function-local variable. __dict__ injection cannot
-                # reach function locals, so we must replace the entire function.
-                try:
-                    _fa = sys.modules.get(
-                        "models.trellis.trellis2.modules.attention.full_attn")
-                    if _fa is not None and hasattr(_fa, 'scaled_dot_product_attention'):
-                        import math as _math
-                        from torch.nn.functional import (
-                            scaled_dot_product_attention as _torch_sdpa,
-                        )
-
-                        def _trellis_sdpa_replacement(*args, **kwargs):
-                            arg_names_dict = {
-                                1: ['qkv'],
-                                2: ['q', 'kv'],
-                                3: ['q', 'k', 'v'],
-                            }
-                            n = len(args) + len(kwargs)
-                            assert n in arg_names_dict
-                            for key in arg_names_dict[n][len(args):]:
-                                assert key in kwargs
-                            if n == 1:
-                                qkv = args[0] if args else kwargs['qkv']
-                                q, k, v = qkv.unbind(dim=2)
-                            elif n == 2:
-                                q = args[0] if args else kwargs['q']
-                                kv = args[1] if len(args) > 1 else kwargs['kv']
-                                k, v = kv.unbind(dim=2)
-                            else:
-                                q = args[0] if args else kwargs['q']
-                                k = args[1] if len(args) > 1 else kwargs['k']
-                                v = args[2] if len(args) > 2 else kwargs['v']
-                            q = q.permute(0, 2, 1, 3)
-                            k = k.permute(0, 2, 1, 3)
-                            v = v.permute(0, 2, 1, 3)
-                            out = _torch_sdpa(q, k, v)
-                            return out.permute(0, 2, 1, 3)
-
-                        _fa.scaled_dot_product_attention = _trellis_sdpa_replacement
-                except (ImportError, AttributeError):
-                    pass
-                # Patch rembg to float() before ToPILImage
-                rembg_wrapper = getattr(model, "rembg", None)
-                if rembg_wrapper is not None:
-                    import types
-                    _orig_rembg_call = rembg_wrapper.__class__.__call__
-                    def _rembg_call_bf16_safe(self_rembg, image, _orig=_orig_rembg_call):
-                        import torchvision.transforms as transforms
-                        image_size = image.size
-                        # Run rembg on CPU to avoid GPU OOM when mmgp has
-                        # most VRAM pinned for the main model
-                        self_rembg.model.cpu()
-                        input_images = self_rembg.transform_image(image).unsqueeze(0)
-                        with torch.no_grad():
-                            preds = self_rembg.model(input_images)[-1].sigmoid().cpu()
-                        pred = preds[0].squeeze().float()
-                        pred_pil = transforms.ToPILImage()(pred)
-                        mask = pred_pil.resize(image_size)
-                        image.putalpha(mask)
-                        return image
-                    rembg_wrapper.__class__.__call__ = _rembg_call_bf16_safe
-                    _trellis_rembg_patch = True
-            # bfloat16 autocast for models with bf16 weights from mmgp but
-            # float32 input tensors (noise, conditioning, etc).
-            # anigen uses bf16 autocast + spconv forward hooks that cast
-            # bf16→fp16 for spconv ops internally.
-            if base_model_type in ("anigen", "trellis", "see-through", "hy-motion-1.0-lite"):
+            # Generate with optional bf16 autocast
+            needs_bf16 = meta and getattr(meta.get("hooks"), "needs_bf16_autocast", False)
+            if needs_bf16:
                 with torch.amp.autocast("cuda", dtype=torch.bfloat16):
                     result = model.generate(**kwargs)
             else:
@@ -995,11 +869,11 @@ class Wan2GPService:
         model_type = entry["model_type"]
         base_model_type = entry.get("base_model_type", model_type)
 
-        # anigen: patch decoder source before handler imports it
-        if base_model_type == "anigen":
-            _patch_anigen_decoder()
-            _patch_anigen_cube2mesh()
-            _patch_anigen_grouping()
+        # Run pre_import hooks (source file patching before Python imports)
+        from services.wan2gp.custom_models.base_handler import get_handler_meta as _get_meta
+        _meta = _get_meta(base_model_type)
+        if _meta and _meta.get("hooks"):
+            _meta["hooks"].pre_import()
 
         handler_mod = importlib.import_module(handler_path)
         handler = handler_mod.family_handler
@@ -1277,6 +1151,12 @@ class Wan2GPService:
                             logger.info("Injected image_cond into trellis pipeline from %s", abs_model)
                 except Exception as e:
                     logger.warning("Failed to inject trellis image_cond: %s", e)
+
+        # Apply handler on_loaded hooks (attention patching, rembg setup, etc.)
+        from services.wan2gp.custom_models.base_handler import get_handler_meta
+        meta = get_handler_meta(base_model_type)
+        if meta and meta.get("hooks"):
+            meta["hooks"].on_loaded(pipeline, pipe, base_model_type)
 
         self._models[model_name] = {
             "model": pipeline,

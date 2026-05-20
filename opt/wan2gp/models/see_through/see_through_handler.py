@@ -22,6 +22,38 @@ from PIL import Image
 
 from models.base_handler import BaseFamilyHandler, _make_handler_cls
 
+
+class _SeeThroughHooks:
+    needs_bf16_autocast = True
+    needs_device_patch = True
+
+    def on_loaded(self, pipeline, pipe, base_model_type):
+        # Pre-import multitalk_utils so handler's later import succeeds
+        try:
+            import importlib
+            importlib.import_module("models.wan.multitalk.multitalk_utils")
+        except (ImportError, ModuleNotFoundError):
+            pass
+
+        # Trellis uses BiRefNet (rembg wrapper) for background removal.
+        # The wrapper is not an nn.Module and not in the pipe dict, so mmgp
+        # doesn't manage it. Move inner model to GPU.
+        rembg_wrapper = getattr(pipeline, "rembg", None)
+        if rembg_wrapper is not None and torch.cuda.is_available():
+            inner = getattr(rembg_wrapper, "model", None)
+            if inner is not None:
+                try:
+                    inner.to("cuda")
+                except Exception:
+                    pass
+
+
+HANDLER_META = {
+    "input_type": "image",
+    "output_type": "image",
+    "hooks": _SeeThroughHooks(),
+}
+
 logger = logging.getLogger(__name__)
 
 

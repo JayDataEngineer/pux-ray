@@ -22,6 +22,18 @@ import yaml
 
 from models.base_handler import BaseFamilyHandler, _make_handler_cls
 
+
+class _HyMotionHooks:
+    needs_bf16_autocast = True
+    needs_device_patch = True
+
+
+HANDLER_META = {
+    "input_type": "text",
+    "output_type": "json",
+    "hooks": _HyMotionHooks(),
+}
+
 logger = logging.getLogger(__name__)
 
 STATS_VENDOR = "/opt/hymotion/stats"

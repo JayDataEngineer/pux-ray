@@ -273,6 +273,34 @@ def _load_delay_modules(model_path):
 
 
 # ---------------------------------------------------------------------------
+# Handler Hooks
+# ---------------------------------------------------------------------------
+
+
+class _MossHooks:
+    needs_bf16_autocast = False
+    needs_device_patch = False
+
+    def before_generate(self, pipeline, kwargs):
+        # MossTTSDelayModel inherits from PreTrainedModel whose device
+        # property returns the parameter device (CPU — mmgp keeps weights
+        # there). transformers generate() calls input_ids.to(self.device)
+        # which would move inputs to CPU, but mmgp swaps modules to GPU
+        # for forward → mismatch.
+        _inner = getattr(pipeline, "model", None)
+        if _inner is not None:
+            type(_inner).device = property(lambda self: torch.device("cuda:0"))
+        return kwargs
+
+
+HANDLER_META = {
+    "input_type": "text",
+    "output_type": "audio",
+    "hooks": _MossHooks(),
+}
+
+
+# ---------------------------------------------------------------------------
 # family_handler — Wan2GP discovery contract
 # ---------------------------------------------------------------------------
 

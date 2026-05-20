@@ -27,11 +27,105 @@ import base64
 import gc
 import io
 import logging
+import sys
 from pathlib import Path
 
 import torch
 
 logger = logging.getLogger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# Handler Hooks
+# ---------------------------------------------------------------------------
+
+
+class _TrellisHooks:
+    needs_bf16_autocast = True
+    needs_device_patch = False
+
+    def on_loaded(self, pipeline, pipe, base_model_type):
+        # Patch attention backend to sdpa (flash_attn fails with bf16 tensors
+        # on mmgp-offloaded modules that land on CPU)
+        try:
+            import models.trellis.trellis2.modules.attention.config as _trellis_attn_cfg
+            _trellis_attn_cfg.BACKEND = "sdpa"
+        except (ImportError, AttributeError):
+            pass
+
+        # full_attn.scaled_dot_product_attention has `from ... import ... as sdpa`
+        # inside an `if` block, which makes Python compile `sdpa` as a
+        # function-local variable. __dict__ injection cannot reach function
+        # locals, so we must replace the entire function.
+        try:
+            _fa = sys.modules.get(
+                "models.trellis.trellis2.modules.attention.full_attn")
+            if _fa is not None and hasattr(_fa, 'scaled_dot_product_attention'):
+                import math as _math
+                from torch.nn.functional import (
+                    scaled_dot_product_attention as _torch_sdpa,
+                )
+
+                def _trellis_sdpa_replacement(*args, **kwargs):
+                    arg_names_dict = {
+                        1: ['qkv'],
+                        2: ['q', 'kv'],
+                        3: ['q', 'k', 'v'],
+                    }
+                    n = len(args) + len(kwargs)
+                    assert n in arg_names_dict
+                    for key in arg_names_dict[n][len(args):]:
+                        assert key in kwargs
+                    if n == 1:
+                        qkv = args[0] if args else kwargs['qkv']
+                        q, k, v = qkv.unbind(dim=2)
+                    elif n == 2:
+                        q = args[0] if args else kwargs['q']
+                        kv = args[1] if len(args) > 1 else kwargs['kv']
+                        k, v = kv.unbind(dim=2)
+                    else:
+                        q = args[0] if args else kwargs['q']
+                        k = args[1] if len(args) > 1 else kwargs['k']
+                        v = args[2] if len(args) > 2 else kwargs['v']
+                    q = q.permute(0, 2, 1, 3)
+                    k = k.permute(0, 2, 1, 3)
+                    v = v.permute(0, 2, 1, 3)
+                    out = _torch_sdpa(q, k, v)
+                    return out.permute(0, 2, 1, 3)
+
+                _fa.scaled_dot_product_attention = _trellis_sdpa_replacement
+        except (ImportError, AttributeError):
+            pass
+
+        # Patch rembg to float() before ToPILImage (bf16 → float32)
+        rembg_wrapper = getattr(pipeline, "rembg", None)
+        if rembg_wrapper is not None:
+            import types
+            _orig_rembg_call = rembg_wrapper.__class__.__call__
+
+            def _rembg_call_bf16_safe(self_rembg, image, _orig=_orig_rembg_call):
+                import torchvision.transforms as transforms
+                image_size = image.size
+                # Run rembg on CPU to avoid GPU OOM when mmgp has
+                # most VRAM pinned for the main model
+                self_rembg.model.cpu()
+                input_images = self_rembg.transform_image(image).unsqueeze(0)
+                with torch.no_grad():
+                    preds = self_rembg.model(input_images)[-1].sigmoid().cpu()
+                pred = preds[0].squeeze().float()
+                pred_pil = transforms.ToPILImage()(pred)
+                mask = pred_pil.resize(image_size)
+                image.putalpha(mask)
+                return image
+
+            rembg_wrapper.__class__.__call__ = _rembg_call_bf16_safe
+
+
+HANDLER_META = {
+    "input_type": "image",
+    "output_type": "model3d",
+    "hooks": _TrellisHooks(),
+}
 
 TRELLIS_MODEL_ROOT = os.environ.get("TRELLIS_MODEL_ROOT", "/models/3d/trellis")
 

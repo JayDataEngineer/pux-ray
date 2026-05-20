@@ -9,6 +9,33 @@ from shared.utils import files_locator as fl
 from .prompt_enhancers import TTS_MONOLOGUE_PROMPT, TTS_QWEN3_DIALOGUE_PROMPT
 
 
+class _IndexTTS2Hooks:
+    needs_bf16_autocast = False
+    needs_device_patch = False
+
+    def before_generate(self, pipeline, kwargs):
+        # index_tts2.generate(input_prompt, model_mode, audio_guide, ...)
+        if "input_prompt" not in kwargs and "text" in kwargs:
+            kwargs["input_prompt"] = kwargs.pop("text")
+        kwargs.setdefault("model_mode", None)
+        if "audio_guide" not in kwargs and "audio_b64" in kwargs:
+            import base64
+            import tempfile
+            audio_bytes = base64.b64decode(kwargs.pop("audio_b64"))
+            tmp = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
+            tmp.write(audio_bytes)
+            tmp.close()
+            kwargs["audio_guide"] = tmp.name
+        return kwargs
+
+
+HANDLER_META = {
+    "input_type": "text",
+    "output_type": "audio",
+    "hooks": _IndexTTS2Hooks(),
+}
+
+
 INDEX_TTS2_REPO_ID = "DeepBeepMeep/TTS"
 INDEX_TTS2_FOLDER = "index_tts2"
 INDEX_TTS2_MAIN_GPT_FILENAME = "index_tts2_gpt_fp16.safetensors"

@@ -81,6 +81,42 @@ def _isolated_import(dominant_path, hidden_prefixes=("models",)):
 
 from models.base_handler import BaseFamilyHandler, _make_handler_cls, audio_response
 
+
+class _AnigenHooks:
+    needs_bf16_autocast = True
+    needs_device_patch = True
+
+    def pre_import(self):
+        # Patch anigen decoder/cube2mesh/grouping source files before import.
+        # These fix dtype mismatches from mmgp bf16 conversion.
+        try:
+            from services.wan2gp.deployment import (
+                _patch_anigen_decoder,
+                _patch_anigen_cube2mesh,
+                _patch_anigen_grouping,
+            )
+            _patch_anigen_decoder()
+            _patch_anigen_cube2mesh()
+            _patch_anigen_grouping()
+        except ImportError:
+            pass
+
+    def before_generate(self, pipeline, kwargs):
+        # AniGen handler passes seed to np.random.seed() which requires
+        # uint32 range. Clamp any value to valid range.
+        seed = kwargs.get("seed", -1)
+        if seed < 0 or seed >= 2**32:
+            import random
+            kwargs["seed"] = random.randint(0, 2**32 - 1)
+        return kwargs
+
+
+HANDLER_META = {
+    "input_type": "image",
+    "output_type": "model3d",
+    "hooks": _AnigenHooks(),
+}
+
 logger = logging.getLogger(__name__)
 
 
