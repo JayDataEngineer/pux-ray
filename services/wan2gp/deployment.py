@@ -675,6 +675,7 @@ class Wan2GPService:
             return {"status": "error", "error": "No model loaded"}
 
         try:
+            from services.wan2gp.custom_models.base_handler import get_handler_meta
             m = self._models.get(self._loaded_model)
             if m is None:
                 return {"status": "error", "error": "Model entry not found"}
@@ -771,7 +772,6 @@ class Wan2GPService:
 
             # Handler-specific kwarg remapping and device patching via
             # HANDLER_META hooks. Falls back to no-op if no meta registered.
-            from services.wan2gp.custom_models.base_handler import get_handler_meta
             meta = get_handler_meta(base_model_type)
 
             # Apply device patch before generate()
@@ -865,15 +865,16 @@ class Wan2GPService:
         _ensure_transformers_compat()
         _ensure_writable_hf_cache()
 
+        from services.wan2gp.custom_models.base_handler import get_handler_meta
+
         handler_path = entry["handler_path"]
         model_type = entry["model_type"]
         base_model_type = entry.get("base_model_type", model_type)
 
         # Run pre_import hooks (source file patching before Python imports)
-        from services.wan2gp.custom_models.base_handler import get_handler_meta as _get_meta
-        _meta = _get_meta(base_model_type)
-        if _meta and _meta.get("hooks"):
-            _meta["hooks"].pre_import()
+        meta = get_handler_meta(base_model_type)
+        if meta and meta.get("hooks"):
+            meta["hooks"].pre_import()
 
         handler_mod = importlib.import_module(handler_path)
         handler = handler_mod.family_handler
@@ -1153,8 +1154,6 @@ class Wan2GPService:
                     logger.warning("Failed to inject trellis image_cond: %s", e)
 
         # Apply handler on_loaded hooks (attention patching, rembg setup, etc.)
-        from services.wan2gp.custom_models.base_handler import get_handler_meta
-        meta = get_handler_meta(base_model_type)
         if meta and meta.get("hooks"):
             meta["hooks"].on_loaded(pipeline, pipe, base_model_type)
 
