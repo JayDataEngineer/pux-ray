@@ -232,21 +232,22 @@ ssh root@192.168.1.184   # passphrase prompt → cryptroot-unlock
 
 | Service | URL |
 |---|---|
-| API Ingress | `http://100.86.69.57:18080` |
-| Dashboard | `http://100.86.69.57:18080/dashboard` |
-| Studio | `http://100.86.69.57:18080/studio` |
-| Ray Dashboard | `http://100.86.69.57:18265` |
+| API (all endpoints) | `http://100.86.69.57:30080` |
+| Dashboard | `http://100.86.69.57:30080/dashboard` |
+| Studio Switcher | `http://100.86.69.57:30080/studio` |
+| Wan2GP Studio (MCP UI) | `http://100.86.69.57:30080/studio/` |
+| Ray Dashboard | `http://100.86.69.57:30080/ray-dashboard/` |
 | Ray Client | `ray://100.86.69.57:10001` |
-| ComfyUI | `http://100.86.69.57:18465` |
+| ComfyUI | `http://100.86.69.57:30080/comfyui/` |
 | Grafana | `http://100.86.69.57:30080/grafana` |
 
 ### Working Remotely
 
 From a dev PC, you can:
 - **Edit code** over SSH (VS Code Remote, or just SSH + vim)
-- **Call APIs** directly: `curl http://100.86.69.57:18080/llm/v1/chat/completions`
+- **Call APIs** directly: `curl http://100.86.69.57:30080/llm/v1/chat/completions`
 - **Use Ray Client**: `ray.init(address="ray://100.86.69.57:10001")`
-- **Monitor** via Ray Dashboard at port 18265
+- **Monitor** via Ray Dashboard at `http://100.86.69.57:30080/ray-dashboard/`
 - **Transfer models**: `rsync -avP ./model.gguf user@100.86.69.57:/mnt/data/models/LLM/`
 
 The project lives at `/home/user/Documents/programs/ray/` on the server. Models are at `/mnt/data/models/` (dedicated NVMe).
@@ -295,7 +296,7 @@ python scripts/test_services_v2.py  # Integration tests against live cluster
 ## Architecture
 
 ```
-gateway/        → API ingress (Starlette port 18080), ComfyUI manager
+gateway/        → API ingress (Starlette, routed via Traefik :30080), ComfyUI manager
 services/       → AI service implementations (Ray Serve deployments)
   base.py       → BaseGPUDeployment, SubprocessMixin
   tts/          → Kokoro, eSpeak, IndexTTS, FasterQwen3TTS, VibeVoiceCpp
@@ -372,7 +373,7 @@ Custom nodes declared in `config/comfyui_extensions.yaml`. To update workflows f
 
 ## API Routes
 
-All proxied through the ingress at port 18080:
+All proxied through Traefik at port 30080:
 
 ### Tier 1 (auto-deployed)
 | Route | Service |
@@ -429,11 +430,12 @@ Auth: `X-API-Key` header or `?api_key=` query param. Unset = no auth (dev mode).
 
 | Port | Service |
 |---|---|
-| 80 | Traefik (unified routing: Ray + MCP) |
+| 30080 | Traefik (all services — Ray Serve, MCP, monitoring, dashboard) |
+| 30090 | Flux Operator UI (NodePort) |
+| 30500 | Forge Registry (NodePort) |
+| 30432 | Postgres (NodePort) |
+| 30390 | Garage S3 (NodePort) |
 | 10001 | Ray Client |
-| 18080 | API Ingress (Starlette) |
-| 18265 | Ray Dashboard |
-| 18800 | Ray Serve HTTP |
 
 ## Boot Procedure
 
