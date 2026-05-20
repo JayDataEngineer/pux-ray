@@ -266,7 +266,16 @@ class _Pipeline:
         del slat, slat_skl
         torch.cuda.empty_cache()
 
-        # 6. Post-processing → GLB (disable autocast — nvdiffrast needs float32)
+        # 6. Post-processing → GLB
+        # Convert mesh_result to float32 — mmgp loaded weights as bf16 but
+        # nvdiffrast rasterize and MeshRenderer need float32 tensors.
+        # Also disable autocast so torch.bmm doesn't downcast vertices_clip.
+        mesh_result.vertices = mesh_result.vertices.float()
+        if hasattr(mesh_result, 'vertex_attrs') and mesh_result.vertex_attrs is not None:
+            mesh_result.vertex_attrs = mesh_result.vertex_attrs.float()
+        if hasattr(mesh_result, 'face_normal') and mesh_result.face_normal is not None:
+            mesh_result.face_normal = mesh_result.face_normal.float()
+
         with torch.amp.autocast("cuda", enabled=False):
             data = self._postprocess_and_export(
                 mesh_result, skeleton_result, img_rgb, simplify_ratio)

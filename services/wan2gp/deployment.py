@@ -176,14 +176,23 @@ def _patch_anigen_decoder():
     spconv bf16→fp32 hooks create mixed dtypes between skin_feats_skl (bf16)
     and scatter target tensors. Forces float32 on skin_feats and conf_skin
     before scatter_add_ operations.
+
+    Uses path-based file discovery (no import) so the patched file is available
+    when the module is first imported during pipeline construction.
     """
-    try:
-        import anigen.models.structured_latent_vae.anigen_decoder as _ad
-        _ad_path = _ad.__file__
-    except ImportError:
+    import pathlib
+    # Find the vendored anigen_decoder.py relative to /opt/vendor
+    for base in ("/opt/vendor", "/app/vendor"):
+        vendor_anigen = pathlib.Path(base) / "anigen" / "models" / "structured_latent_vae"
+        if vendor_anigen.is_dir():
+            break
+    else:
+        return
+    ad_path = vendor_anigen / "anigen_decoder.py"
+    if not ad_path.is_file():
         return
     try:
-        _src = open(_ad_path).read()
+        _src = ad_path.read_text()
         marker = "skin_feats_skl = rep_skl.skin_feats if skin_feats_skl_list is None else skin_feats_skl_list[i]\n"
         if marker not in _src:
             return
@@ -195,14 +204,82 @@ def _patch_anigen_decoder():
             "conf_skin = torch.sigmoid(rep_skl.conf_skin) if rep_skl.conf_skin is not None else torch.ones_like(skin_feats_skl[:, :1])\n",
             "conf_skin = (torch.sigmoid(rep_skl.conf_skin) if rep_skl.conf_skin is not None else torch.ones_like(skin_feats_skl[:, :1])).float()\n",
         )
-        open(_ad_path, 'w').write(_src)
+        ad_path.write_text(_src)
         # Invalidate cached pyc
-        import pathlib
-        for pyc in pathlib.Path(_ad_path).parent.glob("__pycache__/anigen_decoder*.pyc"):
+        for pyc in vendor_anigen.glob("__pycache__/anigen_decoder*.pyc"):
             pyc.unlink(missing_ok=True)
         logger.info("Patched anigen_decoder for float32 scatter ops")
     except Exception:
         logger.debug("Could not patch anigen_decoder", exc_info=True)
+
+
+def _patch_anigen_grouping():
+    """Patch grouping.py to match scatter_add zero-tensor dtype with source dtype.
+
+    torch.zeros((Nj, 3), device=joints.device) creates float32 by default,
+    but joints/parents/conf are bf16 from mmgp. scatter_add requires matching
+    dtypes between self and src.
+    """
+    import pathlib
+    for base in ("/opt/vendor", "/app/vendor"):
+        grouping_path = pathlib.Path(base) / "anigen" / "representations" / "skeleton" / "grouping.py"
+        if grouping_path.is_file():
+            break
+    else:
+        return
+    try:
+        _src = grouping_path.read_text()
+        if "dtype=joints.dtype" in _src:
+            return  # already patched
+        _src = _src.replace(
+            "torch.zeros((Nj, 3), device=joints.device)",
+            "torch.zeros((Nj, 3), device=joints.device, dtype=joints.dtype)",
+        )
+        _src = _src.replace(
+            "torch.zeros((Nj, 1), device=joints.device)",
+            "torch.zeros((Nj, 1), device=joints.device, dtype=joints.dtype)",
+        )
+        grouping_path.write_text(_src)
+        pyc_dir = grouping_path.parent / "__pycache__"
+        if pyc_dir.is_dir():
+            for pyc in pyc_dir.glob("grouping*.pyc"):
+                pyc.unlink(missing_ok=True)
+        logger.info("Patched grouping.py for dtype-matched scatter ops")
+    except Exception:
+        logger.debug("Could not patch grouping.py", exc_info=True)
+
+
+def _patch_anigen_cube2mesh():
+    """Patch cube2mesh_skeleton.py to convert vertices to float32 before
+    creating AniGenMeshExtractResult. mmgp converts params to bf16, and the
+    decoder output vertices inherit bf16, which causes scatter() dtype
+    mismatches in flexicubes and scatter_add_ in comput_v_normals.
+    """
+    import pathlib
+    for base in ("/opt/vendor", "/app/vendor"):
+        vendor_dir = pathlib.Path(base) / "anigen" / "representations" / "mesh"
+        if vendor_dir.is_dir():
+            break
+    else:
+        return
+    cube_path = vendor_dir / "cube2mesh_skeleton.py"
+    if not cube_path.is_file():
+        return
+    try:
+        _src = cube_path.read_text()
+        # In the decode_to_mesh method, convert vertices to float32 before
+        # constructing AniGenMeshExtractResult.
+        old_line = "mesh = AniGenMeshExtractResult(vertices=vertices, faces=faces, vertex_attrs=rgbnormal_colors, vertex_skin_feats=vertex_skin_feats, grid_positions=v_pos_normalized, grid_skin_feats=grid_skin_feats, res=self.res)\n"
+        new_line = "mesh = AniGenMeshExtractResult(vertices=vertices.float(), faces=faces, vertex_attrs=rgbnormal_colors, vertex_skin_feats=vertex_skin_feats, grid_positions=v_pos_normalized, grid_skin_feats=grid_skin_feats, res=self.res)\n"
+        if old_line not in _src:
+            return
+        _src = _src.replace(old_line, new_line)
+        cube_path.write_text(_src)
+        for pyc in vendor_dir.glob("__pycache__/cube2mesh_skeleton*.pyc"):
+            pyc.unlink(missing_ok=True)
+        logger.info("Patched cube2mesh_skeleton for float32 vertices")
+    except Exception:
+        logger.debug("Could not patch cube2mesh_skeleton", exc_info=True)
 
 
 # ─── Dynamic Model Discovery ──────────────────────────────────────────────────
@@ -906,6 +983,8 @@ class Wan2GPService:
         # anigen: patch decoder source before handler imports it
         if base_model_type == "anigen":
             _patch_anigen_decoder()
+            _patch_anigen_cube2mesh()
+            _patch_anigen_grouping()
 
         handler_mod = importlib.import_module(handler_path)
         handler = handler_mod.family_handler
