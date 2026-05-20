@@ -1,7 +1,7 @@
 "use client";
 
 import { useChat } from "@ai-sdk/react";
-import { useState, type FormEvent } from "react";
+import { useState, useEffect, useCallback, type FormEvent } from "react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
@@ -17,7 +17,6 @@ import {
 import { Input } from "@/components/ui/input";
 
 type GeneratedContent = {
-  type: "video" | "image" | "3d" | "audio";
   mediaType: string;
   data: string;
   model: string;
@@ -25,47 +24,63 @@ type GeneratedContent = {
   timestamp: number;
 };
 
+type ModelInfo = {
+  id: string;
+  category: string;
+  label: string;
+  output_type: string;
+  needs_gpu: boolean;
+  description: string;
+};
+
 export default function Home() {
   const [history, setHistory] = useState<GeneratedContent[]>([]);
   const [generating, setGenerating] = useState(false);
+  const [models, setModels] = useState<ModelInfo[]>([]);
+  const [modelsLoading, setModelsLoading] = useState(true);
 
-  // Direct generation form state
-  const [genType, setGenType] = useState<"video" | "image" | "3d" | "audio">("image");
-  const [genPrompt, setGenPrompt] = useState("");
-  const [genModel, setGenModel] = useState("");
-  const [genSteps, setGenSteps] = useState(24);
-  const [genWidth, setGenWidth] = useState(1024);
-  const [genHeight, setGenHeight] = useState(1024);
+  // Form state
+  const [selectedCategory, setSelectedCategory] = useState<string>("");
+  const [selectedModel, setSelectedModel] = useState<string>("");
+  const [prompt, setPrompt] = useState("");
+  const [imageFile, setImageFile] = useState<File | null>(null);
+  const [steps, setSteps] = useState(30);
+  const [width, setWidth] = useState(1024);
+  const [height, setHeight] = useState(1024);
 
-  // Chat state — AI SDK v6
+  // Chat
   const chat = useChat();
   const [chatInput, setChatInput] = useState("");
 
-  const modelsByType: Record<string, { value: string; label: string }[]> = {
-    video: [
-      { value: "wan/t2v", label: "WAN Text-to-Video" },
-      { value: "wan/i2v", label: "WAN Image-to-Video" },
-      { value: "hunyuan/t2v", label: "Hunyuan T2V" },
-      { value: "hunyuan/i2v", label: "Hunyuan I2V" },
-      { value: "ltx2", label: "LTX-Video" },
-    ],
-    image: [
-      { value: "flux", label: "Flux" },
-      { value: "flux_schnell", label: "Flux Schnell (fast)" },
-      { value: "flux2_dev", label: "Flux 2 Dev" },
-      { value: "flux2_klein_4b", label: "Flux 2 Klein 4B" },
-      { value: "qwen-image-edit", label: "QWEN Image Edit" },
-    ],
-    "3d": [
-      { value: "trellis", label: "TRELLIS" },
-      { value: "anigen", label: "AniGen" },
-    ],
-    audio: [
-      { value: "moss-soundeffect", label: "MOSS Sound Effect" },
-      { value: "kokoro", label: "Kokoro TTS" },
-      { value: "espeak", label: "eSpeak TTS" },
-    ],
-  };
+  // Fetch model catalog from /v1/models on mount
+  useEffect(() => {
+    (async () => {
+      try {
+        const resp = await fetch("/api/models");
+        if (resp.ok) {
+          const { data } = await resp.json();
+          setModels(data);
+          if (data.length > 0) {
+            setSelectedCategory(data[0].category);
+          }
+        }
+      } catch {
+        // Will show empty catalog
+      } finally {
+        setModelsLoading(false);
+      }
+    })();
+  }, []);
+
+  // Derive categories and filtered models from catalog
+  const categories = [...new Set(models.map((m) => m.category))];
+  const filteredModels = models.filter((m) => m.category === selectedCategory);
+
+  // Detect if selected model needs image input
+  const needsImage = selectedCategory === "3d" ||
+    selectedModel?.includes("i2v") ||
+    selectedModel?.includes("edit");
+  const needsDimensions = ["video", "image"].includes(selectedCategory);
 
   const isStreaming = chat.status === "submitted" || chat.status === "streaming";
 
@@ -76,33 +91,39 @@ export default function Home() {
     setChatInput("");
   }
 
-  async function handleDirectGenerate() {
-    if (!genPrompt.trim()) return;
+  const handleGenerate = useCallback(async () => {
+    if (!selectedModel) return;
     setGenerating(true);
 
     try {
-      const toolMap = {
-        video: "generate_video",
-        image: "generate_image",
-        "3d": "generate_3d",
-        audio: "generate_audio",
+      const params: Record<string, unknown> = {
+        model: selectedModel,
+        steps,
       };
 
-      const args: Record<string, unknown> = {
-        prompt: genPrompt,
-        model: genModel || modelsByType[genType][0].value,
-        steps: genSteps,
-      };
+      if (prompt) params.prompt = prompt;
+      if (needsDimensions) {
+        params.width = width;
+        params.height = height;
+      }
 
-      if (genType === "video" || genType === "image") {
-        args.width = genWidth;
-        args.height = genHeight;
+      // Image upload — read as base64
+      if (imageFile && needsImage) {
+        const b64 = await new Promise<string>((resolve) => {
+          const reader = new FileReader();
+          reader.onload = () => {
+            const result = reader.result as string;
+            resolve(result.split(",")[1]);
+          };
+          reader.readAsDataURL(imageFile);
+        });
+        params.image_b64 = b64;
       }
 
       const resp = await fetch("/api/generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ tool: toolMap[genType], args }),
+        body: JSON.stringify({ service: "wan2gp", params }),
       });
 
       const result = await resp.json();
@@ -114,18 +135,17 @@ export default function Home() {
           if (parsed.status === "ok" && parsed.data) {
             setHistory((prev) => [
               {
-                type: genType,
                 mediaType: parsed.media_type || "image/png",
                 data: parsed.data,
-                model: parsed.model || (args.model as string),
-                prompt: genPrompt,
+                model: parsed.model || selectedModel,
+                prompt: prompt || "",
                 timestamp: Date.now(),
               },
               ...prev,
             ]);
           }
         } catch {
-          // Result wasn't JSON
+          // Not JSON
         }
       }
     } catch (e) {
@@ -133,18 +153,18 @@ export default function Home() {
     } finally {
       setGenerating(false);
     }
-  }
+  }, [selectedModel, prompt, steps, width, height, imageFile, needsImage, needsDimensions]);
 
   function renderMedia(item: GeneratedContent) {
     const src = `data:${item.mediaType};base64,${item.data}`;
 
-    if (item.type === "video" || item.mediaType.startsWith("video")) {
+    if (item.mediaType.startsWith("video")) {
       return <video src={src} controls className="w-full rounded-lg" />;
     }
-    if (item.type === "audio" || item.mediaType.startsWith("audio")) {
+    if (item.mediaType.startsWith("audio")) {
       return <audio src={src} controls className="w-full" />;
     }
-    if (item.type === "3d" || item.mediaType.includes("gltf")) {
+    if (item.mediaType.includes("gltf") || item.mediaType.includes("model")) {
       return (
         <div className="w-full h-48 bg-zinc-900 rounded-lg flex items-center justify-center text-zinc-500">
           3D model — download to view
@@ -156,10 +176,10 @@ export default function Home() {
 
   return (
     <div className="flex h-screen">
-      {/* Sidebar — generation forms + history */}
+      {/* Sidebar */}
       <div className="w-80 border-r border-zinc-800 flex flex-col">
         <div className="p-4 border-b border-zinc-800">
-          <h1 className="text-lg font-semibold">Wan2GP Studio</h1>
+          <h1 className="text-lg font-semibold">Tech Noir Studio</h1>
           <p className="text-xs text-zinc-500">GPU-powered generation</p>
         </div>
 
@@ -174,87 +194,110 @@ export default function Home() {
           </TabsList>
 
           <TabsContent value="generate" className="flex-1 overflow-y-auto p-4 space-y-4">
-            <div className="space-y-2">
-              <label className="text-xs text-zinc-400">Type</label>
-              <Select value={genType} onValueChange={(v) => { if (v) { setGenType(v as "video" | "image" | "3d" | "audio"); setGenModel(""); } }}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="video">Video</SelectItem>
-                  <SelectItem value="image">Image</SelectItem>
-                  <SelectItem value="3d">3D Mesh</SelectItem>
-                  <SelectItem value="audio">Audio</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="space-y-2">
-              <label className="text-xs text-zinc-400">Model</label>
-              <Select value={genModel || modelsByType[genType][0].value} onValueChange={(v) => { if (v) setGenModel(v); }}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {modelsByType[genType].map((m) => (
-                    <SelectItem key={m.value} value={m.value}>
-                      {m.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="space-y-2">
-              <label className="text-xs text-zinc-400">Prompt</label>
-              <Textarea
-                value={genPrompt}
-                onChange={(e) => setGenPrompt(e.target.value)}
-                placeholder="Describe what to generate..."
-                rows={3}
-              />
-            </div>
-
-            {(genType === "video" || genType === "image") && (
-              <div className="grid grid-cols-2 gap-2">
-                <div className="space-y-1">
-                  <label className="text-xs text-zinc-400">Width</label>
-                  <Input
-                    type="number"
-                    value={genWidth}
-                    onChange={(e) => setGenWidth(Number(e.target.value))}
-                  />
-                </div>
-                <div className="space-y-1">
-                  <label className="text-xs text-zinc-400">Height</label>
-                  <Input
-                    type="number"
-                    value={genHeight}
-                    onChange={(e) => setGenHeight(Number(e.target.value))}
-                  />
-                </div>
-              </div>
+            {modelsLoading && (
+              <p className="text-sm text-zinc-500">Loading models...</p>
             )}
 
-            <div className="space-y-1">
-              <label className="text-xs text-zinc-400">Steps: {genSteps}</label>
-              <input
-                type="range"
-                min={1}
-                max={100}
-                value={genSteps}
-                onChange={(e) => setGenSteps(Number(e.target.value))}
-                className="w-full"
-              />
-            </div>
+            {!modelsLoading && categories.length === 0 && (
+              <p className="text-sm text-zinc-500">No models available</p>
+            )}
 
-            <Button
-              className="w-full"
-              onClick={handleDirectGenerate}
-              disabled={generating || !genPrompt.trim()}
-            >
-              {generating ? "Generating..." : "Generate"}
-            </Button>
+            {categories.length > 0 && (
+              <>
+                {/* Category */}
+                <div className="space-y-2">
+                  <label className="text-xs text-zinc-400">Category</label>
+                  <Select value={selectedCategory} onValueChange={(v) => { setSelectedCategory(v); setSelectedModel(""); }}>
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {categories.map((c) => (
+                        <SelectItem key={c} value={c}>{c}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                {/* Model */}
+                <div className="space-y-2">
+                  <label className="text-xs text-zinc-400">Model</label>
+                  <Select
+                    value={selectedModel || (filteredModels[0]?.id ?? "")}
+                    onValueChange={(v) => setSelectedModel(v)}
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {filteredModels.map((m) => (
+                        <SelectItem key={m.id} value={m.id}>
+                          {m.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                {/* Prompt / Text input */}
+                <div className="space-y-2">
+                  <label className="text-xs text-zinc-400">Prompt</label>
+                  <Textarea
+                    value={prompt}
+                    onChange={(e) => setPrompt(e.target.value)}
+                    placeholder="Describe what to generate..."
+                    rows={3}
+                  />
+                </div>
+
+                {/* Image upload for i2v / 3d / edit models */}
+                {needsImage && (
+                  <div className="space-y-2">
+                    <label className="text-xs text-zinc-400">Input image</label>
+                    <Input
+                      type="file"
+                      accept="image/*"
+                      onChange={(e) => setImageFile(e.target.files?.[0] ?? null)}
+                    />
+                  </div>
+                )}
+
+                {/* Dimensions for video/image */}
+                {needsDimensions && (
+                  <div className="grid grid-cols-2 gap-2">
+                    <div className="space-y-1">
+                      <label className="text-xs text-zinc-400">Width</label>
+                      <Input type="number" value={width} onChange={(e) => setWidth(Number(e.target.value))} />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-xs text-zinc-400">Height</label>
+                      <Input type="number" value={height} onChange={(e) => setHeight(Number(e.target.value))} />
+                    </div>
+                  </div>
+                )}
+
+                {/* Steps */}
+                <div className="space-y-1">
+                  <label className="text-xs text-zinc-400">Steps: {steps}</label>
+                  <input
+                    type="range"
+                    min={1}
+                    max={100}
+                    value={steps}
+                    onChange={(e) => setSteps(Number(e.target.value))}
+                    className="w-full"
+                  />
+                </div>
+
+                <Button
+                  className="w-full"
+                  onClick={handleGenerate}
+                  disabled={generating || !selectedModel}
+                >
+                  {generating ? "Generating..." : "Generate"}
+                </Button>
+              </>
+            )}
           </TabsContent>
 
           <TabsContent value="history" className="flex-1 overflow-y-auto p-4 space-y-3">
@@ -268,14 +311,12 @@ export default function Home() {
                 <CardContent className="p-2 space-y-2">
                   {renderMedia(item)}
                   <div className="flex items-center gap-2">
-                    <Badge variant="secondary">{item.type}</Badge>
-                    <span className="text-xs text-zinc-500 truncate">
-                      {item.model}
-                    </span>
+                    <Badge variant="secondary">{item.mediaType.split("/")[1]}</Badge>
+                    <span className="text-xs text-zinc-500 truncate">{item.model}</span>
                   </div>
-                  <p className="text-xs text-zinc-400 line-clamp-2">
-                    {item.prompt}
-                  </p>
+                  {item.prompt && (
+                    <p className="text-xs text-zinc-400 line-clamp-2">{item.prompt}</p>
+                  )}
                 </CardContent>
               </Card>
             ))}
@@ -283,12 +324,12 @@ export default function Home() {
         </Tabs>
       </div>
 
-      {/* Main — Chat interface */}
+      {/* Main — Chat */}
       <div className="flex-1 flex flex-col">
         <div className="p-4 border-b border-zinc-800">
           <h2 className="font-medium">Chat</h2>
           <p className="text-xs text-zinc-500">
-            Ask the AI to generate anything — it will pick the right tool
+            Ask the AI to generate anything — it will call the right service
           </p>
         </div>
 

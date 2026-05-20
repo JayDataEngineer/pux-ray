@@ -2,13 +2,13 @@ import { callMcpTool } from "@/lib/mcp-client";
 
 export async function POST(req: Request) {
   try {
-    const { tool, args } = await req.json();
+    const { service, params } = await req.json();
 
-    if (!tool) {
-      return Response.json({ error: "Missing 'tool' parameter" }, { status: 400 });
+    if (!service) {
+      return Response.json({ error: "Missing 'service' parameter" }, { status: 400 });
     }
 
-    const result = await callMcpTool(tool, args || {});
+    const result = await callMcpTool("run", { service, params: params || {} });
     return Response.json(result);
   } catch (e: any) {
     return Response.json(
