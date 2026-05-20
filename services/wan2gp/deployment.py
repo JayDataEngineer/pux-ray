@@ -170,6 +170,41 @@ def _ensure_writable_hf_cache():
             logger.info("%s redirected to writable %s (PVC read-only)", var, writable)
 
 
+def _patch_anigen_decoder():
+    """Patch anigen_decoder.py to force float32 in skeleton_grouping scatter ops.
+
+    spconv bf16→fp32 hooks create mixed dtypes between skin_feats_skl (bf16)
+    and scatter target tensors. Forces float32 on skin_feats and conf_skin
+    before scatter_add_ operations.
+    """
+    try:
+        import anigen.models.structured_latent_vae.anigen_decoder as _ad
+        _ad_path = _ad.__file__
+    except ImportError:
+        return
+    try:
+        _src = open(_ad_path).read()
+        marker = "skin_feats_skl = rep_skl.skin_feats if skin_feats_skl_list is None else skin_feats_skl_list[i]\n"
+        if marker not in _src:
+            return
+        _src = _src.replace(
+            marker,
+            "skin_feats_skl = (rep_skl.skin_feats if skin_feats_skl_list is None else skin_feats_skl_list[i]).float()\n",
+        )
+        _src = _src.replace(
+            "conf_skin = torch.sigmoid(rep_skl.conf_skin) if rep_skl.conf_skin is not None else torch.ones_like(skin_feats_skl[:, :1])\n",
+            "conf_skin = (torch.sigmoid(rep_skl.conf_skin) if rep_skl.conf_skin is not None else torch.ones_like(skin_feats_skl[:, :1])).float()\n",
+        )
+        open(_ad_path, 'w').write(_src)
+        # Invalidate cached pyc
+        import pathlib
+        for pyc in pathlib.Path(_ad_path).parent.glob("__pycache__/anigen_decoder*.pyc"):
+            pyc.unlink(missing_ok=True)
+        logger.info("Patched anigen_decoder for float32 scatter ops")
+    except Exception:
+        logger.debug("Could not patch anigen_decoder", exc_info=True)
+
+
 # ─── Dynamic Model Discovery ──────────────────────────────────────────────────
 
 def discover_models(models_root: Path | None = None) -> dict:
@@ -867,6 +902,10 @@ class Wan2GPService:
         handler_path = entry["handler_path"]
         model_type = entry["model_type"]
         base_model_type = entry.get("base_model_type", model_type)
+
+        # anigen: patch decoder source before handler imports it
+        if base_model_type == "anigen":
+            _patch_anigen_decoder()
 
         handler_mod = importlib.import_module(handler_path)
         handler = handler_mod.family_handler
