@@ -4,15 +4,14 @@ Extracts EXIF data from images using Pillow. No model loading needed.
 """
 
 import asyncio
-import io
 from typing import Optional
 
-import httpx
 from loguru import logger
 from PIL import Image
 from PIL.ExifTags import TAGS, GPSTAGS
 
 from ..settings import get_settings
+from .media_utils import load_image
 
 
 def _decode_exif(raw_exif: dict) -> dict:
@@ -48,7 +47,7 @@ class ExifService:
 
         try:
             async with self._lock:
-                image = await self._load_image(image_url)
+                image = await load_image(image_url)
                 raw_exif = image._getexif()
 
                 if raw_exif is None:
@@ -69,14 +68,6 @@ class ExifService:
         except Exception as e:
             logger.error(f"EXIF extraction error: {e}")
             return {"success": False, "error": f"EXIF extraction error: {str(e)[:200]}"}
-
-    async def _load_image(self, image_url: str) -> Image.Image:
-        async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
-            response = await client.get(image_url, headers={"User-Agent": "MediaAnalysis/1.0"})
-            response.raise_for_status()
-        image = Image.open(io.BytesIO(response.content))
-        image.load()
-        return image
 
     async def close(self) -> None:
         pass

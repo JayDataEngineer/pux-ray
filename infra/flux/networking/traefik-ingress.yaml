@@ -111,6 +111,13 @@ spec:
   entryPoints:
     - web
   routes:
+    - match: PathPrefix(`/mcp/media/tmp`)
+      kind: Rule
+      middlewares:
+        - name: mcp-media-tmp-rewrite
+      services:
+        - name: media-analysis-mcp
+          port: 8001
     - match: PathPrefix(`/mcp/media`)
       kind: Rule
       middlewares:
@@ -146,6 +153,17 @@ spec:
       services:
         - name: wan2gp-studio-web
           port: 3000
+
+---
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: mcp-media-tmp-rewrite
+  namespace: mcp
+spec:
+  replacePathRegex:
+    regex: ^/mcp/media(/.*)$
+    replacement: $1
 
 ---
 apiVersion: traefik.io/v1alpha1

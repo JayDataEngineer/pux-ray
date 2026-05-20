@@ -5,16 +5,15 @@ alignment, and embedding extraction. Lazy-loads on first request.
 """
 
 import asyncio
-import io
 import time
 from typing import Optional
 
-import httpx
 import numpy as np
 from loguru import logger
 from PIL import Image
 
 from ..settings import get_settings, get_device
+from .media_utils import load_image
 
 
 class FaceService:
@@ -87,7 +86,7 @@ class FaceService:
         await self._ensure_loaded()
 
         try:
-            image = await self._load_image(image_url)
+            image = await load_image(image_url)
         except Exception as e:
             return {"success": False, "error": f"Failed to load image: {str(e)[:200]}"}
 
@@ -145,14 +144,6 @@ class FaceService:
             "faces": results,
             "count": len(results),
         }
-
-    async def _load_image(self, image_url: str) -> Image.Image:
-        async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
-            response = await client.get(image_url, headers={"User-Agent": "MediaAnalysis/1.0"})
-            response.raise_for_status()
-        image = Image.open(io.BytesIO(response.content))
-        image.load()
-        return image
 
     async def close(self) -> None:
         if self._app is not None:

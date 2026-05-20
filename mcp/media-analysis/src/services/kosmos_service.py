@@ -8,13 +8,11 @@ import asyncio
 import time
 from typing import Optional
 
-import httpx
-import io
-import base64
 from loguru import logger
 from PIL import Image
 
 from ..settings import get_settings, get_device
+from .media_utils import load_image
 
 
 class KosmosService:
@@ -82,8 +80,7 @@ class KosmosService:
 
     async def convert(
         self,
-        image_url: str | None = None,
-        image_base64: str | None = None,
+        image_url: str,
         mode: str = "markdown",
         max_new_tokens: int = 4096,
     ) -> dict:
@@ -96,7 +93,7 @@ class KosmosService:
             return {"success": False, "error": "mode must be 'markdown' or 'ocr'"}
 
         try:
-            image = await self._load_image(image_url, image_base64)
+            image = await load_image(image_url)
         except Exception as e:
             return {"success": False, "error": f"Failed to load image: {str(e)[:200]}"}
 
@@ -140,22 +137,6 @@ class KosmosService:
             generated_ids, skip_special_tokens=True
         )
         return generated_text[0]
-
-    async def _load_image(self, image_url: str | None, image_base64: str | None) -> Image.Image:
-        if image_url:
-            async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
-                response = await client.get(image_url, headers={"User-Agent": "MediaAnalysis/1.0"})
-                response.raise_for_status()
-            image = Image.open(io.BytesIO(response.content))
-            image.load()
-            return image
-        elif image_base64:
-            data = base64.b64decode(image_base64)
-            image = Image.open(io.BytesIO(data))
-            image.load()
-            return image
-        else:
-            raise ValueError("Either image_url or image_base64 must be provided")
 
     async def close(self) -> None:
         if self._model is not None:

@@ -24,6 +24,9 @@ Video tools:
 - FFmpeg + SSIM: temporal analysis
 - PySceneDetect: shot/scene detection
 
+Upload:
+- upload: accept base64 data, return a temporary URL
+
 Router:
 - FunctionGemma 270M GGUF: sub-second routing
 """
@@ -67,6 +70,21 @@ async def service_lifespan(server: FastMCP):
     # Start idle watcher (auto-unloads models after MEDIA_IDLE_TIMEOUT)
     idle_watcher = get_idle_watcher()
     await idle_watcher.start()
+
+    # Periodic upload cleanup (every 10 minutes, delete files older than 1 hour)
+    import time as _time
+
+    async def _cleanup_loop():
+        while True:
+            await asyncio.sleep(600)
+            try:
+                n = cleanup_uploads(max_age_seconds=3600)
+                if n:
+                    logger.info(f"Cleaned up {n} expired upload(s)")
+            except Exception as e:
+                logger.warning(f"Upload cleanup error: {e}")
+
+    cleanup_task = asyncio.create_task(_cleanup_loop())
 
     # Load router at startup (small model, needed for every request)
     router = get_router()
@@ -122,6 +140,7 @@ async def service_lifespan(server: FastMCP):
         }
     finally:
         logger.info("Shutting down services...")
+        cleanup_task.cancel()
         await idle_watcher.stop()
         router.close()
         await vision_service.close()
@@ -153,6 +172,8 @@ mcp = FastMCP(
         "Media analysis server for images, audio, and video. "
         "Use 'process' to let the server automatically route your request, "
         "or call individual tools directly.\n\n"
+        "Upload: upload base64 data and get a temp URL for use with other tools. "
+        "All imageSource/audioSource/videoSource params also accept data: URIs directly.\n\n"
         "Image tools: analyze_image, detect_objects, tag_image, extract_colors, "
         "read_barcodes, extract_exif, detect_faces, classify_nsfw, segment_image\n"
         "Audio tools: transcribe_audio, classify_audio, fingerprint_audio, diarize_audio\n"
@@ -167,6 +188,8 @@ mcp = FastMCP(
 from .tools.media_tools import (
     # Smart router
     process,
+    # Upload
+    upload,
     # Image tools
     analyze_image,
     detect_objects,
@@ -192,6 +215,7 @@ from .tools.media_tools import (
 )
 
 mcp.add_tool(process)
+mcp.add_tool(upload)
 mcp.add_tool(analyze_image)
 mcp.add_tool(detect_objects)
 mcp.add_tool(tag_image)
@@ -214,6 +238,48 @@ mcp.add_tool(kosmos_ocr)
 
 # ========== ASGI APP (for uvicorn --workers) ==========
 
+import asyncio
+from starlette.responses import Response
+from starlette.routing import Route
+from .services.media_utils import UPLOAD_DIR, cleanup_uploads
+
+_original_http_app = mcp.http_app
+
+
+def _http_app_with_upload(**kwargs):
+    app = _original_http_app(**kwargs)
+
+    async def serve_upload(request):
+        """Serve an uploaded file from /tmp/media-uploads/."""
+        filename = request.path_params["path"]
+        # Sanitize: no path traversal
+        if "/" in filename or ".." in filename:
+            return Response(status_code=400)
+        filepath = UPLOAD_DIR / filename
+        if not filepath.exists():
+            return Response(status_code=404)
+
+        data = filepath.read_bytes()
+        # Guess content type from extension
+        ext = filepath.suffix.lower()
+        ct_map = {
+            ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
+            ".gif": "image/gif", ".webp": "image/webp", ".bmp": "image/bmp",
+            ".mp3": "audio/mpeg", ".wav": "audio/wav", ".ogg": "audio/ogg",
+            ".flac": "audio/flac", ".m4a": "audio/x-m4a",
+            ".mp4": "video/mp4", ".webm": "video/webm", ".avi": "video/avi",
+        }
+        content_type = ct_map.get(ext, "application/octet-stream")
+        return Response(content=data, media_type=content_type)
+
+    # Inject the /tmp/{path} route before the MCP catch-all
+    app.router.routes.insert(0, Route("/tmp/{path:path}", serve_upload))
+
+    return app
+
+
+mcp.http_app = _http_app_with_upload
+
 app = mcp.http_app(stateless_http=True)
 
 
@@ -227,6 +293,7 @@ if __name__ == "__main__":
     logger.info(f"Direct access: http://localhost:{port}/mcp")
     logger.info(f"Profile: {settings.profile} | Device: {settings.device} | Idle timeout: {settings.idle_timeout}s")
     logger.info(f"Router: {'FunctionGemma + fallback' if settings.router_enabled else 'rule-based fallback'}")
+    logger.info("Upload: upload (base64 → temp URL), /tmp/ serves uploaded files")
     logger.info("Image tools: analyze_image, detect_objects, tag_image, extract_colors, read_barcodes, extract_exif, detect_faces, classify_nsfw, segment_image")
     logger.info("Audio tools: transcribe_audio, classify_audio, fingerprint_audio, diarize_audio")
     logger.info("Video tools: check_video, detect_scenes")

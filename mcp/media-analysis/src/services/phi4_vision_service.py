@@ -157,8 +157,7 @@ class Phi4VisionService:
 
     async def chat(
         self,
-        image_url: str | None = None,
-        image_base64: str | None = None,
+        image_url: str,
         prompt: str = "Describe this image in detail.",
         max_new_tokens: int = 2048,
     ) -> dict:
@@ -167,12 +166,10 @@ class Phi4VisionService:
         from .idle_watcher import get_idle_watcher
         get_idle_watcher().touch("phi4_vision")
 
-        if not image_url and not image_base64:
-            return {"success": False, "error": "Either image_url or image_base64 must be provided"}
+        if not image_url:
+            return {"success": False, "error": "image_url is required"}
 
         image_input = image_url
-        if not image_input and image_base64:
-            image_input = f"data:image/png;base64,{image_base64}"
 
         async with self._lock:
             try:

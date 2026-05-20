@@ -5,13 +5,12 @@ Extracts dominant colors from images using ColorThief. No model loading needed.
 
 import asyncio
 import io
-import tempfile
 from typing import Optional
 
-import httpx
 from loguru import logger
 
 from ..settings import get_settings
+from .media_utils import load_bytes
 
 
 class ColorService:
@@ -32,12 +31,7 @@ class ColorService:
             return {"success": False, "error": "Color extraction is disabled"}
 
         try:
-            # Download image to temp file (ColorThief needs a file path or file-like)
-            async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
-                response = await client.get(image_url, headers={"User-Agent": "MediaAnalysis/1.0"})
-                response.raise_for_status()
-
-            image_data = response.content
+            image_data = await load_bytes(image_url)
 
             async with self._lock:
                 loop = asyncio.get_event_loop()

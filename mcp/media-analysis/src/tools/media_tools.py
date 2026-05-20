@@ -19,12 +19,45 @@ from pydantic import Field
 
 
 # ============================================================
+# Upload Tool
+# ============================================================
+
+async def upload(
+    data: Annotated[str, Field(
+        description="Base64-encoded image/audio/video data"
+    )],
+    mime_type: Annotated[str, Field(
+        description="MIME type of the data (e.g. image/png, audio/wav, video/mp4)"
+    )] = "image/png",
+    ctx: Context | None = None,
+) -> dict:
+    """Upload base64-encoded media data and get a temporary URL.
+
+    Use this when you have raw base64 data (e.g. from a screenshot or recording)
+    instead of a remote URL. Returns a URL you can pass to any tool's imageSource/audioSource/videoSource parameter.
+    Files are automatically cleaned up after 1 hour.
+    """
+    from ..services.media_utils import save_upload, UPLOAD_DIR
+    from ..settings import get_settings
+
+    try:
+        filename = save_upload(data, mime_type)
+        settings = get_settings()
+        url = f"http://localhost:{settings.port}/tmp/{filename}"
+        return {"success": True, "url": url, "filename": filename}
+    except ValueError as e:
+        return {"success": False, "error": str(e)}
+    except Exception as e:
+        return {"success": False, "error": f"Upload failed: {str(e)[:200]}"}
+
+
+# ============================================================
 # Image Tools
 # ============================================================
 
 async def analyze_image(
     imageSource: Annotated[str, Field(
-        description="Remote URL to the image (supports PNG, JPG, JPEG)"
+        description="URL to the image (HTTP/HTTPS), or data URI (data:image/png;base64,...). Supports PNG, JPG, JPEG."
     )],
     prompt: Annotated[str, Field(
         description="Detailed text prompt describing what to analyze in the image"
@@ -62,7 +95,7 @@ async def analyze_image(
 
 async def detect_objects(
     imageSource: Annotated[str, Field(
-        description="Remote URL to the image"
+        description="URL to the image (HTTP/HTTPS or data URI). Supports PNG, JPG, JPEG."
     )],
     confidence: Annotated[float, Field(
         description="Minimum confidence threshold (0-1, default 0.25)",
@@ -80,7 +113,7 @@ async def detect_objects(
 
 async def tag_image(
     imageSource: Annotated[str, Field(
-        description="Remote URL to the image"
+        description="URL to the image (HTTP/HTTPS or data URI)"
     )],
     threshold: Annotated[float, Field(
         description="Minimum confidence threshold for tags (0-1, default 0.35)",
@@ -98,7 +131,7 @@ async def tag_image(
 
 async def extract_colors(
     imageSource: Annotated[str, Field(
-        description="Remote URL to the image"
+        description="URL to the image (HTTP/HTTPS or data URI)"
     )],
     color_count: Annotated[int, Field(
         description="Number of colors to extract (2-20, default 5)",
@@ -120,7 +153,7 @@ async def extract_colors(
 
 async def read_barcodes(
     imageSource: Annotated[str, Field(
-        description="Remote URL to the image"
+        description="URL to the image (HTTP/HTTPS or data URI)"
     )],
     ctx: Context | None = None,
 ) -> dict:
@@ -137,7 +170,7 @@ async def read_barcodes(
 
 async def extract_exif(
     imageSource: Annotated[str, Field(
-        description="Remote URL to the image"
+        description="URL to the image (HTTP/HTTPS or data URI)"
     )],
     ctx: Context | None = None,
 ) -> dict:
@@ -154,7 +187,7 @@ async def extract_exif(
 
 async def detect_faces(
     imageSource: Annotated[str, Field(
-        description="Remote URL to the image"
+        description="URL to the image (HTTP/HTTPS or data URI)"
     )],
     max_faces: Annotated[int, Field(
         description="Maximum number of faces to return (default 10)",
@@ -176,7 +209,7 @@ async def detect_faces(
 
 async def classify_nsfw(
     imageSource: Annotated[str, Field(
-        description="Remote URL to the image"
+        description="URL to the image (HTTP/HTTPS or data URI)"
     )],
     threshold: Annotated[float, Field(
         description="NSFW threshold (0-1, default 0.5)",
@@ -198,7 +231,7 @@ async def classify_nsfw(
 
 async def segment_image(
     imageSource: Annotated[str, Field(
-        description="Remote URL to the image"
+        description="URL to the image (HTTP/HTTPS or data URI)"
     )],
     mode: Annotated[str, Field(
         description="Segmentation mode: auto (grid points), points (explicit coords), or box (bounding box)"
@@ -389,7 +422,7 @@ async def detect_scenes(
 
 async def detect_objects_text(
     imageSource: Annotated[str, Field(
-        description="Remote URL to the image (supports PNG, JPG, JPEG)"
+        description="URL to the image (HTTP/HTTPS or data URI). Supports PNG, JPG, JPEG."
     )],
     prompt: Annotated[str, Field(
         description="Text description of objects to detect, separated by periods (e.g. 'a cat . a remote control . a dog')"
@@ -419,7 +452,7 @@ async def detect_objects_text(
 
 async def phi4_vision(
     imageSource: Annotated[str, Field(
-        description="Remote URL to the image (supports PNG, JPG, JPEG)"
+        description="URL to the image (HTTP/HTTPS or data URI). Supports PNG, JPG, JPEG."
     )],
     prompt: Annotated[str, Field(
         description="What to ask about the image (e.g. 'What is shown in this image?', 'Read the text on the sign')"
@@ -448,7 +481,7 @@ async def phi4_vision(
 
 async def kosmos_ocr(
     imageSource: Annotated[str, Field(
-        description="Remote URL to the document image (supports PNG, JPG, JPEG)"
+        description="URL to the document image (HTTP/HTTPS or data URI). Supports PNG, JPG, JPEG."
     )],
     mode: Annotated[str, Field(
         description="Output mode: 'markdown' for formatted text (default), 'ocr' for text with bounding box coordinates"
@@ -484,7 +517,7 @@ async def process(
         description="What you want to do with the media (e.g., 'describe this image', 'transcribe this audio')"
     )],
     media_url: Annotated[str, Field(
-        description="URL to the media file (image, audio, or video)"
+        description="URL to the media file (HTTP/HTTPS or data URI for images)"
     )],
     ctx: Context | None = None,
 ) -> dict:

@@ -4,16 +4,14 @@ Lazy-loads on first request. Serialized CPU inference via asyncio.Lock.
 """
 
 import asyncio
-import base64
-import io
 import time
 from typing import Optional
 
-import httpx
 from loguru import logger
 from PIL import Image
 
 from ..settings import get_settings, get_device
+from .media_utils import load_image
 
 
 VALID_TASKS = frozenset({
@@ -101,8 +99,7 @@ class VisionService:
 
     async def analyze(
         self,
-        image_url: str | None = None,
-        image_base64: str | None = None,
+        image_url: str,
         task: str = "<MORE_DETAILED_CAPTION>",
         text_input: str | None = None,
     ) -> dict:
@@ -115,7 +112,7 @@ class VisionService:
         get_idle_watcher().touch("vision")
 
         try:
-            image = await self._load_image(image_url, image_base64)
+            image = await load_image(image_url)
         except Exception as e:
             return {"success": False, "error": f"Failed to load image: {str(e)[:200]}"}
 
@@ -166,24 +163,6 @@ class VisionService:
         return self._processor.post_process_generation(
             generated_text, task=task, image_size=image.size,
         )
-
-    async def _load_image(self, image_url: str | None, image_base64: str | None) -> Image.Image:
-        if image_url:
-            async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
-                response = await client.get(image_url, headers={"User-Agent": "MediaAnalysis/1.0"})
-                response.raise_for_status()
-            image = Image.open(io.BytesIO(response.content)).convert("RGB")
-            image.load()
-            return image
-
-        elif image_base64:
-            data = base64.b64decode(image_base64)
-            image = Image.open(io.BytesIO(data)).convert("RGB")
-            image.load()
-            return image
-
-        else:
-            raise ValueError("Either image_url or image_base64 must be provided")
 
     async def close(self) -> None:
         if self._model is not None:

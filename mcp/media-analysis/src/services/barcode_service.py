@@ -4,14 +4,13 @@ Uses pyzbar + OpenCV for detection. No model loading needed.
 """
 
 import asyncio
-import io
 from typing import Optional
 
-import httpx
 from loguru import logger
 from PIL import Image
 
 from ..settings import get_settings
+from .media_utils import load_image
 
 
 class BarcodeService:
@@ -27,7 +26,7 @@ class BarcodeService:
             return {"success": False, "error": "Barcode detection is disabled"}
 
         try:
-            image = await self._load_image(image_url)
+            image = await load_image(image_url)
 
             async with self._lock:
                 loop = asyncio.get_event_loop()
@@ -69,14 +68,6 @@ class BarcodeService:
             "barcodes": barcodes,
             "count": len(barcodes),
         }
-
-    async def _load_image(self, image_url: str) -> Image.Image:
-        async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
-            response = await client.get(image_url, headers={"User-Agent": "MediaAnalysis/1.0"})
-            response.raise_for_status()
-        image = Image.open(io.BytesIO(response.content))
-        image.load()
-        return image
 
     async def close(self) -> None:
         pass
