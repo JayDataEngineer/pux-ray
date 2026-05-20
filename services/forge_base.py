@@ -14,6 +14,8 @@ import gc
 import logging
 from typing import Any, Optional
 
+from services.forge_persistence import Persistence
+
 logger = logging.getLogger(__name__)
 
 
@@ -29,6 +31,7 @@ class ForgeService:
     vram_mb: int = 0
     service_name: str = ""
     default_model: str = ""
+    persistence: Persistence = Persistence.TRANSIENT
 
     def __init__(self):
         self._loaded: bool = False

@@ -21,6 +21,7 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 
 from services.forge_base import ForgeService
+from services.forge_persistence import Persistence
 
 logger = logging.getLogger(__name__)
 
@@ -79,6 +80,7 @@ class ForgeCore:
         self._vram_allocations: Dict[str, int] = {}
         self._vram_free_mb: int = AVAILABLE_MB
         self._gpu_nodes: Dict[str, GPUNode] = {}
+        self._persistence_overrides: Dict[str, Persistence] = {}
 
     # ── Service Resolution ────────────────────────────────────────────────────
 
@@ -127,21 +129,36 @@ class ForgeCore:
             return []
 
         evicted = []
-        loaded_by_size = sorted(
+        loaded_by_priority = sorted(
             [(n, mb) for n, mb in self._vram_allocations.items() if self._loaded.get(n)],
-            key=lambda x: x[1],
-            reverse=True,
+            key=lambda x: (self._get_persistence(x[0]).value, -x[1]),
         )
 
-        for svc_name, svc_mb in loaded_by_size:
+        for svc_name, svc_mb in loaded_by_priority:
             if self._vram_free_mb >= needed:
                 break
-            logger.info("Forge: evicting %s (%dMB) for %s (%dMB)",
-                        svc_name, svc_mb, name, needed)
+            if self._get_persistence(svc_name) >= Persistence.PIPELINE_LOCKED:
+                continue
+            logger.info("Forge: evicting %s (%dMB, persistence=%s) for %s (%dMB)",
+                        svc_name, svc_mb, self._get_persistence(svc_name).name, name, needed)
             self._do_unload(svc_name)
             evicted.append(svc_name)
 
+        if self._vram_free_mb < needed:
+            raise RuntimeError(
+                f"Cannot free enough VRAM for {name}: need {needed}MB, "
+                f"free {self._vram_free_mb}MB (remaining services are pipeline-locked)"
+            )
+
         return evicted
+
+    def _get_persistence(self, name: str) -> Persistence:
+        if name in self._persistence_overrides:
+            return self._persistence_overrides[name]
+        svc = self._services.get(name)
+        if svc:
+            return svc.persistence
+        return Persistence.TRANSIENT
 
     # ── Model Lifecycle ───────────────────────────────────────────────────────
 
@@ -314,6 +331,37 @@ class Forge:
 
     async def status(self) -> dict:
         return await self._core.status()
+
+    async def run_pipeline(self, pipeline_id: str, params: dict) -> dict:
+        """Execute a registered workflow with Forge-aware VRAM tracking.
+
+        Injects a ForgeProxy (instead of bare Wan2GPService) so all
+        load/infer calls go through the Forge's VRAM ledger.
+        """
+        from gateway.routes.workflows import _WORKFLOW_REGISTRY
+        from services.forge_persistence import Persistence
+        from services.workflows.base import set_forge_core, clear_forge_core
+
+        fn = _WORKFLOW_REGISTRY.get(pipeline_id)
+        if fn is None:
+            return {"status": "error", "error": f"Unknown pipeline: {pipeline_id}"}
+
+        # Pipeline-lock wan2gp for the duration of execution
+        self._core._persistence_overrides["wan2gp"] = Persistence.PIPELINE_LOCKED
+        set_forge_core(self._core)
+
+        try:
+            result = await asyncio.to_thread(fn, **params)
+        except TypeError as e:
+            return {"status": "error", "error": f"Invalid parameters: {e}"}
+        except Exception as e:
+            logger.exception("Pipeline %s failed", pipeline_id)
+            return {"status": "error", "error": str(e)}
+        finally:
+            self._core._persistence_overrides.pop("wan2gp", None)
+            clear_forge_core()
+
+        return result
 
     async def __call__(self, request: Request) -> Response:
         if request.method == "GET":

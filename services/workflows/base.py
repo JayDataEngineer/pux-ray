@@ -1,22 +1,50 @@
-"""Shared workflow helpers — Wan2GPService singleton, standard response format."""
+"""Shared workflow helpers — service singleton + standard response format.
+
+When running inside Forge (set_forge_core called), get_service() returns
+a ForgeProxy that routes load/infer through the Forge's VRAM ledger.
+Otherwise returns a bare Wan2GPService (for standalone testing).
+"""
 from __future__ import annotations
 
 import base64
 import logging
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from services.wan2gp.deployment import Wan2GPService
 
+if TYPE_CHECKING:
+    from services.forge import ForgeCore
+    from services.forge_proxy import ForgeProxy
+
 logger = logging.getLogger(__name__)
 
-_svc: Wan2GPService | None = None
+_svc: Wan2GPService | ForgeProxy | None = None
+_forge_core: ForgeCore | None = None
 
 
-def get_service() -> Wan2GPService:
+def get_service() -> Wan2GPService | ForgeProxy:
     global _svc
     if _svc is None:
-        _svc = Wan2GPService()
+        if _forge_core is not None:
+            from services.forge_proxy import ForgeProxy
+            _svc = ForgeProxy(_forge_core)
+        else:
+            _svc = Wan2GPService()
     return _svc
+
+
+def set_forge_core(forge: ForgeCore) -> None:
+    """Inject ForgeCore for VRAM-aware workflow execution."""
+    global _forge_core, _svc
+    _forge_core = forge
+    _svc = None
+
+
+def clear_forge_core() -> None:
+    """Remove ForgeCore — next get_service() returns bare Wan2GPService."""
+    global _forge_core, _svc
+    _forge_core = None
+    _svc = None
 
 
 def reset_service() -> None:

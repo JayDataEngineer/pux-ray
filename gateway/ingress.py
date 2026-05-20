@@ -365,6 +365,81 @@ class APIIngress:
         except Exception as e:
             return JSONResponse({"error": str(e)}, status_code=503)
 
+    # ── Unified /v1/run endpoint ──────────────────────────────────────────────
+
+    async def run_unified(self, request: Request) -> Response:
+        """POST /v1/run — unified interface for single-service and pipeline calls.
+
+        Three payload shapes:
+          Single service:  {"service": "wan2gp", "model": "z_image", "params": {...}}
+          Named pipeline:  {"pipeline": "tech-noir/generate", "params": {"prompt": "..."}}
+          Inline steps:    {"steps": [{"name": "gen", "service": "wan2gp", "params": {...}}]}
+        """
+        try:
+            body = await request.json()
+        except Exception:
+            return JSONResponse({"error": "invalid JSON body"}, status_code=400)
+
+        # Named pipeline — route through Forge's VRAM ledger
+        if "pipeline" in body:
+            pipeline_id = body["pipeline"]
+            params = body.get("params", {})
+            try:
+                forge = _get_forge()
+                result = await forge.run_pipeline.remote(pipeline_id, params)
+            except Exception as e:
+                return JSONResponse({"error": str(e)}, status_code=503)
+            if isinstance(result, dict) and result.get("status") == "error":
+                return JSONResponse(result, status_code=500)
+            return JSONResponse(result)
+
+        # Inline pipeline steps — reuse gateway/pipeline.py with Forge dispatch
+        if "steps" in body:
+            try:
+                spec = PipelineSpec.from_dict(body)
+            except ValueError as e:
+                return JSONResponse({"error": str(e)}, status_code=400)
+            events = await execute_pipeline(spec, self._dispatch_service)
+            import json as _json
+            sse_lines = []
+            for event in events:
+                if event.get("event") in ("pipeline_completed", "pipeline_error"):
+                    sse_lines.append(f"data: {_json.dumps(event)}\n\n")
+                    sse_lines.append("data: [DONE]\n\n")
+                else:
+                    sse_lines.append(f"data: {_json.dumps(event)}\n\n")
+            return Response(
+                content="".join(sse_lines),
+                media_type="text/event-stream",
+                headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+            )
+
+        # Single service invocation — same as /forge
+        service = body.get("service")
+        if not service:
+            return JSONResponse(
+                {"error": "Must specify 'service', 'pipeline', or 'steps'"},
+                status_code=400,
+            )
+        try:
+            result = await self._dispatch_service(service, body)
+            return JSONResponse(result)
+        except ValueError as e:
+            return JSONResponse({"error": str(e)}, status_code=404)
+
+    async def run_catalog(self, request: Request) -> Response:
+        """GET /v1/run/catalog — discover available pipelines and services."""
+        from gateway.routes.workflows import _WORKFLOW_REGISTRY
+        pipelines = [
+            {"id": wf_id, "description": fn.__doc__ or ""}
+            for wf_id, fn in _WORKFLOW_REGISTRY.items()
+        ]
+        services = [
+            {"name": name, "label": entry.label, "category": entry.category}
+            for name, entry in SERVICE_REGISTRY.items()
+        ]
+        return JSONResponse({"pipelines": pipelines, "services": services})
+
 
 def create_app() -> Starlette:
     """Create the Starlette app with all routes and auth middleware."""
@@ -396,6 +471,9 @@ def create_app() -> Starlette:
         # Admin
         Route("/admin/load", ingress.load_model, methods=["POST"]),
         Route("/admin/unload", ingress.unload_all, methods=["POST"]),
+        # Unified endpoint — single service, named pipeline, or inline steps
+        Route("/v1/run", ingress.run_unified, methods=["POST"]),
+        Route("/v1/run/catalog", ingress.run_catalog),
         # Dashboard (GPU metrics)
         Route("/dashboard", dashboard_page),
         Route("/dashboard/api/gpu", dashboard_gpu_current),

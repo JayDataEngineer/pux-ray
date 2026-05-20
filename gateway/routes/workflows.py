@@ -2,13 +2,18 @@
 
 GET  /v1/workflows                  — list available workflows
 GET  /v1/workflows/{workflow}       — workflow metadata
-POST /v1/workflows/{workflow}       — execute workflow
+POST /v1/workflows/{workflow}       — execute workflow (via Forge VRAM ledger)
+
+All workflow execution routes through the Forge deployment so VRAM
+is tracked. The Forge creates a ForgeProxy, injects it into the
+workflow base module, and executes the function in the GPU process.
 """
 from __future__ import annotations
 
 import logging
 from typing import Any, Callable
 
+from ray import serve
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
@@ -71,6 +76,7 @@ async def get_workflow(request: Request) -> JSONResponse:
 
 
 async def execute_workflow(request: Request) -> JSONResponse:
+    """Execute a workflow through the Forge's VRAM ledger."""
     wf_id = request.path_params.get("workflow", "")
     fn = _WORKFLOW_REGISTRY.get(wf_id)
     if not fn:
@@ -81,15 +87,13 @@ async def execute_workflow(request: Request) -> JSONResponse:
     except Exception:
         return JSONResponse({"error": "invalid JSON body"}, status_code=400)
 
+    # Route through Forge for VRAM-aware execution
     try:
-        result = fn(**body)
-    except TypeError as e:
-        return JSONResponse({"error": f"Invalid parameters: {e}"}, status_code=400)
+        forge = serve.get_deployment_handle("forge", "forge")
+        result = await forge.run_pipeline.remote(wf_id, body)
+        if isinstance(result, dict) and result.get("status") == "error":
+            return JSONResponse(result, status_code=500)
+        return JSONResponse(result)
     except Exception as e:
-        logger.exception("Workflow %s failed", wf_id)
-        return JSONResponse({"error": str(e)}, status_code=500)
-
-    if isinstance(result, dict) and result.get("status") == "error":
-        return JSONResponse(result, status_code=500)
-
-    return JSONResponse(result)
+        logger.exception("Workflow %s failed to route through Forge", wf_id)
+        return JSONResponse({"error": str(e)}, status_code=503)

@@ -19,7 +19,7 @@ class MockService(ForgeService):
         self.unload_calls = []
         self.infer_calls = []
 
-    def load(self, model_name: str) -> None:
+    def load(self, model_name: str, quant: str | None = None) -> None:
         self.load_calls.append(model_name)
         self._loaded = True
         self.model_name = model_name
@@ -41,7 +41,7 @@ class BigService(ForgeService):
     service_name = "big"
     default_model = "big-model"
 
-    def load(self, model_name: str) -> None:
+    def load(self, model_name: str, quant: str | None = None) -> None:
         self._loaded = True
         self.model_name = model_name
 
@@ -59,7 +59,7 @@ class SelfManagedService(ForgeService):
     service_name = "self_managed"
     default_model = "dynamic"
 
-    def load(self, model_name: str) -> None:
+    def load(self, model_name: str, quant: str | None = None) -> None:
         self._loaded = True
         self.model_name = model_name
 
