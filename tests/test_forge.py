@@ -151,11 +151,21 @@ class TestForgeVRAM:
         assert not forge._loaded.get("big", False)
         assert forge._vram_free_mb == 22_528
 
-    def test_self_managed_always_fits(self):
+    def test_self_managed_needs_cofree(self):
         forge = self._make_forge()
-        forge._vram_allocations["big"] = 22_528
-        forge._vram_free_mb = 0
+        # Self-managed fits when nothing else is loaded
         forge._register_service("sm", SelfManagedService())
+        assert forge._can_fit("sm")
+
+        # Self-managed doesn't fit when VRAM is mostly consumed and
+        # not enough cofree room for mmgp to function.
+        forge._vram_allocations["big"] = 22_528 - 2048
+        forge._vram_free_mb = 2048
+        assert not forge._can_fit("sm")  # 2048 < MIN_COFREE_MB
+
+        # But fits when there's enough cofree room
+        forge._vram_free_mb = 4096
+        forge._vram_allocations["big"] = 22_528 - 4096
         assert forge._can_fit("sm")
 
     def test_total_allocated(self):

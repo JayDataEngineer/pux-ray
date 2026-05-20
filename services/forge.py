@@ -30,6 +30,9 @@ logger = logging.getLogger(__name__)
 TOTAL_VRAM_MB = 24_576
 RESERVED_MB = 2_048
 AVAILABLE_MB = TOTAL_VRAM_MB - RESERVED_MB
+# Minimum free VRAM for self-managed services (mmgp) to coexist with
+# other loaded services. Below this, the forge must evict first.
+MIN_COFREE_MB = 4_096
 
 # ─── Service Registry ────────────────────────────────────────────────────────
 
@@ -120,6 +123,12 @@ class ForgeCore:
     def _can_fit(self, name: str) -> bool:
         estimate = self._estimate_vram(name)
         if estimate == 0:
+            # Self-managed service (mmgp) — still needs GPU breathing room.
+            # If another service has most VRAM pinned, mmgp will thrash or OOM.
+            # Treat self-managed as fitting only if at least MIN_COFREE_MB is
+            # available (or nothing else is loaded).
+            if self._vram_allocations:
+                return self._vram_free_mb >= MIN_COFREE_MB
             return True
         return estimate <= self._vram_free_mb
 
