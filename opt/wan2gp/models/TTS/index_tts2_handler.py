@@ -189,16 +189,6 @@ def _ensure_w2v_bert_fp16_file():
     fp16_path = os.path.join(w2v_dir, "model_fp16.safetensors")
     if os.path.isfile(fp16_path):
         return fp16_path
-    from mmgp import offload
-
-    src = safetensors2.l .load_ (fp16_path, device="cpu")
-    # dst = {}
-    # for key, value in src.items():
-    #     if torch.is_floating_point(value) and value.dtype != torch.float16:
-    #         dst[key] = value.to(torch.float16).contiguous()
-    #     else:
-    #         dst[key] = value.contiguous()
-    # save_file(dst, fp16_path, metadata={"format": "pt", "dtype": "float16"})
     return fp16_path
 
 
