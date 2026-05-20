@@ -561,6 +561,31 @@ class Wan2GPService:
 
     # ── Lifecycle ─────────────────────────────────────────────────────────
 
+    def _resolve_model(self, name: str) -> str:
+        """Resolve a model name to a registry key.
+
+        Tries: exact match → alias → family/model exact → family prefix →
+        substring match on model_type part.
+        """
+        if name in self._registry:
+            return name
+        if name in self._ALIASES:
+            return self._ALIASES[name]
+        # "z_image" → try "z_image/z_image", "trellis" → try "trellis/trellis"
+        family_match = f"{name}/{name}"
+        if family_match in self._registry:
+            return family_match
+        # "z_image" → find first key starting with "z_image/"
+        for key in sorted(self._registry):
+            if key.startswith(f"{name}/"):
+                return key
+        # Last resort: substring match on model_type after "/"
+        for key in sorted(self._registry):
+            parts = key.split("/", 1)
+            if len(parts) == 2 and parts[1] == name:
+                return key
+        return name
+
     def load(self, model_name: str | None = None, quant: str | None = None) -> None:
         model_name = model_name or self.default_model
 
@@ -569,8 +594,8 @@ class Wan2GPService:
 
         self.unload()
 
-        # Resolve aliases (versioned names → discovered keys)
-        model_name = self._ALIASES.get(model_name, model_name)
+        # Resolve short names, aliases, partial matches
+        model_name = self._resolve_model(model_name)
 
         entry = self._registry.get(model_name)
         if entry is None:
