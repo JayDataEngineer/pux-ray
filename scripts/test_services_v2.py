@@ -55,7 +55,7 @@ def test(name, url, payload, timeout=300):
 
 def main():
     parser = argparse.ArgumentParser(description="Tech Noir Integration Tests")
-    parser.add_argument("--base", default="http://localhost:18080", help="Base URL")
+    parser.add_argument("--base", default="http://localhost:30080", help="Base URL")
     parser.add_argument("--tier1", action="store_true", default=True, help="Test Tier 1 services")
     parser.add_argument("--tier2", action="store_true", default=False, help="Test Tier 2 services")
     parser.add_argument("--all", action="store_true", default=False, help="Test all services")

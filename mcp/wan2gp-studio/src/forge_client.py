@@ -7,7 +7,7 @@ from typing import Any
 import httpx
 from loguru import logger
 
-DEFAULT_FORGE_URL = "http://tech-noir-ray-serve.ai-services:18800/forge"
+DEFAULT_FORGE_URL = "http://tech-noir-ray-serve-svc.ai-services:8000/forge"
 DEFAULT_TIMEOUT = 300.0  # video generation is slow
 
 

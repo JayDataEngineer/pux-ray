@@ -45,7 +45,7 @@ class JobResult:
 class BatchBuilder:
     """Accumulate jobs and run them grouped by type."""
 
-    def __init__(self, base_url: str = "http://localhost:18080"):
+    def __init__(self, base_url: str = "http://localhost:30080"):
         self._base_url = base_url
         self._items: list[tuple[str, dict[str, Any]]] = []
 

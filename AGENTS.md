@@ -28,7 +28,7 @@ CLI equivalent: `tech-noir boot` / `tech-noir status` / `tech-noir stop`
 The server runs three types of services, all managed from `boot/services.py`:
 
 ### 1. Ray Serve (AI Compute)
-GPU-accelerated AI services managed by Ray Serve with a Starlette ingress on port 18080.
+GPU-accelerated AI services managed by Ray Serve, routed via Traefik at port 30080.
 - LLM (llama.cpp), TTS (Kokoro, IndexTTS, Qwen-TTS), ASR (VibeVoice, Faster-Whisper)
 - Image gen (ComfyUI), 3D (TRELLIS, AniGen), Music (ACE-Step), Creative (See-Through)
 - GPU scheduler coordinates model swaps (only one GPU model at a time, 24GB VRAM)
@@ -41,7 +41,7 @@ Multiple Docker Compose projects in `/home/user/Documents/programs/`:
 - **act-scheduler-bot** — Telegram bot (aiogram + FastAPI + PostgreSQL + Redis)
 
 ### 3. Persistent Processes
-- **ingress** — Starlette API gateway on port 18080 (proxies to Ray Serve and MCP servers)
+- **ingress** — Starlette API gateway routed via Traefik on port 30080 (proxies to Ray Serve and MCP servers)
 
 ## Directory Layout
 
@@ -165,15 +165,13 @@ root = Config().models_root
 
 ## Key Access Points (Tailscale network)
 
-- **API Ingress**: http://100.86.69.57:18080 (LLM, TTS, ASR, 3D, music, creative, MCP, jobs, dashboard, studio)
-- **Dashboard**: http://100.86.69.57:18080/dashboard
-- **Studio**: http://100.86.69.57:18080/studio
-- **Ray Dashboard**: http://100.86.69.57:18265
+- **API (all endpoints)**: http://100.86.69.57:30080 (LLM, TTS, ASR, 3D, music, creative, MCP, jobs, dashboard, studio)
+- **Dashboard**: http://100.86.69.57:30080/dashboard
+- **Studio**: http://100.86.69.57:30080/studio
+- **Ray Dashboard**: http://100.86.69.57:30080/ray-dashboard/
 - **Ray Client**: `ray.init(address="ray://100.86.69.57:10001")`
-- **Grafana**: http://100.86.69.57:3001
-- **Prometheus**: http://100.86.69.57:9090
-- **MinIO**: http://100.86.69.57:9002
-- **Zitadel**: http://100.86.69.57:8082
+- **Grafana**: http://100.86.69.57:30080/grafana
+- **Flux Operator**: http://100.86.69.57:30090
 
 ## Boot Procedure (power outage / reboot)
 
