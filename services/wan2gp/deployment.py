@@ -688,25 +688,6 @@ class Wan2GPService:
                     importlib.import_module("models.wan.multitalk.multitalk_utils")
                 except (ImportError, ModuleNotFoundError):
                     pass
-                # mmgp profile 5 moves ld_unet to GPU for forward but doesn't
-                # move internal submodules (GroupEmbedding params, timestep
-                # embeddings, aug embeddings) back to CUDA after swapping out.
-                # Fix: pre-hook on ld_unet that moves ALL sub-parameters to
-                # CUDA before each forward call.
-                _ld_unet = getattr(model, "ld_unet", None)
-                if _ld_unet is not None:
-                    def _ensure_cuda(module, args):
-                        for p in module.parameters():
-                            if p.device.type != "cuda":
-                                p.data = p.data.cuda()
-                        for b in module.buffers():
-                            if b.device.type != "cuda":
-                                b.data = b.data.cuda()
-                    _ld_unet.register_forward_pre_hook(_ensure_cuda)
-                    # Same for mg_unet (Marigold UNet used in stage 2)
-                    _mg_unet = getattr(model, "mg_unet", None)
-                    if _mg_unet is not None:
-                        _mg_unet.register_forward_pre_hook(_ensure_cuda)
                 # Trellis uses BiRefNet (rembg wrapper) for background removal.
                 # The wrapper (model.rembg) is not an nn.Module and not in the
                 # pipe dict, so mmgp doesn't manage it. The inner model
@@ -800,7 +781,9 @@ class Wan2GPService:
                     _trellis_rembg_patch = True
             # bfloat16 autocast for models with bf16 weights from mmgp but
             # float32 input tensors (noise, conditioning, etc).
-            if base_model_type in ("trellis", "anigen", "see-through", "hy-motion-1.0-lite"):
+            # anigen uses bf16 autocast + spconv forward hooks that cast
+            # bf16→fp16 for spconv ops internally.
+            if base_model_type in ("anigen", "trellis", "see-through", "hy-motion-1.0-lite"):
                 with torch.amp.autocast("cuda", dtype=torch.bfloat16):
                     result = model.generate(**kwargs)
             else:
@@ -1303,8 +1286,9 @@ class Wan2GPService:
 
         # Normalize dtypes — mmgp asserts all params in a module share one dtype.
         # Some models have mixed float32 + float16 (e.g. anigen from partial
-        # fp16 checkpoint saving). Pre-convert everything to bfloat16 so mmgp's
-        # assertion passes.
+        # fp16 checkpoint saving). Pre-convert everything to a uniform dtype
+        # so mmgp's assertion passes. Use bfloat16 for all models; anigen's
+        # spconv ops are handled via float16 autocast at inference time.
         target_dtype = torch.bfloat16
         for k, v in pipe.items():
             if not isinstance(v, torch.nn.Module):
@@ -1328,6 +1312,18 @@ class Wan2GPService:
         if n_modules > 4 and model_type not in ("see-through",):
             profile = MMGP_PROFILES["minimum"]
             budgets_override = {"*": 2000}
+        elif model_type == "see-through":
+            # See-through UNet has deeply nested internal parameters that
+            # mmgp's module-level swapping doesn't track (GroupEmbedding,
+            # timestep embeddings, aug embeddings), causing cascading device
+            # mismatches with every mmgp profile.
+            # Manual approach: keep ALL modules on CUDA at once (12.8 GB).
+            # If VRAM is tight, unload mg_* modules during LayerDiff stage
+            # and vice versa. For now, load everything.
+            for v in pipe.values():
+                if isinstance(v, torch.nn.Module):
+                    v.to("cuda")
+            return None
         else:
             profile = MMGP_PROFILES["low_vram"]
             budgets_override = {"transformer": 250, "text_encoder": 250,
@@ -1343,6 +1339,47 @@ class Wan2GPService:
             vram_safety_coefficient=0.9,
             coTenantsMap=co_tenants,
         )
+
+        # anigen: spconv doesn't support bfloat16 at all (not even via
+        # autocast). Register forward pre/post hooks that temporarily
+        # convert spconv params to float32 and cast SparseConvTensor
+        # features bf16→float32→bf16 during forward.
+        if model_type == "anigen":
+            try:
+                from spconv.pytorch.conv import SparseConvolution
+
+                def _spconv_pre_hook(module, args):
+                    # Cast SparseConvTensor features to float32
+                    if args and hasattr(args[0], 'features'):
+                        feat = args[0].features
+                        if feat.dtype != torch.float32:
+                            args = (args[0].replace_feature(feat.float()),) + args[1:]
+                    # Cast module params to float32
+                    for p in module.parameters():
+                        if p.data.dtype != torch.float32:
+                            p.data = p.data.float()
+                    return args
+
+                def _spconv_post_hook(module, input, output):
+                    # Cast output features back to bfloat16
+                    if hasattr(output, 'features') and output.features.dtype == torch.float32:
+                        output = output.replace_feature(output.features.bfloat16())
+                    # Restore module params to bfloat16
+                    for p in module.parameters():
+                        if p.data.dtype != torch.bfloat16:
+                            p.data = p.data.bfloat16()
+                    return output
+
+                for mod in pipe.values():
+                    if not isinstance(mod, torch.nn.Module):
+                        continue
+                    for name, submod in mod.named_modules():
+                        if isinstance(submod, SparseConvolution):
+                            submod.register_forward_pre_hook(_spconv_pre_hook)
+                            submod.register_forward_hook(_spconv_post_hook)
+            except ImportError:
+                pass
+
         return offloadobj
 
     def _resolve_model_path(self, model_name: str, entry: dict,

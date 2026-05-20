@@ -220,13 +220,7 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 
 # ── GEM/GENMO deps (filtered) ───────────────────────────────────────────
 RUN --mount=type=cache,target=/root/.cache/uv \
-    cd /opt/genmo && \
-    grep -v -i -E '^(torch|torchvision|torchaudio|xformers|flash-attn)' setup.cfg > /dev/null && \
-    grep -v -i -E '^(torch|torchvision|torchaudio|xformers|flash-attn|wandb)' \
-        <(python3 -c "import configparser; c=configparser.ConfigParser(); c.read('setup.cfg'); print(c['options']['install_requires'])" 2>/dev/null || cat setup.cfg) \
-        > /tmp/reqs_genmo.txt 2>/dev/null || true && \
-    uv pip install hydra-core hydra-zen hydra-colorlog smplx lightning || true && \
-    rm -f /tmp/reqs_genmo.txt
+    uv pip install hydra-core hydra-zen hydra-colorlog smplx lightning || true
 
 # ── SOMA body model (pip install) ───────────────────────────────────────
 RUN --mount=type=cache,target=/root/.cache/uv \
