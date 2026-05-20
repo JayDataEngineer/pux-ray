@@ -67,6 +67,14 @@ STUDIO_APPS: dict[str, dict] = {
         "manage_type": "scheduler",
         "default_model": "anigen",
     },
+    "kimodo_demo": {
+        "label": "Kimodo Motion",
+        "url": "/kimodo/",
+        "has_ui": True,
+        "category": "3D",
+        "gpu": True,
+        "manage_type": "subprocess",
+    },
     "ace_step": {
         "label": "ACE-Step",
         "url": None,

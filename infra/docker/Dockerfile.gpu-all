@@ -186,6 +186,9 @@ RUN git clone --depth 1 https://github.com/shitagaki-lab/see-through.git /opt/se
 # GEM/GENMO (generative motion model — text/audio -> SMPL)
 RUN git clone --depth 1 https://github.com/NVlabs/GENMO.git /opt/genmo
 
+# Kimodo — text-to-3D motion (NVIDIA, Apache-2.0)
+RUN git clone --depth 1 https://github.com/nv-tlabs/kimodo.git /opt/kimodo
+
 # vibevoice.cpp (C++ GGML inference for VibeVoice TTS + ASR — quantized GGUF models)
 # Build CPU-only; CUDA backend needs dev libs not in golden image
 RUN git clone --recursive --depth 1 https://github.com/localai-org/vibevoice.cpp.git /tmp/vv-cpp && \
@@ -225,6 +228,17 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 # ── SOMA body model (pip install) ───────────────────────────────────────
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv pip install py-soma-x || true
+
+# ── Kimodo deps (filtered — skip torch already installed) ────────────────
+RUN --mount=type=cache,target=/root/.cache/uv \
+    cd /opt/kimodo && \
+    grep -v -i -E '^(torch|torchvision|torchaudio|xformers|flash-attn|-e )' \
+        <(test -f requirements.txt && cat requirements.txt || echo "") \
+        > /tmp/reqs_kimodo.txt 2>/dev/null; \
+    if [ -s /tmp/reqs_kimodo.txt ]; then \
+        uv pip install -r /tmp/reqs_kimodo.txt || true; \
+    fi; \
+    rm -f /tmp/reqs_kimodo.txt
 
 # ── Wan2GP fork (our custom models registered as native families) ────────
 COPY opt/wan2gp/ /opt/wan2gp/
@@ -309,7 +323,7 @@ RUN uv pip install --no-cache-dir pccm && \
     python3 /opt/patch_spconv_cppconstants.py
 
 # ── Env defaults (overridden per-deployment) ────────────────────────────
-ENV PYTHONPATH=/app:/opt/wan2gp:/opt/utils3d:/opt/hymotion:/opt/anigen:/opt/seethrough:/opt/genmo:/opt/vendor \
+ENV PYTHONPATH=/app:/opt/wan2gp:/opt/utils3d:/opt/hymotion:/opt/anigen:/opt/seethrough:/opt/genmo:/opt/kimodo:/opt/vendor \
     HF_HOME=/tmp/huggingface \
     HF_HUB_CACHE=/tmp/huggingface \
     ATTN_BACKEND=flash_attn
@@ -325,4 +339,5 @@ RUN python3 -c "import torch; print(f'torch {torch.__version__}, CUDA {torch.cud
     python3 -c "import sys; sys.path.insert(0, '/opt/wan2gp/models/trellis'); import trellis2; print('trellis2 OK')" && \
     python3 -c "from models.trellis.trellis_handler import family_handler; print(f'TRELLIS handler OK: {family_handler.query_supported_types()}')" && \
     python3 -c "from models.pixal3d.pixal3d_handler import family_handler; print(f'Pixal3D handler OK: {family_handler.query_supported_types()}')" && \
+    python3 -c "import sys; sys.path.insert(0, '/opt/kimodo'); from kimodo import load_model; print('kimodo import OK')" && \
     echo "gpu-all image verification passed"

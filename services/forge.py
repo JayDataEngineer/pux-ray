@@ -43,6 +43,8 @@ SERVICE_MAP: dict[str, tuple[str, str]] = {
     "llm":       ("services.llm.deployment",          "LLMService"),
     # Avatar pipeline — GEM + SOMA + FluxRT orchestrator
     "avatar":    ("services.avatar.forge_avatar",     "AvatarForgeService"),
+    # Kimodo demo — Viser interactive 3D motion authoring (subprocess)
+    "kimodo_demo": ("services.motion.kimodo_demo",    "KimodoDemoService"),
 }
 
 # ─── GPU Node (multi-node prep) ──────────────────────────────────────────────

@@ -169,6 +169,22 @@ SERVICE_REGISTRY: dict[str, ServiceEntry] = {
         description="See-Through — anime layer decomposition.",
     ),
 
+    # ── Kimodo Motion (Forge-managed, standalone) ────────────────────────────
+    "kimodo": ServiceEntry(
+        deployment="wan2gp", app="wan2gp",
+        label="Kimodo Motion", category="motion",
+        needs_gpu=True, default_model="kimodo-soma-rp",
+        output_type="json",
+        description="Kimodo text-to-3D motion (NPZ output, SOMA 77-joint skeleton).",
+    ),
+    "kimodo_demo": ServiceEntry(
+        deployment="forge", app="forge",
+        label="Kimodo Demo", category="motion",
+        needs_gpu=True, default_model="kimodo-soma-rp",
+        output_type="proxy",
+        description="Kimodo Viser demo — interactive 3D motion authoring.",
+    ),
+
     # ── Avatar Pipeline (Forge-managed, staged VRAM) ──────────────────────────
     "avatar": ServiceEntry(
         deployment="forge", app="forge",

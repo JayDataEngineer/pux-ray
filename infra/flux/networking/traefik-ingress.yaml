@@ -395,6 +395,24 @@ spec:
       - /comfyui
 
 ---
+# Kimodo — routed through Ray Serve (auto-loads via Forge on first request)
+# URL: http://100.86.69.57:30080/kimodo/
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: kimodo-ingress
+  namespace: ai-services
+spec:
+  entryPoints:
+    - web
+  routes:
+    - match: PathPrefix(`/kimodo`)
+      kind: Rule
+      services:
+        - name: tech-noir-ray-serve-svc
+          port: 8000
+
+---
 # llama.cpp — routed through Ray Serve (auto-loads via Forge on first request)
 # URL: http://100.86.69.57:30080/llm/
 
