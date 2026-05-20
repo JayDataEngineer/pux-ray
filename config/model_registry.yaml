@@ -1199,6 +1199,46 @@ audio:
     device: cpu
     description: MOSS Audio Tokenizer (3.5B). Audio codec for MOSS-SoundEffect.
       Loaded to CPU to conserve VRAM.
+  moss-tts-local-transformer:
+    path: audio/moss-tts-local-transformer/
+    source: hf://OpenMOSS-Team/MOSS-TTS-Local-Transformer
+    download: snapshot
+    sha256: null
+    size_gb: 6.2
+    vram_estimate_gb: 4.0
+    device: gpu
+    description: MOSS-TTS-Local-Transformer 1.7B lighter TTS variant with local
+      transformer decoder. Requires MOSS-Audio-Tokenizer.
+  moss-tts-realtime:
+    path: audio/moss-tts-realtime/
+    source: hf://OpenMOSS-Team/MOSS-TTS-Realtime
+    download: snapshot
+    sha256: null
+    size_gb: 4.7
+    vram_estimate_gb: 4.0
+    device: gpu
+    description: MOSS-TTS-Realtime 2.3B streaming TTS with RVQ local transformer.
+      Prefill/step streaming architecture. Requires MOSS-Audio-Tokenizer.
+  moss-tts-nano:
+    path: audio/moss-tts-nano/
+    source: hf://OpenMOSS-Team/MOSS-TTS-Nano-100M
+    download: snapshot
+    sha256: null
+    size_gb: 0.25
+    vram_estimate_gb: 0.2
+    device: gpu
+    description: MOSS-TTS-Nano 100M ultra-lightweight TTS. GPT-2 backbone, SentencePiece
+      tokenizer, 48kHz stereo. Requires MOSS-Audio-Tokenizer-Nano.
+  moss-audio-tokenizer-nano:
+    path: audio/moss-audio-tokenizer-nano/
+    source: hf://OpenMOSS-Team/MOSS-Audio-Tokenizer-Nano
+    download: snapshot
+    sha256: null
+    size_gb: 0.3
+    vram_estimate_gb: 0.0
+    device: cpu
+    description: MOSS-Audio-Tokenizer-Nano. Lightweight 48kHz stereo audio codec for
+      MOSS-TTS-Nano (~20M params). Loaded to CPU.
   tangoflux:
     path: audio/tangoflux/
     source: hf://declare-lab/TangoFlux

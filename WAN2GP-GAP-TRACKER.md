@@ -97,9 +97,9 @@ plus fixes applied in `services/wan2gp/deployment.py`.
 | `kokoro/kokoro` | CPU TTS | ✅ | ✅ | WAV output, 7.6s inference |
 | `faster_whisper/faster_whisper` | CPU ASR | ✅ | ✅ | Segments output, fixture audio |
 | `wan/t2v` | GPU Video | ✅ | ✅ | video/mp4 output, 3fr@256x256 |
-| `moss/moss-voicegenerator` | GPU Audio | ✅ | — | LOAD_OK. Autoregressive (170min). |
-| `moss/moss-soundeffect` | GPU Audio | ✅ | — | LOAD_OK. Autoregressive (170min). |
-| `moss/moss-tts` | GPU Audio | ✅ | — | LOAD_OK. Autoregressive. |
+| `moss/moss-voicegenerator` | GPU Audio | ✅ | ✅ | FULL E2E. 2.3s infer, 4.0GB VRAM, 461KB WAV. GPU-resident (was 144s on CPU). |
+| `moss/moss-soundeffect` | GPU Audio | ✅ | ✅ | FULL E2E. 11.6s infer, 15.9GB VRAM, 1.29MB WAV. GPU-resident (was 452s on CPU). |
+| `moss/moss-tts` | GPU Audio | ✅ | ✅ | FULL E2E. 4.0s infer, 16.2GB VRAM, 553KB WAV. GPU-resident (was 268s on CPU). |
 | `tts/index_tts2` | GPU TTS | ✅ | ✅ | LOAD_OK. Generates audio output. Payload mapping: text→input_prompt, audio_b64→temp WAV→audio_guide. |
 | `vibevoice_asr/vibevoice-asr` | GPU ASR | ✅ | ✅ | Vendored model, no pip dependency. 797/797 keys matched. Forward pass + generate OK. |
 | `trellis/trellis` | GPU 3D | ✅ | ✅ | FULL E2E. sdpa fix + bfloat16 autocast + profile 5. 77MB GLB output. |
@@ -133,6 +133,10 @@ plus fixes applied in `services/wan2gp/deployment.py`.
 | 38 | **see_through Marigold VAE decode VRAM** — OOM at `mg_vae.decoder(z)` during Marigold depth estimation. Root cause: 20-layer batch at 768x768 creates 4.22 GiB intermediate tensor in VAE decoder upsampling. LayerDiff (~8GB) + Marigold (~4GB) weights + 20-layer activations exceed 24GB. | ✅ Fixed — decode VAE one layer at a time in `_mg_infer()`. Combined with mmgp module swapping (LayerDiff→CPU while Marigold runs), should fit 24GB. |
 | 39 | **anigen scatter dtype mismatch** — `torch.scatter_add()` in `grouping.py` creates float32 zeros but sources are bf16 from mmgp. Also `anigen_decoder.py` scatter_add_ with mixed bf16/fp32 skin_feats/conf_skin. | ✅ Fixed — `_patch_anigen_decoder()` patches scatter_add_ targets to float32. `_patch_anigen_grouping()` patches grouping.py zeros to use `dtype=joints.dtype`. Both applied at load time in deployment.py. |
 | 40 | **anigen nvdiffrast float32** — `dr.rasterize()` requires float32 positions but receives bf16 from mmgp weights via autocast torch.bmm. | ✅ Fixed — Convert mesh_result tensors to float32 AND wrap entire `_postprocess_and_export` with `autocast(enabled=False)`. Both needed: float32 prevents bf16/float32 matmul mismatch, autocast disabled prevents bmm from downcasting. |
+| 41 | **MOSS models running on CPU** — `_apply_mmgp_profile` gave transformer:250MB budget to all models with ≤4 modules. MOSS Qwen3 backbone (16GB) ran on CPU in 250MB chunks — 452s/144s/268s for soundeffect/voicegenerator/tts. | ✅ Fixed — Keep MOSS modules on CUDA entirely (same as see_through). 16GB fits in 24GB. Results: 11.6s/2.3s/4.0s (39-67x speedup). Also fixed: (1) `input_prompt`/`max_tokens` added to `_SAFE_PASSTHROUGH`, (2) MossTTSDelayModel.device property override so transformers generate() doesn't move inputs to CPU. |
+| 42 | **MOSS-TTS-Local-Transformer** (1.7B) — New model with local transformer decoder instead of delay pattern. Uses same MossTTSDelayModel/Processor classes. | ✅ Fixed — Added to VARIANTS in moss_handler.py. Pipe uses `{"model": model}` (no emb_ext). Patched `num_hidden_layers` on config. E2E: 2.3s load, 5638MB VRAM, 19.5s infer, 960KB WAV. |
+| 43 | **MOSS-TTS-Nano** (100M) — Lightweight TTS with GPT-2 backbone, SentencePiece tokenizer, 48kHz output via MOSS-Audio-Tokenizer-Nano. Custom handler (`moss_nano_handler.py`). | ✅ Fixed — New handler with synthetic package loading. Uses model.inference() API. E2E: 1.9s load, 223MB VRAM, 1.2s infer, 960KB WAV. Added to model_registry.yaml + RayService init container. |
+| 44 | **MOSS-TTS-Realtime** (2.3B) — Streaming TTS with dual-transformer (Qwen3 backbone + RVQ local transformer). Uses MossTTSRealtimeInference for step-wise generation. Custom handler (`moss_realtime_handler.py`). | ⚠️ Close — Handler loads (2.7s, 4447MB VRAM), generates audio tokens, but `codebook_idx=0` bug in streaming module's `generate_local_transformer` causes CUDA index assert. Needs vendor patch: fix `codebook_idx=i` → `codebook_idx=i+1` in the streaming loop. |
 
 ## Models Requiring Additional Work
 
@@ -143,10 +147,8 @@ plus fixes applied in `services/wan2gp/deployment.py`.
 
 ## Discovery Statistics
 
-- **Total models discovered**: 113 (from 15 family handlers)
-- **Load verified**: 13 models (3 CPU + 10 GPU)
-- **E2E inference verified**: 10 models (espeak, kokoro, faster_whisper, wan/t2v, index_tts2, trellis, hy_motion, vibevoice_asr, anigen, see_through)
-- **E2E close (fixes committed, needs Docker rebuild + retest)**: 0 models
-- **E2E close (fixes committed, needs Docker rebuild + retest)**: 1 model (see_through: VAE per-layer decode, manual CUDA loading)
+- **Total models discovered**: 116 (from 15 family handlers)
+- **Load verified**: 16 models (3 CPU + 13 GPU)
+- **E2E inference verified**: 15 models (espeak, kokoro, faster_whisper, wan/t2v, index_tts2, trellis, hy_motion, vibevoice_asr, anigen, see_through, moss-soundeffect, moss-voicegenerator, moss-tts, moss-tts-local-transformer, moss-tts-nano)
+- **E2E close (fixes committed, needs Docker rebuild + retest)**: 2 models (see_through: VAE per-layer decode, manual CUDA loading; moss-tts-realtime: codebook_idx bug in vendored streaming module)
 - **Dropped (user decision)**: 1 model (vibevoice_tts — only ASR matters)
-- **Autoregressive (skip by default)**: 3 models (moss_voicegenerator, moss_soundeffect, moss_tts)

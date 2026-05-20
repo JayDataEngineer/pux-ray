@@ -1,10 +1,11 @@
 """MOSS family handler — OpenMOSS audio generation (MossTTSDelay architecture).
 
-Supports 4 model variants, all sharing the same pipeline code:
+Supports 5 model variants, all sharing the same MossTTSDelay pipeline code:
   - moss-soundeffect: text-to-sound-effect (ambient_sound field)
   - moss-tts: text-to-speech with voice cloning (text + reference fields)
   - moss-ttsd: dialogue TTS (text field, multi-turn)
   - moss-voicegenerator: voice design from text (instruction field)
+  - moss-tts-local-transformer: lighter local-transformer variant (1.7B)
 
 Pattern follows Wan2GP's qwen3_handler.py and index_tts2_handler.py:
   - VARIANTS dict at module level
@@ -46,6 +47,11 @@ VARIANTS = {
         "hf_id": "OpenMOSS-Team/MOSS-VoiceGenerator",
         "registry": ("audio", "moss-voicegenerator"),
         "description": "Voice design from text description",
+    },
+    "moss-tts-local-transformer": {
+        "hf_id": "OpenMOSS-Team/MOSS-TTS-Local-Transformer",
+        "registry": ("audio", "moss-tts-local-transformer"),
+        "description": "Lighter TTS with local transformer (1.7B)",
     },
 }
 
@@ -128,6 +134,25 @@ def _get_moss_model_def(base_model_type):
                 "lines": 2,
             },
         }
+    if base_model_type == "moss-tts-local-transformer":
+        return {
+            **common,
+            "profiles_dir": ["moss-tts-local-transformer"],
+            "top_k_slider": True,
+            "any_audio_prompt": True,
+            "audio_prompt_choices": True,
+            "audio_prompt_type_sources": {
+                "selection": ["A"],
+                "labels": {"A": "Voice cloning (reference audio)"},
+                "letters_filter": "A",
+                "default": "",
+            },
+            "alt_prompt": {
+                "label": "Instruction (optional emotion/style)",
+                "placeholder": "warm, friendly, slightly husky",
+                "lines": 2,
+            },
+        }
     return common
 
 
@@ -150,10 +175,13 @@ def _resolve_model_path(model_type):
     except (KeyError, FileNotFoundError):
         pass
 
+    from registry.config import Config
+    models_root = Path(Config().models_root)
+
     from huggingface_hub import snapshot_download
     hf_id = variant["hf_id"]
     logger.info("Auto-downloading %s from %s", model_type, hf_id)
-    local_dir = str(Path(reg.models_root) / cat / name)
+    local_dir = str(models_root / cat / name)
     snapshot_download(repo_id=hf_id, local_dir=local_dir)
     return Path(local_dir)
 
@@ -166,9 +194,12 @@ def _resolve_audio_tokenizer_path():
     try:
         return Path(reg.get_path(cat, name))
     except (KeyError, FileNotFoundError):
+        from registry.config import Config
+        models_root = Path(Config().models_root)
+
         from huggingface_hub import snapshot_download
         logger.info("Auto-downloading MOSS audio tokenizer")
-        local_dir = str(Path(reg.models_root) / cat / name)
+        local_dir = str(models_root / cat / name)
         snapshot_download(
             repo_id="OpenMOSS-Team/MOSS-Audio-Tokenizer",
             local_dir=local_dir,
@@ -306,6 +337,13 @@ class family_handler:
         if model.config.pad_token_id is None:
             model.config.pad_token_id = 151643
 
+        if base_model_type == "moss-tts-local-transformer":
+            language_config = getattr(model.config, "language_config", None)
+            if language_config is not None:
+                model.config.num_hidden_layers = language_config.num_hidden_layers
+            if getattr(model.config, "num_attention_heads", None) is None:
+                model.config.num_attention_heads = language_config.num_attention_heads
+
         from transformers import AutoTokenizer, AutoConfig as _AC
         tokenizer = AutoTokenizer.from_pretrained(
             str(model_path), trust_remote_code=True, local_files_only=True,
@@ -353,11 +391,17 @@ class family_handler:
         # Decompose into sub-modules so mmgp can swap them independently.
         # model.generate() calls forward() which uses all three — mmgp hooks
         # each module's forward() for just-in-time CPU↔GPU swapping.
-        pipe = {
-            "transformer": model.language_model,  # Qwen3Model backbone (~16GB)
-            "emb_ext": model.emb_ext,              # Audio VQ embeddings (32 small layers)
-            "lm_heads": model.lm_heads,            # Text + audio prediction heads
-        }
+        if base_model_type == "moss-tts-local-transformer":
+            # Local-Transformer has different components (local_transformer,
+            # speech_embedding_to_local_mlp, etc.) and no emb_ext. At 1.7B,
+            # the whole model fits entirely in VRAM — no mmgp needed.
+            pipe = {"model": model}
+        else:
+            pipe = {
+                "transformer": model.language_model,  # Qwen3Model backbone (~16GB)
+                "emb_ext": model.emb_ext,              # Audio VQ embeddings (32 small layers)
+                "lm_heads": model.lm_heads,            # Text + audio prediction heads
+            }
         # audio_tokenizer is NOT in the pipe dict — mmgp would intercept its
         # forward calls and cause dtype mismatches during decode.
         return _Pipeline(model, processor, audio_tokenizer, base_model_type), pipe
@@ -398,6 +442,13 @@ class family_handler:
                 **common,
                 "prompt": "A warm female voice with a gentle southern accent",
                 "alt_prompt": "",
+            })
+        elif base_model_type == "moss-tts-local-transformer":
+            ui_defaults.update({
+                **common,
+                "prompt": "Hello world",
+                "alt_prompt": "",
+                "audio_prompt_type": "",
             })
         else:
             ui_defaults.update(common)
@@ -440,7 +491,7 @@ class _Pipeline:
             msg_kwargs["ambient_sound"] = prompt
             if tokens is not None:
                 msg_kwargs["tokens"] = tokens
-        elif self.model_type == "moss-tts":
+        elif self.model_type in ("moss-tts", "moss-tts-local-transformer"):
             msg_kwargs["text"] = prompt
             if reference:
                 msg_kwargs["reference"] = [reference] if isinstance(reference, str) else reference

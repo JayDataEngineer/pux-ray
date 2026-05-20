@@ -84,6 +84,7 @@ _SAFE_PASSTHROUGH = {
     "reference_images", "reference_weights", "cfg", "timeout",
     "text", "voice", "audio_b64", "image_b64",
     "image", "resolution", "steps", "ss_steps", "slat_steps",
+    "input_prompt", "max_tokens", "reference", "tokens",
 }
 
 _BLOCKED_KEYS = {
@@ -424,6 +425,9 @@ _WEIGHT_SEARCH = {
     "moss-tts": [("audio", "moss-tts")],
     "moss-ttsd": [("audio", "moss-ttsd")],
     "moss-voicegenerator": [("audio", "moss-voicegenerator")],
+    "moss-tts-local-transformer": [("audio", "moss-tts-local-transformer")],
+    "moss-tts-realtime": [("audio", "moss-tts-realtime")],
+    "moss-tts-nano": [("audio", "moss-tts-nano")],
     "see-through": [("image", "see-through-layerdiff"), ("image", "see-through-marigold")],
     "hy-motion-1.0": [("motion", "hy-motion-1.0")],
     "hy-motion-1.0-lite": [("motion", "hy-motion-1.0-lite")],
@@ -791,6 +795,17 @@ class Wan2GPService:
                 _anigen_pipeline_cls = type(model)
                 _anigen_pipeline_cls.device = property(
                     lambda self: torch.device("cuda"))
+
+            elif base_model_type.startswith("moss-"):
+                # MossTTSDelayModel inherits from PreTrainedModel whose
+                # device property returns the parameter device (CPU — mmgp
+                # keeps weights there). transformers generate() calls
+                # input_ids.to(self.device) which would move inputs to CPU,
+                # but mmgp swaps modules to GPU for forward → mismatch.
+                _inner = getattr(model, "model", None)
+                if _inner is not None:
+                    type(_inner).device = property(
+                        lambda self: torch.device("cuda:0"))
 
             elif base_model_type == "see-through":
                 _see_through_cls = type(model)
@@ -1433,11 +1448,18 @@ class Wan2GPService:
         elif model_type == "see-through":
             # See-through UNet has deeply nested internal parameters that
             # mmgp's module-level swapping doesn't track (GroupEmbedding,
-            # timestep embeddings, aug embeddings), causing cascading device
+            # timestep_embeddings, aug embeddings), causing cascading device
             # mismatches with every mmgp profile.
             # Manual approach: keep ALL modules on CUDA at once (12.8 GB).
-            # If VRAM is tight, unload mg_* modules during LayerDiff stage
-            # and vice versa. For now, load everything.
+            for v in pipe.values():
+                if isinstance(v, torch.nn.Module):
+                    v.to("cuda")
+            return None
+        elif model_type.startswith("moss-"):
+            # MOSS models (Qwen3-based TTS, ~16GB) fit entirely in VRAM.
+            # mmgp's default transformer:250MB budget would keep the model
+            # on CPU and swap tiny chunks — catastrophically slow for
+            # autoregressive generation. Keep everything on GPU.
             for v in pipe.values():
                 if isinstance(v, torch.nn.Module):
                     v.to("cuda")
