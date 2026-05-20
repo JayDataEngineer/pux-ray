@@ -99,7 +99,7 @@ class family_handler:
             "prompts": "A person walks forward confidently",
             "num_frames": 150,
             "num_denoising_steps": 100,
-            "post_processing": True,
+            "post_processing": False,
         })
 
 
@@ -116,7 +116,7 @@ class _Pipeline:
 
     @torch.inference_mode()
     def generate(self, *, prompts="", num_frames=150, num_denoising_steps=100,
-                 seed=None, post_processing=True, cfg_weight=None, **kwargs):
+                 seed=None, post_processing=False, cfg_weight=None, **kwargs):
         import base64
         import gc
         import io
