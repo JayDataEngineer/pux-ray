@@ -396,9 +396,9 @@ class _Pipeline:
         skin_weights = skeleton_result.skin_pred.cpu().numpy()
         vertex_colors = None
         if hasattr(mesh_result, 'vertex_attrs') and mesh_result.vertex_attrs is not None:
-            vertex_colors = mesh_result.vertex_attrs.cpu().numpy()
+            vertex_colors = mesh_result.vertex_attrs.float().cpu().numpy()
 
-        orig_vertices = mesh_result.vertices.cpu().numpy()
+        orig_vertices = mesh_result.vertices.float().cpu().numpy()
         orig_faces = mesh_result.faces.cpu().numpy()
         del skeleton_result
         torch.cuda.empty_cache()
