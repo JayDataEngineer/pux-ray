@@ -231,14 +231,14 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 
 # ── Kimodo deps (filtered — skip torch already installed) ────────────────
 RUN --mount=type=cache,target=/root/.cache/uv \
-    cd /opt/kimodo && \
-    grep -v -i -E '^(torch|torchvision|torchaudio|xformers|flash-attn|-e )' \
-        <(test -f requirements.txt && cat requirements.txt || echo "") \
-        > /tmp/reqs_kimodo.txt 2>/dev/null; \
+    bash -c 'cd /opt/kimodo && \
+    for f in requirements.txt docker_requirements.txt; do \
+        [ -f "$f" ] && grep -v -i -E "^(torch|torchvision|torchaudio|xformers|flash-attn|-e )" "$f" >> /tmp/reqs_kimodo.txt; \
+    done; \
     if [ -s /tmp/reqs_kimodo.txt ]; then \
         uv pip install -r /tmp/reqs_kimodo.txt || true; \
     fi; \
-    rm -f /tmp/reqs_kimodo.txt
+    rm -f /tmp/reqs_kimodo.txt'
 
 # ── Wan2GP fork (our custom models registered as native families) ────────
 COPY opt/wan2gp/ /opt/wan2gp/
