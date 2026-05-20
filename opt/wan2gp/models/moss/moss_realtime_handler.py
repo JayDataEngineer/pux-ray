@@ -207,7 +207,43 @@ class family_handler:
         )
 
         processor = MossTTSRealtimeProcessor(tokenizer=tokenizer)
-        inference = MossTTSRealtimeInference(model, tokenizer) if MossTTSRealtimeInference else None
+
+        # Patch generate_local_transformer to remove @torch.compile.
+        # The compiled tracer sees the codebook_idx <= 0 check in the
+        # inputs_embeds-is-None branch (not taken at i=0), causing a
+        # non-traceable ValueError → silent CUDA assert.
+        if MossTTSRealtimeInference is not None:
+            def _uncompiled_glt(self, hidden_states, temperature, top_p, top_k,
+                                do_sample, repetition_penalty, repetition_window,
+                                generated_tokens, gen_step):
+                bs = hidden_states.shape[0]
+                dev = hidden_states.device
+                li = hidden_states.reshape(-1, 1, self.model.config.local_config.hidden_size)
+                out = torch.empty(bs, self.channels, dtype=torch.long, device=dev)
+                pkv = __import__("transformers").cache_utils.StaticCache(
+                    config=self.model.local_transformer.config, max_cache_len=self.channels)
+                lt = None
+                cpt = torch.zeros(1, dtype=torch.long, device=dev)
+                for i in range(self.channels):
+                    cpt.fill_(i)
+                    lo = self.model.local_transformer(
+                        input_ids=lt, inputs_embeds=li,
+                        past_key_values=pkv, cache_position=cpt,
+                        codebook_idx=i, use_cache=True, logits_to_keep=1)
+                    logits = lo.logits
+                    if repetition_penalty and repetition_penalty != 1.0 and generated_tokens is not None:
+                        logits = self.apply_repetition_penalty(
+                            scores=logits, history_tokens=generated_tokens[:, :gen_step, i],
+                            penalty=float(repetition_penalty), repetition_window=repetition_window)
+                    lt = self.sample_token(logits, temperature, top_p, top_k, do_sample)
+                    out[:, i] = lt.squeeze(-1)
+                    if i == 0:
+                        li = None
+                return out
+            MossTTSRealtimeInference.generate_local_transformer = _uncompiled_glt
+            inference = MossTTSRealtimeInference(model, tokenizer)
+        else:
+            inference = None
 
         audio_tok_path = _resolve_audio_tokenizer_path()
         audio_tokenizer = None
@@ -298,22 +334,25 @@ class _Pipeline:
         if self.audio_tokenizer is not None:
             self.audio_tokenizer.to(dev)
             nq, t = audio_tokens.shape[1], audio_tokens.shape[0]
-            audio_codes = audio_tokens.permute(1, 0).unsqueeze(1).long().to(dev)  # (16, 1, T)
+            valid = audio_tokens.clone()
+            eos_mask = (valid == 1026).any(dim=1)
+            if eos_mask.any():
+                first_eos = eos_mask.nonzero(as_tuple=True)[0][0].item()
+                valid = valid[:first_eos]
+            valid = valid.clamp(0, 1023)
+            if valid.shape[0] == 0:
+                raise RuntimeError("All audio frames filtered out (all EOS)")
+            audio_codes = valid.permute(1, 0).unsqueeze(1).long().to(dev)
             decoded = self.audio_tokenizer.decode(
                 audio_codes,
                 num_quantizers=nq,
                 chunk_duration=None,
             )
-            if isinstance(decoded, dict):
-                wav = decoded["audio"][0]
-            elif isinstance(decoded, torch.Tensor):
-                wav = decoded[0] if decoded.dim() > 1 else decoded
-            else:
-                wav = decoded[0]
+            wav = decoded.audio[0, 0]
             if isinstance(wav, np.ndarray):
                 wav = torch.from_numpy(wav)
-            audio_data = wav.cpu().numpy()
-            sample_rate = 24000
+            audio_data = wav.cpu().float().numpy()
+            sample_rate = getattr(self.audio_tokenizer.config, "sampling_rate", 24000)
         else:
             audio_data = np.zeros(24000, dtype=np.float32)
             sample_rate = 24000
