@@ -304,7 +304,8 @@ RUN uv pip install --no-cache-dir --force-reinstall thinc
 # modules share pybind11 internals, so tv::Tensor gets registered by cumm
 # and is visible to spconv. Verified: SubMConv3d + SparseConv3d GPU forward.
 COPY infra/docker/patch_spconv_cppconstants.py /opt/patch_spconv_cppconstants.py
-RUN uv pip install --no-cache-dir --no-deps --force-reinstall cumm-cu126 spconv-cu126 && \
+RUN uv pip install --no-cache-dir pccm && \
+    uv pip install --no-cache-dir --no-deps --force-reinstall cumm-cu126 spconv-cu126 && \
     python3 /opt/patch_spconv_cppconstants.py
 
 # ── Env defaults (overridden per-deployment) ────────────────────────────
