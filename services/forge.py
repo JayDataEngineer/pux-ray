@@ -169,7 +169,13 @@ class ForgeCore:
         estimate = svc.vram_mb
 
         self._reserve_vram(name, estimate)
-        svc.load(target_model, quant=quant)
+        try:
+            svc.load(target_model, quant=quant)
+        except Exception:
+            # Load failed — release the reserved VRAM
+            self._vram_allocations.pop(name, None)
+            self._vram_free_mb += estimate
+            raise
         self._loaded[name] = True
         self._reconcile_vram(name, estimate)
 
