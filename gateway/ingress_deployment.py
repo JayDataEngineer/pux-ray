@@ -19,6 +19,7 @@ from gateway.dashboard import (
     dashboard_page, dashboard_gpu_current, dashboard_gpu_history, dashboard_services,
 )
 from gateway.studio import studio_page, studio_apps, studio_switch, studio_release
+from gateway.routes.workflows import list_workflows, get_workflow, execute_workflow, _get_workflow_json, _execute_workflow
 
 
 @serve.deployment(
@@ -93,6 +94,23 @@ class APIIngressDeployment:
             return await self._ingress.load_model(request)
         if path == "/admin/unload" and method == "POST":
             return await self._ingress.unload_all(request)
+
+        # Unified endpoint
+        if path == "/v1/run" and method == "POST":
+            return await self._ingress.run_unified(request)
+        if path == "/v1/run/catalog" and method == "GET":
+            return await self._ingress.run_catalog(request)
+
+        # Workflows (multi-model orchestration)
+        if path == "/v1/workflows" and method == "GET":
+            return await list_workflows(request)
+        if path.startswith("/v1/workflows/") and method == "GET":
+            wf_id = path[len("/v1/workflows/"):].rstrip("/")
+            return _get_workflow_json(wf_id)
+        if path.startswith("/v1/workflows/") and method == "POST":
+            wf_id = path[len("/v1/workflows/"):].rstrip("/")
+            body = await request.json()
+            return await _execute_workflow(wf_id, body)
 
         # Dashboard
         if path == "/dashboard":

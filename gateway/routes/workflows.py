@@ -65,6 +65,10 @@ async def list_workflows(request: Request) -> JSONResponse:
 
 async def get_workflow(request: Request) -> JSONResponse:
     wf_id = request.path_params.get("workflow", "")
+    return _get_workflow_json(wf_id)
+
+
+def _get_workflow_json(wf_id: str) -> JSONResponse:
     fn = _WORKFLOW_REGISTRY.get(wf_id)
     if not fn:
         return JSONResponse({"error": f"Unknown workflow: {wf_id}"}, status_code=404)
@@ -78,6 +82,14 @@ async def get_workflow(request: Request) -> JSONResponse:
 async def execute_workflow(request: Request) -> JSONResponse:
     """Execute a workflow through the Forge's VRAM ledger."""
     wf_id = request.path_params.get("workflow", "")
+    try:
+        body: dict[str, Any] = await request.json()
+    except Exception:
+        return JSONResponse({"error": "invalid JSON body"}, status_code=400)
+    return await _execute_workflow(wf_id, body)
+
+
+async def _execute_workflow(wf_id: str, body: dict[str, Any]) -> JSONResponse:
     fn = _WORKFLOW_REGISTRY.get(wf_id)
     if not fn:
         return JSONResponse({"error": f"Unknown workflow: {wf_id}"}, status_code=404)
