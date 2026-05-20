@@ -78,6 +78,35 @@ class LLMDeployment(BaseGPUDeployment, SubprocessMixin):
     # Command builder
     # ------------------------------------------------------------------
 
+    @staticmethod
+    def _ensure_downloaded(registry, config, registry_key: str) -> Path:
+        """Download GGUF model file from HuggingFace if missing. Raises on failure."""
+        meta = registry.get_metadata("llm", registry_key)
+        rel_path = meta["path"]
+        full = Path(config.models_root) / rel_path
+        if full.exists():
+            return full
+        logger.warning("Model file missing: %s — auto-downloading...", full)
+        from huggingface_hub import hf_hub_download
+        source = meta.get("source", "")
+        if source.startswith("hf://"):
+            rest = source.removeprefix("hf://")
+            parts = rest.split("/")
+            repo_id = f"{parts[0]}/{parts[1]}"
+            filename = "/".join(parts[2:])
+            full.parent.mkdir(parents=True, exist_ok=True)
+            hf_hub_download(
+                repo_id=repo_id, filename=filename,
+                local_dir=str(full.parent),
+                local_dir_use_symlinks=False,
+            )
+        if not full.exists():
+            raise FileNotFoundError(
+                f"Model file could not be downloaded: {full}\n"
+                f"Source: {source}. Registry key: {registry_key}"
+            )
+        return full
+
     def _build_cmd(
         self,
         model_name: str,
@@ -104,10 +133,15 @@ class LLMDeployment(BaseGPUDeployment, SubprocessMixin):
             raise ValueError(f"Unknown engine: {engine}. Use: {list(ENGINE_BINARIES)}")
         self._engine = engine
 
-        # Resolve model path
+        # Resolve model path — auto-download if missing
         model_path = registry.get_path("llm", model_name)
         if not model_path.exists():
-            raise FileNotFoundError(f"Model not found: {model_path}")
+            try:
+                model_path = self._ensure_downloaded(registry, config, model_name)
+            except Exception as e:
+                raise FileNotFoundError(
+                    f"Model not found and auto-download failed: {model_path}\n{e}"
+                )
         container_model = f"/models/{model_path.relative_to(config.models_root)}"
 
         cmd = self._base_cmd(binary, container_model, meta, overrides)
@@ -115,7 +149,7 @@ class LLMDeployment(BaseGPUDeployment, SubprocessMixin):
         self._add_cache_flags(cmd, engine, meta, overrides)
         self._add_vision_flags(cmd, config, meta, overrides)
         if engine == "beellama":
-            self._add_beellama_flags(cmd, meta, overrides)
+            self._add_beellama_flags(cmd, model_name, meta, overrides)
         self._add_sampling_flags(cmd, meta, overrides)
 
         return cmd
@@ -208,7 +242,7 @@ class LLMDeployment(BaseGPUDeployment, SubprocessMixin):
             cmd.extend(["--chat-template-kwargs", '{"preserve_thinking":true}'])
 
     def _add_beellama_flags(
-        self, cmd: list[str], meta: dict, overrides: dict
+        self, cmd: list[str], model_name: str, meta: dict, overrides: dict
     ) -> None:
         """Append BeeLlama-specific flags to *cmd*."""
         from registry.config import Config
@@ -222,17 +256,31 @@ class LLMDeployment(BaseGPUDeployment, SubprocessMixin):
 
         spec_draft_model = _val("spec_draft_model")
         if spec_draft_model:
-            draft_path = Path(spec_draft_model)
-            if not draft_path.is_absolute():
-                draft_path = Path(Config().models_root) / spec_draft_model
-            if draft_path.exists():
+            draft_rel = Path(spec_draft_model)
+            draft_full = Path(Config().models_root) / draft_rel
+            if not draft_full.exists():
+                draft_key = f"{model_name}-dflash-draft-q4km"
+                from registry.models import ModelRegistry
+                try:
+                    draft_registry = ModelRegistry()
+                    draft_registry.get_metadata("llm", draft_key)
+                    draft_full = self._ensure_downloaded(
+                        draft_registry, Config(), draft_key
+                    )
+                except Exception as e:
+                    logger.warning(
+                        "Draft model auto-download failed (%s): %s — DFlash disabled",
+                        draft_key, e,
+                    )
+                    draft_full = Path("/dev/null")
+            if draft_full.exists() and draft_full != Path("/dev/null"):
                 container_draft = (
-                    f"/models/{draft_path.relative_to(Config().models_root)}"
+                    f"/models/{draft_full.relative_to(Config().models_root)}"
                 )
                 cmd.extend(["--spec-draft-model", container_draft])
             else:
                 logger.warning(
-                    "DFlash draft model not found: %s — DFlash disabled", draft_path
+                    "DFlash draft model not found: %s — DFlash disabled", draft_rel
                 )
 
         for flag, key in [
