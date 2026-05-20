@@ -1,4 +1,9 @@
-"""HTTP client for the Forge GPU inference gateway."""
+"""HTTP client for the Tech Noir API ingress.
+
+Routes through the same dispatch pipeline as external clients
+(/v1/run), so the MCP gets service registry lookup, model
+resolution, and proper routing — no duplicated logic.
+"""
 from __future__ import annotations
 
 import os
@@ -7,15 +12,20 @@ from typing import Any
 import httpx
 from loguru import logger
 
-DEFAULT_FORGE_URL = "http://tech-noir-ray-serve-svc.ai-services:8000/forge"
+DEFAULT_API_URL = "http://tech-noir-ray-serve-svc.ai-services:8000"
 DEFAULT_TIMEOUT = 300.0  # video generation is slow
 
 
 class ForgeClient:
-    """Async HTTP client for the Forge /forge endpoint."""
+    """Async HTTP client for the Tech Noir API.
+
+    Uses /v1/run (unified dispatch) and /v1/models (model discovery)
+    instead of hitting the Forge directly. This gives the MCP the same
+    service registry, model resolution, and routing as external clients.
+    """
 
     def __init__(self, base_url: str | None = None, timeout: float | None = None):
-        self.base_url = (base_url or os.environ.get("FORGE_URL", DEFAULT_FORGE_URL)).rstrip("/")
+        self.base_url = (base_url or os.environ.get("FORGE_URL", DEFAULT_API_URL)).rstrip("/")
         self.timeout = timeout or float(os.environ.get("FORGE_TIMEOUT", DEFAULT_TIMEOUT))
         self._client: httpx.AsyncClient | None = None
 
@@ -29,30 +39,28 @@ class ForgeClient:
             await self._client.aclose()
 
     async def invoke(self, payload: dict[str, Any]) -> dict[str, Any]:
-        """Send an inference request to the Forge.
+        """Send an inference request via /v1/run.
 
         The payload must include 'service' key (e.g. "wan2gp").
-        All other keys are passed through to the service handler.
+        All other keys are passed through as-is.
         """
         client = await self._get_client()
-        logger.info("Forge invoke: service={} model={}",
+        logger.info("API invoke: service={} model={}",
                      payload.get("service"), payload.get("model", "default"))
-        resp = await client.post(self.base_url, json=payload)
+        resp = await client.post(f"{self.base_url}/v1/run", json=payload)
         resp.raise_for_status()
         return resp.json()
 
     async def status(self) -> dict[str, Any]:
         """Get Forge GPU status (VRAM, loaded services)."""
         client = await self._get_client()
-        resp = await client.get(self.base_url)
+        resp = await client.get(f"{self.base_url}/status")
         resp.raise_for_status()
         return resp.json()
 
     async def list_models(self) -> dict[str, Any]:
-        """Discover available wan2gp models via Forge status.
-
-        The Forge doesn't have a dedicated model list endpoint,
-        so we return the status which includes loaded services.
-        Model families are derived from the wan2gp service configuration.
-        """
-        return await self.status()
+        """Get the full model catalog from the ingress."""
+        client = await self._get_client()
+        resp = await client.get(f"{self.base_url}/v1/models")
+        resp.raise_for_status()
+        return resp.json()
