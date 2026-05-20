@@ -1398,16 +1398,26 @@ cache:
     description: HuggingFace model cache. Auto-populated.
 
 avatar:
-  gem-smpl:
-    path: avatar/gem/gem_smpl.ckpt
-    source: hf://nvidia/GEM-X
-    download: file
+  kimodo-soma-rp:
+    path: avatar/kimodo/Kimodo-SOMA-RP-v1.1/
+    source: hf://nvidia/Kimodo-SOMA-RP-v1.1
+    download: snapshot
     sha256: null
-    size_gb: 2.0
-    vram_estimate_gb: 6.0
+    size_gb: 1.1
+    vram_estimate_gb: 3.0
     device: gpu
-    description: GEM-SMPL generative motion model. Text/audio -> SMPL body motion.
-      T5-3B text encoder + diffusion denoiser. 30 FPS output.
+    description: Kimodo-SOMA-RP v1.1 kinematic motion diffusion model. 282M params.
+      Text -> SOMA 77-joint motion. 700 hours commercial mocap training data.
+      Use TEXT_ENCODER_DEVICE=cpu for <3GB VRAM.
+  kimodo-text-encoder:
+    path: cache/huggingface/meta-llama/Meta-Llama-3-8B-Instruct/
+    source: hf://meta-llama/Meta-Llama-3-8B-Instruct
+    download: snapshot
+    sha256: null
+    size_gb: 15.0
+    vram_estimate_gb: 0.0
+    description: LLM2Vec text encoder for Kimodo (gated model, requires HF login).
+      Runs on CPU via TEXT_ENCODER_DEVICE=cpu, not on GPU.
   flux-klein-4b-int8:
     path: avatar/fluxrt/FLUX.2-klein-4B-int8/
     source: hf://aydin99/FLUX.2-klein-4B-int8
@@ -1427,14 +1437,4 @@ avatar:
     vram_estimate_gb: 0.5
     device: gpu
     description: SOMA unified body model assets. 77-joint parametric model.
-      SMPL->SOMA conversion, 1279 FPS pose inversion.
-  gem-smpl-body-model:
-    path: avatar/gem/body_models/
-    source: null
-    download: manual
-    sha256: null
-    size_gb: 0.3
-    vram_estimate_gb: 0.5
-    device: gpu
-    description: SMPL body model files for GEM. Download from http://smpl.is.tue.mpg.com
-      and place under this directory.
+      Only needed for GEM-X video estimation fallback.

@@ -1,4 +1,4 @@
-"""Avatar pipeline services — text-to-avatar via GEM + SOMA + FluxRT."""
+"""Avatar pipeline services — text-to-avatar via Kimodo + FluxRT."""
 
 import os
 

@@ -33,7 +33,7 @@ Reliable, tested, deployed by default. Registered in `infra/k8s/serve_config.py`
 | anigen | GPU 3D | AniGen image-to-rigged-3D |
 | see_through | GPU Image | See-Through anime layer decomposition |
 | llm | GPU LLM | llama.cpp server (GGUF models via subprocess) |
-| avatar | GPU Avatar | GEM + SOMA + FluxRT text-to-avatar pipeline |
+| avatar | GPU Avatar | Kimodo + FluxRT text-to-avatar pipeline |
 
 The **Forge** (`services/forge.py`) is a VRAM-aware GPU manager that claims `num_gpus: 1.0`, tracks VRAM in MB per service, and allows concurrent GPU services when VRAM permits. Evicts only when needed. Services implement `ForgeService` (3 methods: `load()`, `unload()`, `infer(dict) -> dict`). Accessed via route `/forge` with `{"service": "trellis|ace_step|comfyui|hy_motion|moss_soundeffect|anigen|see_through|llm|avatar|wan2gp|vibevoice_microsoft|vibevoice_community_tts|phi4mm", ...}`.
 
@@ -397,7 +397,7 @@ Heavy GPU services share a single RTX 4090 with VRAM-aware scheduling. Send `{"s
 | `anigen` | AniGen image-to-rigged-3D |
 | `see_through` | See-Through — anime layer decomposition |
 | `llm` | llama.cpp GGUF inference |
-| `avatar` | Avatar Pipeline — GEM gesture gen + SOMA body + FluxRT render |
+| `avatar` | Avatar Pipeline — Kimodo motion gen + FluxRT render |
 
 ### MCP Services (standalone K8s, `mcp` namespace)
 | Route | Service |
