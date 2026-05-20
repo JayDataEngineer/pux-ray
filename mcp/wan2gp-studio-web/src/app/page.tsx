@@ -156,6 +156,13 @@ export default function Home() {
   }, [selectedModel, prompt, steps, width, height, imageFile, needsImage, needsDimensions]);
 
   function renderMedia(item: GeneratedContent) {
+    if (!item.data) {
+      return (
+        <div className="w-full h-32 bg-zinc-900 rounded-lg flex items-center justify-center text-zinc-500">
+          No preview available
+        </div>
+      );
+    }
     const src = `data:${item.mediaType};base64,${item.data}`;
 
     if (item.mediaType.startsWith("video")) {
@@ -168,6 +175,13 @@ export default function Home() {
       return (
         <div className="w-full h-48 bg-zinc-900 rounded-lg flex items-center justify-center text-zinc-500">
           3D model — download to view
+        </div>
+      );
+    }
+    if (item.mediaType.includes("npz") || item.mediaType === "application/x-motion") {
+      return (
+        <div className="w-full h-32 bg-zinc-900 rounded-lg flex items-center justify-center text-zinc-500">
+          Motion data — preview not available
         </div>
       );
     }

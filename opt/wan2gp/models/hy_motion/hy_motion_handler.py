@@ -30,7 +30,7 @@ class _HyMotionHooks:
 
 HANDLER_META = {
     "input_type": "text",
-    "output_type": "json",
+    "output_type": "motion",
     "hooks": _HyMotionHooks(),
 }
 
@@ -177,26 +177,42 @@ class _Pipeline:
         output = self.pipeline.decode_motion_from_latent(motion_latent, should_apply_smooothing=True)
         motion_data = {}
         rot6d = None
+        keypoints3d = None
         for k, v in output.items():
             if isinstance(v, torch.Tensor):
                 motion_data[k] = {"shape": list(v.shape), "dtype": str(v.dtype)}
                 if k == "rot6d":
                     rot6d = v
+                if k == "keypoints3d":
+                    keypoints3d = v
 
         import io, base64, numpy as np
+
+        # Raw NPZ for download/reuse
         if rot6d is not None:
             buf = io.BytesIO()
-            np.savez_compressed(buf, rot6d=rot6d.cpu().numpy())
+            np.savez_compressed(buf, rot6d=rot6d.cpu().numpy(), keypoints3d=keypoints3d.cpu().numpy() if keypoints3d is not None else None)
             npz_b64 = base64.b64encode(buf.getvalue()).decode()
         else:
             npz_b64 = ""
+
+        # MP4 preview for web display
+        preview_b64 = ""
+        if keypoints3d is not None:
+            k3d_np = keypoints3d[0].cpu().numpy()  # (T, J, 3)
+            try:
+                from services.motion.preview import render_motion_to_mp4_b64
+                preview_b64 = render_motion_to_mp4_b64(k3d_np, fps=self._fps)
+            except Exception as e:
+                logger.warning("Motion preview render failed: %s", e)
 
         return {
             "status": "success", "text": text, "duration": duration,
             "cfg_scale": guidance, "motion_data": motion_data,
             "seeds": [int(s.strip()) for s in seeds_csv.split(",") if s.strip()],
-            "data": npz_b64,
-            "media_type": "application/x-npz",
+            "data": preview_b64 or npz_b64,
+            "media_type": "video/mp4" if preview_b64 else "application/x-npz",
+            "npz_data": npz_b64,
         }
 
     def _sample_motion(self, vtxt_input, ctxt_input, ctxt_length, duration, cfg_scale):

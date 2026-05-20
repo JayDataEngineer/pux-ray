@@ -145,6 +145,14 @@ class AvatarForgeService(ForgeService):
 
         total_ms = (time.time() - t_total) * 1000
 
+        # MP4 skeleton preview
+        preview_b64 = ""
+        try:
+            from services.motion.preview import render_motion_to_mp4_b64
+            preview_b64 = render_motion_to_mp4_b64(posed_joints, fps=KIMODO_FPS)
+        except Exception as e:
+            logger.warning("Motion preview render failed: %s", e)
+
         return {
             "status": "success",
             "chunk_id": chunk_id,
@@ -159,4 +167,6 @@ class AvatarForgeService(ForgeService):
             "timings": timings,
             "model": motion_result["model_name"],
             "prompt": motion_result["prompt"],
+            "data": preview_b64,
+            "media_type": "video/mp4" if preview_b64 else "application/x-npz",
         }

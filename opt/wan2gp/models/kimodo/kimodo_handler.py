@@ -29,6 +29,19 @@ VARIANTS = {
     "kimodo-smplx-rp": "Kimodo-SMPLX-RP-v1",
 }
 
+HANDLER_META = {
+    "input_type": "text",
+    "output_type": "motion",
+}
+
+# Variant → HF model name mapping
+VARIANTS = {
+    "kimodo-soma-rp": "Kimodo-SOMA-RP-v1.1",
+    "kimodo-soma-seed": "Kimodo-SOMA-SEED-v1.1",
+    "kimodo-g1-rp": "Kimodo-G1-RP-v1",
+    "kimodo-smplx-rp": "Kimodo-SMPLX-RP-v1",
+}
+
 
 class family_handler:
     @staticmethod
@@ -149,22 +162,39 @@ class _Pipeline:
 
         npz_buf = io.BytesIO()
         np_tensors = {}
+        posed_joints = None
         for key, value in output.items():
             if isinstance(value, torch.Tensor):
                 np_tensors[key] = value.detach().cpu().numpy()
+                if key == "posed_joints":
+                    posed_joints = np_tensors[key]
             elif isinstance(value, np.ndarray):
                 np_tensors[key] = value
+                if key == "posed_joints":
+                    posed_joints = value
         np.savez(npz_buf, **np_tensors)
         npz_bytes = npz_buf.getvalue()
         npz_b64 = base64.b64encode(npz_bytes).decode()
+
+        # MP4 preview for web display
+        preview_b64 = ""
+        if posed_joints is not None:
+            # posed_joints is (B, T, J, 3) or (T, J, 3)
+            pj = posed_joints[0] if posed_joints.ndim == 4 else posed_joints
+            try:
+                from services.motion.preview import render_motion_to_mp4_b64
+                preview_b64 = render_motion_to_mp4_b64(pj, fps=30)
+            except Exception as e:
+                logger.warning("Motion preview render failed: %s", e)
 
         torch.cuda.empty_cache()
         gc.collect()
 
         return {
             "status": "success",
-            "data": npz_b64,
-            "media_type": "model/kimodo+npz",
+            "data": preview_b64 or npz_b64,
+            "media_type": "video/mp4" if preview_b64 else "application/x-npz",
+            "npz_data": npz_b64,
             "num_frames": gen_kwargs["num_frames"],
             "tensor_keys": list(np_tensors.keys()),
             "tensor_shapes": {k: list(v.shape) for k, v in np_tensors.items()},

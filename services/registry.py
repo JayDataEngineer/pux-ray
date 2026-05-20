@@ -158,7 +158,7 @@ SERVICE_REGISTRY: dict[str, ServiceEntry] = {
         deployment="wan2gp", app="wan2gp",
         label="HY-Motion", category="motion",
         needs_gpu=True, default_model="hy_motion",
-        output_type="json",
+        output_type="motion",
         description="HY-Motion 1.0 — text-to-3D motion generation.",
     ),
     "see_through": ServiceEntry(
@@ -174,7 +174,7 @@ SERVICE_REGISTRY: dict[str, ServiceEntry] = {
         deployment="wan2gp", app="wan2gp",
         label="Kimodo Motion", category="motion",
         needs_gpu=True, default_model="kimodo-soma-rp",
-        output_type="json",
+        output_type="motion",
         description="Kimodo text-to-3D motion (NPZ output, SOMA 77-joint skeleton).",
     ),
     "kimodo_demo": ServiceEntry(
