@@ -13,30 +13,36 @@ from __future__ import annotations
 import numpy as np
 import torch
 
-# SOMA 77-joint skeleton key joint indices (from SOMASkeleton77)
-# These are the major body joints used for pose description
-_SOMA_PELVIS = 0
-_SOMA_SPINE_1 = 1
-_SOMA_SPINE_2 = 2
-_SOMA_SPINE_3 = 3
-_SOMA_NECK = 12
-_SOMA_HEAD = 15
-_SOMA_LEFT_SHOULDER = 16
-_SOMA_LEFT_ELBOW = 18
-_SOMA_LEFT_WRIST = 20
-_SOMA_LEFT_HAND = 22
-_SOMA_RIGHT_SHOULDER = 24
-_SOMA_RIGHT_ELBOW = 26
-_SOMA_RIGHT_WRIST = 28
-_SOMA_RIGHT_HAND = 30
-_SOMA_LEFT_HIP = 32
-_SOMA_LEFT_KNEE = 34
-_SOMA_LEFT_ANKLE = 36
-_SOMA_LEFT_FOOT = 38
-_SOMA_RIGHT_HIP = 40
-_SOMA_RIGHT_KNEE = 42
-_SOMA_RIGHT_ANKLE = 44
-_SOMA_RIGHT_FOOT = 46
+# SOMA 77-joint skeleton (SOMASkeleton77) — joint names from Kimodo output
+# Body
+SOMA_HIPS = 0
+SOMA_SPINE1 = 1
+SOMA_SPINE2 = 2
+SOMA_CHEST = 3
+SOMA_NECK1 = 4
+SOMA_NECK2 = 5
+SOMA_HEAD = 6
+SOMA_HEAD_END = 7
+# Left arm
+SOMA_LEFT_SHOULDER = 11
+SOMA_LEFT_ARM = 12
+SOMA_LEFT_FOREARM = 13
+SOMA_LEFT_HAND = 14
+# Right arm
+SOMA_RIGHT_SHOULDER = 39
+SOMA_RIGHT_ARM = 40
+SOMA_RIGHT_FOREARM = 41
+SOMA_RIGHT_HAND = 42
+# Left leg
+SOMA_LEFT_LEG = 67
+SOMA_LEFT_SHIN = 68
+SOMA_LEFT_FOOT = 69
+SOMA_LEFT_TOE = 70
+# Right leg
+SOMA_RIGHT_LEG = 72
+SOMA_RIGHT_SHIN = 73
+SOMA_RIGHT_FOOT = 74
+SOMA_RIGHT_TOE = 75
 
 
 def describe_poses(
@@ -88,7 +94,7 @@ def _describe_from_soma(
             descriptions.append(descriptions[-1])
         else:
             descriptions.append(
-                _describe_soma_frame(posed_joints[i], foot_contacts, emotion)
+                _describe_soma_frame(posed_joints[i], i, foot_contacts, emotion)
             )
 
     return descriptions
@@ -96,6 +102,7 @@ def _describe_from_soma(
 
 def _describe_soma_frame(
     joints: "np.ndarray",
+    frame_idx: int,
     foot_contacts: "np.ndarray | None",
     emotion: str,
 ) -> str:
@@ -105,14 +112,16 @@ def _describe_soma_frame(
     if emotion:
         parts.append(f"looking {emotion}")
 
-    pelvis = joints[_SOMA_PELVIS]
-    head = joints[_SOMA_HEAD]
-    l_hand = joints[_SOMA_LEFT_HAND]
-    r_hand = joints[_SOMA_RIGHT_HAND]
-    l_shoulder = joints[_SOMA_LEFT_SHOULDER]
-    r_shoulder = joints[_SOMA_RIGHT_SHOULDER]
-    l_elbow = joints[_SOMA_LEFT_ELBOW]
-    r_elbow = joints[_SOMA_RIGHT_ELBOW]
+    pelvis = joints[SOMA_HIPS]
+    head = joints[SOMA_HEAD]
+    l_hand = joints[SOMA_LEFT_HAND]
+    r_hand = joints[SOMA_RIGHT_HAND]
+    l_shoulder = joints[SOMA_LEFT_SHOULDER]
+    r_shoulder = joints[SOMA_RIGHT_SHOULDER]
+    l_forearm = joints[SOMA_LEFT_FOREARM]
+    r_forearm = joints[SOMA_RIGHT_FOREARM]
+    l_foot = joints[SOMA_LEFT_FOOT]
+    r_foot = joints[SOMA_RIGHT_FOOT]
 
     # Arm height relative to shoulder
     l_arm_height = l_hand[1] - l_shoulder[1]  # positive = above shoulder
@@ -127,13 +136,17 @@ def _describe_soma_frame(
     elif l_arm_height < -0.3 and r_arm_height < -0.3:
         parts.append("arms at sides")
 
-    # Elbow bend (hand forward relative to elbow)
-    l_foreward = l_hand[2] - l_elbow[2]
-    r_foreward = r_hand[2] - r_elbow[2]
-    if abs(l_foreward) > 0.15:
-        parts.append("left arm bent")
-    if abs(r_foreward) > 0.15:
-        parts.append("right arm bent")
+    # Elbow bend (hand forward relative to forearm)
+    l_foreward = l_hand[2] - l_forearm[2]
+    r_foreward = r_hand[2] - r_forearm[2]
+    if abs(l_foreward) > 0.1:
+        parts.append("left arm extended forward")
+    if abs(r_foreward) > 0.1:
+        parts.append("right arm extended forward")
+
+    # Foot position (jumping / airborne)
+    if l_foot[1] > 0.15 and r_foot[1] > 0.15:
+        parts.append("jumping")
 
     # Head tilt / lean
     head_offset = head - pelvis
@@ -142,9 +155,9 @@ def _describe_soma_frame(
     elif head_offset[2] < -0.15:
         parts.append("leaning backward")
 
-    # Foot contacts
+    # Foot contacts (check if feet are grounded)
     if foot_contacts is not None:
-        fc = foot_contacts
+        fc = foot_contacts[frame_idx] if foot_contacts.ndim > 1 else foot_contacts
         if fc[0] < 0.5 and fc[2] < 0.5:
             parts.append("both feet off ground")
 
