@@ -266,9 +266,10 @@ class _Pipeline:
         del slat, slat_skl
         torch.cuda.empty_cache()
 
-        # 6. Post-processing → GLB
-        data = self._postprocess_and_export(
-            mesh_result, skeleton_result, img_rgb, simplify_ratio)
+        # 6. Post-processing → GLB (disable autocast — nvdiffrast needs float32)
+        with torch.amp.autocast("cuda", enabled=False):
+            data = self._postprocess_and_export(
+                mesh_result, skeleton_result, img_rgb, simplify_ratio)
 
         return audio_response(data, media_type="model/gltf-binary")
 
