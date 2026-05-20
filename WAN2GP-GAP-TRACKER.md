@@ -101,7 +101,6 @@ plus fixes applied in `services/wan2gp/deployment.py`.
 | `moss/moss-soundeffect` | GPU Audio | ✅ | — | LOAD_OK. Autoregressive (170min). |
 | `moss/moss-tts` | GPU Audio | ✅ | — | LOAD_OK. Autoregressive. |
 | `tts/index_tts2` | GPU TTS | ✅ | ✅ | LOAD_OK. Generates audio output. Payload mapping: text→input_prompt, audio_b64→temp WAV→audio_guide. |
-| `vibevoice_tts/vibevoice-tts` | GPU TTS | ✅ | — | LOAD_OK in isolation. Needs Docker rebuild for vibevoice module (not vendored). |
 | `vibevoice_asr/vibevoice-asr` | GPU ASR | ✅ | ✅ | Vendored model, no pip dependency. 797/797 keys matched. Forward pass + generate OK. |
 | `trellis/trellis` | GPU 3D | ✅ | ✅ | FULL E2E. sdpa fix + bfloat16 autocast + profile 5. 77MB GLB output. |
 | `hy_motion/hy-motion-1.0-lite` | GPU Motion | ✅ | ✅ | FULL E2E. bfloat16 autocast + device override. rot6d + keypoints3d output. |
@@ -113,8 +112,8 @@ plus fixes applied in `services/wan2gp/deployment.py`.
 | Model | Previous Error | Fix | Status |
 |-------|----------------|-----|--------|
 | `tts/index_tts2` | BigVGAN + semantic_codec missing | `_ensure_vendor_files` always runs, overlay merge, .pth restriction | ✅ LOAD_OK |
-| `vibevoice_tts/vibevoice-tts` | No module 'vibevoice' + read-only HF cache | Dockerfile pip install + HF_HUB_CACHE redirect | ✅ LOAD_OK |
 | `vibevoice_asr/vibevoice-asr` | External vibevoice pip package dependency | Vendored model code in `opt/wan2gp/models/`, no pip dep. 797/797 keys. | ✅ LOAD_OK + INFER OK |
+| `vibevoice_tts/vibevoice-tts` | No module 'vibevoice' + read-only HF cache | DROPPED — user only cares about ASR | DROPPED |
 | `hy_motion/hy-motion-1.0` | CUDA OOM (19.2GB > 24GB VRAM) | Alias to `hy-motion-1.0-lite` (1.7GB) | ✅ LOAD_OK |
 | `spconv GPU import` | cpu-only module `not implemented for CPU ONLY build` | `import cumm.core_cc` before `spconv.core_cc`. Both share pybind11 internals, cumm registers `tv::Tensor`. | ✅ SubMConv3d + SparseConv3d GPU forward |
 
@@ -145,6 +144,6 @@ plus fixes applied in `services/wan2gp/deployment.py`.
 - **Total models discovered**: 113 (from 15 family handlers)
 - **Load verified**: 13 models (3 CPU + 10 GPU)
 - **E2E inference verified**: 9 models (espeak, kokoro, faster_whisper, wan/t2v, index_tts2, trellis, hy_motion, vibevoice_asr, anigen)
-- **E2E close (fixes committed, needs mmgp retest)**: 1 model (see_through: VAE per-layer decode + mmgp module swapping)
-- **Needs Docker rebuild**: 2 models (vibevoice_tts, anigen)
+- **E2E close (fixes committed, needs Docker rebuild + retest)**: 1 model (see_through: VAE per-layer decode, manual CUDA loading)
+- **Dropped (user decision)**: 1 model (vibevoice_tts — only ASR matters)
 - **Autoregressive (skip by default)**: 3 models (moss_voicegenerator, moss_soundeffect, moss_tts)
