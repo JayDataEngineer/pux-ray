@@ -84,6 +84,7 @@ class ForgeCore:
         self._vram_free_mb: int = AVAILABLE_MB
         self._gpu_nodes: Dict[str, GPUNode] = {}
         self._persistence_overrides: Dict[str, Persistence] = {}
+        self._loading: set[str] = set()  # services whose load() is in-flight
 
     # ── Service Resolution ────────────────────────────────────────────────────
 
@@ -171,12 +172,28 @@ class ForgeCore:
 
     # ── Model Lifecycle ───────────────────────────────────────────────────────
 
+    def _cleanup_stale_allocations(self) -> None:
+        """Clean VRAM allocations for services not actually loaded.
+
+        Handles the case where a preload() call timed out or was cancelled
+        after reserving VRAM but before the service finished loading.
+        """
+        for name in list(self._vram_allocations):
+            if not self._loaded.get(name) and name not in self._loading:
+                mb = self._vram_allocations.pop(name, 0)
+                self._vram_free_mb += mb
+                if mb > 0:
+                    logger.warning(
+                        "Forge: cleaned stale allocation %s (%dMB)", name, mb,
+                    )
+
     def _do_load(self, name: str, model: str | None = None,
                  quant: str | None = None) -> None:
         svc = self._get_service(name)
         target_model = model or svc.default_model
         estimate = svc.vram_mb
 
+        self._loading.add(name)
         self._reserve_vram(name, estimate)
         try:
             svc.load(target_model, quant=quant)
@@ -185,6 +202,8 @@ class ForgeCore:
             self._vram_allocations.pop(name, None)
             self._vram_free_mb += estimate
             raise
+        finally:
+            self._loading.discard(name)
         self._loaded[name] = True
         self._reconcile_vram(name, estimate)
 
@@ -228,6 +247,18 @@ class ForgeCore:
 
     # ── Public API ────────────────────────────────────────────────────────────
 
+    async def _load_with_cleanup(self, service: str, model: str | None = None,
+                                  quant: str | None = None) -> None:
+        """Load service with timeout. Cleans up VRAM on failure or timeout."""
+        try:
+            await asyncio.wait_for(
+                asyncio.to_thread(self._do_load, service, model, quant),
+                timeout=600,
+            )
+        except Exception:
+            self._cleanup_stale_allocations()
+            raise
+
     async def invoke(self, service: str, payload: dict,
                      model: str | None = None, quant: str | None = None) -> dict:
         if service not in self._service_map:
@@ -237,10 +268,11 @@ class ForgeCore:
             svc = self._services[service]
             return await asyncio.to_thread(svc.infer, payload)
 
+        self._cleanup_stale_allocations()
         if not self._can_fit(service):
             self._evict_for(service)
 
-        await asyncio.to_thread(self._do_load, service, model, quant)
+        await self._load_with_cleanup(service, model, quant)
 
         if not self._loaded.get(service):
             return {"status": "error", "error": f"Failed to load {service}"}
@@ -256,10 +288,14 @@ class ForgeCore:
         if self._loaded.get(service):
             return {"status": "already_loaded", "service": service}
 
+        self._cleanup_stale_allocations()
         if not self._can_fit(service):
             self._evict_for(service)
 
-        await asyncio.to_thread(self._do_load, service, model, quant)
+        try:
+            await self._load_with_cleanup(service, model, quant)
+        except Exception:
+            return {"status": "error", "error": f"Failed to load {service}"}
 
         return {
             "status": "loaded",
@@ -269,6 +305,7 @@ class ForgeCore:
         }
 
     async def release(self, service: str | None = None) -> dict:
+        self._cleanup_stale_allocations()
         if service:
             if self._loaded.get(service):
                 await asyncio.to_thread(self._do_unload, service)
@@ -280,11 +317,13 @@ class ForgeCore:
         return {"status": "released", "services": to_unload}
 
     async def unload_service(self, service: str) -> None:
+        self._cleanup_stale_allocations()
         if self._loaded.get(service):
             await asyncio.to_thread(self._do_unload, service)
 
     def status_sync(self) -> dict:
         """Synchronous status — no torch.cuda dependency."""
+        self._cleanup_stale_allocations()
         loaded_services = {n: mb for n, mb in self._vram_allocations.items()
                            if self._loaded.get(n)}
         return {

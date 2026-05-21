@@ -312,7 +312,7 @@ class LLMDeployment(BaseGPUDeployment, SubprocessMixin):
         # Build new command
         try:
             new_cmd = self._build_cmd(model_name, engine, startup_overrides)
-        except (FileNotFoundError, ValueError) as e:
+        except (FileNotFoundError, ValueError, KeyError) as e:
             return {"status": "error", "error": str(e)}
 
         # Smart diff — restart only if command changed OR model/subprocess dead
@@ -609,7 +609,7 @@ class LLMService(ForgeSubprocessMixin, ForgeService):
 
         try:
             new_cmd = self._build_cmd(model_name, engine, startup_overrides)
-        except (FileNotFoundError, ValueError) as e:
+        except (FileNotFoundError, ValueError, KeyError) as e:
             return {"status": "error", "error": str(e)}
 
         # Smart diff — skip restart if nothing changed

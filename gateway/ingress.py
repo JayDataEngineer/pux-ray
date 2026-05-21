@@ -65,11 +65,6 @@ def _get_forge():
     return serve.get_deployment_handle("forge", "forge")
 
 
-def _get_wan2gp():
-    """Get the Wan2GP deployment handle."""
-    return serve.get_deployment_handle("wan2gp", "wan2gp")
-
-
 def _is_forge_service(service_name: str) -> bool:
     """Check if a service is managed by the Forge (subprocess GPU services)."""
     return service_name in FORGE_SERVICES
@@ -207,8 +202,8 @@ class APIIngress:
 
         if entry.deployment == "wan2gp":
             body.setdefault("model", _model_name_for(service_key, entry))
-            wan2gp = _get_wan2gp()
-            result = await wan2gp.invoke.remote(body)
+            forge = _get_forge()
+            result = await forge.invoke.remote("wan2gp", body)
             return JSONResponse(result)
 
         handle = serve.get_deployment_handle(entry.deployment, entry.app)
@@ -228,8 +223,8 @@ class APIIngress:
         body = {k: v for k, v in form.items()}
         body.setdefault("model", _model_name_for(service_key, entry))
 
-        wan2gp = _get_wan2gp()
-        result = await wan2gp.invoke.remote(body)
+        forge = _get_forge()
+        result = await forge.invoke.remote("wan2gp", body)
         return JSONResponse(result)
 
     # ── Service discovery ──────────────────────────────────────────────────────
