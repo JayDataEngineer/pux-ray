@@ -153,13 +153,9 @@ class LanceForgeService(ForgeService):
 
             prompt_file = Path(tmpdir) / "prompt.json"
             with open(prompt_file, "w") as f:
-                if task in ("t2i", "t2v"):
-                    json.dump(ex, f)
-                else:
-                    # Interleave format: JSONL with index + data keys
-                    for idx_key, data_val in ex.items():
-                        json.dump({"index": idx_key, "data": data_val}, f)
-                        f.write("\n")
+                for idx_key, data_val in ex.items():
+                    json.dump({"index": idx_key, "data": data_val}, f)
+                    f.write("\n")
 
             script_src, extra = self._resolve_script(native_task)
             if not script_src:
@@ -180,10 +176,11 @@ class LanceForgeService(ForgeService):
 
     def _resolve_script(self, task: str) -> tuple[Path | None, list[str]]:
         if self._awq:
-            s = Path(_LANCE_QUANT) / "scripts/run_quant_eval.py"
+            # Use the patched run_quant_eval.py from /opt/lance (has Lance.to() fix)
+            s = Path(_LANCE_SRC) / "run_quant_eval.py"
             if s.exists():
                 return s, ["--awq_dir", str(self._ap), "--mode", "ondemand"]
-        for p in [Path(_LANCE_QUANT) / "scripts/run_baseline.py", Path(_LANCE_SRC) / "run_baseline.py"]:
+        for p in [Path(_LANCE_SRC) / "run_baseline.py"]:
             if p.exists():
                 return p, []
         return None, []
