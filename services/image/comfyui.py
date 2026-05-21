@@ -33,18 +33,52 @@ class ComfyUIService(ForgeSubprocessMixin, ForgeService):
     PORT = 18465
 
     def load(self, model_name: str, quant: str | None = None) -> None:
-        # Symlink model dirs from mounted /models volume
+        # Symlink model dirs from mounted /models volume.
+        # Directories that only contain pre-downloaded files are symlinked as-is.
+        # Directories where custom nodes may auto-download files at runtime
+        # (RMBG, controlnet, sams, ultralytics) keep writable local dirs with
+        # their pre-downloaded content symlinked inside. This avoids read-only
+        # filesystem errors when nodes try to write model cache/config files.
         subprocess.run(["bash", "-c", """
             set -e
-            mkdir -p /opt/ComfyUI/models
-            for d in checkpoints clip clip_vision controlnet diffusion_models \
-                     loras text_encoders unet upscale_models vae \
-                     latent_upscale_models HY-Motion RMBG sams ultralytics; do
-              target="/models/image-gen/comfyui/$d"
-              link="/opt/ComfyUI/models/$d"
+            MODELS="/opt/ComfyUI/models"
+            SOURCE="/models/image-gen/comfyui"
+            mkdir -p "$MODELS"
+
+            # Fully symlink — read-only, pre-downloaded only
+            for d in checkpoints clip clip_vision diffusion_models loras \
+                     text_encoders unet upscale_models vae latent_upscale_models \
+                     HY-Motion; do
+              target="$SOURCE/$d"
+              link="$MODELS/$d"
               if [ -d "$target" ]; then
                 [ -L "$link" ] || [ -d "$link" ] && rm -rf "$link"
                 ln -s "$target" "$link"
+              fi
+            done
+
+            # Writable dirs — node may auto-download files at runtime
+            for d in controlnet RMBG sams ultralytics; do
+              target="$SOURCE/$d"
+              link="$MODELS/$d"
+              mkdir -p "$link"
+              if [ -d "$target" ]; then
+                # Symlink subdirectories
+                for sub in "$target"/*/; do
+                  [ -d "$sub" ] || continue
+                  subname="$(basename "$sub")"
+                  sublink="$link/$subname"
+                  [ -L "$sublink" ] || [ -e "$sublink" ] && rm -rf "$sublink"
+                  ln -s "$sub" "$sublink" 2>/dev/null || true
+                done
+                # Symlink individual files at root level
+                for f in "$target"/*.{safetensors,pth,pt,bin,onnx}; do
+                  [ -f "$f" ] || continue
+                  fname="$(basename "$f")"
+                  flink="$link/$fname"
+                  [ -L "$flink" ] || [ -f "$flink" ] && rm -f "$flink"
+                  ln -s "$f" "$flink" 2>/dev/null || true
+                done
               fi
             done
         """], check=False)
