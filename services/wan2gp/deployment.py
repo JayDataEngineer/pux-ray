@@ -463,6 +463,11 @@ _WEIGHT_SEARCH = {
     "flux2_dev":     [("wan2gp", "flux2-dev")],
     "flux2_klein_4b": [("wan2gp", "flux2-klein-4b")],
     "flux_chroma":   [("wan2gp", "flux-chroma")],
+    # Lance models
+    "lance-image":     [("lance", "lance-image")],
+    "lance-video":     [("lance", "lance-video")],
+    "lance-image-awq": [("lance", "lance-image-awq")],
+    "lance-video-awq": [("lance", "lance-video-awq")],
 }
 
 
@@ -1199,6 +1204,27 @@ class Wan2GPService:
         if meta and meta.get("hooks"):
             meta["hooks"].on_loaded(pipeline, pipe, base_model_type)
 
+        # ACE-Step 1.5: the FSQ quantizer's forward() accumulates as Python
+        # float (quantized_out = 0.) producing Float32 that crashes against
+        # BF16 project_out weights. Fix: promote tokenizer to float32 and
+        # patch tokenize() to cast input to float32.
+        # Wan2GP only does this for XL; we do it for all variants.
+        if base_model_type in ("ace_step_v1_5", "ace_step_v1_5_xl"):
+            try:
+                transformer = getattr(pipeline, "ace_step_transformer", None)
+                tokenizer = getattr(transformer, "tokenizer", None)
+                if tokenizer is not None:
+                    tokenizer.float()
+                    # Patch tokenize to cast input to float32
+                    _orig_tokenize = transformer.tokenize
+                    def _patched_tokenize(x, silence_latent, attention_mask):
+                        x = x.float()
+                        return _orig_tokenize(x, silence_latent, attention_mask)
+                    transformer.tokenize = _patched_tokenize
+                    logger.info("ACE-Step: promoted tokenizer to float32 + patched tokenize")
+            except Exception as e:
+                logger.warning("ACE-Step: failed to patch tokenizer: %s", e)
+
         self._models[model_name] = {
             "model": pipeline,
             "pipe": pipe,
@@ -1553,6 +1579,10 @@ class Wan2GPService:
         "hy-motion-1.0": "hy_motion",
         "hy-motion-1.0-lite": "hy_motion_lite",
         "pixal3d": "pixal3d",
+        "lance-image": "lance_image",
+        "lance-video": "lance_video",
+        "lance-image-awq": "lance_image",
+        "lance-video-awq": "lance_video",
     }
 
     # model_type → [(output_key, spec_module_key, registry_category, registry_name), ...]

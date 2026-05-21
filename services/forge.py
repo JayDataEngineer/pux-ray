@@ -45,6 +45,8 @@ SERVICE_MAP: dict[str, tuple[str, str]] = {
     "comfyui":   ("services.image.comfyui",          "ComfyUIService"),
     # llama.cpp — subprocess, separate GPU
     "llm":       ("services.llm.deployment",          "LLMService"),
+    # Lance — ByteDance unified multimodal (subprocess, self-managed VRAM)
+    "lance":     ("services.lance.forge_lance",       "LanceForgeService"),
     # Avatar pipeline — GEM + SOMA + FluxRT orchestrator
     "avatar":    ("services.avatar.forge_avatar",     "AvatarForgeService"),
     # Kimodo demo — Viser interactive 3D motion authoring (subprocess)
@@ -191,7 +193,7 @@ class ForgeCore:
     def _do_load(self, name: str, model: str | None = None,
                  quant: str | None = None, payload: dict | None = None) -> None:
         svc = self._get_service(name)
-        target_model = model or (payload.get("model") if payload else None) or svc.default_model
+        target_model = model or (payload.get("model") or payload.get("model_type") if payload else None) or svc.default_model
         estimate = svc.vram_mb
 
         self._loading.add(name)
@@ -446,7 +448,7 @@ class Forge:
             )
 
         payload = {k: v for k, v in body.items() if k != "service"}
-        model = payload.get("model", None)
+        model = payload.get("model") or payload.get("model_type")
         quant = payload.get("quant", None)
         result = await self.invoke(service, payload, model, quant)
         return JSONResponse(result)

@@ -58,7 +58,7 @@ SERVICE_REGISTRY: dict[str, ServiceEntry] = {
     "llm": ServiceEntry(
         deployment="forge", app="forge",
         label="LLM (llama.cpp)", category="llm",
-        needs_gpu=True, default_model="qwen3.6-27b-q4_k_xl",
+        needs_gpu=True, default_model="qwen3.6-27b-q5_k_s-32k",
         output_type="json",
         description="llama.cpp LLM server — OpenAI-compatible chat completions.",
     ),
@@ -177,6 +177,15 @@ SERVICE_REGISTRY: dict[str, ServiceEntry] = {
         output_type="motion",
         description="Kimodo text-to-3D motion (NPZ output, SOMA 77-joint skeleton).",
     ),
+    "lance": ServiceEntry(
+        deployment="wan2gp", app="wan2gp",
+        label="Lance Multimodal", category="creative",
+        needs_gpu=True, default_model="lance/lance-video",
+        output_type="video",
+        model_aliases={"lance-t2v": "lance/lance-video", "lance-t2i": "lance/lance-image"},
+        description="Lance 3B — ByteDance unified multimodal: t2i, t2v, image/video edit, understanding.",
+    ),
+
     "kimodo_demo": ServiceEntry(
         deployment="forge", app="forge",
         label="Kimodo Demo", category="motion",
