@@ -513,24 +513,16 @@ class Wan2GPService:
     service_name = "wan2gp"
     default_model = "wan/t2v"
 
-    # Aliases: old versioned names → discovered keys, heavy → lite variants
+    # Aliases that _resolve_model can't figure out on its own:
+    # - Cross-family names (ace_step lives under tts/, not ace_step/)
+    # - Version downgrades (heavy → lite variants)
     _ALIASES = {
         "wan/t2v-14B": "wan/t2v",
         "wan/i2v-14B": "wan/i2v",
         "hy_motion/hy-motion-1.0": "hy_motion/hy-motion-1.0-lite",
-        # Short names → discovered keys (for API convenience)
         "ace_step": "tts/ace_step_v1_5",
-        "ace_step_v1": "tts/ace_step_v1",
         "index_tts2": "tts/index_tts2",
-        "index_tts": "tts/index_tts2",
-        "chatterbox": "tts/chatterbox",
-        "moss": "moss/moss-soundeffect",
-        "trellis": "trellis/trellis",
-        "anigen": "anigen/anigen",
-        "see_through": "see_through/see-through",
         "see-through": "see_through/see-through",
-        "hy_motion": "hy_motion/hy-motion-1.0-lite",
-        "pixal3d": "pixal3d/pixal3d",
     }
 
     def __init__(self, models_root: Path | None = None):
@@ -687,18 +679,17 @@ class Wan2GPService:
         self._models.clear()
         self._loaded_model = None
 
-        # Clear mmgp shared state caches (wgp.py does this in release_model)
+        # Clear mmgp shared state caches + flush torch caches
+        # (mirrors wgp.py release_model — without flush_torch_caches,
+        # mmgp retains stale meta-device tensor mappings that cause
+        # "Tensor on device cpu is not on the expected device meta!")
         try:
             from mmgp import offload
             if "_cache" in offload.shared_state:
                 del offload.shared_state["_cache"]
+            offload.flush_torch_caches()
         except (ImportError, KeyError):
             pass
-
-        gc.collect()
-        gc.collect()  # second pass to reclaim cyclic refs
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
 
     # ── Inference ─────────────────────────────────────────────────────────
 
@@ -730,6 +721,7 @@ class Wan2GPService:
 
             # Handle image for i2v / image-input models
             base_model_type = info.get("base_model_type", "")
+
             image_b64 = payload.get("image_b64", "")
             if image_b64 and base_model_type in ("i2v", "i2v_2_2"):
                 from PIL import Image
@@ -1820,6 +1812,10 @@ def _build_generate_kwargs(payload: dict, defaults: dict, key_map: dict | None =
 
     if "seed" not in kwargs:
         kwargs["seed"] = -1
+
+    # Wan2GP Gradio defaults — pipelines expect these even when unused
+    kwargs.setdefault("model_mode", 0)
+    kwargs.setdefault("audio_guide", None)
 
     for key in _BLOCKED_KEYS:
         if key in payload:

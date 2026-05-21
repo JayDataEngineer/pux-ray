@@ -42,6 +42,11 @@ spec:
     logs:
       general:
         level: INFO
+    rbac:
+      enabled: true
+      namespaced: false
+    serviceAccount:
+      automountServiceAccountToken: true
     resources:
       requests:
         cpu: 100m
