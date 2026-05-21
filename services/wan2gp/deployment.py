@@ -1653,6 +1653,11 @@ class Wan2GPService:
             base["profiles_dir"] = [base_model_type]
             base["group"] = base_model_type
 
+        # ACE-Step 1.5: use SFT variant (full CFG, 30-50 steps) instead of
+        # turbo (8-step distilled, no CFG). Same weights — only config differs.
+        if base_model_type == "ace_step_v1_5":
+            base["ace_step15_transformer_variant"] = "sft"
+
         return handler.query_model_def(base_model_type, base)
 
     # model_type → (variant_dir_name, default_filename) for transformer weights
