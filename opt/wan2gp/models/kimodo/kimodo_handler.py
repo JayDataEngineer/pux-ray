@@ -34,14 +34,6 @@ HANDLER_META = {
     "output_type": "motion",
 }
 
-# Variant → HF model name mapping
-VARIANTS = {
-    "kimodo-soma-rp": "Kimodo-SOMA-RP-v1.1",
-    "kimodo-soma-seed": "Kimodo-SOMA-SEED-v1.1",
-    "kimodo-g1-rp": "Kimodo-G1-RP-v1",
-    "kimodo-smplx-rp": "Kimodo-SMPLX-RP-v1",
-}
-
 
 class family_handler:
     @staticmethod
