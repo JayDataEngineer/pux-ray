@@ -49,7 +49,7 @@ class AvatarForgeService(ForgeService):
     def __init__(self):
         super().__init__()
         self._fluxrt = FluxRTService()
-        self._wan2gp = None
+        self._wan2gp_svc = None
 
     def load(self, model_name: str, quant: str | None = None) -> None:
         self._loaded = True
@@ -57,23 +57,31 @@ class AvatarForgeService(ForgeService):
 
     def unload(self) -> None:
         self._fluxrt.unload()
-        self._wan2gp = None
+        self._wan2gp_svc = None
         self._loaded = False
         gc.collect()
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
 
     def _get_wan2gp(self):
-        """Lazily get the Wan2GP service reference for Kimodo inference."""
-        if self._wan2gp is not None:
-            return self._wan2gp
+        """Get the Wan2GP ForgeService from the same Forge process.
 
-        from services.wan2gp.deployment import Wan2GPDeployment
-        # The Wan2GP service is a Ray Serve deployment — get its handle
-        import ray
-        handle = ray.serve.get_deployment("wan2gp").get_handle()
-        self._wan2gp = handle
-        return handle
+        Both avatar and wan2gp are registered in the Forge's SERVICE_MAP
+        and run in the same Ray Serve replica. The forge_core reference
+        is injected during service registration.
+        """
+        if self._wan2gp_svc is not None:
+            return self._wan2gp_svc
+
+        core = self._forge_core
+        if core is None:
+            raise RuntimeError("ForgeCore not injected — service not registered via Forge")
+
+        wan2gp = core._get_service("wan2gp")
+        if not core._loaded.get("wan2gp"):
+            core._do_load("wan2gp", model="kimodo-soma-rp")
+        self._wan2gp_svc = wan2gp
+        return wan2gp
 
     def _call_kimodo(self, text: str, duration_s: float, emotion: str,
                       denoising_steps: int, model: str) -> dict:
@@ -84,7 +92,6 @@ class AvatarForgeService(ForgeService):
 
         num_frames = int(duration_s * KIMODO_FPS)
 
-        # Call Wan2GP service which routes to the kimodo handler
         payload = {
             "model": model,
             "prompts": prompt,
@@ -93,9 +100,8 @@ class AvatarForgeService(ForgeService):
             "post_processing": True,
         }
 
-        handle = self._get_wan2gp()
-        result = ray.get(handle.infer.remote(payload))
-        return result
+        wan2gp = self._get_wan2gp()
+        return wan2gp.infer(payload)
 
     def infer(self, payload: dict) -> dict:
         """Run the full avatar pipeline.

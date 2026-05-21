@@ -101,6 +101,7 @@ class ForgeCore:
         mod = importlib.import_module(module_path)
         cls = getattr(mod, class_name)
         svc = cls()
+        svc._forge_core = self
         self._services[name] = svc
         self._loaded[name] = False
         logger.info("Forge: registered %s (%s, vram=%dMB)", name, cls.__name__, svc.vram_mb)

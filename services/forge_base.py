@@ -36,6 +36,7 @@ class ForgeService:
     def __init__(self):
         self._loaded: bool = False
         self.model_name: Optional[str] = None
+        self._forge_core: Any = None  # Set by ForgeCore during registration
 
     def load(self, model_name: str, quant: str | None = None) -> None:
         """Load model into VRAM. Blocking — Forge runs this in a thread."""
