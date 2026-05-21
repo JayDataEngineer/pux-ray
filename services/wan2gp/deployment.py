@@ -44,6 +44,7 @@ MMGP_PROFILES = {
 
 _KEY_MAP = {
     "prompt": "input_prompt",
+    "input": "input_prompt",
     "negative_prompt": "n_prompt",
     "steps": "sampling_steps",
     "guidance": "guide_scale",
