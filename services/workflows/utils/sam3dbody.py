@@ -1,14 +1,16 @@
 """SAM3DBody 3D pose extraction from 2D images.
 
-Uses SAM3DBody (DINOv3 backbone + MHR decoder) to extract joint rotations,
-body shape, and 3D keypoints from a single image. Outputs rotation dicts
-compatible with Anny body mesh renderer.
+Uses SAM3DBody (DINOv3 backbone + MHR decoder) to extract 3D pose,
+body shape, and mesh vertices from a single image. Returns raw MHR
+output for consumption by SOMA's pose inversion pipeline.
 
 Usage:
     from services.workflows.utils.sam3dbody import extract_pose_3d
 
-    rotations = extract_pose_3d(image_b64)
-    # rotations is a dict like {"right_shoulder": [x, y, z], ...}
+    result = extract_pose_3d(image_b64)
+    # result["pred_vertices"] — MHR mesh (18439 verts)
+    # result["pred_global_rots"] — axis-angle rotations per joint
+    # result["pred_body_pose"] — shape parameters
 """
 import os
 import sys
@@ -23,46 +25,6 @@ _COMFYUI_ROOT = Path(os.environ.get(
     str(Path(__file__).resolve().parent.parent.parent.parent.parent / "infra" / "repos" / "ComfyUI"),
 ))
 _SAM3D_NODE = _COMFYUI_ROOT / "custom_nodes" / "ComfyUI-SAM3DBody_utills"
-
-# ── Anny joint mapping (from body_mesh.py) ────────────────────────────
-# Maps human-readable names to Anny bone indices (subset used by renderer)
-
-_ANNY_JOINTS = {
-    "spine": 44, "spine01": 44, "spine02": 44, "spine03": 47,
-    "pelvis": 0, "neck": 102, "head": 103,
-    "right_shoulder": 51, "right_upper_arm": 51,
-    "right_forearm": 52, "right_hand": 53,
-    "left_shoulder": 57, "left_upper_arm": 57,
-    "left_forearm": 58, "left_hand": 59,
-    "right_thigh": 10, "right_leg": 12, "right_foot": 14,
-    "left_thigh": 6, "left_leg": 8, "left_foot": 9,
-}
-
-# MHR outputs ~70 joints. Map MHR joint indices to Anny joint names.
-# Based on mhr70.py metadata in SAM3DBody.
-_MHR_TO_ANNY = {
-    0: "pelvis",
-    1: "spine",
-    2: "spine01",
-    3: "spine02",
-    4: "spine03",
-    5: "neck",
-    6: "head",
-    7: "left_shoulder",
-    8: "left_upper_arm",
-    9: "left_forearm",
-    10: "left_hand",
-    11: "right_shoulder",
-    12: "right_upper_arm",
-    13: "right_forearm",
-    14: "right_hand",
-    15: "left_thigh",
-    16: "left_leg",
-    17: "left_foot",
-    18: "right_thigh",
-    19: "right_leg",
-    20: "right_foot",
-}
 
 _estimator = None
 
@@ -102,45 +64,21 @@ def _get_estimator():
     return _estimator
 
 
-def _global_rots_to_anny(output: dict) -> dict[str, list[float]]:
-    """Convert MHR global rotations to Anny-compatible rotation dict.
-
-    MHR outputs rotations as axis-angle vectors per joint.
-    Convert to degree tuples for the Anny renderer.
-    """
-    global_rots = output.get("pred_global_rots")
-    if global_rots is None:
-        raise ValueError("SAM3DBody output missing pred_global_rots")
-
-    rotations = {}
-    for mhr_idx, anny_name in _MHR_TO_ANNY.items():
-        if mhr_idx < len(global_rots):
-            rot = global_rots[mhr_idx]  # axis-angle [3]
-            # Convert axis-angle to degrees
-            angle = np.linalg.norm(rot)
-            if angle > 1e-6:
-                axis = rot / angle
-                # Simplified: just use the raw rotation components as euler-ish degrees
-                degrees = np.degrees(rot).tolist()
-            else:
-                degrees = [0.0, 0.0, 0.0]
-            rotations[anny_name] = [round(d, 2) for d in degrees]
-
-    return rotations
-
-
-def extract_pose_3d(image_b64: str) -> dict[str, list[float]]:
+def extract_pose_3d(image_b64: str) -> dict:
     """Extract 3D pose from a base64-encoded image via SAM3DBody.
 
     Args:
         image_b64: Base64-encoded source image.
 
     Returns:
-        Rotation dict compatible with Anny body mesh renderer,
-        e.g. {"right_shoulder": [0, 0, 45], "left_elbow": [0, -30, 0], ...}
+        Raw MHR output dict from SAM3DBody with keys:
+          - pred_vertices: (V, 3) numpy array — MHR mesh vertices
+          - pred_global_rots: (J, 3) numpy array — axis-angle rotations
+          - pred_body_pose: shape parameters
+          - pred keypoints: 3D joint positions
+          - faces: face indices (if available from estimator config)
     """
     import base64
-    import io
     import cv2
 
     img_bytes = base64.b64decode(image_b64)
@@ -156,5 +94,11 @@ def extract_pose_3d(image_b64: str) -> dict[str, list[float]]:
     if not results:
         raise ValueError("SAM3DBody detected no human in the image")
 
-    # Use first detected person
-    return _global_rots_to_anny(results[0])
+    raw = results[0]
+    out = {}
+    for key in ("pred_vertices", "pred_global_rots", "pred_body_pose",
+                "pred_keypoints_3d", "pred_cam"):
+        if key in raw:
+            val = raw[key]
+            out[key] = val.cpu().numpy() if hasattr(val, "cpu") else np.asarray(val)
+    return out
