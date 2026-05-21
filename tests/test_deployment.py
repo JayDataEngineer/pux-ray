@@ -19,9 +19,9 @@ import pytest
 class TestCustomHandlersList:
 
     @pytest.mark.unit
-    def test_all_6_handlers_registered(self):
+    def test_all_11_handlers_registered(self):
         from services.wan2gp.deployment import CUSTOM_HANDLERS
-        assert len(CUSTOM_HANDLERS) == 6
+        assert len(CUSTOM_HANDLERS) == 11
 
     @pytest.mark.unit
     def test_no_duplicate_handlers(self):

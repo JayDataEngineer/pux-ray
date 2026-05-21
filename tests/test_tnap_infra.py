@@ -76,13 +76,13 @@ class TestServiceRegistry:
 
     def test_categories_valid(self):
         from services.registry import SERVICE_REGISTRY
-        valid = {"tts", "asr", "audio", "creative", "llm", "image"}
+        valid = {"tts", "asr", "audio", "creative", "llm", "image", "3d", "motion", "avatar"}
         for name, entry in SERVICE_REGISTRY.items():
             assert entry.category in valid, f"{name}: bad category '{entry.category}'"
 
     def test_output_types_valid(self):
         from services.registry import SERVICE_REGISTRY
-        valid = {"audio", "json", "model_3d", "image", "proxy", "video"}
+        valid = {"audio", "json", "model_3d", "image", "proxy", "video", "motion"}
         for name, entry in SERVICE_REGISTRY.items():
             assert entry.output_type in valid, f"{name}: bad output_type '{entry.output_type}'"
 
