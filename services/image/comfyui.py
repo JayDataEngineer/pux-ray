@@ -57,25 +57,24 @@ class ComfyUIService(ForgeSubprocessMixin, ForgeService):
               fi
             done
 
-            # Writable dirs — node may auto-download files at runtime
+            # Writable dirs — node may auto-download files at runtime.
+            # Subdirectories are NOT symlinked — each is created as a real
+            # writable dir with individual model files symlinked inside.
+            # This allows custom nodes to write cache/config files (.cache,
+            # config.json, etc.) inside the subdirectory.
             for d in controlnet RMBG sams ultralytics; do
               target="$SOURCE/$d"
               link="$MODELS/$d"
               mkdir -p "$link"
               if [ -d "$target" ]; then
-                # Symlink subdirectories
-                for sub in "$target"/*/; do
-                  [ -d "$sub" ] || continue
-                  subname="$(basename "$sub")"
-                  sublink="$link/$subname"
-                  [ -L "$sublink" ] || [ -e "$sublink" ] && rm -rf "$sublink"
-                  ln -s "$sub" "$sublink" 2>/dev/null || true
-                done
-                # Symlink individual files at root level
-                for f in "$target"/*.{safetensors,pth,pt,bin,onnx}; do
-                  [ -f "$f" ] || continue
-                  fname="$(basename "$f")"
-                  flink="$link/$fname"
+                # Walk all files recursively, recreate dir structure as real dirs
+                find "$target" -type f \( -name '*.safetensors' -o -name '*.pth' \
+                  -o -name '*.pt' -o -name '*.bin' -o -name '*.onnx' \) | while read -r f; do
+                  rel="${f#$target/}"
+                  parent="$(dirname "$rel")"
+                  destdir="$link/$parent"
+                  mkdir -p "$destdir"
+                  flink="$destdir/$(basename "$f")"
                   [ -L "$flink" ] || [ -f "$flink" ] && rm -f "$flink"
                   ln -s "$f" "$flink" 2>/dev/null || true
                 done
