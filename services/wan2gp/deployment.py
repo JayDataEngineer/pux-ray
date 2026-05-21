@@ -770,9 +770,14 @@ class Wan2GPService:
             if not getattr(model, "_interrupt", False):
                 model._interrupt = False
 
-            # WanAny2V.generate() has an offloadobj=None parameter that's
-            # called as offloadobj.unload_all() — provide a dummy no-op.
-            kwargs.setdefault("offloadobj", _DEFAULT_OFFLOADOBJ)
+            # Wan2GP pipelines call offloadobj.unload_all() during generate()
+            # to swap modules between GPU/CPU. Pass the real mmgp offloadobj
+            # that was created during _apply_mmgp_profile(). Fall back to
+            # dummy only if mmgp isn't managing this model.
+            if self._offload is not None:
+                kwargs.setdefault("offloadobj", self._offload)
+            else:
+                kwargs.setdefault("offloadobj", _DEFAULT_OFFLOADOBJ)
 
             # mmgp shared_state needs _attention key for Wan models
             from mmgp import offload as _moff
