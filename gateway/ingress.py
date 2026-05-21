@@ -293,6 +293,12 @@ class APIIngress:
 
     async def comfyui_proxy(self, request: Request) -> Response:
         """Route to ComfyUI via Forge — auto-loads on first request."""
+        # Redirect /comfyui → /comfyui/ so relative asset paths resolve correctly
+        path = request.url.path
+        if path == "/comfyui" and request.method == "GET":
+            from starlette.responses import RedirectResponse
+            return RedirectResponse(url="/comfyui/", status_code=307)
+
         forge = _get_forge()
         # Use raw path to preserve URL-encoded characters (e.g. %2F for
         # ComfyUI userdata API paths). Starlette decodes request.url.path,

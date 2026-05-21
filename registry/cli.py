@@ -232,9 +232,18 @@ def cmd_models_pull(args):
                 continue
 
             if target:
-                normalized = target.replace(".", "/", 1)
-                if f"{category}/{name}" != normalized and name != target:
-                    continue
+                if target in registry.data:
+                    if category != target:
+                        continue
+                else:
+                    full_name = f"{category}/{name}"
+                    normalized = target.replace(".", "/", 1)
+                    if (
+                        full_name != target
+                        and full_name != normalized
+                        and name != target
+                    ):
+                        continue
 
             # Check download mode
             download_mode = meta.get("download", "")
@@ -346,8 +355,19 @@ def cmd_models_pull(args):
             try:
                 from huggingface_hub import hf_hub_download, snapshot_download
 
-                # Determine download method
-                if download_mode == "file" or filename:
+                # Determine download method.
+                # Check explicit download_mode first — "snapshot" should always
+                # snapshot even if source has 3+ segments (e.g. hy-motion with
+                # hf://org/repo/subfolder).
+                if download_mode == "snapshot" or (not filename and download_mode != "file"):
+                    # Entire repo snapshot
+                    model_path.mkdir(parents=True, exist_ok=True)
+                    snapshot_download(
+                        repo_id=repo_id,
+                        local_dir=str(model_path),
+                    )
+                    print(f"       -> {model_path}/")
+                else:
                     # Single file download.
                     # hf_hub_download creates {local_dir}/{filename} — if filename
                     # contains subdirectories (e.g. split_files/vae/ae.safetensors),
@@ -364,14 +384,6 @@ def cmd_models_pull(args):
                         )
                         shutil.move(tmp_downloaded, str(model_path))
                     print(f"       -> {model_path}")
-                else:
-                    # Entire repo snapshot
-                    model_path.mkdir(parents=True, exist_ok=True)
-                    snapshot_download(
-                        repo_id=repo_id,
-                        local_dir=str(model_path),
-                    )
-                    print(f"       -> {model_path}/")
 
                 pulled += 1
 

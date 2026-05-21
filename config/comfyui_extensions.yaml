@@ -11,6 +11,12 @@
 #   ref:        (optional) pin to a specific commit/tag (e.g. "4c5add5")
 #   pip:        (optional) pip packages to install in ComfyUI venv
 extensions:
+  # ── Manager — node install/update/reset from UI ────────
+  - name: ComfyUI-Manager
+    url: https://github.com/ltdrdata/ComfyUI-Manager.git
+    desc: ComfyUI Manager — install/update/reset nodes, restart, settings
+    required: true
+
   # ── Core / Required ────────────────────────────────────
   - name: comfyui_controlnet_aux
     url: https://github.com/Fannovel16/comfyui_controlnet_aux
@@ -135,7 +141,7 @@ extensions:
     required: true
 
   - name: ComfyUI-SeedVR2_VideoUpscaler
-    url: https://github.com/Night1099/ComfyUI-SeedVR2_VideoUpscaler.git
+    url: https://github.com/numz/ComfyUI-SeedVR2_VideoUpscaler.git
     desc: SeedVR2 upscaler nodes (required by VNCCS sheet workflow)
     required: true
     pip:
