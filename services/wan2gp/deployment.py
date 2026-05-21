@@ -641,7 +641,9 @@ class Wan2GPService:
             self._load_model(model_name, entry, quant=quant)
         except Exception as e:
             logger.error("Failed to load model %s: %s", model_name, e)
-            self._models.pop(model_name, None)
+            # Clean up partial load — mmgp may have allocated GPU memory
+            # that won't be freed if we just pop the model entry.
+            self.unload()
             raise RuntimeError(f"Failed to load model '{model_name}': {e}") from e
         self._loaded_model = model_name
 
@@ -649,6 +651,8 @@ class Wan2GPService:
         logger.info("Wan2GP: loaded %s (VRAM=%.0fMB)", model_name, vram)
 
     def unload(self) -> None:
+        import gc as _gc
+
         # Release mmgp offloadobj — this is the critical step that unpins
         # all tensors from mmgp's internal tracking. Without this, mmgp
         # holds references to model weights even after we delete them.
@@ -688,9 +692,7 @@ class Wan2GPService:
         self._loaded_model = None
 
         # Clear mmgp shared state caches + flush torch caches
-        # (mirrors wgp.py release_model — without flush_torch_caches,
-        # mmgp retains stale meta-device tensor mappings that cause
-        # "Tensor on device cpu is not on the expected device meta!")
+        # (mirrors wgp.py release_model exactly)
         try:
             from mmgp import offload
             if "_cache" in offload.shared_state:
@@ -698,6 +700,13 @@ class Wan2GPService:
             offload.flush_torch_caches()
         except (ImportError, KeyError):
             pass
+
+        # Force Python GC to reclaim unreferenced tensors, then free
+        # CUDA cached blocks. Without gc.collect(), Python may hold
+        # references in cyclic garbage that prevents CUDA memory release.
+        _gc.collect()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
 
     # ── Inference ─────────────────────────────────────────────────────────
 
@@ -829,13 +838,15 @@ class Wan2GPService:
             if meta and meta.get("hooks"):
                 kwargs = meta["hooks"].before_generate(model, kwargs)
 
-            # Generate with optional bf16 autocast
-            needs_bf16 = meta and getattr(meta.get("hooks"), "needs_bf16_autocast", False)
-            if needs_bf16:
+            # bf16 autocast wraps model.generate() to handle mixed float32/bfloat16
+            # ops (FSQ quantizer, attention layers). Default: ON.
+            # Handlers can opt out by setting needs_bf16_autocast = False.
+            skip_autocast = meta and getattr(meta.get("hooks"), "needs_bf16_autocast", True) is False
+            if skip_autocast:
+                result = model.generate(**kwargs)
+            else:
                 with torch.amp.autocast("cuda", dtype=torch.bfloat16):
                     result = model.generate(**kwargs)
-            else:
-                result = model.generate(**kwargs)
 
             # If pipeline returns our custom format (status + data), pass through
             if isinstance(result, dict) and "status" in result:
@@ -1204,26 +1215,18 @@ class Wan2GPService:
         if meta and meta.get("hooks"):
             meta["hooks"].on_loaded(pipeline, pipe, base_model_type)
 
-        # ACE-Step 1.5: the FSQ quantizer's forward() accumulates as Python
-        # float (quantized_out = 0.) producing Float32 that crashes against
-        # BF16 project_out weights. Fix: promote tokenizer to float32 and
-        # patch tokenize() to cast input to float32.
-        # Wan2GP only does this for XL; we do it for all variants.
+        # ACE-Step 1.5: the FSQ quantizer produces Float32 that crashes
+        # against BF16 project_out. Autocast in infer() handles this, but
+        # we also promote the tokenizer to float32 for consistency (matches
+        # Wan2GP's _promote_xl_quantizer_to_fp32_before_mmgp behavior).
         if base_model_type in ("ace_step_v1_5", "ace_step_v1_5_xl"):
             try:
-                transformer = getattr(pipeline, "ace_step_transformer", None)
-                tokenizer = getattr(transformer, "tokenizer", None)
+                tokenizer = getattr(getattr(pipeline, "ace_step_transformer", None), "tokenizer", None)
                 if tokenizer is not None:
                     tokenizer.float()
-                    # Patch tokenize to cast input to float32
-                    _orig_tokenize = transformer.tokenize
-                    def _patched_tokenize(x, silence_latent, attention_mask):
-                        x = x.float()
-                        return _orig_tokenize(x, silence_latent, attention_mask)
-                    transformer.tokenize = _patched_tokenize
-                    logger.info("ACE-Step: promoted tokenizer to float32 + patched tokenize")
+                    logger.info("ACE-Step: promoted tokenizer to float32")
             except Exception as e:
-                logger.warning("ACE-Step: failed to patch tokenizer: %s", e)
+                logger.warning("ACE-Step: failed to promote tokenizer: %s", e)
 
         self._models[model_name] = {
             "model": pipeline,
@@ -1763,10 +1766,50 @@ class Wan2GPService:
             frames_tensor = output
             audio = None
 
+        # Detect audio output: "audio" key explicitly, or "x" tensor with audio-like shape
+        # (batch, channels, samples) where samples >> channels — e.g. (1, 2, 960000)
+        is_audio = False
+        if audio is not None:
+            is_audio = True
+        elif frames_tensor is not None and isinstance(frames_tensor, torch.Tensor):
+            if frames_tensor.ndim == 3 and frames_tensor.shape[0] <= 2 and frames_tensor.shape[1] <= 2 and frames_tensor.shape[2] > 1000:
+                audio = frames_tensor
+                frames_tensor = None
+                is_audio = True
+            elif frames_tensor.ndim == 2 and frames_tensor.shape[0] <= 2 and frames_tensor.shape[1] > 1000:
+                audio = frames_tensor
+                frames_tensor = None
+                is_audio = True
+
+        # Audio-first: if the model returned audio, that's the primary output
+        if audio is not None:
+            audio_np = audio.cpu().float().numpy() if isinstance(audio, torch.Tensor) else audio
+            # Ensure shape is (channels, samples) then transpose to (samples, channels) for soundfile
+            if audio_np.ndim == 3:
+                audio_np = audio_np.squeeze(0)  # remove batch dim
+            if audio_np.ndim == 1:
+                audio_np = audio_np[np.newaxis, :]  # (1, samples) → mono
+            sr = int(payload.get("sample_rate",
+                        output.get("audio_sampling_rate",
+                        defaults.get("sample_rate", 24000))) if isinstance(output, dict)
+                        else defaults.get("sample_rate", 24000))
+            import soundfile as sf
+            import io as audio_io
+            audio_buf = audio_io.BytesIO()
+            sf.write(audio_buf, audio_np.T, sr, format="WAV")
+            return {
+                "status": "ok",
+                "data": base64.b64encode(audio_buf.getvalue()).decode(),
+                "media_type": "audio/wav",
+            }
+
         if frames_tensor is None:
             raise RuntimeError("Model returned no output")
 
-        frames_np = frames_tensor.cpu().numpy() if isinstance(frames_tensor, torch.Tensor) else frames_tensor
+        if isinstance(frames_tensor, torch.Tensor):
+            frames_np = frames_tensor.cpu().float().numpy()
+        else:
+            frames_np = frames_tensor
         msg = f"encode_input: shape={frames_np.shape} dtype={frames_np.dtype} min={frames_np.min():.2f} max={frames_np.max():.2f}"
         logger.info("Wan2GP: %s", msg)
         print(f"[Wan2GP] {msg}", flush=True)
@@ -1808,21 +1851,11 @@ class Wan2GPService:
             data_bytes = f.read()
         os.unlink(tmp_path)
 
-        result = {
+        return {
             "status": "ok",
             "data": base64.b64encode(data_bytes).decode(),
             "media_type": "video/mp4" if frames_np.ndim == 4 and frames_np.shape[0] > 1 else "image/png",
         }
-
-        if audio is not None:
-            audio_np = audio.cpu().numpy() if isinstance(audio, torch.Tensor) else audio
-            import soundfile as sf
-            import io as audio_io
-            audio_buf = audio_io.BytesIO()
-            sf.write(audio_buf, audio_np, 24000, format="WAV")
-            result["audio_b64"] = base64.b64encode(audio_buf.getvalue()).decode()
-
-        return result
 
 
 # ─── Payload Passthrough Helpers ───────────────────────────────────────────────
