@@ -43,8 +43,10 @@ MMGP_PROFILES = {
 # ─── Payload Passthrough — Security Allowlist ─────────────────────────────────
 
 _KEY_MAP = {
+    # Universal text input: any of these → input_prompt (and aliased to 'text' below)
     "prompt": "input_prompt",
     "input": "input_prompt",
+    "text": "input_prompt",
     "negative_prompt": "n_prompt",
     "steps": "sampling_steps",
     "guidance": "guide_scale",
@@ -86,6 +88,7 @@ _SAFE_PASSTHROUGH = {
     "text", "voice", "audio_b64", "image_b64",
     "image", "resolution", "steps", "ss_steps", "slat_steps",
     "input_prompt", "max_tokens", "reference", "tokens",
+    "prompts", "num_frames", "num_denoising_steps", "post_processing",
 }
 
 _BLOCKED_KEYS = {
@@ -515,6 +518,19 @@ class Wan2GPService:
         "wan/t2v-14B": "wan/t2v",
         "wan/i2v-14B": "wan/i2v",
         "hy_motion/hy-motion-1.0": "hy_motion/hy-motion-1.0-lite",
+        # Short names → discovered keys (for API convenience)
+        "ace_step": "tts/ace_step_v1_5",
+        "ace_step_v1": "tts/ace_step_v1",
+        "index_tts2": "tts/index_tts2",
+        "index_tts": "tts/index_tts2",
+        "chatterbox": "tts/chatterbox",
+        "moss": "moss/moss-soundeffect",
+        "trellis": "trellis/trellis",
+        "anigen": "anigen/anigen",
+        "see_through": "see_through/see-through",
+        "see-through": "see_through/see-through",
+        "hy_motion": "hy_motion/hy-motion-1.0-lite",
+        "pixal3d": "pixal3d/pixal3d",
     }
 
     def __init__(self, models_root: Path | None = None):
@@ -687,7 +703,7 @@ class Wan2GPService:
     # ── Inference ─────────────────────────────────────────────────────────
 
     def infer(self, payload: dict) -> dict:
-        model_key = payload.get("model", self._loaded_model or self.default_model)
+        model_key = payload.get("model") or payload.get("model_type") or self._loaded_model or self.default_model
 
         if model_key != self._loaded_model:
             try:
@@ -1797,6 +1813,10 @@ def _build_generate_kwargs(payload: dict, defaults: dict, key_map: dict | None =
     for k in defaults:
         if k in payload:
             kwargs[k] = payload[k]
+
+    # Alias input_prompt → text for handlers that use 'text' parameter
+    if "input_prompt" in kwargs and "text" not in kwargs:
+        kwargs["text"] = kwargs["input_prompt"]
 
     if "seed" not in kwargs:
         kwargs["seed"] = -1
