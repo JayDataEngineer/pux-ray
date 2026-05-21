@@ -29,11 +29,16 @@ spec:
               memory: 256Mi
             requests:
               memory: 128Mi
-          livenessProbe:
+          readinessProbe:
             exec:
               command: ["redis-cli", "ping"]
             initialDelaySeconds: 5
             periodSeconds: 10
+          livenessProbe:
+            exec:
+              command: ["redis-cli", "ping"]
+            initialDelaySeconds: 5
+            periodSeconds: 15
 ---
 apiVersion: v1
 kind: Service
@@ -130,12 +135,22 @@ spec:
               memory: 512Mi
             requests:
               memory: 256Mi
-          livenessProbe:
+          readinessProbe:
             httpGet:
               path: /healthz
               port: 8080
             initialDelaySeconds: 15
-            periodSeconds: 15
+            periodSeconds: 10
+            timeoutSeconds: 10
+            failureThreshold: 6
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            timeoutSeconds: 10
+            failureThreshold: 3
           volumeMounts:
             - name: config
               mountPath: /etc/searxng
