@@ -20,10 +20,10 @@ import numpy as np
 import torch
 from PIL import Image
 
-from models.base_handler import BaseFamilyHandler, _make_handler_cls
+from models.base_handler import BaseFamilyHandler, HandlerHooks, _make_handler_cls
 
 
-class _SeeThroughHooks:
+class _SeeThroughHooks(HandlerHooks):
     needs_bf16_autocast = True
     needs_device_patch = True
 

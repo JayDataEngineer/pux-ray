@@ -13,6 +13,8 @@ Pattern follows Wan2GP's qwen3_handler.py and index_tts2_handler.py:
   - Raw family_handler with static methods (no base class needed)
 """
 import importlib.util
+
+from models.base_handler import HandlerHooks
 import io
 import logging
 import types
@@ -277,7 +279,7 @@ def _load_delay_modules(model_path):
 # ---------------------------------------------------------------------------
 
 
-class _MossHooks:
+class _MossHooks(HandlerHooks):
     needs_bf16_autocast = False
     needs_device_patch = False
 

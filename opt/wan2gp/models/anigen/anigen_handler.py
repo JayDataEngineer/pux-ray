@@ -79,10 +79,10 @@ def _isolated_import(dominant_path, hidden_prefixes=("models",)):
         sys.modules.update(saved_modules)
 
 
-from models.base_handler import BaseFamilyHandler, _make_handler_cls, audio_response
+from models.base_handler import BaseFamilyHandler, HandlerHooks, _make_handler_cls, audio_response
 
 
-class _AnigenHooks:
+class _AnigenHooks(HandlerHooks):
     needs_bf16_autocast = True
     needs_device_patch = True
 

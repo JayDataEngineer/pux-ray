@@ -20,10 +20,10 @@ from pathlib import Path
 import torch
 import yaml
 
-from models.base_handler import BaseFamilyHandler, _make_handler_cls
+from models.base_handler import BaseFamilyHandler, HandlerHooks, _make_handler_cls
 
 
-class _HyMotionHooks:
+class _HyMotionHooks(HandlerHooks):
     needs_bf16_autocast = True
     needs_device_patch = True
 

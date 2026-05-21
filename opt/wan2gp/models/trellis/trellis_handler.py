@@ -32,6 +32,8 @@ from pathlib import Path
 
 import torch
 
+from models.base_handler import HandlerHooks
+
 logger = logging.getLogger(__name__)
 
 
@@ -40,7 +42,7 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 
-class _TrellisHooks:
+class _TrellisHooks(HandlerHooks):
     needs_bf16_autocast = True
     needs_device_patch = False
 

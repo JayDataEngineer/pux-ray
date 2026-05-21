@@ -3,13 +3,14 @@ import re
 
 import torch
 
+from models.base_handler import HandlerHooks
 from shared.mps import mps_device_or
 from shared.utils import files_locator as fl
 
 from .prompt_enhancers import TTS_MONOLOGUE_PROMPT, TTS_QWEN3_DIALOGUE_PROMPT
 
 
-class _IndexTTS2Hooks:
+class _IndexTTS2Hooks(HandlerHooks):
     needs_bf16_autocast = False
     needs_device_patch = False
 
