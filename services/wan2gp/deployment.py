@@ -369,7 +369,6 @@ CUSTOM_HANDLERS = [
     "models.faster_whisper.faster_whisper_handler",
     "models.faster_qwen3_tts.faster_qwen3_tts_handler",
     "models.vibevoice_asr.vibevoice_asr_handler",
-    "models.vibevoice_tts.vibevoice_tts_handler",
     "models.anigen.anigen_handler",
     "models.see_through.see_through_handler",
     "models.hy_motion.hy_motion_handler",
@@ -444,7 +443,6 @@ _WEIGHT_SEARCH = {
     "hy-motion-1.0": [("motion", "hy-motion-1.0")],
     "hy-motion-1.0-lite": [("motion", "hy-motion-1.0-lite")],
     "vibevoice-asr": [("asr", "vibevoice-asr")],
-    "vibevoice-tts": [("tts", "vibevoice-tts")],
     # Wan2GP vendor models — registry keys use versioned names
     "t2v":           [("wan2gp", "wan-t2v-14B")],
     "i2v":           [("wan2gp", "wan-i2v-14B")],
@@ -1576,7 +1574,6 @@ class Wan2GPService:
         "kokoro": "kokoro",
         "faster_whisper": "faster_whisper",
         "vibevoice-asr": "vibevoice_asr",
-        "vibevoice-tts": "vibevoice_tts",
         "anigen": "anigen",
         "see-through": "see_through",
         "hy-motion-1.0": "hy_motion",
@@ -1609,7 +1606,6 @@ class Wan2GPService:
         "kokoro": [("kokoro_path", "model", "tts", "kokoro")],
         "faster_whisper": [("faster_whisper_path", "model", "asr", "faster-whisper")],
         "vibevoice-asr": [("vibevoice_asr_path", "language_model", "asr", "vibevoice-asr")],
-        "vibevoice-tts": [("vibevoice_tts_path", "language_model", "tts", "vibevoice-tts")],
         "anigen": [("anigen_path", "pipeline_root", "3d", "anigen")],
         "faster-qwen3-tts": [("faster_qwen3_tts_path", None, "tts", "qwen3-tts")],
     }

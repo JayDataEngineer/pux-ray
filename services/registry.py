@@ -117,13 +117,6 @@ SERVICE_REGISTRY: dict[str, ServiceEntry] = {
         output_type="json",
         description="VibeVoice ASR — speech recognition with diarization.",
     ),
-    "vibevoice_tts": ServiceEntry(
-        deployment="wan2gp", app="wan2gp",
-        label="VibeVoice TTS", category="tts",
-        needs_gpu=True, default_model="vibevoice_tts",
-        output_type="audio",
-        description="VibeVoice TTS — multi-speaker text-to-speech.",
-    ),
 
     # ── Additional Wan2GP services (previously missing from registry) ──────────
     "trellis": ServiceEntry(

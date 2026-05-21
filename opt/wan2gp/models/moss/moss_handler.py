@@ -284,14 +284,21 @@ class _MossHooks(HandlerHooks):
     needs_device_patch = False
 
     def before_generate(self, pipeline, kwargs):
-        # MossTTSDelayModel inherits from PreTrainedModel whose device
-        # property returns the parameter device (CPU — mmgp keeps weights
-        # there). transformers generate() calls input_ids.to(self.device)
-        # which would move inputs to CPU, but mmgp swaps modules to GPU
-        # for forward → mismatch.
-        _inner = getattr(pipeline, "model", None)
-        if _inner is not None:
-            type(_inner).device = property(lambda self: torch.device("cuda:0"))
+        # Moss models inherit from PreTrainedModel whose device property
+        # returns the parameter device (CPU — mmgp keeps weights there).
+        # transformers generate() calls input_ids.to(self.device) which
+        # moves inputs to CPU, but mmgp swaps modules to GPU for forward
+        # → mismatch. Patch ALL sub-objects with a .device property.
+        _cuda = torch.device("cuda:0")
+        for attr_name in list(dir(pipeline)):
+            if attr_name.startswith("_"):
+                continue
+            try:
+                obj = getattr(pipeline, attr_name, None)
+                if obj is not None and hasattr(type(obj), "device"):
+                    type(obj).device = property(lambda self: _cuda)
+            except Exception:
+                pass
         return kwargs
 
 
