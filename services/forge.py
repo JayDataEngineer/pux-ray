@@ -189,9 +189,9 @@ class ForgeCore:
                     )
 
     def _do_load(self, name: str, model: str | None = None,
-                 quant: str | None = None) -> None:
+                 quant: str | None = None, payload: dict | None = None) -> None:
         svc = self._get_service(name)
-        target_model = model or svc.default_model
+        target_model = model or (payload.get("model") if payload else None) or svc.default_model
         estimate = svc.vram_mb
 
         self._loading.add(name)
@@ -249,11 +249,11 @@ class ForgeCore:
     # ── Public API ────────────────────────────────────────────────────────────
 
     async def _load_with_cleanup(self, service: str, model: str | None = None,
-                                  quant: str | None = None) -> None:
+                                  quant: str | None = None, payload: dict | None = None) -> None:
         """Load service with timeout. Cleans up VRAM on failure or timeout."""
         try:
             await asyncio.wait_for(
-                asyncio.to_thread(self._do_load, service, model, quant),
+                asyncio.to_thread(self._do_load, service, model, quant, payload),
                 timeout=600,
             )
         except Exception:
@@ -273,7 +273,7 @@ class ForgeCore:
         if not self._can_fit(service):
             self._evict_for(service)
 
-        await self._load_with_cleanup(service, model, quant)
+        await self._load_with_cleanup(service, model, quant, payload)
 
         if not self._loaded.get(service):
             return {"status": "error", "error": f"Failed to load {service}"}
