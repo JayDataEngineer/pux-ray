@@ -43,7 +43,7 @@ logger = logging.getLogger(__name__)
 
 
 class _TrellisHooks(HandlerHooks):
-    needs_bf16_autocast = True
+    needs_bf16_autocast = False
     needs_device_patch = False
 
     def on_loaded(self, pipeline, pipe, base_model_type):
@@ -212,19 +212,20 @@ class family_handler:
         if hasattr(pipeline, 'rembg_model') and pipeline.rembg_model is not None:
             pipe['rembg'] = pipeline.rembg_model
 
-        # Normalize dtypes to bfloat16 for mmgp — it asserts all params share one dtype.
-        # rembg (BiRefNet) is float32 and lightweight; exclude from mmgp pipe.
-        target_dtype = torch.bfloat16
+        # TRELLIS uses mixed bf16/fp16 checkpoints from the safetensors files.
+        # The ss_flow_model is bf16, the decoders are fp16+fp32 mixed.
+        # Do NOT normalize dtypes — the native dtypes produce correct results.
+        # bf16→fp16 conversion breaks the ss_decoder's thresholding (>0),
+        # and bf16 normalization of the ss_flow_model produces near-zero
+        # latent values. Keep everything in its native dtype and let the
+        # deployment.py handle GPU placement (no mmgp for trellis).
         mmgp_pipe = {}
         for k, v in pipe.items():
             if not isinstance(v, torch.nn.Module):
                 continue
-            dtypes = {p.dtype for p in v.parameters()}
-            if dtypes == {torch.float32} and k == "rembg":
+            if k == "rembg":
                 v.eval()
-                continue  # BiRefNet stays float32, outside mmgp
-            if torch.float32 in dtypes:
-                v.to(target_dtype)
+                continue  # BiRefNet stays float32, outside pipe
             v.eval()
             mmgp_pipe[k] = v
 
@@ -248,6 +249,11 @@ class family_handler:
                 'shape': pipeline.shape_slat_sampler,
                 'tex': pipeline.tex_slat_sampler,
             },
+            sampler_params={
+                'ss': getattr(pipeline, 'sparse_structure_sampler_params', {}),
+                'shape': getattr(pipeline, 'shape_slat_sampler_params', {}),
+                'tex': getattr(pipeline, 'tex_slat_sampler_params', {}),
+            },
             normalization={
                 'shape': pipeline.shape_slat_normalization,
                 'tex': pipeline.tex_slat_normalization,
@@ -264,9 +270,10 @@ class family_handler:
 
 
 class _Pipeline:
-    def __init__(self, modules, samplers, normalization, pbr_layout, device, rembg=None):
+    def __init__(self, modules, samplers, sampler_params, normalization, pbr_layout, device, rembg=None):
         self.m = modules
         self.samplers = samplers
+        self.sampler_params = sampler_params
         self.norm = normalization
         self.pbr_layout = pbr_layout
         self.device = device
@@ -395,9 +402,7 @@ class _Pipeline:
         if cond_model is None:
             raise RuntimeError("image_cond model not loaded")
         cond_model.image_size = resolution
-        cond = cond_model(images)
-        if cond.dtype == torch.bfloat16:
-            cond = cond.half()
+        cond = cond_model(images).float()
         neg_cond = torch.zeros_like(cond)
         return {'cond': cond, 'neg_cond': neg_cond}
 
@@ -409,15 +414,22 @@ class _Pipeline:
         in_ch = ss_flow.in_channels
         noise = torch.randn(1, in_ch, reso, reso, reso, device=self.device)
 
+        # Merge default sampler params (rescale_t, guidance_rescale, guidance_interval)
+        # with caller overrides
+        ss_params = dict(self.sampler_params.get('ss', {}))
+        ss_params['steps'] = steps
+        ss_params['guidance_strength'] = guidance
+
         z_s = self.samplers['ss'].sample(
             ss_flow, noise,
             **cond,
-            steps=steps, guidance_strength=guidance,
+            **ss_params,
             verbose=True, tqdm_desc="Sampling SS",
         ).samples
 
         ss_dec = self.m['ss_decoder']
-        decoded = ss_dec(z_s) > 0
+        decoded = ss_dec(z_s)
+        decoded = decoded > 0
 
         if resolution != decoded.shape[2]:
             ratio = decoded.shape[2] // resolution
@@ -434,10 +446,13 @@ class _Pipeline:
             feats=torch.randn(coords.shape[0], flow_model.in_channels, device=self.device),
             coords=coords,
         )
+        shape_params = dict(self.sampler_params.get('shape', {}))
+        shape_params['steps'] = steps
+        shape_params['guidance_strength'] = guidance
         slat = self.samplers['shape'].sample(
             flow_model, noise,
             **cond,
-            steps=steps, guidance_strength=guidance,
+            **shape_params,
             verbose=True, tqdm_desc="Sampling shape SLat",
         ).samples
 
@@ -455,10 +470,13 @@ class _Pipeline:
             feats=torch.randn(coords.shape[0], lr_flow.in_channels, device=self.device),
             coords=coords,
         )
+        shape_params = dict(self.sampler_params.get('shape', {}))
+        shape_params['steps'] = steps
+        shape_params['guidance_strength'] = guidance
         slat = self.samplers['shape'].sample(
             lr_flow, noise,
             **lr_cond,
-            steps=steps, guidance_strength=guidance,
+            **shape_params,
             verbose=True, tqdm_desc="Sampling shape SLat (LR)",
         ).samples
         std = torch.tensor(self.norm['shape']['std'], device=slat.device)[None]
@@ -491,7 +509,7 @@ class _Pipeline:
         slat = self.samplers['shape'].sample(
             hr_flow, noise,
             **cond,
-            steps=steps, guidance_strength=guidance,
+            **shape_params,
             verbose=True, tqdm_desc="Sampling shape SLat (HR)",
         ).samples
         std = torch.tensor(self.norm['shape']['std'], device=slat.device)[None]
@@ -511,11 +529,13 @@ class _Pipeline:
         noise = normed_slat.replace(
             feats=torch.randn(shape_slat.coords.shape[0], extra_ch, device=self.device))
 
+        tex_params = dict(self.sampler_params.get('tex', {}))
+        tex_params['steps'] = steps
         slat = self.samplers['tex'].sample(
             flow_model, noise,
             concat_cond=normed_slat,
             **cond,
-            steps=steps,
+            **tex_params,
             verbose=True, tqdm_desc="Sampling texture SLat",
         ).samples
 

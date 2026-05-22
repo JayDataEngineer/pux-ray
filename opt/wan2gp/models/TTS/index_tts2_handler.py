@@ -19,7 +19,7 @@ class _IndexTTS2Hooks(HandlerHooks):
         if "input_prompt" not in kwargs and "text" in kwargs:
             kwargs["input_prompt"] = kwargs.pop("text")
         kwargs.setdefault("model_mode", None)
-        if "audio_guide" not in kwargs and "audio_b64" in kwargs:
+        if not kwargs.get("audio_guide") and "audio_b64" in kwargs:
             import base64
             import tempfile
             audio_bytes = base64.b64decode(kwargs.pop("audio_b64"))
@@ -28,6 +28,10 @@ class _IndexTTS2Hooks(HandlerHooks):
             tmp.close()
             kwargs["audio_guide"] = tmp.name
         return kwargs
+
+    def wrap_generate(self, model, kwargs, generate_fn):
+        """No autocast — let mmgp-managed mixed dtypes run natively."""
+        return generate_fn(**kwargs)
 
 
 HANDLER_META = {

@@ -110,7 +110,6 @@ def log_once(msg: str) -> None:
     if msg not in _logged_msgs:
         _logged_msgs.add(msg)
         logger.warning("Wan2GP: %s", msg)
-        print(f"[Wan2GP-debug] {msg}", flush=True)
 
 # ─── Vendor Path Setup ─────────────────────────────────────────────────────────
 
@@ -164,7 +163,7 @@ def _ensure_transformers_compat():
 
 
 def _ensure_writable_hf_cache():
-    """Redirect HF cache env vars to /tmp if the PVC is read-only."""
+    """Redirect HF cache env vars and torch hub to /tmp if the PVC is read-only."""
     import tempfile
     writable = Path(tempfile.gettempdir()) / "hf_cache"
     for var in ("HF_HUB_CACHE", "HF_HOME"):
@@ -173,6 +172,17 @@ def _ensure_writable_hf_cache():
             writable.mkdir(parents=True, exist_ok=True)
             os.environ[var] = str(writable)
             logger.info("%s redirected to writable %s (PVC read-only)", var, writable)
+    # torch.hub writes trusted_list to its hub dir — redirect to /tmp when PVC is read-only
+    try:
+        import torch
+        hub_dir = torch.hub.get_dir()
+        if not os.access(hub_dir, os.W_OK):
+            writable_hub = Path(tempfile.gettempdir()) / "torch_hub"
+            writable_hub.mkdir(parents=True, exist_ok=True)
+            torch.hub.set_dir(str(writable_hub))
+            logger.info("torch.hub redirected to %s (PVC read-only)", writable_hub)
+    except Exception:
+        pass
 
 
 def _patch_anigen_decoder():
@@ -323,6 +333,7 @@ def discover_models(models_root: Path | None = None) -> dict:
                 # Register HANDLER_META for this type
                 if handler_meta is not None:
                     register_handler_meta(model_type, handler_meta)
+                    logger.debug("Registered HANDLER_META for %s", model_type)
 
                 weight_path = _find_weights(model_type, handler_path, registry, models_root)
 
@@ -345,9 +356,9 @@ def discover_models(models_root: Path | None = None) -> dict:
                 discovered[model_key] = entry
 
         except ImportError as e:
-            logger.debug("Handler unavailable: %s (%s)", handler_path, e)
+            logger.warning("Handler unavailable: %s (%s)", handler_path, e)
         except Exception as e:
-            logger.debug("Handler discovery failed: %s (%s)", handler_path, e)
+            logger.warning("Handler discovery failed: %s (%s: %s)", handler_path, type(e).__name__, e)
 
     return discovered
 
@@ -615,14 +626,15 @@ class Wan2GPService:
 
     def load(self, model_name: str | None = None, quant: str | None = None) -> None:
         model_name = model_name or self.default_model
+        logger.info("Wan2GP load() model=%s loaded=%s", model_name, self._loaded_model)
+
+        # Resolve before comparing so short names match registry keys
+        model_name = self._resolve_model(model_name)
 
         if model_name == self._loaded_model:
             return
 
         self.unload()
-
-        # Resolve short names, aliases, partial matches
-        model_name = self._resolve_model(model_name)
 
         entry = self._registry.get(model_name)
         if entry is None:
@@ -777,6 +789,9 @@ class Wan2GPService:
                 _buf = _io.BytesIO()
                 _img.save(_buf, format="PNG")
                 kwargs["image"] = _buf.getvalue()
+            elif image_b64 and base_model_type == "anigen":
+                # AniGen expects raw image bytes — it opens with PIL internally
+                kwargs["image"] = base64.b64decode(image_b64)
 
             # Handle second image for last-frame conditioning (WDC FFLF)
             if payload.get("image_end_b64"):
@@ -860,7 +875,10 @@ class Wan2GPService:
             # ops (FSQ quantizer, attention layers). Default: ON.
             # Handlers can opt out by setting needs_bf16_autocast = False.
             skip_autocast = meta and getattr(meta.get("hooks"), "needs_bf16_autocast", True) is False
-            if skip_autocast:
+            hooks = meta.get("hooks") if meta else None
+            if skip_autocast and hasattr(hooks, "wrap_generate"):
+                result = hooks.wrap_generate(model, kwargs, model.generate)
+            elif skip_autocast:
                 result = model.generate(**kwargs)
             else:
                 with torch.amp.autocast("cuda", dtype=torch.bfloat16):
@@ -936,6 +954,7 @@ class Wan2GPService:
 
     def _load_model(self, model_name: str, entry: dict, *,
                     quant: str | None = None) -> None:
+        logger.info("Wan2GP _load_model() model=%s", model_name)
         _ensure_vendor_path()
         _ensure_quantized_cache()
         _ensure_transformers_compat()
@@ -1231,6 +1250,8 @@ class Wan2GPService:
                         if model_name_rel:
                             abs_model = (pj / model_name_rel).resolve()
                             ic_model = DinoV3FeatureExtractor(model_name=str(abs_model))
+                            if torch.cuda.is_available():
+                                ic_model.to("cuda")
                             pipeline.m["image_cond"] = ic_model
                             logger.info("Injected image_cond into trellis pipeline from %s", abs_model)
                 except Exception as e:
@@ -1385,6 +1406,7 @@ class Wan2GPService:
     def _apply_mmgp_profile(pipe: dict, co_tenants: dict, is_cpu: bool,
                             model_type: str):
         """Apply mmgp VRAM profile. Returns offloadobj or None."""
+        from services.wan2gp.custom_models.base_handler import get_handler_meta
         if not pipe or is_cpu:
             return None
         if model_type in Wan2GPService._NO_MMGP_MODELS:
@@ -1400,23 +1422,45 @@ class Wan2GPService:
         # Also fix meta tensors — some models (ace_step) have parameters not
         # in the checkpoint (e.g. null_condition_emb initialized with randn)
         # that stay as meta tensors after mmgp's init_empty_weights().
+        # Exception: index_tts2's handler loads the GPT with
+        # default_dtype=float16 and other components in float32. mmgp's
+        # internal hooks manage dtype conversion during forward passes.
+        # Our normalization would break this mixed-dtype pipeline.
+        # Exception: trellis decoders (ss_dec, shape_dec, tex_dec) are fp16
+        # checkpoints. Converting fp16→bf16 loses enough precision that the
+        # ss_decoder output becomes all-negative (no voxels pass threshold).
+        # The handler's own normalization only converts fp32→bf16, preserving
+        # fp16 weights correctly.
         target_dtype = torch.bfloat16
-        for k, v in pipe.items():
-            if not isinstance(v, torch.nn.Module):
-                continue
-            # Always set _model_dtype — some modules may have it set to
-            # float32 from the handler, which causes mmgp's assertion.
-            v._model_dtype = target_dtype
-            for name, p in v.named_parameters():
-                if p.is_meta:
-                    # Can't use p.data = ... on meta tensors; must replace
-                    # the parameter in the module's _parameters dict.
-                    new_p = torch.nn.Parameter(
-                        torch.randn(p.shape, device="cpu", dtype=target_dtype)
-                    )
-                    _set_param_by_path(v, name, new_p)
-                elif p.data.dtype in (torch.float32, torch.float16):
-                    p.data = p.data.to(target_dtype)
+        skip_dtype_norm = model_type in ("index_tts2", "trellis")
+        logger.debug("MMGP skip_dtype_norm=%s model_type=%s", skip_dtype_norm, model_type)
+        if skip_dtype_norm:
+            for k, v in pipe.items():
+                if not isinstance(v, torch.nn.Module):
+                    continue
+                dtypes = {p.dtype for p in v.parameters()}
+                # Set _model_dtype for mmgp even when skipping dtype normalization.
+                # mmgp uses this to determine the target dtype for async loading.
+                if dtypes:
+                    v._model_dtype = min(dtypes, key=lambda d: d.itemsize)
+                else:
+                    v._model_dtype = target_dtype
+                logger.debug("MMGP %s: dtypes=%s _model_dtype=%s", k, dtypes, v._model_dtype)
+        if not skip_dtype_norm:
+            for k, v in pipe.items():
+                if not isinstance(v, torch.nn.Module):
+                    continue
+                # Always set _model_dtype — some modules may have it set to
+                # float32 from the handler, which causes mmgp's assertion.
+                v._model_dtype = target_dtype
+                for name, p in v.named_parameters():
+                    if p.is_meta:
+                        new_p = torch.nn.Parameter(
+                            torch.randn(p.shape, device="cpu", dtype=target_dtype)
+                        )
+                        _set_param_by_path(v, name, new_p)
+                    elif p.data.dtype in (torch.float32, torch.float16):
+                        p.data = p.data.to(target_dtype)
 
         n_modules = sum(1 for v in pipe.values()
                         if isinstance(v, torch.nn.Module))
@@ -1428,15 +1472,17 @@ class Wan2GPService:
         # Exception: see_through needs profile 4 because profile 5 causes
         # cascading device mismatches in its deeply nested UNet submodules
         # (GroupEmbedding, timestep_encoder, etc.).
-        if n_modules > 4 and model_type not in ("see-through",):
+        if n_modules > 4 and model_type not in ("see-through", "trellis"):
             profile = MMGP_PROFILES["minimum"]
             budgets_override = {"*": 2000}
-        elif model_type == "see-through":
+        elif model_type in ("see-through", "trellis"):
             # See-through UNet has deeply nested internal parameters that
             # mmgp's module-level swapping doesn't track (GroupEmbedding,
             # timestep_embeddings, aug embeddings), causing cascading device
             # mismatches with every mmgp profile.
-            # Manual approach: keep ALL modules on CUDA at once (12.8 GB).
+            # TRELLIS flow models produce near-zero latents under mmgp profile 5
+            # (async loading disrupts the multi-step Euler sampling), resulting
+            # in empty sparse structures. Both need all modules on GPU at once.
             for v in pipe.values():
                 if isinstance(v, torch.nn.Module):
                     v.to("cuda")
@@ -1455,6 +1501,7 @@ class Wan2GPService:
             budgets_override = {"transformer": 250, "text_encoder": 250,
                                 "*": 3000}
 
+        logger.info("MMGP offload.profile() model_type=%s profile=%s", model_type, profile)
         offloadobj = offload.profile(
             pipe,
             profile_no=profile,
@@ -1846,7 +1893,6 @@ class Wan2GPService:
             frames_np = frames_tensor
         msg = f"encode_input: shape={frames_np.shape} dtype={frames_np.dtype} min={frames_np.min():.2f} max={frames_np.max():.2f}"
         logger.info("Wan2GP: %s", msg)
-        print(f"[Wan2GP] {msg}", flush=True)
 
         if frames_np.dtype != np.uint8:
             frames_np = ((frames_np * 0.5 + 0.5).clip(0, 1) * 255).astype(np.uint8)

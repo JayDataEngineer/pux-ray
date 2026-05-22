@@ -304,18 +304,34 @@ class _Pipeline:
         img_arrays = []
         for tag in valid_tags[:len(layer_images)]:
             arr = np.array(layer_images[min(valid_tags.index(tag), len(layer_images) - 1)])
+            # Ensure RGBA — some VAE outputs may be RGB
+            if arr.ndim == 2:
+                arr = np.stack([arr, arr, arr, np.full_like(arr, 255)], axis=-1)
+            elif arr.shape[-1] == 3:
+                arr = np.concatenate([arr, np.full((*arr.shape[:2], 1), 255, dtype=arr.dtype)], axis=-1)
             arr[..., -1][arr[..., -1] < 15] = 0
+            # Skip zero-dimension arrays that would break cv2.resize
+            if arr.shape[0] == 0 or arr.shape[1] == 0:
+                arr = np.zeros((src_h, src_w, 4), dtype=np.uint8)
             img_arrays.append(arr)
 
         blended_alpha = np.zeros((src_h, src_w), dtype=np.float32)
         for arr in img_arrays:
+            if arr.shape[:2] != (src_h, src_w):
+                continue
             blended_alpha += arr[..., -1].astype(np.float32) / 255
         fullpage_arr = fullpage_arr.copy()
         fullpage_arr[..., -1] = (np.clip(blended_alpha, 0, 1) * 255).astype(np.uint8)
         img_arrays.append(fullpage_arr)
 
         if src_rescaled:
-            img_arrays = [smart_resize(img, (resolution, resolution)) for img in img_arrays]
+            resized = []
+            for img in img_arrays:
+                try:
+                    resized.append(smart_resize(img, (resolution, resolution)))
+                except cv2.error:
+                    resized.append(np.zeros((resolution, resolution, 4), dtype=np.uint8))
+            img_arrays = resized
 
         img_tensors = []
         for arr in img_arrays:

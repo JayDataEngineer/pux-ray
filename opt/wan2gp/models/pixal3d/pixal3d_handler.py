@@ -45,6 +45,19 @@ from PIL import Image
 
 logger = logging.getLogger(__name__)
 
+from models.base_handler import HandlerHooks
+
+
+class _Pixal3DHooks(HandlerHooks):
+    needs_bf16_autocast = False
+
+
+HANDLER_META = {
+    "input_type": "image",
+    "output_type": "model3d",
+    "hooks": _Pixal3DHooks(),
+}
+
 _HANDLER_DIR = Path(__file__).parent
 
 IMAGE_COND_CONFIGS = {
@@ -150,10 +163,16 @@ class family_handler(BaseFamilyHandler):
         if hasattr(pipeline, 'rembg_model') and pipeline.rembg_model is not None:
             pipe['rembg'] = pipeline.rembg_model
 
-        for v in pipe.values():
+        # All modules → CUDA. Flow models and decoders → bfloat16.
+        # DINOv3 conditioners and rembg stay float32 (ops like RoPE don't
+        # support bf16). bf16 autocast is disabled for pixal3d via HANDLER_META.
+        for k, v in pipe.items():
             if isinstance(v, torch.nn.Module):
-                v.to(dev)
+                v.to(device=dev)
                 v.eval()
+            elif hasattr(v, 'model') and isinstance(v.model, torch.nn.Module):
+                v.model.to(device=dev)
+                v.model.eval()
 
         co_tenants = {
             "ss_flow_model": ["ss_decoder", "image_cond_ss"],
