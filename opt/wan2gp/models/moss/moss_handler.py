@@ -309,6 +309,7 @@ HANDLER_META = {
 }
 
 
+
 # ---------------------------------------------------------------------------
 # family_handler — Wan2GP discovery contract
 # ---------------------------------------------------------------------------
@@ -566,9 +567,6 @@ class _Pipeline:
         input_ids = batch["input_ids"].to(dev)
         attention_mask = batch["attention_mask"].to(dev)
 
-        # No .cuda() — mmgp manages device placement via pipe dict hooks.
-        # model.generate() → forward() → language_model/emb_ext/lm_heads
-        # are swapped to GPU just-in-time by mmgp's profile() wrapper.
         with torch.no_grad():
             generated = self.model.generate(
                 input_ids=input_ids, attention_mask=attention_mask,
@@ -577,13 +575,25 @@ class _Pipeline:
 
         # Move generated output to CPU for decode — audio tokenizer stays on
         # CPU (model uses ~22GB, no room for the 3.4GB tokenizer on GPU).
-        gen_cpu = generated
-        if isinstance(generated, torch.Tensor):
-            gen_cpu = generated.cpu()
-        elif isinstance(generated, (list, tuple)):
-            gen_cpu = [t.cpu() if isinstance(t, torch.Tensor) else t for t in generated]
+        def _to_cpu(obj):
+            if isinstance(obj, torch.Tensor):
+                return obj.cpu()
+            if isinstance(obj, (list, tuple)):
+                return type(obj)(_to_cpu(t) for t in obj)
+            return obj
+        gen_cpu = _to_cpu(generated)
 
-        results = self.processor.decode(gen_cpu)
+        # Decode — move audio_tokenizer to GPU so codes and codebook match.
+        # The model (~16GB) stays on GPU, audio_tokenizer (~3.4GB) joins it
+        # temporarily for decode. Both fit in 24GB.
+        if self.audio_tokenizer is not None and torch.cuda.is_available():
+            self.audio_tokenizer.to("cuda")
+        try:
+            results = self.processor.decode(gen_cpu)
+        finally:
+            if self.audio_tokenizer is not None and torch.cuda.is_available():
+                self.audio_tokenizer.to("cpu")
+                torch.cuda.empty_cache()
         if not results:
             raise RuntimeError("No audio generated")
 

@@ -65,7 +65,6 @@ class family_handler(BaseFamilyHandler):
         model_path = Path(ModelRegistry().get_path("asr", "vibevoice-asr"))
         from models.vibevoice_asr.vibevoice_asr.model import VibeVoiceAsrModel
         model = VibeVoiceAsrModel.from_pretrained(model_path, dtype=dtype or torch.bfloat16)
-
         pipe = {
             "acoustic_encoder": model.acoustic_tokenizer,
             "semantic_encoder": model.semantic_tokenizer,
@@ -78,13 +77,13 @@ class family_handler(BaseFamilyHandler):
             "acoustic_encoder": ["semantic_encoder"],
             "language_model": ["acoustic_connector", "semantic_connector"],
         }
-
-        return _Pipeline(model), {"pipe": pipe, "coTenantsMap": co_tenants}
+        return _Pipeline(model, pipe), {"pipe": pipe, "coTenantsMap": co_tenants}
 
 
 class _Pipeline:
-    def __init__(self, model):
+    def __init__(self, model, pipe):
         self.model = model
+        self.pipe = pipe
         self._tokenizer = None
 
     @property
@@ -95,7 +94,7 @@ class _Pipeline:
 
     @property
     def device(self):
-        return self.model.device
+        return next(self.pipe["language_model"].parameters()).device
 
     def generate(self, *, audio_b64=None, audio_path=None, language="english",
                  max_tokens=512, seed=-1, **kw):
@@ -120,9 +119,53 @@ class _Pipeline:
         enc = self.tokenizer(text, return_tensors="pt", add_special_tokens=False)
         input_ids = enc["input_ids"].to(self.device)
 
-        audio_embeds = self.model.get_audio_features(audio_t)
-        audio_gen = self.model.generate(input_ids, audio_embeds, max_new_tokens=max_tokens)
-        text_out = self.tokenizer.decode(audio_gen[0], skip_special_tokens=True)
+        # Call sub-modules directly so mmgp hooks fire for device swapping.
+        # First compute audio features — mmgp swaps acoustic/semantic encoders
+        # to GPU for their forward() calls, giving us the target device.
+        with torch.no_grad():
+            w = audio_t.to(torch.bfloat16)
+            if w.dim() == 2:
+                w = w.unsqueeze(1)
+            a_out = self.pipe["acoustic_encoder"](w).transpose(1, 2)
+            a_feat = self.pipe["acoustic_connector"](a_out)
+            s_out = self.pipe["semantic_encoder"](w).transpose(1, 2)
+            s_feat = self.pipe["semantic_connector"](s_out)
+            audio_embeds = torch.cat([a_feat, s_feat], dim=1)
+
+            # Detect device from mmgp-swapped module output
+            dev = audio_embeds.device
+
+            # Move input_ids to the same device before creating embeddings
+            input_ids = input_ids.to(dev)
+            embed = self.pipe["language_model"].get_input_embeddings()
+            te = embed(input_ids)
+            audio_token_id = self.model._audio_token_id
+            ap = (input_ids == audio_token_id).nonzero(as_tuple=True)[1]
+            if ap.numel() > 0:
+                s_pos, e_pos = ap[0].item(), ap[-1].item() + 1
+                ins = torch.cat([te[:,:s_pos], audio_embeds.to(dev, dtype=embed.weight.dtype), te[:,e_pos:]], dim=1)
+            else:
+                ins = torch.cat([te, audio_embeds.to(dev, dtype=embed.weight.dtype)], dim=1)
+            attn = torch.ones(1, ins.shape[1], dtype=torch.long, device=dev)
+
+            out = self.pipe["language_model"](inputs_embeds=ins, attention_mask=attn, use_cache=True, return_dict=True)
+            logits = self.pipe["lm_head"](out.last_hidden_state[:,-1,:])
+            token = logits.argmax(-1)
+            gen = [token.item()]
+            pkv = out.past_key_values
+            eos_token_id = 151643
+
+            for _ in range(max_tokens - 1):
+                if token.item() == eos_token_id:
+                    break
+                ce = embed(token.unsqueeze(0))
+                out = self.pipe["language_model"](inputs_embeds=ce, past_key_values=pkv, use_cache=True, return_dict=True)
+                logits = self.pipe["lm_head"](out.last_hidden_state[:,-1,:])
+                token = logits.argmax(-1)
+                gen.append(token.item())
+
+        gen_t = torch.tensor([gen], dtype=torch.long, device="cpu")
+        text_out = self.tokenizer.decode(gen_t[0], skip_special_tokens=True)
         text_out = text_out.removeprefix("assistant").strip()
         try:
             parsed = json.loads(text_out)

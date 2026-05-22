@@ -76,8 +76,6 @@ class family_handler:
         model = load_model(resolved, device="cuda")
         model.eval()
 
-        # Extract nn.Modules for mmgp VRAM management.
-        # Kimodo has: Llama-3-8B text encoder (~16GB) + 282M denoiser (~1.1GB).
         pipe = {}
         if hasattr(model, 'text_encoder') and model.text_encoder is not None:
             pipe['text_encoder'] = model.text_encoder

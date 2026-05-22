@@ -53,6 +53,13 @@ Thumbs.db
 
 # Models (managed by ray-noir CLI, not git)
 # Models live in MODELS_ROOT, not in this repo
+sdk/models/
+
+# Logs
+logs/
+
+# Misc
+info/
 
 # Lock file (optional - uncomment if you want to pin deps)
 # uv.lock

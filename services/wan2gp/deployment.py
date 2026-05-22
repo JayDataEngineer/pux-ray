@@ -513,6 +513,18 @@ def _find_weights(model_type: str, handler_path: str, registry, models_root: Pat
 
 # ─── Wan2GP Service ───────────────────────────────────────────────────────────
 
+
+def _set_param_by_path(module: torch.nn.Module, name: str, new_param: torch.nn.Parameter):
+    """Replace a parameter in a (possibly nested) module by dotted name."""
+    parts = name.split(".")
+    for part in parts[:-1]:
+        child = getattr(module, part, None)
+        if child is None:
+            return
+        module = child
+    module._parameters[parts[-1]] = new_param
+
+
 class Wan2GPService:
     """Standalone Wan2GP service — unified model discovery via family_handlers."""
 
@@ -618,7 +630,7 @@ class Wan2GPService:
                 f"Unknown model: {model_name}. "
                 f"Available: {self.available_models()}"
             )
-        if entry.get("blocked") or ("weight_path" not in entry
+        if entry.get("blocked") or (not entry.get("weight_path")
                                      and entry.get("model_type") not in _CPU_ONLY_TYPES):
             # Try auto-download from registry source
             model_type = entry.get("model_type", model_name)
@@ -638,11 +650,12 @@ class Wan2GPService:
         try:
             self._load_model(model_name, entry, quant=quant)
         except Exception as e:
-            logger.error("Failed to load model %s: %s", model_name, e)
+            err_msg = str(e) or repr(e) or type(e).__name__
+            logger.error("Failed to load model %s: %s", model_name, err_msg, exc_info=True)
             # Clean up partial load — mmgp may have allocated GPU memory
             # that won't be freed if we just pop the model entry.
             self.unload()
-            raise RuntimeError(f"Failed to load model '{model_name}': {e}") from e
+            raise RuntimeError(f"Failed to load model '{model_name}': {err_msg}") from e
         self._loaded_model = model_name
 
         vram = torch.cuda.memory_allocated(0) / (1024 ** 2) if torch.cuda.is_available() else 0
@@ -709,6 +722,13 @@ class Wan2GPService:
     # ── Inference ─────────────────────────────────────────────────────────
 
     def infer(self, payload: dict) -> dict:
+        # Ensure default device is CUDA for inference — model loading sets it
+        # to CPU (torch.set_default_device("cpu")) and the reset in
+        # _load_model's finally block may not take effect if the load path
+        # exits early or the process was forked after the load.
+        if torch.cuda.is_available():
+            torch.set_default_device("cuda")
+
         model_key = payload.get("model") or payload.get("model_type") or self._loaded_model or self.default_model
 
         if model_key != self._loaded_model:
@@ -1170,6 +1190,13 @@ class Wan2GPService:
                 sys.modules["modules"] = _prev_modules
             if _prev_utils is not None:
                 sys.modules["utils"] = _prev_utils
+            # Reset default device — set_default_device("cpu") at the top
+            # of _load_model must be cleared before mmgp's offload.profile()
+            # runs. mmgp uses init_empty_weights (meta tensors) and .to_empty()
+            # internally; setting cuda as default device breaks meta tensor
+            # handling. Set to "cpu" here; infer() resets to "cuda" after
+            # the entire load (including mmgp) completes.
+            torch.set_default_device("cpu")
             # Restore wan2gp model paths that were removed for see-through
             if _seethrough_wan_paths:
                 for _wp in _seethrough_wan_paths:
@@ -1370,14 +1397,25 @@ class Wan2GPService:
         # fp16 checkpoint saving). Pre-convert everything to a uniform dtype
         # so mmgp's assertion passes. Use bfloat16 for all models; anigen's
         # spconv ops are handled via float16 autocast at inference time.
+        # Also fix meta tensors — some models (ace_step) have parameters not
+        # in the checkpoint (e.g. null_condition_emb initialized with randn)
+        # that stay as meta tensors after mmgp's init_empty_weights().
         target_dtype = torch.bfloat16
         for k, v in pipe.items():
             if not isinstance(v, torch.nn.Module):
                 continue
-            if not hasattr(v, "_model_dtype"):
-                v._model_dtype = target_dtype
-            for p in v.parameters():
-                if p.data.dtype in (torch.float32, torch.float16):
+            # Always set _model_dtype — some modules may have it set to
+            # float32 from the handler, which causes mmgp's assertion.
+            v._model_dtype = target_dtype
+            for name, p in v.named_parameters():
+                if p.is_meta:
+                    # Can't use p.data = ... on meta tensors; must replace
+                    # the parameter in the module's _parameters dict.
+                    new_p = torch.nn.Parameter(
+                        torch.randn(p.shape, device="cpu", dtype=target_dtype)
+                    )
+                    _set_param_by_path(v, name, new_p)
+                elif p.data.dtype in (torch.float32, torch.float16):
                     p.data = p.data.to(target_dtype)
 
         n_modules = sum(1 for v in pipe.values()

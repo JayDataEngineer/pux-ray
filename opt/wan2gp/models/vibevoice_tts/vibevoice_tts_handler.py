@@ -51,14 +51,13 @@ class family_handler(BaseFamilyHandler):
         model = VibeVoiceForConditionalGeneration.from_pretrained(
             str(model_path), config=config,
             torch_dtype=dtype or torch.bfloat16,
-            device_map="cpu", local_files_only=True,
+            local_files_only=True,
         )
         model.eval()
 
         from vibevoice.processor.vibevoice_processor import VibeVoiceProcessor
         processor = VibeVoiceProcessor.from_pretrained(str(model_path))
 
-        # Decompose into mmgp-managed modules
         inner = model.model
         pipe = {
             "language_model": inner.language_model,

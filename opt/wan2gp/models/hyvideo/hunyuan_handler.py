@@ -5,6 +5,7 @@ from shared.utils.hf import build_hf_url
 def test_hunyuan_1_5(base_model_type):
     return base_model_type in ["hunyuan_1_5_t2v", "hunyuan_1_5_i2v", "hunyuan_1_5_upsampler"]
 
+
 class family_handler():
 
     @staticmethod
@@ -238,42 +239,32 @@ class family_handler():
         from mmgp import offload
 
         hunyuan_model = HunyuanVideoSampler.from_pretrained(
-            model_filepath = model_filename,
-            model_type = model_type, 
-            base_model_type = base_model_type,
-            model_def = model_def,
-            text_encoder_filepath = text_encoder_filename,
-            dtype = dtype,
-            quantizeTransformer = quantizeTransformer,
-            VAE_dtype = VAE_dtype, 
-            mixed_precision_transformer = mixed_precision_transformer,
-            save_quantized = save_quantized
+            model_filepath=model_filename,
+            model_type=model_type,
+            base_model_type=base_model_type,
+            model_def=model_def,
+            text_encoder_filepath=text_encoder_filename,
+            dtype=dtype,
+            quantizeTransformer=quantizeTransformer,
+            VAE_dtype=VAE_dtype,
+            mixed_precision_transformer=mixed_precision_transformer,
+            save_quantized=save_quantized,
         )
 
-        pipe = { "transformer" : hunyuan_model.model, "text_encoder" : hunyuan_model.text_encoder, "text_encoder_2" : hunyuan_model.text_encoder_2, "vae" : hunyuan_model.vae  }
+        pipe = {"transformer": hunyuan_model.model, "text_encoder": hunyuan_model.text_encoder, "text_encoder_2": hunyuan_model.text_encoder_2, "vae": hunyuan_model.vae}
         if hunyuan_model.byt5_model is not None:
             pipe["byt5_model"] = hunyuan_model.byt5_model
-
         if hunyuan_model.vision_encoder is not None:
             pipe["vision_encoder"] = hunyuan_model.vision_encoder
-
         if hunyuan_model.upsampler is not None:
             pipe["upsampler"] = hunyuan_model.upsampler
-
         if hunyuan_model.wav2vec is not None:
             pipe["wav2vec"] = hunyuan_model.wav2vec
 
-
-        # if hunyuan_model.align_instance != None:
-        #     pipe["align_instance"] = hunyuan_model.align_instance.facedet.model
-
-
         from .modules.models import get_linear_split_map
-
         split_linear_modules_map = get_linear_split_map()
         hunyuan_model.model.split_linear_modules_map = split_linear_modules_map
-        offload.split_linear_modules(hunyuan_model.model, split_linear_modules_map )
-
+        offload.split_linear_modules(hunyuan_model.model, split_linear_modules_map)
 
         return hunyuan_model, pipe
 

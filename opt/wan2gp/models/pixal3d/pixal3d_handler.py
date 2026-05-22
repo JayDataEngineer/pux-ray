@@ -88,6 +88,7 @@ def _find_dinov3_path(model_root: Path) -> str:
     return "facebook/dinov3-vitl16-pretrain-lvd1689m"
 
 
+
 class family_handler(BaseFamilyHandler):
     FAMILY = "pixal3d"
     FAMILY_ID = 404
@@ -100,7 +101,6 @@ class family_handler(BaseFamilyHandler):
     def load_model(model_filename, model_type, base_model_type, model_def,
                    quantizeTransformer=False, text_encoder_quantization=None,
                    dtype=None, VAE_dtype=None, profile=0, **kwargs):
-        # Spec-first path resolution
         model_root = resolve_model_path(
             "pixal3d", "pixal3d_path", model_def,
             spec_module="pipeline_root", category="3d",
@@ -114,7 +114,6 @@ class family_handler(BaseFamilyHandler):
         pipeline = Pixal3DImageTo3DPipeline.from_pretrained(str(pipeline_json))
         dev = torch.device("cuda")
 
-        # Build 4 DinoV3ProjFeatureExtractor models (proj-mode conditioners)
         from .pixal3d.trainers.flow_matching.mixins.image_conditioned_proj import (
             DinoV3ProjFeatureExtractor,
         )
@@ -124,15 +123,12 @@ class family_handler(BaseFamilyHandler):
             config = {**config, "model_name": dinov3_path}
             cond_model = DinoV3ProjFeatureExtractor(**config)
             cond_model.eval()
-            # No .to(dev) — mmgp swaps modules to GPU just-in-time
             image_cond_models[f"image_cond_{stage}"] = cond_model
 
-        # Pre-load NAF upsampler weights
         for cond_model in image_cond_models.values():
             if getattr(cond_model, 'use_naf_upsample', False):
                 cond_model._load_naf()
 
-        # Map upstream model names to short keys
         key_map = {
             "ss_flow_model": "sparse_structure_flow_model",
             "ss_decoder": "sparse_structure_decoder",

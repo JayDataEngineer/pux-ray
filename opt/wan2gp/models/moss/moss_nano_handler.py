@@ -12,6 +12,8 @@ from pathlib import Path
 
 import torch
 
+from models.base_handler import HandlerHooks
+
 logger = logging.getLogger(__name__)
 
 VARIANTS = {
@@ -131,6 +133,31 @@ def _load_nano_modules(model_path):
     return config_mod, modeling_mod
 
 
+class _MossNanoHooks(HandlerHooks):
+    needs_bf16_autocast = False
+    needs_device_patch = False
+
+    def before_generate(self, pipeline, kwargs):
+        # Ensure the entire model is on CUDA — the inference() API
+        # creates input tensors on device= and if model params are
+        # split across devices, embedding lookups fail.
+        dev = pipeline.device
+        pipeline.model.to(dev)
+        if pipeline.audio_tokenizer is not None:
+            pipeline.audio_tokenizer.to(dev)
+        # Re-tie weights after .to() — .to() can break ties by
+        # creating separate CUDA tensors for tied parameter pairs.
+        pipeline.model.tie_weights()
+        return kwargs
+
+
+HANDLER_META = {
+    "input_type": "text",
+    "output_type": "audio",
+    "hooks": _MossNanoHooks(),
+}
+
+
 class family_handler:
     @staticmethod
     def query_supported_types():
@@ -224,6 +251,8 @@ class family_handler:
         return None
 
 
+
+
 class _Pipeline:
     def __init__(self, model, tokenizer, audio_tokenizer):
         self.model = model
@@ -242,12 +271,21 @@ class _Pipeline:
             raise ValueError("input_prompt or text required")
 
         dev = self.device
-        self.model.to(dev)
 
+        # Ensure model + audio tokenizer are on CUDA and weight ties are intact.
+        # Model was loaded with CUDA default device, but .to() is a safe guard
+        # against any intervening device changes.
+        self.model.to(dev)
+        self.model.tie_weights()
+        if self.audio_tokenizer is not None:
+            self.audio_tokenizer.to(dev)
+
+        # Set default device to CUDA so model.inference() creates internal
+        # tensors (token indices, etc.) on the correct device.
+        prev_dev = torch.get_default_device()
+        torch.set_default_device(dev)
         output_path = f"/tmp/moss_nano_out_{hash(prompt) % 1000000}.wav"
         try:
-            if self.audio_tokenizer is not None:
-                self.audio_tokenizer.to(dev)
             result = self.model.inference(
                 text=prompt,
                 output_audio_path=output_path,
@@ -257,35 +295,35 @@ class _Pipeline:
                 audio_tokenizer=self.audio_tokenizer,
                 device=dev,
             )
-            audio_array = None
-            if isinstance(result, dict):
-                for key in ("audio", "waveform", "array", "wav"):
-                    val = result.get(key)
-                    if val is not None:
-                        audio_array = val
-                        break
-            if audio_array is not None:
-                import numpy as np
-                if isinstance(audio_array, torch.Tensor):
-                    audio_array = audio_array.cpu().numpy()
-                sample_rate = 48000
-                if audio_array.ndim > 1:
-                    audio_array = audio_array.mean(axis=0)
-                import scipy.io.wavfile as wavfile
-                buf = io.BytesIO()
-                wavfile.write(buf, sample_rate, audio_array.astype(np.float32))
-                wav_data = buf.getvalue()
-                from models.base_handler import audio_response
-                return audio_response(wav_data)
+        finally:
+            torch.set_default_device(prev_dev)
 
-            import os as _os
-            if _os.path.exists(output_path) and _os.path.getsize(output_path) > 1000:
-                with open(output_path, "rb") as f:
-                    wav_data = f.read()
-                from models.base_handler import audio_response
-                return audio_response(wav_data)
+        audio_array = None
+        if isinstance(result, dict):
+            for key in ("audio", "waveform", "array", "wav"):
+                val = result.get(key)
+                if val is not None:
+                    audio_array = val
+                    break
+        if audio_array is not None:
+            import numpy as np
+            if isinstance(audio_array, torch.Tensor):
+                audio_array = audio_array.cpu().numpy()
+            sample_rate = 48000
+            if audio_array.ndim > 1:
+                audio_array = audio_array.mean(axis=0)
+            import scipy.io.wavfile as wavfile
+            buf = io.BytesIO()
+            wavfile.write(buf, sample_rate, audio_array.astype(np.float32))
+            wav_data = buf.getvalue()
+            from models.base_handler import audio_response
+            return audio_response(wav_data)
 
-            raise RuntimeError(f"No audio in result: keys={list(result.keys()) if isinstance(result, dict) else type(result)}")
-        except Exception as e:
-            logger.warning("model.inference() failed: %s", e)
-            raise
+        import os as _os
+        if _os.path.exists(output_path) and _os.path.getsize(output_path) > 1000:
+            with open(output_path, "rb") as f:
+                wav_data = f.read()
+            from models.base_handler import audio_response
+            return audio_response(wav_data)
+
+        raise RuntimeError(f"No audio in result: keys={list(result.keys()) if isinstance(result, dict) else type(result)}")

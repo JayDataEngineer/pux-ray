@@ -196,19 +196,30 @@ class _Pipeline:
         input_ids = batch["input_ids"].to(dev)
         attention_mask = batch["attention_mask"].to(dev)
 
-        # Model on CPU by default after AutoModel.from_pretrained.
-        # Move to CUDA for GPU inference. If mmgp is active, .cuda()
-        # is handled by mmgp's hooks (params stay on CPU pinned RAM).
-        if torch.cuda.is_available():
-            self.model = self.model.cuda()
-
         with torch.no_grad():
             generated = self.model.generate(
                 input_ids=input_ids, attention_mask=attention_mask,
                 max_new_tokens=max_tokens,
             )
 
-        results = self.processor.decode(generated)
+        # Move generated output to CPU — audio_tokenizer stays on CPU
+        # and the codes will cause device mismatch if left on cuda.
+        def _to_cpu(obj):
+            if isinstance(obj, torch.Tensor):
+                return obj.cpu()
+            if isinstance(obj, (list, tuple)):
+                return type(obj)(_to_cpu(t) for t in obj)
+            return obj
+        gen_cpu = _to_cpu(generated)
+
+        # Decode with CPU default device — set_default_device("cuda") from
+        # infer() would create internal tensors on GPU during decode.
+        prev_dev = torch.get_default_device()
+        torch.set_default_device("cpu")
+        try:
+            results = self.processor.decode(gen_cpu)
+        finally:
+            torch.set_default_device(prev_dev)
         if not results:
             raise RuntimeError("No audio generated")
 

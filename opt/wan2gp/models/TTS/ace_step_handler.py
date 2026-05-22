@@ -9,6 +9,21 @@ from shared.utils import files_locator as fl
 from .prompt_enhancers import HEARTMULA_LYRIC_PROMPT
 
 
+def _fix_meta_param(module, name, target_dtype):
+    """Replace a meta tensor parameter with a real one."""
+    parts = name.split(".")
+    for part in parts[:-1]:
+        child = getattr(module, part, None)
+        if child is None:
+            return
+        module = child
+    old = module._parameters.get(parts[-1])
+    if old is not None and old.is_meta:
+        module._parameters[parts[-1]] = torch.nn.Parameter(
+            torch.randn(old.shape, device="cpu", dtype=target_dtype)
+        )
+
+
 ACE_STEP_REPO_ID = "DeepBeepMeep/TTS"
 ACE_STEP_REPO_FOLDER = "ace_step"
 
@@ -550,6 +565,16 @@ class family_handler:
                 device=mps_device(),
                 dtype=dtype or torch.bfloat16,
             )
+
+            # Fix meta tensors — mmgp's fast_load_transformers_model uses
+            # init_empty_weights() to create model structure. Parameters
+            # initialized with torch.randn() in __init__ (like
+            # null_condition_emb) become meta tensors when not in the
+            # checkpoint. Reinitialize them with proper data.
+            _target_dtype = dtype or torch.bfloat16
+            for name, param in pipeline.ace_step_transformer.named_parameters():
+                if param.is_meta:
+                    _fix_meta_param(pipeline.ace_step_transformer, name, _target_dtype)
 
             pipe = {
                 "transformer": pipeline.ace_step_transformer,
