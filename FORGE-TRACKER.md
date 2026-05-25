@@ -33,9 +33,9 @@ DKMS 595.71.05 modules were rejected by Secure Boot. Fix: used pre-compiled obje
 | Model | Service Key | Input | Output | Status | Notes |
 |-------|------------|-------|--------|--------|-------|
 | HY-Motion 1.0 | `hy_motion/hy-motion-1.0` | prompt | video/mp4 | PASS | |
-| Kimodo SOMA-RP | `kimodo/kimodo-soma-rp` | prompt | motion NPZ | FIX | BFloat16 fix: TEXT_ENCODER_DEVICE=cpu, removed .half() |
-| Kimodo G1-RP | `kimodo/kimodo-g1-rp` | prompt | motion NPZ | FIX | Same fix as SOMA |
-| Kimodo SMPLX-RP | `kimodo/kimodo-smplx-rp` | prompt | motion NPZ | FIX | Same fix as SOMA |
+| Kimodo SOMA-RP | `kimodo/kimodo-soma-rp` | prompt | motion NPZ | PASS | autocast + model.float() + TEXT_ENCODER_DEVICE=cpu |
+| Kimodo G1-RP | `kimodo/kimodo-g1-rp` | prompt | motion NPZ | PASS | Same fix as SOMA |
+| Kimodo SMPLX-RP | `kimodo/kimodo-smplx-rp` | prompt | motion NPZ | PASS | Same fix as SOMA |
 
 ### Audio Models
 
@@ -55,19 +55,19 @@ DKMS 595.71.05 modules were rejected by Secure Boot. Fix: used pre-compiled obje
 
 | Model | Service Key | Input | Output | Status | Notes |
 |-------|------------|-------|--------|--------|-------|
-| Wan T2V 14B | `wan/t2v` | prompt | video/mp4 | FIX | Forge timeout increased to 1200s, need to verify ~6s clip inference |
+| Wan T2V 14B | `wan/t2v` | prompt | video/mp4 | FIX | Test timeout increased to 1200s, testing in progress |
 
 ### Image Models
 
 | Model | Service Key | Input | Output | Status | Notes |
 |-------|------------|-------|--------|--------|-------|
-| See-Through | `see_through/see-through` | anime_rgba_b64 | layers | FIX | Real anime image fixture added to conftest |
+| See-Through | `see_through/see-through` | anime_rgba_b64 | layers | SKIP | Model needs specific anime with clear layer structure; cv2 resize fails on test images |
 
 ### Multimodal Models
 
 | Model | Service Key | Input | Output | Status | Notes |
 |-------|------------|-------|--------|--------|-------|
-| Lance 3B AWQ | `lance/lance-image-awq` | prompt | image | FIX | Vendor repos cloned, weights on PVC at /mnt/data/models/lance/ |
+| Lance 3B AWQ | `lance/lance-image-awq` | prompt | image | SKIP | mRoPE requires transformers>=4.46; Docker image has incompatible version |
 
 ### Infrastructure
 
@@ -78,13 +78,14 @@ DKMS 595.71.05 modules were rejected by Secure Boot. Fix: used pre-compiled obje
 
 ## Known Issues & Fixes
 
-### Kimodo BFloat16 (FIX IN PROGRESS)
+### Kimodo BFloat16 (FIXED)
 
-**Problem:** LLM2VecEncoder (wrapping Llama-3-8B) is NOT an nn.Module. `model.half()` only converts nn.Module submodules, so the text encoder stays in bfloat16 while the denoiser becomes float16. This causes "unsupported ScalarType BFloat16" and dtype mismatch errors.
+**Problem:** Denoiser checkpoints store weights in bfloat16. Text encoder (LLM2VecEncoder, not nn.Module) runs bfloat16 on CPU. When text features move to GPU via `.to(device)`, bfloat16 hits float32 denoiser → dtype mismatch.
 
-**Fix:** Set `TEXT_ENCODER_DEVICE=cpu` before loading. Runs text encoder on CPU (~2-3GB RAM, no bfloat16 GPU issues), freeing ~14GB VRAM. Removed all `.half()` calls.
-
-**File:** `opt/wan2gp/models/kimodo/kimodo_handler.py`
+**Fix (3 parts, all in kimodo_handler.py):**
+1. `os.environ["TEXT_ENCODER_DEVICE"] = "cpu"` — runs LLM2VecEncoder on CPU, frees ~14GB VRAM
+2. `model.float()` after load — converts denoiser from bfloat16 to float32
+3. `torch.autocast("cuda", dtype=torch.float32)` during inference — auto-promotes any remaining bfloat16 tensors
 
 ### Wan T2V Timeout
 
