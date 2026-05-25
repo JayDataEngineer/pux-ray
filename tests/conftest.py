@@ -342,7 +342,10 @@ def real_audio_ref_b64() -> str:
 def real_anime_rgba_b64() -> str:
     """RGBA PNG base64 — anime-style image for See-Through layer decomposition."""
     _ensure_test_data()
-    path = DATA_DIR / "test_anime_proper.png"
+    # Prefer real downloaded anime image over synthetic one
+    path = DATA_DIR / "test_anime_rgba.png"
     if not path.exists():
-        pytest.skip("Proper anime test image not available")
+        path = DATA_DIR / "test_anime_proper.png"
+    if not path.exists():
+        pytest.skip("Anime test image not available")
     return base64.b64encode(path.read_bytes()).decode()

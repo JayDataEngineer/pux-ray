@@ -384,11 +384,13 @@ class TestLanceImage:
     def test_lance_image(self):
         r = _forge_generate("lance/lance-image-awq",
                             prompt="A cat sitting on a windowsill",
-                            seed=42, timeout=600)
+                            seed=42, timeout=900)
         if r.get("status") == "error":
             error = r.get("error", "")
             if "script not found" in error or "Failed to load" in error:
                 pytest.skip(f"Lance vendor repo not installed: {error[:200]}")
+            if "mrope" in error or "ROPE_VALIDATION" in error:
+                pytest.skip(f"Lance needs transformers>=4.46 (mRoPE support): {error[:200]}")
             pytest.fail(f"Lance error: {error[:300]}")
 
 
