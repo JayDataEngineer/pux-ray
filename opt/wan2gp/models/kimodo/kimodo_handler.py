@@ -80,6 +80,15 @@ class family_handler:
 
         logger.info("Kimodo: loading %s (%s, text_encoder=cpu)...", base_model_type, resolved)
         model = load_model(resolved, device="cuda")
+
+        # NVIDIA Kimodo checkpoints store denoiser weights in bfloat16.
+        # Inference inputs (noise, text features, diffusion buffers) are float32.
+        # PyTorch does not auto-promote dtypes in matmul/linear — it errors
+        # when float32 input hits bfloat16 weights. Convert the denoiser to
+        # float32 on GPU. LLM2VecEncoder (not nn.Module) is untouched — it
+        # stays bfloat16 on CPU via TEXT_ENCODER_DEVICE=cpu above.
+        model.float()
+
         model.eval()
 
         pipe = {}
@@ -151,7 +160,11 @@ class _Pipeline:
 
         gen_kwargs["progress_bar"] = lambda x: x
 
-        output = self._model(**gen_kwargs)
+        # Force all CUDA ops to float32. Text encoder outputs bfloat16 (CPU)
+        # which gets moved to GPU by kimodo_model.py:589 (.to(device)).
+        # Without autocast, float32 denoiser + bfloat16 input = dtype mismatch.
+        with torch.autocast("cuda", dtype=torch.float32, enabled=True):
+            output = self._model(**gen_kwargs)
 
         npz_buf = io.BytesIO()
         np_tensors = {}
