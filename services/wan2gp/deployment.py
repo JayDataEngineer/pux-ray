@@ -477,6 +477,13 @@ _WEIGHT_SEARCH = {
     "lance-video":     [("lance", "lance-video")],
     "lance-image-awq": [("lance", "lance-image-awq")],
     "lance-video-awq": [("lance", "lance-video-awq")],
+    # Kimodo models (auto-download from HuggingFace, needs HF_TOKEN for gated Llama)
+    "kimodo-soma-rp": [("motion", "kimodo-soma-rp")],
+    "kimodo-soma-seed": [("motion", "kimodo-soma-seed")],
+    "kimodo-g1-rp": [("motion", "kimodo-g1-rp")],
+    "kimodo-smplx-rp": [("motion", "kimodo-smplx-rp")],
+    # Pixal3D
+    "pixal3d": [("3d", "pixal3d")],
 }
 
 
@@ -1228,34 +1235,14 @@ class Wan2GPService:
         if offloadobj is not None:
             self._offload = offloadobj
 
-        # Trellis handler filters out image_cond (DinoV3FeatureExtractor
-        # is not nn.Module) and rembg (stays float32). The _Pipeline.m
-        # dict is missing image_cond, which generate() needs.
-        # Load it from the pipeline config and inject into the wrapper.
+        # Trellis: move image_cond (DinoV3FeatureExtractor) to CUDA.
+        # The handler passes it to _Pipeline separately (not via mmgp pipe),
+        # so we need to ensure GPU placement here.
         if base_model_type == "trellis" and hasattr(pipeline, "m"):
-            if "image_cond" not in pipeline.m:
-                try:
-                    from trellis2.modules.image_feature_extractor import DinoV3FeatureExtractor
-                    # Find pipeline.json to get model_name path
-                    model_root = Path(model_path) if model_path else Path("ckpts") / base_model_type
-                    pj = None
-                    for p in model_root.rglob("pipeline.json"):
-                        pj = p.parent
-                        break
-                    if pj is not None:
-                        with open(pj / "pipeline.json") as f:
-                            pconfig = json.load(f)
-                        ic = pconfig.get("args", {}).get("image_cond_model", {})
-                        model_name_rel = ic.get("args", {}).get("model_name", "")
-                        if model_name_rel:
-                            abs_model = (pj / model_name_rel).resolve()
-                            ic_model = DinoV3FeatureExtractor(model_name=str(abs_model))
-                            if torch.cuda.is_available():
-                                ic_model.to("cuda")
-                            pipeline.m["image_cond"] = ic_model
-                            logger.info("Injected image_cond into trellis pipeline from %s", abs_model)
-                except Exception as e:
-                    logger.warning("Failed to inject trellis image_cond: %s", e)
+            ic = pipeline.m.get("image_cond")
+            if ic is not None and torch.cuda.is_available():
+                ic.to("cuda")
+                logger.info("TRELLIS: moved image_cond (DINOv3) to CUDA")
 
         # Apply handler on_loaded hooks (attention patching, rembg setup, etc.)
         if meta and meta.get("hooks"):
@@ -1400,7 +1387,8 @@ class Wan2GPService:
         return {}, {}
 
     # Models whose handlers manage GPU memory internally (no mmgp needed)
-    _NO_MMGP_MODELS = {"pixal3d"}
+    _NO_MMGP_MODELS = {"pixal3d", "kimodo-soma-rp", "kimodo-soma-seed",
+                       "kimodo-g1-rp", "kimodo-smplx-rp"}
 
     @staticmethod
     def _apply_mmgp_profile(pipe: dict, co_tenants: dict, is_cpu: bool,
@@ -1432,7 +1420,7 @@ class Wan2GPService:
         # The handler's own normalization only converts fp32→bf16, preserving
         # fp16 weights correctly.
         target_dtype = torch.bfloat16
-        skip_dtype_norm = model_type in ("index_tts2", "trellis")
+        skip_dtype_norm = model_type in ("index_tts2", "trellis") or model_type.startswith("kimodo")
         logger.debug("MMGP skip_dtype_norm=%s model_type=%s", skip_dtype_norm, model_type)
         if skip_dtype_norm:
             for k, v in pipe.items():
@@ -1476,13 +1464,10 @@ class Wan2GPService:
             profile = MMGP_PROFILES["minimum"]
             budgets_override = {"*": 2000}
         elif model_type in ("see-through", "trellis"):
-            # See-through UNet has deeply nested internal parameters that
-            # mmgp's module-level swapping doesn't track (GroupEmbedding,
-            # timestep_embeddings, aug embeddings), causing cascading device
-            # mismatches with every mmgp profile.
-            # TRELLIS flow models produce near-zero latents under mmgp profile 5
-            # (async loading disrupts the multi-step Euler sampling), resulting
-            # in empty sparse structures. Both need all modules on GPU at once.
+            # See-through: mmgp causes cascading device mismatches in deeply
+            # nested UNet submodules.
+            # TRELLIS: ~14.4GB of weights (6 flow models + decoders).
+            # Both load all modules directly to CUDA.
             for v in pipe.values():
                 if isinstance(v, torch.nn.Module):
                     v.to("cuda")

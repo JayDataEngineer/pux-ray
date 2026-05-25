@@ -40,7 +40,20 @@ def pytest_configure(config):
 
 @pytest.fixture(autouse=True, scope="session")
 def _mock_ray_core():
-    """Mock Ray globally so no unit test hangs on cluster connection."""
+    """Mock Ray globally so no unit test hangs on cluster connection.
+
+    Skipped when FORGE_URL is set (live E2E tests) or ray isn't installed.
+    """
+    if os.environ.get("FORGE_URL"):
+        yield
+        return
+
+    try:
+        import ray  # noqa: F401
+    except ImportError:
+        yield
+        return
+
     mock_ray = MagicMock()
     mock_ray.get_actor.side_effect = ValueError("no cluster")
     mock_ray.available_resources.return_value = {"GPU": 1, "CPU": 8}
@@ -216,3 +229,65 @@ def pytest_collection_modifyitems(items):
         for item in items:
             if "gpu" in item.keywords:
                 item.add_marker(skip_gpu)
+
+
+# ─── Real test data fixtures (for E2E model tests) ──────────────────────────
+
+DATA_DIR = Path(__file__).parent / "data"
+
+
+def _ensure_test_data():
+    """Download/generate test data files if missing."""
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
+
+    img_path = DATA_DIR / "test_image.png"
+    if not img_path.exists():
+        import urllib.request
+        url = "https://upload.wikimedia.org/wikipedia/en/7/7d/Lenna_%28test_image%29.png"
+        urllib.request.urlretrieve(url, str(img_path))
+
+    img_rgba = DATA_DIR / "test_image_rgba.png"
+    if not img_rgba.exists() and img_path.exists():
+        from PIL import Image
+        import numpy as np
+        img = Image.open(img_path).convert("RGBA")
+        arr = np.array(img)
+        mask = (arr[:, :, 0] > 200) & (arr[:, :, 1] > 200) & (arr[:, :, 2] > 200)
+        arr[mask, 3] = 128
+        Image.fromarray(arr).save(str(img_rgba))
+
+    audio_path = DATA_DIR / "test_audio.wav"
+    if not audio_path.exists():
+        audio_path.write_bytes(_make_wav(duration_s=3.0, sample_rate=24000, freq=220))
+
+    ref_path = DATA_DIR / "test_audio_ref.wav"
+    if not ref_path.exists():
+        ref_path.write_bytes(_make_wav(duration_s=5.0, sample_rate=24000, freq=180))
+
+
+@pytest.fixture(scope="session")
+def real_image_b64() -> str:
+    """512x512 RGB PNG base64 — downloaded from CC0 source."""
+    _ensure_test_data()
+    return base64.b64encode((DATA_DIR / "test_image.png").read_bytes()).decode()
+
+
+@pytest.fixture(scope="session")
+def real_image_rgba_b64() -> str:
+    """512x512 RGBA PNG base64 — with alpha channel variation."""
+    _ensure_test_data()
+    return base64.b64encode((DATA_DIR / "test_image_rgba.png").read_bytes()).decode()
+
+
+@pytest.fixture(scope="session")
+def real_audio_b64() -> str:
+    """3s 24kHz WAV base64 — for audio-input models."""
+    _ensure_test_data()
+    return base64.b64encode((DATA_DIR / "test_audio.wav").read_bytes()).decode()
+
+
+@pytest.fixture(scope="session")
+def real_audio_ref_b64() -> str:
+    """5s 24kHz WAV base64 — reference voice for TTS cloning."""
+    _ensure_test_data()
+    return base64.b64encode((DATA_DIR / "test_audio_ref.wav").read_bytes()).decode()

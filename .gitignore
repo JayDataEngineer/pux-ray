@@ -12,6 +12,10 @@ build/
 .pytest_cache/
 .coverage
 htmlcov/
+tests/data/*.png
+tests/data/*.wav
+tests/data/*.mp3
+tests/data/*.mp4
 
 # Ray
 .ray_tmp/

@@ -219,13 +219,17 @@ class family_handler:
         # and bf16 normalization of the ss_flow_model produces near-zero
         # latent values. Keep everything in its native dtype and let the
         # deployment.py handle GPU placement (no mmgp for trellis).
+        # Capture non-Module callables before the nn.Module filter
+        image_cond = pipe.get('image_cond')
+        if image_cond is not None:
+            image_cond.model.eval()
+
         mmgp_pipe = {}
         for k, v in pipe.items():
+            if k in ("rembg", "image_cond"):
+                continue  # Non-Module callables, passed to _Pipeline separately
             if not isinstance(v, torch.nn.Module):
                 continue
-            if k == "rembg":
-                v.eval()
-                continue  # BiRefNet stays float32, outside pipe
             v.eval()
             mmgp_pipe[k] = v
 
@@ -237,13 +241,13 @@ class family_handler:
             "slat_flow_1024": ["tex_slat_flow_1024"],
         }
 
-        # Pass rembg separately — it stays float32, not managed by mmgp
         rembg_model = None
         if hasattr(pipeline, 'rembg_model') and pipeline.rembg_model is not None:
             rembg_model = pipeline.rembg_model
 
         pl = _Pipeline(
             modules=pipe,
+            image_cond=image_cond,
             samplers={
                 'ss': pipeline.sparse_structure_sampler,
                 'shape': pipeline.shape_slat_sampler,
@@ -270,8 +274,11 @@ class family_handler:
 
 
 class _Pipeline:
-    def __init__(self, modules, samplers, sampler_params, normalization, pbr_layout, device, rembg=None):
-        self.m = modules
+    def __init__(self, modules, samplers, sampler_params, normalization, pbr_layout,
+                 device, image_cond=None, rembg=None):
+        self.m = dict(modules)
+        if image_cond is not None:
+            self.m['image_cond'] = image_cond
         self.samplers = samplers
         self.sampler_params = sampler_params
         self.norm = normalization
@@ -308,7 +315,7 @@ class _Pipeline:
         img = self._preprocess_image(img)
 
         cond_512 = self._get_cond([img], 512)
-        cond_1024 = self._get_cond([img], 1024) if resolution != '512' else None
+        cond_1024 = self._get_cond([img], 1024)
 
         ss_res = {'512': 32, '1024': 64, '1024_cascade': 32, '1536_cascade': 32}[resolution]
         coords = self._sample_sparse_structure(cond_512, ss_res, steps, guidance)
@@ -415,8 +422,9 @@ class _Pipeline:
         noise = torch.randn(1, in_ch, reso, reso, reso, device=self.device)
 
         # Merge default sampler params (rescale_t, guidance_rescale, guidance_interval)
-        # with caller overrides
-        ss_params = dict(self.sampler_params.get('ss', {}))
+        # with caller overrides. Filter out None values — samplers expect typed defaults.
+        ss_params = {k: v for k, v in self.sampler_params.get('ss', {}).items()
+                     if v is not None}
         ss_params['steps'] = steps
         ss_params['guidance_strength'] = guidance
 
@@ -446,7 +454,7 @@ class _Pipeline:
             feats=torch.randn(coords.shape[0], flow_model.in_channels, device=self.device),
             coords=coords,
         )
-        shape_params = dict(self.sampler_params.get('shape', {}))
+        shape_params = {k: v for k, v in self.sampler_params.get('shape', {}).items() if v is not None}
         shape_params['steps'] = steps
         shape_params['guidance_strength'] = guidance
         slat = self.samplers['shape'].sample(
@@ -470,7 +478,7 @@ class _Pipeline:
             feats=torch.randn(coords.shape[0], lr_flow.in_channels, device=self.device),
             coords=coords,
         )
-        shape_params = dict(self.sampler_params.get('shape', {}))
+        shape_params = {k: v for k, v in self.sampler_params.get('shape', {}).items() if v is not None}
         shape_params['steps'] = steps
         shape_params['guidance_strength'] = guidance
         slat = self.samplers['shape'].sample(
@@ -529,7 +537,7 @@ class _Pipeline:
         noise = normed_slat.replace(
             feats=torch.randn(shape_slat.coords.shape[0], extra_ch, device=self.device))
 
-        tex_params = dict(self.sampler_params.get('tex', {}))
+        tex_params = {k: v for k, v in self.sampler_params.get('tex', {}).items() if v is not None}
         tex_params['steps'] = steps
         slat = self.samplers['tex'].sample(
             flow_model, noise,

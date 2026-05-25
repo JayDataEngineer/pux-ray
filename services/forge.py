@@ -25,6 +25,19 @@ from services.forge_persistence import Persistence
 
 logger = logging.getLogger(__name__)
 
+
+def _real_gpu_free_mb() -> int | None:
+    """Return actual free GPU memory in MB, or None if CUDA unavailable."""
+    try:
+        import torch
+        if torch.cuda.is_available():
+            total = torch.cuda.get_device_properties(0).total_memory / (1024 * 1024)
+            alloc = torch.cuda.memory_allocated(0) / (1024 * 1024)
+            return int(total - alloc)
+    except Exception:
+        pass
+    return None
+
 # ─── Constants ────────────────────────────────────────────────────────────────
 
 TOTAL_VRAM_MB = 24_576
@@ -128,9 +141,12 @@ class ForgeCore:
         estimate = self._estimate_vram(name)
         if estimate == 0:
             # Self-managed service (mmgp) — still needs GPU breathing room.
-            # If another service has most VRAM pinned, mmgp will thrash or OOM.
-            # Treat self-managed as fitting only if at least MIN_COFREE_MB is
-            # available (or nothing else is loaded).
+            # Check real GPU memory, not just our internal ledger, because
+            # subprocess services (LLM, ComfyUI) allocate outside PyTorch
+            # and our VRAM tracking may underestimate their usage.
+            real_free = _real_gpu_free_mb()
+            if real_free is not None and real_free < MIN_COFREE_MB:
+                return False
             if self._vram_allocations:
                 return self._vram_free_mb >= MIN_COFREE_MB
             return True
@@ -139,7 +155,12 @@ class ForgeCore:
     def _evict_for(self, name: str) -> list[str]:
         needed = self._estimate_vram(name)
         if needed == 0:
-            return []
+            # Self-managed: evict anything loaded to free real GPU memory
+            real_free = _real_gpu_free_mb()
+            if real_free is not None and real_free >= MIN_COFREE_MB:
+                return []
+            # Fall through to evict loaded services so real GPU memory is freed
+            needed = MIN_COFREE_MB
 
         evicted = []
         loaded_by_priority = sorted(
@@ -231,12 +252,13 @@ class ForgeCore:
 
     def _do_unload(self, name: str) -> None:
         svc = self._services.get(name)
+        before_gpu = _real_gpu_free_mb()
         if svc and self._loaded.get(name):
             svc.unload()
         self._loaded[name] = False
 
-        freed = self._vram_allocations.pop(name, 0)
-        self._vram_free_mb += freed
+        ledger_freed = self._vram_allocations.pop(name, 0)
+        self._vram_free_mb += ledger_freed
         gc.collect()
 
         try:
@@ -246,7 +268,18 @@ class ForgeCore:
         except ImportError:
             pass
 
-        logger.info("Forge: unloaded %s (freed %dMB, free=%dMB)", name, freed, self._vram_free_mb)
+        # Reconcile with real GPU memory — subprocess services (LLM, ComfyUI)
+        # allocate outside PyTorch so our ledger underestimates their usage.
+        after_gpu = _real_gpu_free_mb()
+        if before_gpu is not None and after_gpu is not None:
+            real_freed = after_gpu - before_gpu
+            if real_freed > ledger_freed:
+                diff = real_freed - ledger_freed
+                self._vram_free_mb += diff
+                logger.info("Forge: %s real GPU freed %dMB (ledger had %dMB, corrected +%dMB)",
+                            name, real_freed, ledger_freed, diff)
+
+        logger.info("Forge: unloaded %s (freed %dMB, free=%dMB)", name, ledger_freed, self._vram_free_mb)
 
     # ── Public API ────────────────────────────────────────────────────────────
 

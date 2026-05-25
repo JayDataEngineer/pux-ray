@@ -74,6 +74,12 @@ class family_handler:
 
         logger.info("Kimodo: loading %s (%s)...", base_model_type, resolved)
         model = load_model(resolved, device="cuda")
+
+        # Kimodo ships with bfloat16 weights. Convert to float16: same VRAM
+        # footprint (~16GB for Llama-3-8B text encoder) but avoids
+        # "unsupported ScalarType BFloat16" and dtype mismatch errors.
+        if isinstance(model, torch.nn.Module):
+            model.half()
         model.eval()
 
         pipe = {}
@@ -88,9 +94,7 @@ class family_handler:
 
         for v in pipe.values():
             if isinstance(v, torch.nn.Module):
-                dtypes = {p.dtype for p in v.parameters() if p is not None}
-                if torch.float32 in dtypes:
-                    v.to(torch.bfloat16)
+                v.half()
                 v.eval()
 
         pl = _Pipeline(model)
