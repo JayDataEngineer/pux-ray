@@ -1420,7 +1420,28 @@ class Wan2GPService:
         # The handler's own normalization only converts fp32→bf16, preserving
         # fp16 weights correctly.
         target_dtype = torch.bfloat16
-        skip_dtype_norm = model_type in ("index_tts2", "trellis") or model_type.startswith("kimodo")
+        # Check if any module has quantized (quanto) weights. These must not
+        # be dtype-normalized: converting INT8 QTensor._data to bfloat16
+        # dequantizes the weights and doubles model size (14GB→28GB).
+        has_quantized = False
+        for v in pipe.values():
+            if not isinstance(v, torch.nn.Module):
+                continue
+            for name, p in v.named_parameters():
+                if hasattr(p, '_data') and hasattr(p, '_scale'):
+                    has_quantized = True
+                    break
+                # Quanto stores weights with int8 dtype
+                if p.dtype == torch.int8:
+                    has_quantized = True
+                    break
+            if has_quantized:
+                break
+        skip_dtype_norm = (
+            model_type in ("index_tts2", "trellis")
+            or model_type.startswith("kimodo")
+            or has_quantized
+        )
         logger.debug("MMGP skip_dtype_norm=%s model_type=%s", skip_dtype_norm, model_type)
         if skip_dtype_norm:
             for k, v in pipe.items():
@@ -1460,7 +1481,17 @@ class Wan2GPService:
         # Exception: see_through needs profile 4 because profile 5 causes
         # cascading device mismatches in its deeply nested UNet submodules
         # (GroupEmbedding, timestep_encoder, etc.).
-        if n_modules > 4 and model_type not in ("see-through", "trellis"):
+        # Exception: wan/hunyuan video models with quantized weights (~7GB INT8
+        # transformer) fit entirely in VRAM on 24GB cards. Profile 5 with 2GB
+        # budget causes constant CPU↔GPU swapping and 20+ minute inference.
+        if model_type.startswith(("wan-", "wan_", "hunyuan")):
+            # Quantized video models: INT8 quanto weights, profile 4.
+            # Wan2GP's default profile 4 (LowRAM_LowVRAM) handles these
+            # correctly. Budgets follow Wan2GP's init_pipe() defaults.
+            profile = MMGP_PROFILES["low_vram"]
+            budgets_override = {"transformer": 100, "text_encoder": 100,
+                                "*": 3000}
+        elif n_modules > 4 and model_type not in ("see-through", "trellis"):
             profile = MMGP_PROFILES["minimum"]
             budgets_override = {"*": 2000}
         elif model_type in ("see-through", "trellis"):

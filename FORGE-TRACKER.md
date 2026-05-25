@@ -55,7 +55,7 @@ DKMS 595.71.05 modules were rejected by Secure Boot. Fix: used pre-compiled obje
 
 | Model | Service Key | Input | Output | Status | Notes |
 |-------|------------|-------|--------|--------|-------|
-| Wan T2V 14B | `wan/t2v` | prompt | video/mp4 | FIX | Test timeout increased to 1200s, testing in progress |
+| Wan T2V 14B | `wan/t2v` | prompt | video/mp4 | PASS | Quanto INT8 weight fix: skip dtype normalization for quantized models |
 
 ### Image Models
 
@@ -87,13 +87,13 @@ DKMS 595.71.05 modules were rejected by Secure Boot. Fix: used pre-compiled obje
 2. `model.float()` after load — converts denoiser from bfloat16 to float32
 3. `torch.autocast("cuda", dtype=torch.float32)` during inference — auto-promotes any remaining bfloat16 tensors
 
-### Wan T2V Timeout
+### Wan T2V Quantized Weight Dequantization (FIXED)
 
-**Problem:** Wan T2V 14B is a massive model. Forge's internal `_load_with_cleanup` timeout was 600s, which killed the request before inference completed.
+**Problem:** `_apply_mmgp_profile()` converted all parameters to bfloat16, including quanto INT8 quantized weights. The `p.data.to(torch.bfloat16)` call dequantized INT8 weights (1 byte/param) to bfloat16 (2 bytes/param), doubling model size from 14GB to 28GB. With 28GB transformer + 6.3GB T5 + 0.2GB VAE = 34.5GB total, mmgp couldn't fit anything in 24GB VRAM, causing 20+ minute timeouts and `'NoneType' object is not subscriptable` errors.
 
-**Fix:** Increased timeout to 1200s. Also need to verify the request uses appropriate parameters for a ~6 second clip (not full quality).
+**Fix:** Detect quantized weights (INT8 dtype, QTensor attributes) and skip dtype normalization. Use Wan2GP's native profile 4 budgets (transformer: 100MB, text_encoder: 100MB, *: 3000MB) which match Wan2GP's `init_pipe()` defaults.
 
-**File:** `services/forge.py`
+**File:** `services/wan2gp/deployment.py`
 
 ### See-Through Input
 

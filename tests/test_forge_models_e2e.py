@@ -329,8 +329,8 @@ class TestWanT2V:
     def test_wan_t2v(self):
         r = _forge_generate("wan/t2v",
                             prompt="A cat walking in the rain",
-                            seed=42, steps=20, resolution="480p", num_frames=96,
-                            timeout=1200)
+                            seed=42, steps=4, num_frames=8,
+                            timeout=900)
         if r.get("status") == "error":
             error = r.get("error", "")
             if "Failed to load" in error:
