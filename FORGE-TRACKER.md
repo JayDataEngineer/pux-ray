@@ -4,18 +4,11 @@ Real-time status of every model on the Forge (RTX 4090, 24GB VRAM).
 
 Last updated: 2026-05-25
 
-## BLOCKED: GPU Driver — Secure Boot
+## RESOLVED: GPU Driver — Secure Boot (2026-05-25)
 
-NVIDIA kernel module (595.71.05, DKMS) is signed with local MOK key but the key isn't enrolled in UEFI. `modprobe nvidia` fails with "Key was rejected by service".
+DKMS 595.71.05 modules were rejected by Secure Boot. Fix: used pre-compiled objects from `linux-objects-nvidia-595` package + Canonical signatures from `linux-signatures-nvidia-595` package. Build script at `/lib/modules/$(uname -r)/kernel/nvidia-595/bits/BUILD` links objects and appends Canonical signature. Result: 595.71.05 module signed by "Canonical Ltd. Kernel Module Signing" — Secure Boot accepts it.
 
-**Fix applied:** MOK key enrolled via `mokutil --import`, DKMS modules rebuilt and signed. Needs reboot to complete enrollment.
-
-**Steps at reboot:**
-1. Blue shim screen appears — select "Enroll MOK"
-2. Select "Continue"
-3. Enter password: `forgemok`
-4. Select "Yes" to reboot
-5. After boot: `nvidia-smi` should work, GPU worker schedules, Forge starts
+**Note:** DKMS `nvidia-dkms-595` package will overwrite these on kernel updates. May need to re-run the build script or hold the package.
 
 ## Status Legend
 
