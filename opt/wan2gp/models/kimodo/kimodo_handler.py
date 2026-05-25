@@ -70,16 +70,16 @@ class family_handler:
         if resolved is None:
             raise ValueError(f"Unknown Kimodo variant: {base_model_type}")
 
+        # Run text encoder (Llama-3-8B via LLM2VecEncoder) on CPU.
+        # LLM2VecEncoder is NOT an nn.Module so .half() doesn't convert it,
+        # leaving it in bfloat16 which causes dtype mismatch errors on RTX 4090.
+        # CPU avoids the dtype issue entirely and frees ~14GB VRAM.
+        os.environ["TEXT_ENCODER_DEVICE"] = "cpu"
+
         from kimodo import load_model
 
-        logger.info("Kimodo: loading %s (%s)...", base_model_type, resolved)
+        logger.info("Kimodo: loading %s (%s, text_encoder=cpu)...", base_model_type, resolved)
         model = load_model(resolved, device="cuda")
-
-        # Kimodo ships with bfloat16 weights. Convert to float16: same VRAM
-        # footprint (~16GB for Llama-3-8B text encoder) but avoids
-        # "unsupported ScalarType BFloat16" and dtype mismatch errors.
-        if isinstance(model, torch.nn.Module):
-            model.half()
         model.eval()
 
         pipe = {}
@@ -94,7 +94,6 @@ class family_handler:
 
         for v in pipe.values():
             if isinstance(v, torch.nn.Module):
-                v.half()
                 v.eval()
 
         pl = _Pipeline(model)

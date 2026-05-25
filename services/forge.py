@@ -289,7 +289,7 @@ class ForgeCore:
         try:
             await asyncio.wait_for(
                 asyncio.to_thread(self._do_load, service, model, quant, payload),
-                timeout=600,
+                timeout=1200,
             )
         except Exception:
             self._cleanup_stale_allocations()

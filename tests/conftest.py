@@ -264,6 +264,51 @@ def _ensure_test_data():
     if not ref_path.exists():
         ref_path.write_bytes(_make_wav(duration_s=5.0, sample_rate=24000, freq=180))
 
+    anime_path = DATA_DIR / "test_anime_rgba.png"
+    if not anime_path.exists():
+        # Try to download first
+        try:
+            import urllib.request
+            url = ("https://external-content.duckduckgo.com/iu/?u=https%3A%2F%2Fi.pinimg.com"
+                   "%2Foriginals%2Fd0%2F75%2F68%2Fd075682f84b04e3ba5990262c29b9bf5.jpg"
+                   "&f=1&nofb=1")
+            raw, _ = urllib.request.urlretrieve(url, str(DATA_DIR / "test_anime_raw.jpg"))
+            from PIL import Image
+            img = Image.open(raw).convert("RGBA")
+            img.save(str(anime_path), format="PNG")
+        except Exception:
+            pass
+
+    # Create proper anime test image with transparency if it doesn't exist
+    proper_anime_path = DATA_DIR / "test_anime_proper.png"
+    if not proper_anime_path.exists():
+        try:
+            from PIL import Image, ImageDraw
+            # Create a proper anime-style test image
+            size = (512, 512)
+            img = Image.new('RGBA', size, (0, 0, 0, 0))  # Transparent background
+            draw = ImageDraw.Draw(img)
+
+            # Draw anime-style character (simplified)
+            # Hair
+            draw.ellipse([150, 100, 250, 200], fill=(255, 192, 203))  # Pink hair
+            draw.ellipse([120, 120, 180, 180], fill=(255, 255, 255))  # Highlight
+
+            # Face
+            draw.ellipse([150, 180, 250, 280], fill=(255, 220, 177))  # Face
+
+            # Eyes
+            draw.ellipse([170, 200, 190, 210], fill=(0, 0, 0))  # Left eye
+            draw.ellipse([210, 200, 230, 210], fill=(0, 0, 0))  # Right eye
+
+            # Body
+            draw.rectangle([100, 300, 300, 450], fill=(100, 149, 237))  # Blue shirt
+
+            # Save with transparency
+            img.save(str(proper_anime_path))
+        except Exception as e:
+            print(f"Could not create proper anime image: {e}")
+
 
 @pytest.fixture(scope="session")
 def real_image_b64() -> str:
@@ -291,3 +336,13 @@ def real_audio_ref_b64() -> str:
     """5s 24kHz WAV base64 — reference voice for TTS cloning."""
     _ensure_test_data()
     return base64.b64encode((DATA_DIR / "test_audio_ref.wav").read_bytes()).decode()
+
+
+@pytest.fixture(scope="session")
+def real_anime_rgba_b64() -> str:
+    """RGBA PNG base64 — anime-style image for See-Through layer decomposition."""
+    _ensure_test_data()
+    path = DATA_DIR / "test_anime_proper.png"
+    if not path.exists():
+        pytest.skip("Proper anime test image not available")
+    return base64.b64encode(path.read_bytes()).decode()

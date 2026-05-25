@@ -329,13 +329,14 @@ class TestWanT2V:
     def test_wan_t2v(self):
         r = _forge_generate("wan/t2v",
                             prompt="A cat walking in the rain",
-                            seed=42, steps=20, timeout=2400)
+                            seed=42, steps=20, resolution="480p", num_frames=96,
+                            timeout=600)
         if r.get("status") == "error":
             error = r.get("error", "")
             if "Failed to load" in error:
                 pytest.skip(f"wan/t2v load failed: {error[:200]}")
-            if r.get("http_code") == 500:
-                pytest.skip("wan/t2v generation timed out (Forge 600s limit, model needs ~30min)")
+            if "No such file" in error or "weights" in error:
+                pytest.skip(f"wan/t2v weights missing: {error[:200]}")
             pytest.fail(f"wan_t2v error: {error[:300]}")
         _assert_success(r, "wan_t2v", min_data_bytes=10_000)
 
@@ -353,9 +354,9 @@ class TestSeeThrough:
 
     @pytest.mark.gpu
     @pytest.mark.slow
-    def test_see_through(self, real_image_rgba_b64):
+    def test_see_through(self, real_anime_rgba_b64):
         r = _forge_generate("see_through/see-through",
-                            image_b64=real_image_rgba_b64,
+                            image_b64=real_anime_rgba_b64,
                             seed=42, timeout=600)
         # See-through may fail on non-anime images — that's expected
         if r.get("status") == "error":
@@ -430,8 +431,6 @@ class TestKimodoSOMA:
                 pytest.skip(f"Kimodo needs HF_TOKEN for gated Llama: {error[:200]}")
             if "Failed to load" in error:
                 pytest.skip(f"Model load failed: {error[:200]}")
-            if "BFloat16" in error or "ScalarType" in error or "HTTP 500" in error or "HTTP 502" in error:
-                pytest.skip(f"Kimodo BFloat16 dtype issue (needs vendor patch): {error[:200]}")
             pytest.fail(f"Kimodo SOMA error: {error[:300]}")
         _assert_success(r, "kimodo_soma", min_data_bytes=100)
 
@@ -456,8 +455,6 @@ class TestKimodoG1:
                 pytest.skip(f"Kimodo needs HF_TOKEN: {error[:200]}")
             if "Failed to load" in error:
                 pytest.skip(f"Model load failed: {error[:200]}")
-            if "BFloat16" in error or "ScalarType" in error or "HTTP 500" in error or "HTTP 502" in error:
-                pytest.skip(f"Kimodo BFloat16 dtype issue (needs vendor patch): {error[:200]}")
             pytest.fail(f"Kimodo G1 error: {error[:300]}")
         _assert_success(r, "kimodo_g1", min_data_bytes=100)
 
