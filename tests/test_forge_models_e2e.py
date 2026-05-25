@@ -30,7 +30,7 @@ from urllib.error import HTTPError, URLError
 import pytest
 
 FORGE_URL = os.environ.get("FORGE_URL", "http://100.86.69.57:30080")
-DEFAULT_TIMEOUT = 600  # 10 minutes for heavy GPU models
+DEFAULT_TIMEOUT = 900  # 15 minutes for heavy GPU models (load + inference)
 
 
 # ─── Helpers ────────────────────────────────────────────────────────────────
@@ -330,7 +330,7 @@ class TestWanT2V:
         r = _forge_generate("wan/t2v",
                             prompt="A cat walking in the rain",
                             seed=42, steps=20, resolution="480p", num_frames=96,
-                            timeout=600)
+                            timeout=1200)
         if r.get("status") == "error":
             error = r.get("error", "")
             if "Failed to load" in error:
@@ -424,7 +424,7 @@ class TestKimodoSOMA:
     def test_kimodo_soma_rp(self):
         r = _forge_generate("kimodo/kimodo-soma-rp",
                             prompt="A person waving their right hand",
-                            seed=42, timeout=600)
+                            seed=42, timeout=900)
         if r.get("status") == "error":
             error = r.get("error", "")
             if "HF_TOKEN" in error:
@@ -448,7 +448,7 @@ class TestKimodoG1:
     def test_kimodo_g1_rp(self):
         r = _forge_generate("kimodo/kimodo-g1-rp",
                             prompt="A robot walking forward",
-                            seed=42, timeout=600)
+                            seed=42, timeout=900)
         if r.get("status") == "error":
             error = r.get("error", "")
             if "HF_TOKEN" in error:
