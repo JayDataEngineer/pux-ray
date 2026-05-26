@@ -699,7 +699,11 @@ class Wan2GPService:
             finally:
                 os.chdir(_prev_cwd)
 
-            if is_native:
+            # Some model types are defined in Wan2GP's models_def but have
+            # broken or circular URL definitions. Force these through the
+            # custom _load_model path which uses our own handler logic.
+            _FORCE_CUSTOM = {"trellis"}
+            if is_native and model_type not in _FORCE_CUSTOM:
                 self._load_native(model_name, model_type)
             else:
                 self._load_model(model_name, entry, quant=quant)
@@ -801,9 +805,12 @@ class Wan2GPService:
         # be /opt/wan2gp. Change CWD, import, then restore.
         _prev_cwd = os.getcwd()
         os.chdir("/opt/wan2gp")
+        _saved_argv = list(sys.argv)
+        sys.argv = ["wan2gp.py"]
         try:
             import wgp
         finally:
+            sys.argv[:] = _saved_argv
             os.chdir(_prev_cwd)
 
         from shared.utils import files_locator as fl
@@ -873,9 +880,27 @@ class Wan2GPService:
         """
         self._init_wan2gp()
 
+        # Redirect HF cache to writable /tmp if the models PVC is read-only.
+        # Wan2GP's download_models() uses hf_hub_download with local_dir
+        # pointing under /models, which is read-only on K3s.
+        _ensure_writable_hf_cache()
+
         # Some handlers write runtime configs to the model directory.
         # If the PVC is read-only, create a writable overlay in /tmp.
         self._ensure_writable_overlay(model_type)
+
+        # Patch Wan2GP's download root to /tmp when the models dir is read-only.
+        # hf_hub_download creates .cache/huggingface in local_dir which fails
+        # on read-only PVCs.
+        from shared.utils import files_locator as _fl
+        _orig_get_smart_download_root = _fl.get_smart_download_root
+        if _fl._checkpoints_paths and not os.access(_fl._checkpoints_paths[0], os.W_OK):
+            def _patched_get_smart_download_root(force_path=None, _orig=_orig_get_smart_download_root):
+                result = _orig(force_path)
+                if result and not os.access(result, os.W_OK):
+                    return "/tmp"
+                return result
+            _fl.get_smart_download_root = _patched_get_smart_download_root
 
         # wgp.py expects CWD to be /opt/wan2gp for relative paths like
         # models/_settings.json and ckpts/
@@ -884,7 +909,19 @@ class Wan2GPService:
         try:
             import wgp
             wgp.release_model()
-            wan_model, offloadobj = wgp.load_models(model_type, override_profile=4)
+
+            # Some Wan2GP modules (e.g. openvoice_app.py in index_tts2) call
+            # argparse.ArgumentParser.parse_args() at module import time
+            # without args=, so they read sys.argv. In the Ray worker process,
+            # sys.argv contains Ray args (--node-ip-address etc.) which argparse
+            # rejects with sys.exit(2). Temporarily replace sys.argv with a
+            # safe value during model loading to prevent this crash.
+            _saved_argv = list(sys.argv)
+            sys.argv = ["wan2gp.py"]
+            try:
+                wan_model, offloadobj = wgp.load_models(model_type, override_profile=4)
+            finally:
+                sys.argv[:] = _saved_argv
             self._offload = offloadobj
             self._models[model_name] = {
                 "model": wan_model,
@@ -949,7 +986,7 @@ class Wan2GPService:
 
     # Aliases: map model.generate() parameter names to our API payload keys
     _PARAM_ALIASES = {
-        "input_prompt": "prompt",
+        "input_prompt": ["prompt", "text"],
         "text": "prompt",
         "sampling_steps": "steps",
         "guide_scale": "guidance_scale",
@@ -978,18 +1015,38 @@ class Wan2GPService:
             _moff.shared_state["_attention"] = "sdpa"
 
         sig = inspect.signature(model.generate)
+        param_names = set(sig.parameters)
         kwargs = {}
 
+        # Base64 → file/object conversions for native models.
+        # Wan2GP generate() expects file paths or PIL images, not base64.
+        if "audio_guide" in param_names and "audio_b64" in payload:
+            kwargs["audio_guide"] = self._decode_audio_b64(payload["audio_b64"])
+        if "image_start" in param_names and "image_b64" in payload:
+            kwargs["image_start"] = self._decode_image_b64(payload["image_b64"])
+        if "image_end" in param_names and "image_end_b64" in payload:
+            kwargs["image_end"] = self._decode_image_b64(payload["image_end_b64"])
+
         for name, param in sig.parameters.items():
+            if name in kwargs:
+                continue
             # 1. Direct match in payload
             if name in payload:
                 kwargs[name] = payload[name]
                 continue
-            # 2. Alias match
+            # 2. Alias match (single key or list of alternatives)
             alias = self._PARAM_ALIASES.get(name)
-            if alias and alias in payload:
-                kwargs[name] = payload[alias]
-                continue
+            if alias:
+                if isinstance(alias, str) and alias in payload:
+                    kwargs[name] = payload[alias]
+                    continue
+                elif isinstance(alias, list):
+                    for alt in alias:
+                        if alt in payload:
+                            kwargs[name] = payload[alt]
+                            break
+                    if name in kwargs:
+                        continue
             # 3. Defaults
             if name in defaults:
                 kwargs[name] = defaults[name]
@@ -1008,6 +1065,21 @@ class Wan2GPService:
             model._interrupt = False
         result = model.generate(**kwargs)
         return self._encode_output(result, payload, defaults)
+
+    @staticmethod
+    def _decode_audio_b64(audio_b64: str) -> str:
+        import tempfile
+        raw = base64.b64decode(audio_b64)
+        tmp = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
+        tmp.write(raw)
+        tmp.close()
+        return tmp.name
+
+    @staticmethod
+    def _decode_image_b64(image_b64: str):
+        from PIL import Image
+        import io
+        return Image.open(io.BytesIO(base64.b64decode(image_b64))).convert("RGB")
 
     # ── Inference ─────────────────────────────────────────────────────────
 
@@ -2184,20 +2256,34 @@ class Wan2GPService:
         if isinstance(output, dict):
             frames_tensor = output.get("x")
             audio = output.get("audio")
+            sr = output.get("audio_sampling_rate", 24000)
         elif isinstance(output, torch.Tensor):
             frames_tensor = output
             audio = None
+            sr = 24000
         else:
             frames_tensor = output
             audio = None
+            sr = 24000
 
-        # Detect audio output: "audio" key explicitly, or "x" tensor with audio-like shape
-        # (batch, channels, samples) where samples >> channels — e.g. (1, 2, 960000)
+        # Detect audio output:
+        # 1. Explicit "audio" key
+        # 2. Output dict has "audio_sampling_rate" → audio even if key is "x"
+        # 3. Tensor with audio-like shape (1D mono, or 2D/3D with channels<=2, samples>>1000)
         is_audio = False
         if audio is not None:
             is_audio = True
+        elif isinstance(output, dict) and "audio_sampling_rate" in output:
+            if frames_tensor is not None and isinstance(frames_tensor, torch.Tensor):
+                audio = frames_tensor
+                frames_tensor = None
+                is_audio = True
         elif frames_tensor is not None and isinstance(frames_tensor, torch.Tensor):
-            if frames_tensor.ndim == 3 and frames_tensor.shape[0] <= 2 and frames_tensor.shape[1] <= 2 and frames_tensor.shape[2] > 1000:
+            if frames_tensor.ndim == 1 and frames_tensor.shape[0] > 1000:
+                audio = frames_tensor
+                frames_tensor = None
+                is_audio = True
+            elif frames_tensor.ndim == 3 and frames_tensor.shape[0] <= 2 and frames_tensor.shape[1] <= 2 and frames_tensor.shape[2] > 1000:
                 audio = frames_tensor
                 frames_tensor = None
                 is_audio = True
@@ -2205,6 +2291,11 @@ class Wan2GPService:
                 audio = frames_tensor
                 frames_tensor = None
                 is_audio = True
+
+        logger.info("Wan2GP _encode_output: frames_tensor=%s audio=%s is_audio=%s",
+                     frames_tensor.shape if isinstance(frames_tensor, torch.Tensor) else type(frames_tensor),
+                     audio.shape if isinstance(audio, torch.Tensor) else type(audio) if audio is not None else None,
+                     is_audio)
 
         # Audio-first: if the model returned audio, that's the primary output
         if audio is not None:
@@ -2214,10 +2305,11 @@ class Wan2GPService:
                 audio_np = audio_np.squeeze(0)  # remove batch dim
             if audio_np.ndim == 1:
                 audio_np = audio_np[np.newaxis, :]  # (1, samples) → mono
-            sr = int(payload.get("sample_rate",
-                        output.get("audio_sampling_rate",
-                        defaults.get("sample_rate", 24000))) if isinstance(output, dict)
-                        else defaults.get("sample_rate", 24000))
+            sr = int(sr if sr != 24000 else
+                     payload.get("sample_rate",
+                         output.get("audio_sampling_rate",
+                         defaults.get("sample_rate", 24000))) if isinstance(output, dict)
+                         else defaults.get("sample_rate", 24000))
             import soundfile as sf
             import io as audio_io
             audio_buf = audio_io.BytesIO()
