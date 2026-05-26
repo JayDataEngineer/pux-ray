@@ -561,15 +561,28 @@ class Wan2GPService:
     # Our custom handlers that don't go through Wan2GP's native pipeline.
     # Everything else uses wgp.load_models() + wan_model.generate().
     _CUSTOM_HANDLERS = frozenset({
+        # TTS / ASR
         "models.kokoro.kokoro_handler",
         "models.espeak.espeak_handler",
         "models.faster_whisper.faster_whisper_handler",
         "models.faster_qwen3_tts.faster_qwen3_tts_handler",
         "models.vibevoice_asr.vibevoice_asr_handler",
+        "models.vibevoice_tts.vibevoice_tts_handler",
+        "models.TTS.ace_step_handler",
+        "models.TTS.index_tts2_handler",
+        "models.TTS.omnivoice_handler",
+        # GPU creative
+        "models.trellis.trellis_handler",
         "models.anigen.anigen_handler",
         "models.see_through.see_through_handler",
         "models.hy_motion.hy_motion_handler",
         "models.pixal3d.pixal3d_handler",
+        "models.moss.moss_handler",
+        "models.moss.moss_nano_handler",
+        "models.moss.moss_realtime_handler",
+        "models.kimodo.kimodo_handler",
+        "models.lance.lance_handler",
+        "models.hidream.hidream_handler",
     })
 
     # Aliases that _resolve_model can't figure out on its own:
