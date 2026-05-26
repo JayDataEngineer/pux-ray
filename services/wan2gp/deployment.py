@@ -688,25 +688,28 @@ class Wan2GPService:
 
         try:
             model_type = entry.get("model_type", model_name)
-            # Route: if Wan2GP knows this model_type, use native pipeline.
-            # Otherwise fall back to our custom _load_model path.
-            self._init_wan2gp()
-            _prev_cwd = os.getcwd()
-            os.chdir("/opt/wan2gp")
-            try:
-                import wgp
-                is_native = model_type in wgp.models_def
-            finally:
-                os.chdir(_prev_cwd)
+            handler_path = entry.get("handler_path", "")
+            is_custom = handler_path in CUSTOM_HANDLERS
 
-            # Some model types are defined in Wan2GP's models_def but have
-            # broken or circular URL definitions. Force these through the
-            # custom _load_model path which uses our own handler logic.
-            _FORCE_CUSTOM = {"trellis"}
-            if is_native and model_type not in _FORCE_CUSTOM:
-                self._load_native(model_name, model_type)
-            else:
+            if is_custom:
+                # Custom handlers have their own load_model(), mmgp profiles,
+                # and inference logic. Never route through native pipeline.
                 self._load_model(model_name, entry, quant=quant)
+            else:
+                # Vendor models: use Wan2GP's native load_models() pipeline.
+                self._init_wan2gp()
+                _prev_cwd = os.getcwd()
+                os.chdir("/opt/wan2gp")
+                try:
+                    import wgp
+                    is_native = model_type in wgp.models_def
+                finally:
+                    os.chdir(_prev_cwd)
+
+                if is_native:
+                    self._load_native(model_name, model_type)
+                else:
+                    self._load_model(model_name, entry, quant=quant)
         except Exception as e:
             err_msg = str(e) or repr(e) or type(e).__name__
             logger.error("Failed to load model %s: %s", model_name, err_msg, exc_info=True)
@@ -836,10 +839,10 @@ class Wan2GPService:
                 "enable_4k_resolutions": 0,
                 "max_reserved_loras": -1,
                 "vae_config": 0,
-                "profile": 4,
-                "video_profile": 4,
-                "image_profile": 4,
-                "audio_profile": 3.5,
+                "profile": 2,
+                "video_profile": 2,
+                "image_profile": 2,
+                "audio_profile": 2,
                 "preload_model_policy": [],
                 "UI_theme": "default",
                 "checkpoints_paths": checkpoints,
@@ -919,7 +922,7 @@ class Wan2GPService:
             _saved_argv = list(sys.argv)
             sys.argv = ["wan2gp.py"]
             try:
-                wan_model, offloadobj = wgp.load_models(model_type, override_profile=4)
+                wan_model, offloadobj = wgp.load_models(model_type)
             finally:
                 sys.argv[:] = _saved_argv
             self._offload = offloadobj
@@ -1084,13 +1087,6 @@ class Wan2GPService:
     # ── Inference ─────────────────────────────────────────────────────────
 
     def infer(self, payload: dict) -> dict:
-        # Ensure default device is CUDA for inference — model loading sets it
-        # to CPU (torch.set_default_device("cpu")) and the reset in
-        # _load_model's finally block may not take effect if the load path
-        # exits early or the process was forked after the load.
-        if torch.cuda.is_available():
-            torch.set_default_device("cuda")
-
         model_key = payload.get("model") or payload.get("model_type") or self._loaded_model or self.default_model
 
         if model_key != self._loaded_model:
@@ -1099,6 +1095,13 @@ class Wan2GPService:
             except Exception as e:
                 self._loaded_model = None
                 return {"status": "error", "error": str(e)}
+
+        # Custom (non-native) models need set_default_device("cuda") because
+        # they bypass Wan2GP's mmgp device management. Native models handle
+        # device placement internally via the offloadobj — setting this would
+        # cause "weights on cpu, input on cuda" mismatches.
+        if torch.cuda.is_available() and not self._native_loaded:
+            torch.set_default_device("cuda")
 
         entry = self._registry.get(self._loaded_model)
         if entry is None:
@@ -1114,10 +1117,11 @@ class Wan2GPService:
             info = m.get("info", entry)
             defaults = info.get("defaults", {})
 
-            # Native Wan2GP pipeline: call WanAny2V.generate() directly
+            # Native Wan2GP pipeline: call model.generate() directly.
+            # Wan2GP handles device placement (via offloadobj) and dtype
+            # internally — do NOT wrap with autocast or set_default_device.
             if self._native_loaded:
-                with torch.amp.autocast("cuda", dtype=torch.bfloat16):
-                    gen = self._infer_native(model, payload, defaults)
+                gen = self._infer_native(model, payload, defaults)
                 gen["model"] = self._loaded_model
                 return gen
 
