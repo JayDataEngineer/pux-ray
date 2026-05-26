@@ -342,6 +342,7 @@ def discover_models(models_root: Path | None = None) -> dict:
                     "model_type": model_type,
                     "base_model_type": model_type,
                     "defaults": {},
+                    "native": handler_path not in Wan2GPService._CUSTOM_HANDLERS,
                 }
 
                 if weight_path:
@@ -557,16 +558,18 @@ class Wan2GPService:
     service_name = "wan2gp"
     default_model = "wan/t2v_1.3B"
 
-    # Model types loaded via Wan2GP's native load_models() pipeline.
-    # These use wgp.load_models() which handles file resolution, text encoder
-    # loading, mmgp profiling, and dtype management automatically.
-    _NATIVE_TYPES = frozenset({
-        "t2v", "t2v_1.3B", "t2v_2_2", "i2v", "i2v-14B",
-        "hunyuan_1_5_t2v", "vace_1.3B", "phantom_1.3B",
-        "fun_inp_1.3B", "recam_1.3B", "sky_df_1.3B",
-        "standin", "lynx", "lynx_lite",
-        "k5_lite_t2v", "k5_pro_t2v",
-        "df", "sky_df",
+    # Our custom handlers that don't go through Wan2GP's native pipeline.
+    # Everything else uses wgp.load_models() + wan_model.generate().
+    _CUSTOM_HANDLERS = frozenset({
+        "models.kokoro.kokoro_handler",
+        "models.espeak.espeak_handler",
+        "models.faster_whisper.faster_whisper_handler",
+        "models.faster_qwen3_tts.faster_qwen3_tts_handler",
+        "models.vibevoice_asr.vibevoice_asr_handler",
+        "models.anigen.anigen_handler",
+        "models.see_through.see_through_handler",
+        "models.hy_motion.hy_motion_handler",
+        "models.pixal3d.pixal3d_handler",
     })
 
     # Aliases that _resolve_model can't figure out on its own:
@@ -691,7 +694,7 @@ class Wan2GPService:
 
         try:
             model_type = entry.get("model_type", model_name)
-            if model_type in self._NATIVE_TYPES:
+            if entry.get("native", True):
                 self._load_native(model_name, model_type)
             else:
                 self._load_model(model_name, entry, quant=quant)
