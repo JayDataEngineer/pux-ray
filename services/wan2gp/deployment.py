@@ -319,6 +319,10 @@ def discover_models(models_root: Path | None = None) -> dict:
     registry = ModelRegistry()
     _ensure_vendor_path()
 
+    # Initialize wgp globals so handlers that reference wgp.get_lora_root()
+    # during query_supported_types() don't crash on None server_config.
+    Wan2GPService._init_wan2gp()
+
     discovered = {}
 
     # Wan2GP's family_handlers list (from wgp.py, includes our additions)
