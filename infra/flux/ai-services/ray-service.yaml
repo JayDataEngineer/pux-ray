@@ -106,7 +106,6 @@ spec:
                   subPath: local.yaml
                 - name: models
                   mountPath: /models
-                  readOnly: true
                 - name: src
                   mountPath: /app/services
                   subPath: services
@@ -139,7 +138,6 @@ spec:
             - name: models
               persistentVolumeClaim:
                 claimName: models-pvc
-                readOnly: true
             - name: src
               hostPath:
                 path: /home/user/Documents/programs/ray
@@ -242,7 +240,6 @@ spec:
                     subPath: local.yaml
                   - name: models
                     mountPath: /models
-                    readOnly: true
                   - name: src
                     mountPath: /app/services
                     subPath: services
