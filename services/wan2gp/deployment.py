@@ -911,7 +911,34 @@ class Wan2GPService:
         os.chdir("/opt/wan2gp")
         try:
             import wgp
+            from mmgp import offload as _moff
+
+            # Remove mmgp hooks from the previous native model's modules.
+            # release_model() nullifies the offloadobj but leaves forward hooks
+            # attached to nn.Modules. When the next model loads, these stale
+            # hooks still reference the released offloadobj (self.models=None),
+            # causing TypeError on any forward pass.
+            if self._offload is not None:
+                try:
+                    self._offload.unload_all()
+                except Exception:
+                    pass
+            for m_entry in self._models.values():
+                _model = m_entry.get("model")
+                if _model is not None:
+                    for _mod in _model.modules():
+                        if hasattr(_mod, '_mm_lora_old_forward'):
+                            _mod.forward = _mod._mm_lora_old_forward
+                            del _mod._mm_lora_old_forward
+                        if hasattr(_mod, '_mm_forward'):
+                            del _mod._mm_forward
+
             wgp.release_model()
+
+            # Purge all mmgp state between model switches.
+            _moff.shared_state.pop("_cache", None)
+            _moff.last_offload_obj = None
+            gc.collect()
 
             # Some Wan2GP modules (e.g. openvoice_app.py in index_tts2) call
             # argparse.ArgumentParser.parse_args() at module import time
