@@ -456,6 +456,7 @@ _WEIGHT_SEARCH = {
     "vibevoice-asr": [("asr", "vibevoice-asr")],
     # Wan2GP vendor models — registry keys use versioned names
     "t2v":           [("wan2gp", "wan-t2v-14B")],
+    "t2v_1.3B":      [("wan2gp", "wan-t2v-1.3B")],
     "i2v":           [("wan2gp", "wan-i2v-14B")],
     "t2v_2_2":       [("wan2gp", "wan-t2v-14B")],
     "i2v_2_2":       [("wan2gp", "wan-i2v-14B")],
@@ -520,6 +521,13 @@ def _find_weights(model_type: str, handler_path: str, registry, models_root: Pat
     if _has_weights(fallback):
         return fallback
 
+    # Fallback: models_root/wan2gp/wan/<model_type> (wan family models
+    # stored under wan/ subdirectory with hyphenated names)
+    for wan_name in [model_type.replace("_", "-"), model_key_safe]:
+        wan_fallback = models_root / "wan2gp" / "wan" / wan_name
+        if _has_weights(wan_fallback):
+            return wan_fallback
+
     # Fallback: ckpts/ (writable, used for auto-downloaded vendor models)
     ckpts = Path("ckpts").resolve()
     if (ckpts / f"{model_type}.safetensors").is_file() or \
@@ -547,14 +555,28 @@ class Wan2GPService:
     """Standalone Wan2GP service — unified model discovery via family_handlers."""
 
     service_name = "wan2gp"
-    default_model = "wan/t2v"
+    default_model = "wan/t2v_1.3B"
+
+    # Model types loaded via Wan2GP's native load_models() pipeline.
+    # These use wgp.load_models() which handles file resolution, text encoder
+    # loading, mmgp profiling, and dtype management automatically.
+    _NATIVE_TYPES = frozenset({
+        "t2v", "t2v_1.3B", "t2v_2_2", "i2v", "i2v-14B",
+        "hunyuan_1_5_t2v", "vace_1.3B", "phantom_1.3B",
+        "fun_inp_1.3B", "recam_1.3B", "sky_df_1.3B",
+        "standin", "lynx", "lynx_lite",
+        "k5_lite_t2v", "k5_pro_t2v",
+        "df", "sky_df",
+    })
 
     # Aliases that _resolve_model can't figure out on its own:
     # - Cross-family names (ace_step lives under tts/, not ace_step/)
     # - Version downgrades (heavy → lite variants)
+    # - "wan/t2v" resolves to 14B (exact registry match), use "wan/t2v-lite"
+    #   or "wan/t2v_1.3B" for the distilled 1.3B model.
     _ALIASES = {
-        "wan/t2v-14B": "wan/t2v",
         "wan/i2v-14B": "wan/i2v",
+        "wan/t2v-lite": "wan/t2v_1.3B",
         "hy_motion/hy-motion-1.0": "hy_motion/hy-motion-1.0-lite",
         "ace_step": "tts/ace_step_v1_5",
         "index_tts2": "tts/index_tts2",
@@ -567,6 +589,7 @@ class Wan2GPService:
         self._loaded_model: str | None = None
         self._models: dict[str, dict] = {}
         self._vendor_ready = False
+        self._native_loaded = False  # True if model loaded via wgp.load_models()
 
     # ── Discovery API ─────────────────────────────────────────────────────
 
@@ -667,7 +690,11 @@ class Wan2GPService:
                 )
 
         try:
-            self._load_model(model_name, entry, quant=quant)
+            model_type = entry.get("model_type", model_name)
+            if model_type in self._NATIVE_TYPES:
+                self._load_native(model_name, model_type)
+            else:
+                self._load_model(model_name, entry, quant=quant)
         except Exception as e:
             err_msg = str(e) or repr(e) or type(e).__name__
             logger.error("Failed to load model %s: %s", model_name, err_msg, exc_info=True)
@@ -720,6 +747,7 @@ class Wan2GPService:
                             pass
         self._models.clear()
         self._loaded_model = None
+        self._native_loaded = False
 
         # Clear mmgp shared state caches + flush torch caches
         # (mirrors wgp.py release_model exactly)
@@ -737,6 +765,169 @@ class Wan2GPService:
         _gc.collect()
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
+
+    # ── Native Wan2GP Pipeline ────────────────────────────────────────────
+
+    @staticmethod
+    def _ensure_wgp_path():
+        if "/opt/wan2gp" not in sys.path:
+            sys.path.insert(0, "/opt/wan2gp")
+
+    _wgp_initialized = False
+
+    @staticmethod
+    def _init_wan2gp():
+        """Initialize Wan2GP's module-level globals for native load_models().
+
+        Idempotent — safe to call multiple times. Sets up:
+        - server_config (checkpoints_paths, quantization, profiles)
+        - files_locator (model search paths)
+        - model_types_handlers + models_def (handler ↔ model mapping)
+        """
+        if Wan2GPService._wgp_initialized:
+            return
+        Wan2GPService._ensure_wgp_path()
+
+        # wgp.py opens models/_settings.json at import time, so CWD must
+        # be /opt/wan2gp. Change CWD, import, then restore.
+        _prev_cwd = os.getcwd()
+        os.chdir("/opt/wan2gp")
+        try:
+            import wgp
+        finally:
+            os.chdir(_prev_cwd)
+
+        from shared.utils import files_locator as fl
+        from registry.config import Config
+
+        models_root = Path(Config().models_root)
+        checkpoints = [str(models_root / "wan2gp"), str(models_root)]
+
+        if not wgp.server_config:
+            wgp.server_config = {
+                "attention_mode": "auto",
+                "transformer_types": [],
+                "transformer_quantization": "int8",
+                "text_encoder_quantization": "int8",
+                "lm_decoder_engine": "",
+                "save_path": "outputs",
+                "image_save_path": "outputs",
+                "compile": "",
+                "boost": 1,
+                "enable_int8_kernels": 1,
+                "clear_file_list": 5,
+                "keep_intermediate_sliding_windows": 1,
+                "enable_4k_resolutions": 0,
+                "max_reserved_loras": -1,
+                "vae_config": 0,
+                "profile": 4,
+                "video_profile": 4,
+                "image_profile": 4,
+                "audio_profile": 3.5,
+                "preload_model_policy": [],
+                "UI_theme": "default",
+                "checkpoints_paths": checkpoints,
+                "loras_root": "loras",
+                "save_queue_if_crash": 1,
+                "queue_color_scheme": "pastel",
+                "process_queues_when_browser_unfocused": 1,
+                "model_hierarchy_type": 1,
+                "mmaudio_mode": 0,
+                "mmaudio_persistence": 1,
+                "flashvsr_mode": 0,
+                "flashvsr_persistence": 1,
+                "flashvsr_topk_ratio": 0.0,
+                "rife_version": "v4",
+                "metadata_type": "metadata",
+                "mixed_precision": "0",
+            }
+        else:
+            existing = wgp.server_config.get("checkpoints_paths", [])
+            for cp in checkpoints:
+                if cp not in existing:
+                    existing.append(cp)
+            wgp.server_config["checkpoints_paths"] = existing
+
+        fl.set_checkpoints_paths(wgp.server_config["checkpoints_paths"])
+
+        if not wgp.model_types_handlers:
+            wgp.refresh_model_defs()
+            wgp.map_family_handlers()
+
+        Wan2GPService._wgp_initialized = True
+
+    def _load_native(self, model_name: str, model_type: str):
+        """Load via Wan2GP's native load_models() pipeline.
+
+        Handles file resolution, T5/VAE/text encoder loading, mmgp profiling,
+        and dtype management automatically — no manual path resolution needed.
+        """
+        self._init_wan2gp()
+
+        # wgp.py expects CWD to be /opt/wan2gp for relative paths like
+        # models/_settings.json and ckpts/
+        _prev_cwd = os.getcwd()
+        os.chdir("/opt/wan2gp")
+        try:
+            import wgp
+            wgp.release_model()
+            wan_model, offloadobj = wgp.load_models(model_type, override_profile=4)
+            self._offload = offloadobj
+            self._models[model_name] = {
+                "model": wan_model,
+                "info": {
+                    "base_model_type": wgp.get_base_model_type(model_type),
+                    "defaults": self._native_defaults(model_type),
+                },
+            }
+            self._native_loaded = True
+            vram = torch.cuda.memory_allocated(0) / (1024 ** 2) if torch.cuda.is_available() else 0
+            logger.info("Wan2GP native: loaded %s (VRAM=%.0fMB)", model_type, vram)
+        finally:
+            os.chdir(_prev_cwd)
+
+    @staticmethod
+    def _native_defaults(model_type: str) -> dict:
+        """Default inference params for native Wan models."""
+        return {
+            "sampling_steps": 30 if "_1.3B" not in model_type else 20,
+            "guide_scale": 5.0,
+            "shift": 5.0,
+            "frame_num": 81,
+            "width": 1280,
+            "height": 720,
+            "fps": 16,
+            "sample_solver": "unipc",
+        }
+
+    def _infer_native(self, model, payload: dict, defaults: dict) -> dict:
+        """Inference via WanAny2V.generate() directly."""
+        if not hasattr(model, '_interrupt'):
+            model._interrupt = False
+        from mmgp import offload as _moff
+        if "_attention" not in _moff.shared_state:
+            _moff.shared_state["_attention"] = "sdpa"
+        video = model.generate(
+            input_prompt=payload.get("prompt", ""),
+            seed=int(payload.get("seed", -1)),
+            sampling_steps=int(payload.get("steps",
+                       payload.get("sampling_steps",
+                       defaults.get("sampling_steps", 30)))),
+            guide_scale=float(payload.get("guidance_scale",
+                         defaults.get("guide_scale", 5.0))),
+            shift=float(payload.get("flow_shift",
+                    defaults.get("shift", 5.0))),
+            frame_num=int(payload.get("num_frames",
+                       defaults.get("frame_num", 81))),
+            width=int(payload.get("width",
+                    defaults.get("width", 1280))),
+            height=int(payload.get("height",
+                     defaults.get("height", 720))),
+            offloadobj=self._offload,
+            loras_slists={"phase1": [], "phase2": [], "phase3": []},
+            callback=lambda *a, **kw: None,
+        )
+        return self._encode_output(video, payload, defaults)
 
     # ── Inference ─────────────────────────────────────────────────────────
 
@@ -770,6 +961,13 @@ class Wan2GPService:
             model = m["model"]
             info = m.get("info", entry)
             defaults = info.get("defaults", {})
+
+            # Native Wan2GP pipeline: call WanAny2V.generate() directly
+            if self._native_loaded:
+                with torch.amp.autocast("cuda", dtype=torch.bfloat16):
+                    gen = self._infer_native(model, payload, defaults)
+                gen["model"] = self._loaded_model
+                return gen
 
             kwargs = _build_generate_kwargs(payload, defaults)
 
@@ -992,6 +1190,10 @@ class Wan2GPService:
         # handler's query_model_files. Also run when model_path exists because
         # some handlers need auxiliary files (e.g. index_tts2 semantic_codec)
         # that aren't in the local weights directory.
+        # If model_path is None (weights not on disk), create the target
+        # directory so the download has somewhere to go.
+        if model_path is None:
+            model_path = self._ensure_download_dir(model_type, model_registry, cfg)
         self._ensure_vendor_files(handler, base_model_type, model_def={}, model_path=model_path)
         if model_path is None:
             # Re-resolve after download
@@ -1075,15 +1277,27 @@ class Wan2GPService:
         # Resolve text encoder filename for vendor models that need it
         # (e.g., Wan's T5 encoder, Flux's text encoder)
         text_encoder_path = None
+        # Search paths: model dir first, then sibling dirs for shared files
+        # (e.g., wan/t2v-1.3B shares T5/VAE with wan/t2v-14B)
+        _search_dirs = []
         if model_path and model_path.is_dir():
-            for f in sorted(model_path.iterdir()):
+            _search_dirs.append(model_path)
+            if model_path.parent.is_dir():
+                _search_dirs.append(model_path.parent)
+                for sibling in sorted(model_path.parent.iterdir()):
+                    if sibling.is_dir() and sibling != model_path:
+                        _search_dirs.append(sibling)
+        for search_dir in _search_dirs:
+            if text_encoder_path and text_encoder_path.endswith(".safetensors"):
+                break
+            for f in sorted(search_dir.iterdir()):
                 if f.suffix in (".safetensors", ".pth", ".pt"):
                     name_lower = f.name.lower()
                     if ("t5" in name_lower or "umt5" in name_lower
                             or "text_encoder" in name_lower):
-                        # Prefer safetensors over pth to avoid format mismatch
                         if f.suffix == ".safetensors":
                             text_encoder_path = str(f)
+                            break
                         elif text_encoder_path is None:
                             text_encoder_path = str(f)
 
@@ -1267,6 +1481,16 @@ class Wan2GPService:
             "info": entry,
             "loaded_at": time.time(),
         }
+
+    def _ensure_download_dir(self, model_type: str, registry, cfg) -> Path | None:
+        """Create a writable download directory for a model with no local weights.
+
+        PVC (/models) may be read-only. Use ckpts/ (writable working dir)
+        as the download target for vendor models that auto-download.
+        """
+        ckpts_base = Path("ckpts").resolve()
+        ckpts_base.mkdir(parents=True, exist_ok=True)
+        return ckpts_base
 
     def _ensure_vendor_files(self, handler, base_model_type: str,
                               model_def: dict, model_path: Path | None = None) -> None:
@@ -1484,13 +1708,25 @@ class Wan2GPService:
         # Exception: wan/hunyuan video models with quantized weights (~7GB INT8
         # transformer) fit entirely in VRAM on 24GB cards. Profile 5 with 2GB
         # budget causes constant CPU↔GPU swapping and 20+ minute inference.
-        if model_type.startswith(("wan-", "wan_", "hunyuan")):
-            # Quantized video models: INT8 quanto weights, profile 4.
-            # Wan2GP's default profile 4 (LowRAM_LowVRAM) handles these
-            # correctly. Budgets follow Wan2GP's init_pipe() defaults.
+        # Wan/Hunyuan video models: use Wan2GP's native profile 4 defaults.
+        # Profile 4 (LowRAM_LowVRAM) handles quantized 14B models well.
+        # Distilled 1.3B models get larger budgets to minimize CPU↔GPU swapping.
+        _is_wan_video = (model_type.startswith(("wan-", "wan_", "hunyuan"))
+                         or model_type in ("t2v", "t2v_1.3B", "t2v_2_2",
+                                           "i2v-14B", "i2v", "vace_1.3B",
+                                           "phantom_1.3B", "fun_inp_1.3B",
+                                           "recam_1.3B", "sky_df_1.3B"))
+        if _is_wan_video:
             profile = MMGP_PROFILES["low_vram"]
-            budgets_override = {"transformer": 100, "text_encoder": 100,
-                                "*": 3000}
+            if "_1.3B" in model_type:
+                # 1.3B distilled model: ~2.4GB transformer + ~6GB shared deps.
+                # Generous budgets keep everything on GPU for fast generation.
+                budgets_override = {"transformer": 3000, "text_encoder": 3000,
+                                    "*": 3000}
+            else:
+                # Larger models: Wan2GP's default profile 4 budgets
+                budgets_override = {"transformer": 100, "text_encoder": 100,
+                                    "*": 3000}
         elif n_modules > 4 and model_type not in ("see-through", "trellis"):
             profile = MMGP_PROFILES["minimum"]
             budgets_override = {"*": 2000}
@@ -1575,6 +1811,11 @@ class Wan2GPService:
                              registry, cfg) -> Path | None:
         model_type = entry.get("model_type", model_name)
 
+        # Fast path: use weight_path already resolved by discover_models()
+        wp = entry.get("weight_path")
+        if wp and Path(wp).is_dir():
+            return Path(wp)
+
         # Try wan2gp registry section first
         model_key_safe = model_name.replace("/", "-")
         try:
@@ -1597,6 +1838,13 @@ class Wan2GPService:
         fallback = Path(cfg.models_root) / "wan2gp" / model_type
         if fallback.is_dir():
             return fallback
+
+        # Wan family: models stored under wan/ subdirectory with hyphenated names
+        model_key_safe = model_type.replace("/", "-").replace(".", "-")
+        for wan_name in [model_type.replace("_", "-"), model_key_safe]:
+            wan_fallback = Path(cfg.models_root) / "wan2gp" / "wan" / wan_name
+            if wan_fallback.is_dir() and any(wan_fallback.glob("*.safetensors")):
+                return wan_fallback
 
         # Fallback: ckpts/ (writable, for auto-downloaded vendor models)
         ckpts = Path("ckpts").resolve()

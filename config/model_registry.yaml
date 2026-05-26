@@ -1321,6 +1321,15 @@ wan2gp:
     vram_estimate_gb: 14.0
     device: gpu
     description: Wan2.1 Text-to-Video 14B — mmgp-managed. Manual download of main model + text encoder + VAE.
+  wan-t2v-1.3B:
+    path: wan2gp/wan/t2v-1.3B/
+    source: hf://DeepBeepMeep/Wan2.1
+    download: manual
+    sha256: null
+    size_gb: 2.4
+    vram_estimate_gb: 2.5
+    device: gpu
+    description: Wan2.1 Text-to-Video 1.3B (distilled) — fast generation, fits entirely in VRAM.
   wan-i2v-14B:
     path: wan2gp/wan/i2v-14B/
     source: hf://DeepBeepMeep/Wan2.1

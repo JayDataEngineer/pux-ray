@@ -316,7 +316,33 @@ class TestIndexTTS2:
 
 
 class TestWanT2V:
-    """Wan T2V 14B — text-to-video (slow, ~30 min)."""
+    """Wan T2V 1.3B — text-to-video (distilled, fast)."""
+
+    @pytest.fixture(autouse=True)
+    def cleanup(self):
+        yield
+        _release()
+
+    @pytest.mark.gpu
+    def test_wan_t2v(self):
+        r = _forge_generate("wan/t2v_1.3B",
+                            prompt="A cat walking in the rain",
+                            seed=42, timeout=600)
+        if r.get("status") == "error":
+            error = r.get("error", "")
+            if "Failed to load" in error:
+                pytest.skip(f"wan/t2v_1.3B load failed: {error[:200]}")
+            if "No such file" in error or "weights" in error:
+                pytest.skip(f"wan/t2v_1.3B weights missing: {error[:200]}")
+            pytest.fail(f"wan_t2v error: {error[:300]}")
+        _assert_success(r, "wan_t2v", min_data_bytes=10_000)
+
+
+# ─── Image Models ───────────────────────────────────────────────────────────
+
+
+class TestWanT2V14B:
+    """Wan T2V 14B — text-to-video (heavy, ~7 min on 24GB)."""
 
     @pytest.fixture(autouse=True)
     def cleanup(self):
@@ -326,7 +352,7 @@ class TestWanT2V:
     @pytest.mark.gpu
     @pytest.mark.slow
     @pytest.mark.autoregressive
-    def test_wan_t2v(self):
+    def test_wan_t2v_14b(self):
         r = _forge_generate("wan/t2v",
                             prompt="A cat walking in the rain",
                             seed=42, steps=4, num_frames=8,
@@ -334,14 +360,9 @@ class TestWanT2V:
         if r.get("status") == "error":
             error = r.get("error", "")
             if "Failed to load" in error:
-                pytest.skip(f"wan/t2v load failed: {error[:200]}")
-            if "No such file" in error or "weights" in error:
-                pytest.skip(f"wan/t2v weights missing: {error[:200]}")
-            pytest.fail(f"wan_t2v error: {error[:300]}")
-        _assert_success(r, "wan_t2v", min_data_bytes=10_000)
-
-
-# ─── Image Models ───────────────────────────────────────────────────────────
+                pytest.skip(f"wan/t2v 14B load failed: {error[:200]}")
+            pytest.fail(f"wan_t2v_14b error: {error[:300]}")
+        _assert_success(r, "wan_t2v_14b", min_data_bytes=10_000)
 
 
 class TestSeeThrough:
