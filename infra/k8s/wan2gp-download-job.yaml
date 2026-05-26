@@ -1,0 +1,62 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: wan2gp-model-download
+  namespace: ai-services
+  labels:
+    app: wan2gp-download
+spec:
+  backoffLimit: 3
+  ttlSecondsAfterFinished: 86400  # auto-cleanup after 24h
+  template:
+    metadata:
+      labels:
+        app: wan2gp-download
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: downloader
+          image: forge-reg.local:30500/tech-noir/gpu-all:latest
+          imagePullPolicy: IfNotPresent
+          command: ["python3", "/tmp/download_wan2gp_defaults.py"]
+          env:
+            - name: HF_HOME
+              value: /tmp/huggingface
+            - name: HF_HUB_CACHE
+              value: /tmp/huggingface/hub
+            - name: TECH_NOIR_MODELS_ROOT
+              value: /models
+            - name: HF_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: shared-infra
+                  key: HF_TOKEN
+                  optional: true
+          volumeMounts:
+            - name: models
+              mountPath: /models
+            - name: src
+              mountPath: /opt/wan2gp
+              subPath: opt/wan2gp
+            - name: download-script
+              mountPath: /tmp/download_wan2gp_defaults.py
+              subPath: download_wan2gp_defaults.py
+          resources:
+            limits:
+              cpu: "4"
+              memory: 16Gi
+            requests:
+              cpu: "2"
+              memory: 4Gi
+      volumes:
+        - name: models
+          persistentVolumeClaim:
+            claimName: models-pvc
+        - name: src
+          hostPath:
+            path: /home/user/Documents/programs/ray
+            type: Directory
+        - name: download-script
+          hostPath:
+            path: /home/user/Documents/programs/ray/scripts/download_wan2gp_defaults.py
+            type: File

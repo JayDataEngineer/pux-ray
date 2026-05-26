@@ -150,28 +150,16 @@ tasks:
       - "{{.VENV_PYTHON}} -m registry.cli models pull {{.CLI_ARGS}}"
 
   models:pull:wan2gp:
-    desc: "Pre-download ALL default Wan2GP models (runs in forge pod, writes to PVC)"
+    desc: "Pre-download ALL default Wan2GP models via K8s Job (writes to PVC)"
     cmds:
       - |
-        POD=$(kubectl get pods -n ai-services \
-          --selector=ray.io/node-type=worker \
-          -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)
-        if [ -z "$POD" ]; then
-          echo "ERROR: No GPU worker pod found in ai-services namespace"
-          echo "  Is the Ray cluster running? Run: task boot"
-          exit 1
-        fi
-        echo "Copying download script to $POD ..."
-        kubectl cp scripts/download_wan2gp_defaults.py \
-          "ai-services/$POD:/tmp/download_wan2gp_defaults.py"
-        echo "Running downloader inside pod ..."
-        echo "(Downloads all ~97 Wan2GP model types to /models/wan2gp/ on PVC.)"
-        kubectl exec -n ai-services "$POD" -- \
-          python3 /tmp/download_wan2gp_defaults.py 2>&1
+        echo "Launching Wan2GP model download Job ..."
+        kubectl delete job wan2gp-model-download -n ai-services --ignore-not-found
+        kubectl apply -f infra/k8s/wan2gp-download-job.yaml
         echo ""
-        echo "Cleaning up ..."
-        kubectl exec -n ai-services "$POD" -- \
-          rm -f /tmp/download_wan2gp_defaults.py
+        echo "Job started. Watch progress:"
+        echo "  kubectl logs -n ai-services -l app=wan2gp-download -f"
+        echo "  kubectl wait --for=condition=complete job/wan2gp-model-download -n ai-services --timeout=86400s"
 
   models:verify:
     desc: "Verify all models exist and have correct size"
