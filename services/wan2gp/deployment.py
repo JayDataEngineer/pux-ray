@@ -161,6 +161,11 @@ def _ensure_transformers_compat():
     if not hasattr(_gcu, "QUANT_BACKEND_CLASSES_MAPPING"):
         _gcu.QUANT_BACKEND_CLASSES_MAPPING = {}
 
+    # QuantizedCacheConfig was removed in transformers 4.57+
+    import transformers.cache_utils as _cu
+    if not hasattr(_cu, "QuantizedCacheConfig"):
+        _cu.QuantizedCacheConfig = type("QuantizedCacheConfig", (), {})
+
 
 def _ensure_writable_hf_cache():
     """Redirect HF cache env vars and torch hub to /tmp if the PVC is read-only."""
@@ -785,6 +790,7 @@ class Wan2GPService:
         """
         if Wan2GPService._wgp_initialized:
             return
+        _ensure_transformers_compat()
         Wan2GPService._ensure_wgp_path()
 
         # wgp.py opens models/_settings.json at import time, so CWD must
@@ -863,6 +869,10 @@ class Wan2GPService:
         """
         self._init_wan2gp()
 
+        # Some handlers write runtime configs to the model directory.
+        # If the PVC is read-only, create a writable overlay in /tmp.
+        self._ensure_writable_overlay(model_type)
+
         # wgp.py expects CWD to be /opt/wan2gp for relative paths like
         # models/_settings.json and ckpts/
         _prev_cwd = os.getcwd()
@@ -885,6 +895,40 @@ class Wan2GPService:
         finally:
             os.chdir(_prev_cwd)
 
+    def _ensure_writable_overlay(self, model_type: str):
+        """Create writable /tmp overlay if model dir is on read-only PVC."""
+        from shared.utils import files_locator as fl
+        import functools, shutil, tempfile
+
+        # Check all possible folder names Wan2GP might use
+        base_model_type = model_type.split("_")[0] if "_" in model_type else model_type
+        for folder_name in [model_type, base_model_type]:
+            model_dir = fl.locate_folder(folder_name, error_if_none=False)
+            if not model_dir or not os.path.isdir(model_dir):
+                continue
+            if os.access(model_dir, os.W_OK):
+                continue
+
+            overlay = Path(tempfile.gettempdir()) / "wan2gp_overlay" / folder_name
+            if not overlay.exists():
+                shutil.copytree(
+                    model_dir, overlay, symlinks=True,
+                    copy_function=lambda src, dst: Path(dst).symlink_to(src)
+                    if Path(src).is_file() else shutil.copy2(src, dst),
+                    dirs_exist_ok=True,
+                )
+            # Ensure configs/ dir is writable (handlers write runtime configs)
+            (overlay / "configs").mkdir(parents=True, exist_ok=True)
+
+            # Patch locate_folder to redirect to overlay
+            _orig = fl.locate_folder
+            @functools.wraps(_orig)
+            def _patched(fn, _name=folder_name, _ov=str(overlay), **kw):
+                if fn == _name:
+                    return _ov
+                return _orig(fn, **kw)
+            fl.locate_folder = _patched
+
     @staticmethod
     def _native_defaults(model_type: str) -> dict:
         """Default inference params for native Wan models."""
@@ -899,34 +943,67 @@ class Wan2GPService:
             "sample_solver": "unipc",
         }
 
+    # Aliases: map model.generate() parameter names to our API payload keys
+    _PARAM_ALIASES = {
+        "input_prompt": "prompt",
+        "text": "prompt",
+        "sampling_steps": "steps",
+        "guide_scale": "guidance_scale",
+        "frame_num": "num_frames",
+    }
+
+    # Universal defaults for common generate() parameters
+    _GENERATE_DEFAULTS = {
+        "offloadobj": None,
+        "loras_slists": {"phase1": [], "phase2": [], "phase3": []},
+        "callback": lambda *a, **kw: None,
+        "model_mode": 0,
+        "audio_guide": None,
+    }
+
     def _infer_native(self, model, payload: dict, defaults: dict) -> dict:
-        """Inference via WanAny2V.generate() directly."""
-        if not hasattr(model, '_interrupt'):
-            model._interrupt = False
+        """Inference via model.generate() with automatic parameter matching.
+
+        Inspects the model's generate() signature and maps our payload
+        to its expected parameters. Works for ALL Wan2GP model families
+        without per-model code.
+        """
+        import inspect
         from mmgp import offload as _moff
         if "_attention" not in _moff.shared_state:
             _moff.shared_state["_attention"] = "sdpa"
-        video = model.generate(
-            input_prompt=payload.get("prompt", ""),
-            seed=int(payload.get("seed", -1)),
-            sampling_steps=int(payload.get("steps",
-                       payload.get("sampling_steps",
-                       defaults.get("sampling_steps", 30)))),
-            guide_scale=float(payload.get("guidance_scale",
-                         defaults.get("guide_scale", 5.0))),
-            shift=float(payload.get("flow_shift",
-                    defaults.get("shift", 5.0))),
-            frame_num=int(payload.get("num_frames",
-                       defaults.get("frame_num", 81))),
-            width=int(payload.get("width",
-                    defaults.get("width", 1280))),
-            height=int(payload.get("height",
-                     defaults.get("height", 720))),
-            offloadobj=self._offload,
-            loras_slists={"phase1": [], "phase2": [], "phase3": []},
-            callback=lambda *a, **kw: None,
-        )
-        return self._encode_output(video, payload, defaults)
+
+        sig = inspect.signature(model.generate)
+        kwargs = {}
+
+        for name, param in sig.parameters.items():
+            # 1. Direct match in payload
+            if name in payload:
+                kwargs[name] = payload[name]
+                continue
+            # 2. Alias match
+            alias = self._PARAM_ALIASES.get(name)
+            if alias and alias in payload:
+                kwargs[name] = payload[alias]
+                continue
+            # 3. Defaults
+            if name in defaults:
+                kwargs[name] = defaults[name]
+                continue
+            # 4. Universal defaults
+            if name in self._GENERATE_DEFAULTS:
+                kwargs[name] = self._GENERATE_DEFAULTS[name]
+                if name == "offloadobj":
+                    kwargs[name] = self._offload
+                continue
+            # 5. Parameter's own default
+            if param.default != inspect.Parameter.empty:
+                continue
+
+        if not hasattr(model, '_interrupt'):
+            model._interrupt = False
+        result = model.generate(**kwargs)
+        return self._encode_output(result, payload, defaults)
 
     # ── Inference ─────────────────────────────────────────────────────────
 
