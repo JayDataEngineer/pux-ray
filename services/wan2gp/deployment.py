@@ -342,7 +342,6 @@ def discover_models(models_root: Path | None = None) -> dict:
                     "model_type": model_type,
                     "base_model_type": model_type,
                     "defaults": {},
-                    "native": handler_path not in Wan2GPService._CUSTOM_HANDLERS,
                 }
 
                 if weight_path:
@@ -558,33 +557,6 @@ class Wan2GPService:
     service_name = "wan2gp"
     default_model = "wan/t2v_1.3B"
 
-    # Our custom handlers that don't go through Wan2GP's native pipeline.
-    # Everything else uses wgp.load_models() + wan_model.generate().
-    _CUSTOM_HANDLERS = frozenset({
-        # TTS / ASR
-        "models.kokoro.kokoro_handler",
-        "models.espeak.espeak_handler",
-        "models.faster_whisper.faster_whisper_handler",
-        "models.faster_qwen3_tts.faster_qwen3_tts_handler",
-        "models.vibevoice_asr.vibevoice_asr_handler",
-        "models.vibevoice_tts.vibevoice_tts_handler",
-        "models.TTS.ace_step_handler",
-        "models.TTS.index_tts2_handler",
-        "models.TTS.omnivoice_handler",
-        # GPU creative
-        "models.trellis.trellis_handler",
-        "models.anigen.anigen_handler",
-        "models.see_through.see_through_handler",
-        "models.hy_motion.hy_motion_handler",
-        "models.pixal3d.pixal3d_handler",
-        "models.moss.moss_handler",
-        "models.moss.moss_nano_handler",
-        "models.moss.moss_realtime_handler",
-        "models.kimodo.kimodo_handler",
-        "models.lance.lance_handler",
-        "models.hidream.hidream_handler",
-    })
-
     # Aliases that _resolve_model can't figure out on its own:
     # - Cross-family names (ace_step lives under tts/, not ace_step/)
     # - Version downgrades (heavy → lite variants)
@@ -707,7 +679,18 @@ class Wan2GPService:
 
         try:
             model_type = entry.get("model_type", model_name)
-            if entry.get("native", True):
+            # Route: if Wan2GP knows this model_type, use native pipeline.
+            # Otherwise fall back to our custom _load_model path.
+            self._init_wan2gp()
+            _prev_cwd = os.getcwd()
+            os.chdir("/opt/wan2gp")
+            try:
+                import wgp
+                is_native = model_type in wgp.models_def
+            finally:
+                os.chdir(_prev_cwd)
+
+            if is_native:
                 self._load_native(model_name, model_type)
             else:
                 self._load_model(model_name, entry, quant=quant)
@@ -2177,25 +2160,22 @@ class Wan2GPService:
         if frames_np.dtype != np.uint8:
             frames_np = ((frames_np * 0.5 + 0.5).clip(0, 1) * 255).astype(np.uint8)
 
-        # Wan models output (C, F, H, W) — transpose to (F, H, W, C)
+        # Wan2GP native models always output (C, F, H, W).
+        # Transpose to (F, H, W, C) for encoding.
         if frames_np.ndim == 4:
-            if frames_np.shape[0] in (1, 3, 4) and frames_np.shape[1] > 4:
-                logger.info("Wan2GP: transpose CFHW→FHWC")
-                frames_np = frames_np.transpose(1, 2, 3, 0)  # (F, H, W, C)
-            elif frames_np.shape[3] not in (1, 3, 4):
-                logger.info("Wan2GP: transpose FCHW→FHWC")
-                frames_np = frames_np.transpose(0, 2, 3, 1)  # (F, H, W, C)
+            frames_np = frames_np.transpose(1, 2, 3, 0)
         elif frames_np.ndim == 3 and frames_np.shape[0] in (1, 3, 4):
-            logger.info("Wan2GP: transpose CHW→HWC")
-            frames_np = frames_np.transpose(1, 2, 0)     # (H, W, C)
+            frames_np = frames_np.transpose(1, 2, 0)
         logger.info("Wan2GP: final shape=%s dtype=%s", frames_np.shape, frames_np.dtype)
 
+        is_video = frames_np.ndim == 4 and frames_np.shape[0] > 1
+        suffix = ".mp4" if is_video else ".png"
         import tempfile
-        tmp = tempfile.NamedTemporaryFile(suffix=".mp4", delete=False)
+        tmp = tempfile.NamedTemporaryFile(suffix=suffix, delete=False)
         tmp_path = tmp.name
         tmp.close()
 
-        if frames_np.ndim == 4 and frames_np.shape[0] > 1:
+        if is_video:
             import imageio
             fps = int(payload.get("fps", defaults.get("fps", 16)))
             writer = imageio.get_writer(tmp_path, fps=fps, codec="libx264", quality=8)
@@ -2214,7 +2194,7 @@ class Wan2GPService:
         return {
             "status": "ok",
             "data": base64.b64encode(data_bytes).decode(),
-            "media_type": "video/mp4" if frames_np.ndim == 4 and frames_np.shape[0] > 1 else "image/png",
+            "media_type": "video/mp4" if is_video else "image/png",
         }
 
 
