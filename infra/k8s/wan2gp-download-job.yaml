@@ -40,7 +40,6 @@ spec:
               subPath: opt/wan2gp
             - name: download-script
               mountPath: /tmp/download_wan2gp_defaults.py
-              subPath: download_wan2gp_defaults.py
           resources:
             limits:
               cpu: "4"

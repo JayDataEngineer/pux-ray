@@ -64,6 +64,16 @@ def check_env():
 
 
 def init_wan2gp():
+    # Wan2GP imports torch.cuda at module level — mock it for GPU-less pods
+    import torch.cuda
+    if not torch.cuda.is_available():
+        torch.cuda.get_device_capability = lambda *a, **kw: (9, 0)
+        torch.cuda.get_device_properties = lambda *a, **kw: type("P", (), {"total_memory": 24 * 1024**3})()
+        torch.cuda.device_count = lambda: 1
+        torch.cuda.set_device = lambda *a: None
+        torch.cuda.current_device = lambda: 0
+        print("  (GPU not available — using CUDA mocks for import)")
+
     import wgp
     checkpoints = [str(PVC_WAN2GP), str(PVC_MODELS)]
     if not wgp.server_config:
