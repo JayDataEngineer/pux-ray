@@ -7,17 +7,20 @@ import { TimelineBar } from './TimelineBar'
 
 interface LayoutProps {
   spec: WorkflowSpec
+  allSpecs: { name: string; description: string; steps: number }[]
   run: WorkflowRun | null
   onStart: (inputs: Record<string, unknown>) => void
   onNewRun: () => void
+  onSpecChange: (name: string) => void
+  onLoadRun: (specName: string, runId: string) => void
 }
 
-export function Layout({ spec, run, onStart, onNewRun }: LayoutProps) {
+export function Layout({ spec, allSpecs, run, onStart, onNewRun, onSpecChange, onLoadRun }: LayoutProps) {
   return (
     <div className="editor-layout">
-      <Header spec={spec} run={run} onNewRun={onNewRun} />
+      <Header spec={spec} allSpecs={allSpecs} run={run} onNewRun={onNewRun} onSpecChange={onSpecChange} />
       <div className="editor-body">
-        <PipelinePanel spec={spec} run={run} />
+        <PipelinePanel spec={spec} run={run} onLoadRun={onLoadRun} />
         <PreviewPanel run={run} />
         <ControlPanel spec={spec} run={run} onStart={onStart} />
       </div>

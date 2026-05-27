@@ -17,6 +17,14 @@ spec:
           - name: forge
             autoscaling_config: { min_replicas: 1, max_replicas: 1, target_ongoing_requests: 1, downscale_delay_s: 600 }
 
+      # Workflow Engine — CPU-only DAG orchestrator
+      - name: workflow-engine
+        import_path: serve_config:workflow_engine
+        route_prefix: /wf-internal
+        deployments:
+          - name: workflow_engine
+            autoscaling_config: { min_replicas: 1, max_replicas: 1, target_ongoing_requests: 10 }
+
       # Playground UI (interactive service playground — TNAP-driven form for all services)
       - name: playground
         import_path: serve_config:playground
@@ -101,6 +109,9 @@ spec:
                 - name: src
                   mountPath: /app/config/model_registry.yaml
                   subPath: config/model_registry.yaml
+                - name: src
+                  mountPath: /app/config/workflows
+                  subPath: config/workflows
                 - name: config
                   mountPath: /app/config/local.yaml
                   subPath: local.yaml
@@ -232,6 +243,9 @@ spec:
                   - name: src
                     mountPath: /app/config/model_registry.yaml
                     subPath: config/model_registry.yaml
+                  - name: src
+                    mountPath: /app/config/workflows
+                    subPath: config/workflows
                   - name: src
                     mountPath: /opt/ComfyUI/user/default/workflows/
                     subPath: config/workflows/comfyui

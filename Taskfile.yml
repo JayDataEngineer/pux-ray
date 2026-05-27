@@ -420,6 +420,33 @@ tasks:
     cmds:
       - "{{.VENV_PYTHON}} -m pytest tests/integration/test_full_pipeline.py -v {{.CLI_ARGS}}"
 
+  # ── Video Editor ──────────────────────────────────────────────────────────
+  editor:dev:
+    desc: "Start video editor dev server (Vite HMR, proxies API to :30080)"
+    dir: web/editor
+    cmds:
+      - pnpm dev
+
+  editor:build:
+    desc: "Build video editor SPA to gateway/editor/"
+    dir: web/editor
+    sources:
+      - src/**/*
+      - index.html
+      - vite.config.ts
+      - package.json
+    generates:
+      - ../../gateway/editor/index.html
+    cmds:
+      - pnpm build
+
+  editor:prod:
+    desc: "Build editor + serve production build locally at :4173"
+    dir: web/editor
+    cmds:
+      - task: editor:build
+      - pnpm preview
+
   # ── Cloud Burst (SkyPilot) ──────────────────────────────────────────────
   cloud:setup:
     desc: "Install SkyPilot and verify cloud provider access"

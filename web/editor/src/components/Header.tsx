@@ -1,18 +1,44 @@
 import type { WorkflowSpec, WorkflowRun } from '../types'
+import { cancelRun } from '../api'
+import { useWorkflowStore } from '../stores/workflow'
 
 interface HeaderProps {
   spec: WorkflowSpec
+  allSpecs: { name: string; description: string; steps: number }[]
   run: WorkflowRun | null
   onNewRun: () => void
+  onSpecChange: (name: string) => void
 }
 
-export function Header({ spec, run, onNewRun }: HeaderProps) {
+export function Header({ spec, allSpecs, run, onNewRun, onSpecChange }: HeaderProps) {
+  const setRun = useWorkflowStore((s) => s.setRun)
+
+  const handleCancel = async () => {
+    if (!run) return
+    try {
+      await cancelRun(run.spec_name, run.run_id)
+      setRun({ ...run, status: 'cancelled' })
+    } catch (e) {
+      console.error('Cancel failed:', e)
+    }
+  }
+
   return (
     <header className="editor-header">
       <div className="header-left">
         <span className="header-logo">Tech Noir</span>
         <span className="header-sep">/</span>
-        <span className="header-title">{spec.description || spec.name}</span>
+        <select
+          className="spec-selector"
+          value={spec.name}
+          onChange={(e) => onSpecChange(e.target.value)}
+        >
+          {allSpecs.map((s) => (
+            <option key={s.name} value={s.name}>
+              {s.name.replace(/_/g, ' ')} ({s.steps} steps)
+            </option>
+          ))}
+        </select>
       </div>
       <div className="header-right">
         {run && (
@@ -21,11 +47,14 @@ export function Header({ spec, run, onNewRun }: HeaderProps) {
               {run.status}
             </span>
             <span className="run-id">{run.run_id}</span>
-            <button className="btn btn-ghost" onClick={onNewRun}>New Run</button>
+            {(run.status === 'running') && (
+              <button className="btn btn-ghost btn-sm" onClick={handleCancel}>Cancel</button>
+            )}
+            <button className="btn btn-ghost btn-sm" onClick={onNewRun}>New Run</button>
           </>
         )}
-        <a href="/studio" className="btn btn-ghost">Studio</a>
-        <a href="/dashboard" className="btn btn-ghost">Dashboard</a>
+        <a href="/studio" className="btn btn-ghost btn-sm">Studio</a>
+        <a href="/dashboard" className="btn btn-ghost btn-sm">Dashboard</a>
       </div>
     </header>
   )

@@ -12,6 +12,8 @@ interface Props {
 export function ControlPanel({ spec, run, onStart }: Props) {
   const [inputs, setInputs] = useState<Record<string, unknown>>({})
   const [actionLoading, setActionLoading] = useState(false)
+  const [editParams, setEditParams] = useState<Record<string, unknown>>({})
+  const [showParamEditor, setShowParamEditor] = useState(false)
   const selectedStepId = useWorkflowStore((s) => s.selectedStepId)
   const setRun = useWorkflowStore((s) => s.setRun)
 
@@ -35,33 +37,41 @@ export function ControlPanel({ spec, run, onStart }: Props) {
     if (!run || !selectedStepId) return
     setActionLoading(true)
     try {
-      await rerunStep(run.spec_name, run.run_id, selectedStepId)
+      const params = showParamEditor && Object.keys(editParams).length > 0 ? editParams : undefined
+      await rerunStep(run.spec_name, run.run_id, selectedStepId, params)
+      setShowParamEditor(false)
+      setEditParams({})
     } catch (e) {
       console.error('Rerun failed:', e)
     } finally {
       setActionLoading(false)
     }
-  }, [run, selectedStepId])
+  }, [run, selectedStepId, showParamEditor, editParams])
 
   const handleExecute = useCallback(async () => {
     if (!run || !selectedStepId) return
     setActionLoading(true)
     try {
-      const result = await executeStep(run.spec_name, run.run_id, selectedStepId) as Record<string, unknown>
+      const params = showParamEditor && Object.keys(editParams).length > 0 ? editParams : undefined
+      const result = await executeStep(run.spec_name, run.run_id, selectedStepId, params) as Record<string, unknown>
       if (result.status !== 'error') {
         const updated = await getRun(run.spec_name, run.run_id)
         setRun(updated)
       }
+      setShowParamEditor(false)
+      setEditParams({})
     } catch (e) {
       console.error('Execute failed:', e)
     } finally {
       setActionLoading(false)
     }
-  }, [run, selectedStepId, setRun])
+  }, [run, selectedStepId, setRun, showParamEditor, editParams])
 
   const selectedStep = run && selectedStepId
     ? { id: selectedStepId, state: run.step_states[selectedStepId] }
     : null
+
+  const stepSpec = spec.steps.find((s) => s.id === selectedStepId)
 
   return (
     <div className="control-panel">
@@ -74,7 +84,7 @@ export function ControlPanel({ spec, run, onStart }: Props) {
           {Object.entries(spec.inputs).map(([key, inputSpec]) => (
             <div key={key} className="form-group">
               <label className="form-label">
-                {key}
+                {key.replace(/_/g, ' ')}
                 {inputSpec.required && <span className="form-required">*</span>}
                 {inputSpec.enum && (
                   <span className="form-hint">[{inputSpec.enum.join(', ')}]</span>
@@ -116,13 +126,13 @@ export function ControlPanel({ spec, run, onStart }: Props) {
       ) : selectedStep && selectedStep.state ? (
         <div className="control-actions">
           <div className="selected-step-info">
-            <strong>{selectedStep.id}</strong>
+            <strong>{selectedStep.id.replace(/_/g, ' ')}</strong>
             <span className={`run-status run-status--${selectedStep.state.status}`}>
               {selectedStep.state.status}
             </span>
           </div>
 
-          {selectedStep.state.duration_ms && (
+          {selectedStep.state.duration_ms != null && (
             <div className="step-detail">
               Duration: {(selectedStep.state.duration_ms / 1000).toFixed(1)}s
             </div>
@@ -132,6 +142,33 @@ export function ControlPanel({ spec, run, onStart }: Props) {
             <div className="step-detail step-detail-error">
               {selectedStep.state.error}
             </div>
+          )}
+
+          {(selectedStep.state.status === 'completed' || selectedStep.state.status === 'failed') && stepSpec && (
+            <>
+              <button
+                className="btn btn-ghost btn-sm"
+                onClick={() => setShowParamEditor(!showParamEditor)}
+              >
+                {showParamEditor ? 'Hide' : 'Edit'} params
+              </button>
+
+              {showParamEditor && (
+                <div className="param-editor">
+                  {Object.entries(stepSpec.params || {}).map(([key, defaultVal]) => (
+                    <div key={key} className="form-group">
+                      <label className="form-label">{key}</label>
+                      <input
+                        className="form-input"
+                        type="text"
+                        value={String(editParams[key] ?? (typeof defaultVal === 'string' ? defaultVal.replace(/\{\{.*?\}\}/g, '') : defaultVal ?? ''))}
+                        onChange={(e) => setEditParams((prev) => ({ ...prev, [key]: e.target.value }))}
+                      />
+                    </div>
+                  ))}
+                </div>
+              )}
+            </>
           )}
 
           <div className="action-buttons">

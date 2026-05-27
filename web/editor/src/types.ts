@@ -13,6 +13,7 @@ export interface StepSpecInfo {
   depends_on: string[]
   outputs: string[]
   interaction?: string | null
+  params?: Record<string, unknown>
 }
 
 export interface WorkflowSpec {

@@ -1,7 +1,9 @@
-import { useRef } from 'react'
+import { useRef, lazy, Suspense } from 'react'
 import type { WorkflowRun } from '../types'
 import { useWorkflowStore } from '../stores/workflow'
 import { AudioPreview } from './AudioPreview'
+
+const Preview3D = lazy(() => import('./Preview3D').then((m) => ({ default: m.Preview3D })))
 
 interface Props {
   run: WorkflowRun | null
@@ -30,7 +32,7 @@ export function PreviewPanel({ run }: Props) {
   if (!stepState || stepState.status !== 'completed' || artifacts.length === 0) {
     return (
       <div className="preview-panel">
-        <div className="panel-header">Preview — {selectedStepId}</div>
+        <div className="panel-header">Preview — {selectedStepId.replace(/_/g, ' ')}</div>
         <div className="preview-empty">
           {stepState?.status === 'running' ? 'Generating...' :
            stepState?.status === 'waiting_input' ? 'Waiting for input' :
@@ -48,10 +50,18 @@ export function PreviewPanel({ run }: Props) {
   return (
     <div className="preview-panel">
       <div className="panel-header">
-        Preview — {selectedStepId}
-        <span className="preview-meta">
-          {mediaType} &middot; {(artifact.size_bytes / 1024).toFixed(0)} KB
-        </span>
+        Preview — {selectedStepId.replace(/_/g, ' ')}
+        <div className="preview-actions">
+          <span className="preview-meta">
+            {media_type_label(mediaType)} &middot; {formatBytes(artifact.size_bytes)}
+          </span>
+          <a href={artifactUrl} download className="btn btn-ghost btn-sm" title="Download">
+            Download
+          </a>
+          <a href={artifactUrl} target="_blank" rel="noreferrer" className="btn btn-ghost btn-sm" title="Open in new tab">
+            Open
+          </a>
+        </div>
       </div>
       <div className="preview-content">
         {mediaType.startsWith('image/') && (
@@ -70,15 +80,38 @@ export function PreviewPanel({ run }: Props) {
         {mediaType.startsWith('audio/') && (
           <AudioPreview url={artifactUrl} />
         )}
-        {!mediaType.startsWith('image/') && !mediaType.startsWith('video/') && !mediaType.startsWith('audio/') && (
+        {(mediaType === 'model/gltf-binary' || mediaType === 'model/glb' || artifact.name.endsWith('.glb')) && (
+          <Suspense fallback={<div className="preview-empty">Loading 3D viewer...</div>}>
+            <Preview3D url={artifactUrl} />
+          </Suspense>
+        )}
+        {!mediaType.startsWith('image/') && !mediaType.startsWith('video/') && !mediaType.startsWith('audio/') && mediaType !== 'model/gltf-binary' && mediaType !== 'model/glb' && !artifact.name.endsWith('.glb') && (
           <div className="preview-unknown">
             <p>Media type: {mediaType}</p>
-            <a href={artifactUrl} target="_blank" rel="noreferrer" className="btn btn-primary">
-              Download
-            </a>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <a href={artifactUrl} download className="btn btn-primary">Download</a>
+              <a href={artifactUrl} target="_blank" rel="noreferrer" className="btn btn-secondary">Open</a>
+            </div>
           </div>
         )}
       </div>
     </div>
   )
+}
+
+function media_type_label(mt: string): string {
+  const labels: Record<string, string> = {
+    'image/png': 'PNG', 'image/jpeg': 'JPEG', 'image/webp': 'WebP',
+    'video/mp4': 'MP4', 'video/webm': 'WebM',
+    'audio/wav': 'WAV', 'audio/mp3': 'MP3', 'audio/ogg': 'OGG',
+    'application/json': 'JSON', 'application/octet-stream': 'Binary',
+    'model/gltf-binary': 'GLB',
+  }
+  return labels[mt] || mt
+}
+
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
 }

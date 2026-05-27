@@ -9,7 +9,16 @@ export default defineConfig({
     emptyOutDir: true,
   },
   server: {
+    host: '0.0.0.0',
     port: 5173,
+    proxy: {
+      '/v1': 'http://localhost:30080',
+      '/health': 'http://localhost:30080',
+    },
+  },
+  preview: {
+    host: '0.0.0.0',
+    port: 4173,
     proxy: {
       '/v1': 'http://localhost:30080',
       '/health': 'http://localhost:30080',

@@ -1,4 +1,7 @@
+import { useRef, useState } from 'react'
 import type { ArtifactRef } from '../types'
+import { approveStep, getRun } from '../api'
+import { useWorkflowStore } from '../stores/workflow'
 
 const STATUS_ICONS: Record<string, string> = {
   pending: '○',
@@ -26,6 +29,7 @@ const STEP_LABELS: Record<string, string> = {
 interface Props {
   stepId: string
   stepType: string
+  interaction?: string | null
   status: string
   durationMs: number | null
   error: string | null
@@ -37,13 +41,39 @@ interface Props {
 }
 
 export function StepCard({ stepId, status, durationMs, error, artifacts, specName, runId, selected, onClick }: Props) {
-  const label = STEP_LABELS[stepId] || stepId
+  const label = STEP_LABELS[stepId] || stepId.replace(/_/g, ' ')
   const icon = STATUS_ICONS[status] || '○'
   const hasArtifact = artifacts.length > 0 && status === 'completed'
   const artifact = hasArtifact ? artifacts[0] : null
-  const thumbUrl = artifact
+  const thumbUrl = artifact && runId
     ? `/v1/wf/${specName}/runs/${runId}/artifacts/${artifact.step_id}/${artifact.name.includes('.') ? artifact.name : artifact.name + '.png'}`
     : null
+
+  const fileInputRef = useRef<HTMLInputElement>(null)
+  const [uploading, setUploading] = useState(false)
+  const setRun = useWorkflowStore((s) => s.setRun)
+
+  const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file || !runId) return
+    setUploading(true)
+    try {
+      const data = await file.arrayBuffer()
+      const base64 = btoa(String.fromCharCode(...new Uint8Array(data)))
+      await approveStep(specName, runId, stepId, {
+        file_data: base64,
+        name: file.name,
+        media_type: file.type || 'application/octet-stream',
+      })
+      // Refresh run state
+      const updated = await getRun(specName, runId)
+      setRun(updated)
+    } catch (err) {
+      console.error('Upload failed:', err)
+    } finally {
+      setUploading(false)
+    }
+  }
 
   return (
     <div
@@ -63,8 +93,24 @@ export function StepCard({ stepId, status, durationMs, error, artifacts, specNam
       {status === 'failed' && error && (
         <div className="step-error">{error}</div>
       )}
-      {status === 'waiting_input' && (
-        <div className="step-waiting">Waiting for input...</div>
+      {status === 'waiting_input' && runId && (
+        <div className="step-upload">
+          <input
+            ref={fileInputRef}
+            type="file"
+            style={{ display: 'none' }}
+            onChange={handleUpload}
+            accept="image/*,video/*,audio/*,.json,.npz,.bvh,.glb"
+          />
+          <button
+            className="btn btn-primary btn-sm"
+            disabled={uploading}
+            onClick={(e) => { e.stopPropagation(); fileInputRef.current?.click() }}
+          >
+            {uploading ? 'Uploading...' : 'Upload File'}
+          </button>
+          <span className="upload-hint">Kimodo / external tool output</span>
+        </div>
       )}
     </div>
   )

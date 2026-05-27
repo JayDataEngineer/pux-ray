@@ -20,6 +20,35 @@ from gateway.dashboard import (
 )
 from gateway.studio import studio_page, studio_apps, studio_switch, studio_release
 from gateway.routes.workflows import list_workflows, get_workflow, execute_workflow, _get_workflow_json, _execute_workflow
+from gateway.routes.wf_engine import (
+    wf_list_specs, wf_get_spec, wf_start_run, wf_get_run, wf_cancel_run,
+    wf_approve_step, wf_rerun_step, wf_execute_step, wf_list_artifacts,
+    wf_get_artifact, wf_events,
+)
+from gateway.routes.editor import editor_page, editor_static
+
+
+class _ParamsRequest:
+    """Wraps a Starlette Request to inject path_params (read-only property workaround)."""
+    def __init__(self, request: Request, params: dict):
+        self._request = request
+        self._params = params
+
+    @property
+    def path_params(self):
+        return self._params
+
+    def __getattr__(self, name):
+        return getattr(self._request, name)
+
+    async def body(self):
+        return await self._request.body()
+
+    async def json(self):
+        return await self._request.json()
+
+    async def stream(self):
+        return self._request.stream()
 
 
 @serve.deployment(
@@ -131,6 +160,56 @@ class APIIngressDeployment:
             return await studio_switch(request)
         if path == "/studio/api/release" and method == "POST":
             return await studio_release(request)
+
+        # Editor SPA
+        if path == "/editor":
+            return await editor_page(request)
+        if path.startswith("/editor/"):
+            return await editor_static(request)
+
+        # Workflow Engine (YAML-based declarative workflows)
+        if path == "/v1/wf" and method == "GET":
+            return await wf_list_specs(request)
+        if path.startswith("/v1/wf/"):
+            parts = path[len("/v1/wf/"):].split("/")
+            spec_name = parts[0]
+            # /v1/wf/{spec_name}
+            if len(parts) == 1 and method == "GET":
+                return await wf_get_spec(_ParamsRequest(request, {"spec_name": spec_name}))
+            # /v1/wf/{spec_name}/runs
+            if len(parts) == 2 and parts[1] == "runs":
+                if method == "POST":
+                    return await wf_start_run(_ParamsRequest(request, {"spec_name": spec_name}))
+                if method == "GET":
+                    return await wf_get_run(_ParamsRequest(request, {"spec_name": spec_name}))
+            # /v1/wf/{spec_name}/runs/{run_id}
+            if len(parts) == 3 and parts[1] == "runs":
+                run_id = parts[2]
+                if method == "GET":
+                    return await wf_get_run(_ParamsRequest(request, {"spec_name": spec_name, "run_id": run_id}))
+                if method == "DELETE":
+                    return await wf_cancel_run(_ParamsRequest(request, {"spec_name": spec_name, "run_id": run_id}))
+            # /v1/wf/{spec_name}/runs/{run_id}/steps/{step_id}/{action}
+            if len(parts) == 6 and parts[1] == "runs" and parts[3] == "steps":
+                run_id, step_id, action = parts[2], parts[4], parts[5]
+                if action == "approve" and method == "POST":
+                    return await wf_approve_step(_ParamsRequest(request, {"spec_name": spec_name, "run_id": run_id, "step_id": step_id}))
+                if action == "rerun" and method == "POST":
+                    return await wf_rerun_step(_ParamsRequest(request, {"spec_name": spec_name, "run_id": run_id, "step_id": step_id}))
+                if action == "execute" and method == "POST":
+                    return await wf_execute_step(_ParamsRequest(request, {"spec_name": spec_name, "run_id": run_id, "step_id": step_id}))
+            # /v1/wf/{spec_name}/runs/{run_id}/artifacts
+            if len(parts) == 4 and parts[1] == "runs" and parts[3] == "artifacts":
+                run_id = parts[2]
+                return await wf_list_artifacts(_ParamsRequest(request, {"spec_name": spec_name, "run_id": run_id}))
+            # /v1/wf/{spec_name}/runs/{run_id}/artifacts/{step_id}/{filename}
+            if len(parts) == 6 and parts[1] == "runs" and parts[3] == "artifacts":
+                run_id, step_id, filename = parts[2], parts[4], parts[5]
+                return await wf_get_artifact(_ParamsRequest(request, {"spec_name": spec_name, "run_id": run_id, "step_id": step_id, "filename": filename}))
+            # /v1/wf/{spec_name}/runs/{run_id}/events
+            if len(parts) == 4 and parts[1] == "runs" and parts[3] == "events":
+                run_id = parts[2]
+                return await wf_events(_ParamsRequest(request, {"spec_name": spec_name, "run_id": run_id}))
 
         from starlette.responses import JSONResponse
         return JSONResponse({"error": "not found", "path": path}, status_code=404)
