@@ -10,6 +10,7 @@ import asyncio
 import logging
 import time
 import uuid
+from pathlib import Path
 from typing import Any, AsyncIterator
 
 from ray import serve
@@ -52,7 +53,16 @@ class WorkflowEngine:
         self._register_executors()
 
     def _register_executors(self) -> None:
+        from .steps.serve import ServeStepExecutor
+        from .steps.compose import ComposeStepExecutor
+        from .steps.transform import TransformStepExecutor
+        from .steps.external import ExternalWaitStep
+
         self.registry.register("forge", ForgeStepExecutor)
+        self.registry.register("serve", ServeStepExecutor)
+        self.registry.register("compose", ComposeStepExecutor)
+        self.registry.register("transform", TransformStepExecutor)
+        self.registry.register("external_wait", ExternalWaitStep)
 
     # ------------------------------------------------------------------
     # Run lifecycle
@@ -268,13 +278,34 @@ class WorkflowEngine:
             self._cleanup_wait_events(run_id)
 
     async def _execute_group(self, run: WorkflowRun, group: list[StepSpec]) -> None:
-        """Execute a group of steps. Sequential in Phase 1."""
+        """Execute a group of steps concurrently via asyncio.gather.
+
+        Steps within a group have no dependencies on each other. GPU steps
+        will naturally serialize through the Forge's VRAM lock; CPU steps
+        run freely in parallel.
+        """
+        pending = []
         for step in group:
             ss = run.step_states.get(step.id)
             if ss and ss.status == "completed":
                 continue  # Already done (e.g., from previous partial run)
+            pending.append(step)
 
-            await self._execute_step(run, step)
+        if not pending:
+            return
+
+        if len(pending) == 1:
+            await self._execute_step(run, pending[0])
+            return
+
+        # Run all pending steps concurrently
+        tasks = [self._execute_step(run, step) for step in pending]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+
+        # Propagate first error (group fails if any step fails)
+        for step, result in zip(pending, results):
+            if isinstance(result, Exception):
+                raise result
 
     async def _execute_step(self, run: WorkflowRun, step: StepSpec) -> None:
         """Execute a single step: resolve params → pick executor → run → store."""
