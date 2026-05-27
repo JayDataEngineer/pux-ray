@@ -42,6 +42,9 @@ stats
 # Build artifacts (compiled extensions, cached builds)
 infra/build/
 
+# Editor SPA build output (rebuilt from web/editor/ via pnpm build)
+gateway/editor/
+
 # Cloned repos (managed by git-sync in docker compose)
 infra/repos/
 

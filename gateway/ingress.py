@@ -27,6 +27,7 @@ from gateway.dashboard import dashboard_page, dashboard_gpu_current, dashboard_g
 from gateway.pipeline import PipelineSpec, execute_pipeline
 from gateway.playground import playground_page, playground_services
 from gateway.poser import poser_presets, poser_preset_render
+from gateway.routes.editor import editor_page, editor_static
 from gateway.routes.workflows import (
     list_workflows, get_workflow, execute_workflow,
 )
@@ -489,6 +490,9 @@ def create_app() -> Starlette:
         Route("/studio/api/apps", studio_apps),
         Route("/studio/api/switch", studio_switch, methods=["POST"]),
         Route("/studio/api/release", studio_release, methods=["POST"]),
+        # Video Editor (React SPA)
+        Route("/editor", editor_page),
+        Route("/editor/{path:path}", editor_static),
         # Playground (interactive service UI)
         Route("/playground", playground_page),
         Route("/playground/api/services", playground_services),
