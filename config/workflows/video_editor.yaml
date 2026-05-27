@@ -1,0 +1,199 @@
+name: video_editor
+version: "1.0"
+description: >
+  Full video creation pipeline for the WebUI video editor.
+  Character generation → mesh posing → scene composition → LTX video →
+  parallel audio (TTS + sound effects + music) → audio mix → lip sync →
+  LANCE edit → upscale.
+
+inputs:
+  character_prompt:
+    type: string
+    required: true
+    description: "Character appearance description"
+  scene_prompt:
+    type: string
+    required: true
+    description: "Scene/background description for composition"
+  video_prompt:
+    type: string
+    required: true
+    description: "Motion/action description for video generation"
+  dialogue:
+    type: string
+    required: false
+    description: "Spoken dialogue for TTS + lip sync"
+  voice:
+    type: string
+    default: "kokoro"
+    enum: [kokoro, index_tts, espeak]
+    description: "TTS engine for dialogue"
+  music_prompt:
+    type: string
+    default: "cinematic background music"
+    description: "Prompt for ACE-Step music generation"
+  sfx_prompt:
+    type: string
+    default: "ambient environmental sounds matching the scene"
+    description: "Prompt for MOSS sound effects"
+  quality:
+    type: string
+    default: "turbo"
+    enum: [turbo, standard]
+  seed:
+    type: integer
+    default: 42
+  video_fps:
+    type: integer
+    default: 24
+  video_frames:
+    type: integer
+    default: 121
+    description: "Number of frames (121 = ~5s at 24fps)"
+  upscale_target:
+    type: string
+    default: "1920x1080"
+
+steps:
+  # ─── Stage 1: Character generation ──────────────────────────────────────
+  generate_character:
+    type: forge
+    service: wan2gp
+    model: z_image
+    params:
+      input_prompt: "{{ inputs.character_prompt }}"
+      n_prompt: "bad quality,worst quality"
+      seed: "{{ inputs.seed }}"
+      sampling_steps: 8
+      guide_scale: 1.0
+      width: 1024
+      height: 1024
+    outputs:
+      image: { media_type: image/png }
+
+  # ─── Stage 2: Mesh posing (Kimodo — external tool, user uploads result) ─
+  mesh_pose:
+    type: external_wait
+    depends_on: [generate_character]
+    params:
+      description: "Create a mesh pose in NVIDIA Kimodo using the character as reference, then upload the posed image"
+      accepted_types: [image/png, image/jpeg, application/json]
+    outputs:
+      posed_image: { media_type: image/png }
+      pose_data: { media_type: application/json }
+
+  # ─── Stage 3: Scene composition ────────────────────────────────────────
+  scene_compose:
+    type: forge
+    service: wan2gp
+    model: qwen-image-edit
+    depends_on: [generate_character, mesh_pose]
+    params:
+      input_prompt: "{{ inputs.scene_prompt }}"
+      image_b64: "{{ generate_character.outputs.image }}"
+      reference_images:
+        - "{{ mesh_pose.outputs.posed_image }}"
+      seed: "{{ inputs.seed }}"
+      sampling_steps: 4
+      guide_scale: 1.0
+      loras_selected:
+        - "Qwen-Image-Edit-2511-Lightning-4steps-V1.0-bf16.safetensors"
+    outputs:
+      scene: { media_type: image/png }
+
+  # ─── Stage 4: Video generation (LTX) ──────────────────────────────────
+  generate_video:
+    type: forge
+    service: wan2gp
+    model: ltx2
+    depends_on: [scene_compose]
+    params:
+      image_b64: "{{ scene_compose.outputs.scene }}"
+      input_prompt: "{{ inputs.video_prompt }}"
+      seed: "{{ inputs.seed }}"
+      fps: "{{ inputs.video_fps }}"
+      frame_num: "{{ inputs.video_frames }}"
+      guide_scale: 3.0
+    outputs:
+      video: { media_type: video/mp4 }
+
+  # ─── Stage 5: Audio generation (parallel) ──────────────────────────────
+  voice:
+    type: forge
+    service: wan2gp
+    model: "{{ inputs.voice }}"
+    params:
+      text: "{{ inputs.dialogue }}"
+    outputs:
+      audio: { media_type: audio/wav }
+
+  sound_fx:
+    type: forge
+    service: wan2gp
+    model: moss/moss-soundeffect
+    depends_on: [generate_video]
+    params:
+      input_prompt: "{{ inputs.sfx_prompt }}"
+      duration_seconds: 5
+    outputs:
+      audio: { media_type: audio/wav }
+
+  music:
+    type: forge
+    service: wan2gp
+    model: ace_step/v1_5
+    params:
+      prompt: "{{ inputs.music_prompt }}"
+      duration: 5
+    outputs:
+      audio: { media_type: audio/wav }
+
+  # ─── Stage 6: Audio mixing ─────────────────────────────────────────────
+  mix_audio:
+    type: compose
+    method: ffmpeg_mix
+    depends_on: [voice, sound_fx, music]
+    params:
+      tracks:
+        - "{{ voice.outputs.audio }}"
+        - "{{ sound_fx.outputs.audio }}"
+        - "{{ music.outputs.audio }}"
+    outputs:
+      audio: { media_type: audio/wav }
+
+  # ─── Stage 7: Lip sync ─────────────────────────────────────────────────
+  lipsync:
+    type: forge
+    service: wan2gp
+    model: ltx2
+    depends_on: [generate_video, mix_audio]
+    params:
+      video: "{{ generate_video.outputs.video }}"
+      audio: "{{ mix_audio.outputs.audio }}"
+      mode: "lipsync"
+    outputs:
+      video: { media_type: video/mp4 }
+
+  # ─── Stage 8: LANCE semantic video edit (optional interaction) ──────────
+  video_edit:
+    type: forge
+    service: lance
+    depends_on: [lipsync]
+    interaction: optional
+    params:
+      video: "{{ lipsync.outputs.video }}"
+      prompt: "enhance visual quality, fix artifacts"
+    outputs:
+      video: { media_type: video/mp4 }
+
+  # ─── Stage 9: Upscale ──────────────────────────────────────────────────
+  upscale:
+    type: forge
+    service: wan2gp
+    model: nvidia_upscale
+    depends_on: [video_edit]
+    params:
+      video: "{{ video_edit.outputs.video }}"
+      target_resolution: "{{ inputs.upscale_target }}"
+    outputs:
+      video: { media_type: video/mp4 }

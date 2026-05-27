@@ -163,6 +163,21 @@ async def wf_rerun_step(request: Request) -> JSONResponse:
     return JSONResponse(result)
 
 
+async def wf_execute_step(request: Request) -> JSONResponse:
+    """Execute a single step in isolation (no downstream cascade)."""
+    run_id = request.path_params.get("run_id", "")
+    step_id = request.path_params.get("step_id", "")
+    try:
+        params = await request.json()
+    except Exception:
+        params = None
+
+    engine = _get_engine()
+    result = await engine.execute_single_step.remote(run_id, step_id, params)
+    status_code = 200 if result.get("status") != "error" else 400
+    return JSONResponse(result, status_code=status_code)
+
+
 # ---------------------------------------------------------------------------
 # Artifacts
 # ---------------------------------------------------------------------------

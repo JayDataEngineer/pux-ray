@@ -173,6 +173,65 @@ class WorkflowEngine:
 
         return {"run_id": run_id, "status": "running", "from_step": step_id}
 
+    async def execute_single_step(self, run_id: str, step_id: str, params_override: dict | None = None) -> dict:
+        """Execute a single step in isolation without affecting downstream steps.
+
+        Used by the video editor frontend when the user clicks "regenerate"
+        on one specific step (e.g., re-generate the character without
+        re-running the entire pipeline).
+        """
+        run = await self.state_store.load(run_id)
+        if not run:
+            return {"error": "Run not found"}
+
+        spec = load_spec(run.spec_name)
+        step = next((s for s in spec.steps if s.id == step_id), None)
+        if not step:
+            return {"error": f"Step '{step_id}' not found in spec"}
+
+        # Check dependencies are satisfied
+        for dep in step.depends_on:
+            dep_state = run.step_states.get(dep)
+            if not dep_state or dep_state.status != "completed":
+                return {"error": f"Dependency '{dep}' not yet completed"}
+
+        # Apply param overrides if provided
+        if params_override:
+            step = StepSpec(
+                id=step.id,
+                type=step.type,
+                service=step.service or params_override.get("service"),
+                model=params_override.get("model", step.model),
+                method=step.method,
+                depends_on=step.depends_on,
+                params={**step.params, **params_override.get("params", {})},
+                outputs=step.outputs,
+                interaction=step.interaction,
+            )
+
+        # Reset this step's state
+        run.step_states[step_id] = StepState(step_id=step_id)
+        # Remove old artifacts for this step
+        keys_to_remove = [k for k in run.artifacts if k.startswith(f"{step_id}.")]
+        for k in keys_to_remove:
+            del run.artifacts[k]
+        await self.state_store.save(run)
+
+        # Execute just this step
+        try:
+            await self._execute_step(run, step)
+            run = await self.state_store.load(run_id)
+            ss = run.step_states.get(step_id)
+            return {
+                "run_id": run_id,
+                "step_id": step_id,
+                "status": ss.status if ss else "unknown",
+                "duration_ms": ss.duration_ms if ss else None,
+                "outputs": ss.outputs if ss else {},
+            }
+        except Exception as e:
+            return {"run_id": run_id, "step_id": step_id, "status": "failed", "error": str(e)}
+
     # ------------------------------------------------------------------
     # SSE event streaming
     # ------------------------------------------------------------------

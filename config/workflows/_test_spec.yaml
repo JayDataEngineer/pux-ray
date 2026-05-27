@@ -1,0 +1,22 @@
+name: _test_spec
+version: "1.0"
+description: Minimal spec for unit testing
+
+inputs:
+  prompt: { type: string, required: true }
+
+steps:
+  a:
+    type: mock
+    params:
+      input_prompt: "{{ inputs.prompt }}"
+    outputs:
+      output: { media_type: application/octet-stream }
+
+  b:
+    type: mock
+    depends_on: [a]
+    params:
+      input: "{{ a.outputs.output }}"
+    outputs:
+      output: { media_type: application/octet-stream }

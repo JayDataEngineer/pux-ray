@@ -32,7 +32,7 @@ from gateway.routes.workflows import (
 )
 from gateway.routes.wf_engine import (
     wf_list_specs, wf_get_spec, wf_start_run, wf_get_run, wf_cancel_run,
-    wf_approve_step, wf_rerun_step, wf_get_artifact, wf_list_artifacts, wf_events,
+    wf_approve_step, wf_rerun_step, wf_execute_step, wf_get_artifact, wf_list_artifacts, wf_events,
 )
 from gateway.studio import studio_page, studio_apps, studio_switch, studio_release
 from registry.config import Config
@@ -507,6 +507,7 @@ def create_app() -> Starlette:
         Route("/v1/wf/{spec_name}/runs/{run_id}", wf_cancel_run, methods=["DELETE"]),
         Route("/v1/wf/{spec_name}/runs/{run_id}/steps/{step_id}/approve", wf_approve_step, methods=["POST"]),
         Route("/v1/wf/{spec_name}/runs/{run_id}/steps/{step_id}/rerun", wf_rerun_step, methods=["POST"]),
+        Route("/v1/wf/{spec_name}/runs/{run_id}/steps/{step_id}/execute", wf_execute_step, methods=["POST"]),
         Route("/v1/wf/{spec_name}/runs/{run_id}/artifacts", wf_list_artifacts),
         Route("/v1/wf/{spec_name}/runs/{run_id}/artifacts/{step_id}/{filename}", wf_get_artifact),
         Route("/v1/wf/{spec_name}/runs/{run_id}/events", wf_events),
