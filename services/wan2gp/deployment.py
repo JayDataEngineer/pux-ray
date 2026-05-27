@@ -151,6 +151,38 @@ def _ensure_quantized_cache():
         })
 
 
+def _patch_quanto_compat():
+    """Patch optimum-quanto WeightQBytesTensor to handle old serialization format.
+
+    optimum-quanto <= 0.2.2 stored _qtype (with underscore) in safetensors metadata.
+    v0.2.3+ expects qtype (no underscore). Old quantized files (e.g. flux1-dev_quanto_bf16_int8)
+    fail with "unexpected keyword argument '_qtype'" when loaded in a process where
+    WeightQBytesTensor is registered as a safetensors tensor subclass.
+    """
+    try:
+        from optimum.quanto.tensor.weights.qbytes import WeightQBytesTensor
+    except ImportError:
+        return
+
+    _orig_new = WeightQBytesTensor.__new__
+
+    @staticmethod
+    def _compat_new(cls, qtype=None, axis=None, size=None, stride=None,
+                    data=None, scale=None, activation_qtype=None,
+                    requires_grad=False, _qtype=None, **kwargs):
+        if qtype is None and _qtype is not None:
+            qtype = _qtype
+        return _orig_new(
+            cls, qtype=qtype, axis=axis, size=size, stride=stride,
+            data=data, scale=scale, activation_qtype=activation_qtype,
+            requires_grad=requires_grad, **kwargs,
+        )
+
+    if not getattr(WeightQBytesTensor, "_qtype_compat_patched", False):
+        WeightQBytesTensor.__new__ = _compat_new
+        WeightQBytesTensor._qtype_compat_patched = True
+
+
 def _ensure_transformers_compat():
     """Patch renamed/removed transformers symbols that vendor handlers depend on."""
     import transformers.generation.configuration_utils as _gcu
@@ -385,6 +417,7 @@ _HF_AUTO_DOWNLOAD = {
 CUSTOM_HANDLERS = [
     "models.kokoro.kokoro_handler",
     "models.moss.moss_handler",
+    "models.moss.moss_v2_handler",
     "models.espeak.espeak_handler",
     "models.faster_whisper.faster_whisper_handler",
     "models.faster_qwen3_tts.faster_qwen3_tts_handler",
@@ -454,6 +487,7 @@ _WEIGHT_SEARCH = {
     "faster-qwen3-tts": [("tts", "qwen3-tts")],
     "anigen": [("3d", "anigen")],
     "moss-soundeffect": [("audio", "moss-soundeffect")],
+    "moss_soundeffect_v2": [("audio", "moss-soundeffect-v2")],
     "moss-tts": [("audio", "moss-tts")],
     "moss-ttsd": [("audio", "moss-ttsd")],
     "moss-voicegenerator": [("audio", "moss-voicegenerator")],
@@ -803,6 +837,7 @@ class Wan2GPService:
         if Wan2GPService._wgp_initialized:
             return
         _ensure_transformers_compat()
+        _patch_quanto_compat()
         Wan2GPService._ensure_wgp_path()
 
         # wgp.py opens models/_settings.json at import time, so CWD must
@@ -1351,6 +1386,7 @@ class Wan2GPService:
         _ensure_vendor_path()
         _ensure_quantized_cache()
         _ensure_transformers_compat()
+        _patch_quanto_compat()
         _ensure_writable_hf_cache()
 
         from services.wan2gp.custom_models.base_handler import get_handler_meta
@@ -1927,8 +1963,8 @@ class Wan2GPService:
                 if isinstance(v, torch.nn.Module):
                     v.to("cuda")
             return None
-        elif model_type.startswith("moss-"):
-            # MOSS models (Qwen3-based TTS, ~16GB) fit entirely in VRAM.
+        elif model_type.startswith(("moss-", "moss_")):
+            # MOSS models (Qwen3-based TTS ~16GB, DiT v2 ~7GB) fit entirely in VRAM.
             # mmgp's default transformer:250MB budget would keep the model
             # on CPU and swap tiny chunks — catastrophically slow for
             # autoregressive generation. Keep everything on GPU.
@@ -2104,6 +2140,7 @@ class Wan2GPService:
     # Spec-aware model type → spec name mapping
     _SPEC_AWARE = {
         "moss-soundeffect": "moss",
+        "moss_soundeffect_v2": "moss_v2",
         "moss-tts": "moss_tts",
         "moss-ttsd": "moss_ttsd",
         "moss-voicegenerator": "moss_voicegenerator",
@@ -2127,6 +2164,9 @@ class Wan2GPService:
         "moss-soundeffect": [
             ("moss_soundeffect_path", "language_model", "audio", "moss-soundeffect"),
             ("moss_audio_tokenizer_path", "audio_tokenizer", "audio", "moss-audio-tokenizer"),
+        ],
+        "moss_soundeffect_v2": [
+            ("moss_soundeffect_v2_path", "pipeline_root", "audio", "moss-soundeffect-v2"),
         ],
         "moss-tts": [
             ("moss_tts_path", "language_model", "audio", "moss-tts"),

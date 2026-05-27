@@ -161,6 +161,10 @@ async def execute_workflow(request: Request) -> JSONResponse:
     except Exception:
         return JSONResponse({"error": "invalid JSON body"}, status_code=400)
 
+    return await _execute_workflow(wf_id, body)
+
+
+async def _execute_workflow(wf_id: str, body: dict[str, Any]) -> JSONResponse:
     # Route migrated workflows to the new engine
     spec_name = _YAML_MIGRATION_MAP.get(wf_id)
     if spec_name:

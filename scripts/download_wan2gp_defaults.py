@@ -29,6 +29,14 @@ PVC_MODELS = Path("/models")
 PVC_WAN2GP = PVC_MODELS / "wan2gp"
 
 
+def _is_mountpoint(p: Path) -> bool:
+    """Check if path is an actual mountpoint (not a directory on overlay)."""
+    try:
+        return os.path.ismount(str(p))
+    except OSError:
+        return False
+
+
 def check_env():
     issues = []
     hf_token = os.environ.get("HF_TOKEN", "")
@@ -37,16 +45,26 @@ def check_env():
     else:
         print(f"  HF_TOKEN: {'SET (%s...%s)' % (hf_token[:4], hf_token[-4:])}")
 
-    # Check PVC is writable
-    test_file = PVC_WAN2GP / ".write_test"
-    try:
-        PVC_WAN2GP.mkdir(parents=True, exist_ok=True)
-        test_file.write_text("ok")
-        test_file.unlink()
-        print(f"  PVC: {PVC_WAN2GP} (WRITABLE)")
-    except OSError as e:
-        issues.append(f"PVC not writable: {e}")
-        print(f"  PVC: {PVC_WAN2GP} (READ-ONLY — {e})")
+    # HARD FAIL: /models MUST be a real mountpoint (PVC), NOT overlay filesystem.
+    # Writing to overlay floods the primary disk and causes DiskPressure eviction.
+    if not _is_mountpoint(PVC_MODELS):
+        issues.append(
+            f"FATAL: {PVC_MODELS} is NOT a mountpoint — downloads would write to "
+            "container overlay and flood the primary disk. "
+            "Fix the K8s volume mount and retry."
+        )
+        print(f"  PVC: {PVC_MODELS} (NOT A MOUNTPOINT — ABORTING)")
+    else:
+        # Check PVC is writable
+        test_file = PVC_WAN2GP / ".write_test"
+        try:
+            PVC_WAN2GP.mkdir(parents=True, exist_ok=True)
+            test_file.write_text("ok")
+            test_file.unlink()
+            print(f"  PVC: {PVC_WAN2GP} (MOUNTED + WRITABLE)")
+        except OSError as e:
+            issues.append(f"PVC not writable: {e}")
+            print(f"  PVC: {PVC_WAN2GP} (MOUNTED but READ-ONLY — {e})")
 
     free_gb = "?"
     try:
@@ -55,6 +73,13 @@ def check_env():
     except OSError:
         pass
     print(f"  PVC free: {free_gb}")
+
+    # Redirect HF cache to PVC (not overlay). This prevents snapshot_download
+    # from writing gigabytes of duplicate cache to /tmp/huggingface on overlay.
+    hf_cache = PVC_MODELS / ".hf_cache"
+    os.environ["HF_HOME"] = str(hf_cache)
+    os.environ["HF_HUB_CACHE"] = str(hf_cache / "hub")
+    print(f"  HF cache: {hf_cache} (on PVC)")
 
     if issues:
         print("\n  ISSUES:")
@@ -152,7 +177,10 @@ def main():
 
     # ── Step 1: Environment Check
     print("\n── Environment ──")
-    check_env()
+    if not check_env():
+        print("\n  ABORTING: environment check failed (see above). "
+              "Fix PVC mount before running this script.")
+        sys.exit(1)
 
     # ── Step 2: Init Wan2GP
     print("\n── Initializing Wan2GP ──")
@@ -206,6 +234,34 @@ def main():
     # Save results
     DONE_MARKER.write_text(json.dumps(results, indent=2))
     print(f"\n  Results -> {DONE_MARKER}")
+
+    # ── Step 5: Download custom models (not in Wan2GP models_def)
+    print(f"\n── Custom models ──")
+    custom_models = {
+        "moss_soundeffect_v2": {
+            "repo": "OpenMOSS-Team/MOSS-SoundEffect-v2.0",
+            "marker": "model_index.json",
+        },
+    }
+    for name, info in custom_models.items():
+        dest = PVC_WAN2GP / name
+        print(f"  {name:35s} ... ", end="", flush=True)
+        if (dest / info["marker"]).exists():
+            print("EXISTS")
+            continue
+        t0 = time.time()
+        try:
+            from huggingface_hub import snapshot_download
+            snapshot_download(
+                repo_id=info["repo"],
+                local_dir=str(dest),
+                cache_dir=os.environ.get("HF_HUB_CACHE"),
+            )
+            dt = time.time() - t0
+            print(f"DOWNLOADED ({dt:.0f}s)")
+        except Exception as e:
+            print(f"ERR: {e}")
+            failed += 1
 
     if failed:
         print(f"\n  FAILED MODELS:")

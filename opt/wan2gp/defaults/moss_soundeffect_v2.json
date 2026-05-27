@@ -1,0 +1,12 @@
+{
+    "model": {
+        "name": "MOSS SoundEffect v2.0",
+        "architecture": "moss_v2",
+        "description": "MOSS-SoundEffect v2.0 DiT+FlowMatching text-to-sound. 1.3B DiT + Qwen3-1.7B + DAC VAE. 48kHz.",
+        "URLs": []
+    },
+    "prompt": "gentle rain",
+    "seconds": 10,
+    "steps": 100,
+    "cfg_scale": 4.0
+}

@@ -1157,6 +1157,16 @@ audio:
     description: MOSS-SoundEffect 8B text-to-sound model. Environmental sounds, urban
       scenes, creatures, human actions, music-like clips. Part of MOSS-TTS family.
       Requires MOSS-Audio-Tokenizer (3.5B, loaded to CPU).
+  moss-soundeffect-v2:
+    path: wan2gp/moss_soundeffect_v2
+    source: hf://OpenMOSS-Team/MOSS-SoundEffect-v2.0
+    download: snapshot
+    sha256: null
+    size_gb: 11.3
+    vram_estimate_gb: 7.0
+    device: gpu
+    description: MOSS-SoundEffect v2.0 DiT+FlowMatching. 1.3B DiT + Qwen3-1.7B + DAC VAE.
+      48kHz output. No separate audio tokenizer needed.
   moss-tts:
     path: audio/moss-tts/
     source: hf://OpenMOSS-Team/MOSS-TTS

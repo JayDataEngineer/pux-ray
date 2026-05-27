@@ -227,6 +227,10 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 # ── Wan2GP fork (our custom models registered as native families) ────────
 COPY opt/wan2gp/ /opt/wan2gp/
 
+# MOSS SoundEffect v2.0 — DiT + Flow Matching pipeline (diffsynth package)
+COPY vendor/moss-tts-v2/moss_soundeffect_v2/ /opt/wan2gp/moss_soundeffect_v2/
+RUN uv pip install ftfy
+
 # VibeVoice — Microsoft's ASR + TTS package (required by vibevoice handlers)
 # TTS has no transformers-native path; must install from GitHub.
 RUN git clone --depth 1 https://github.com/microsoft/VibeVoice.git /tmp/vibevoice && \
