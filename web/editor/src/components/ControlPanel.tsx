@@ -216,10 +216,13 @@ export function ControlPanel({ spec, run, onStart }: Props) {
         merged[k] = inputs[k]
       } else if (v.default !== undefined && v.default !== null) {
         merged[k] = v.default
+      } else if (v.required) {
+        toast('error', `Missing required field: ${k.replace(/_/g, ' ')}`)
+        return
       }
     }
     onStart(merged)
-  }, [spec.inputs, inputs, onStart])
+  }, [spec.inputs, inputs, onStart, toast])
 
   const handleRerun = useCallback(async () => {
     if (!run || !selectedStepId) return
