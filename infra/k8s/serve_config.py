@@ -12,6 +12,12 @@ No standalone service deployments. One system, one truth.
 # Forge's eviction logic handles model swapping across all services.
 from services.forge import forge
 
+# ─── Workflow Engine — CPU-only DAG orchestrator ────────────────────────────
+# Isolated from GPU crashes. Calls Forge via Ray handles for GPU steps.
+from services.workflows.engine import WorkflowEngine
+
+workflow_engine = WorkflowEngine.bind()
+
 # Playground UI (serves interactive HTML page + service metadata API)
 from gateway.playground_deployment import PlaygroundDeployment
 

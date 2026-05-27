@@ -1,0 +1,51 @@
+name: character_sheet
+version: "1.0"
+description: VNCCS character generation — Z-Image base + QWEN refinement
+
+inputs:
+  prompt:
+    type: string
+    required: true
+    description: "Character description"
+  seed:
+    type: integer
+    default: 42
+  quality:
+    type: string
+    default: "turbo"
+    enum: [turbo, standard]
+  negative_prompt:
+    type: string
+    default: "bad quality,worst quality"
+
+steps:
+  generate_base:
+    type: forge
+    service: wan2gp
+    model: z_image
+    params:
+      input_prompt: "{{ inputs.prompt }}"
+      n_prompt: "{{ inputs.negative_prompt }}"
+      seed: "{{ inputs.seed }}"
+      sampling_steps: 8
+      guide_scale: 1.0
+      width: 1024
+      height: 1024
+    outputs:
+      image: { media_type: image/png }
+
+  refine:
+    type: forge
+    service: wan2gp
+    model: qwen-image-edit
+    depends_on: [generate_base]
+    params:
+      input_prompt: "Draw character from image2"
+      image_b64: "{{ generate_base.outputs.image }}"
+      seed: "{{ inputs.seed }}"
+      sampling_steps: 4
+      guide_scale: 1.0
+      loras_selected:
+        - "Qwen-Image-Edit-2511-Lightning-4steps-V1.0-bf16.safetensors"
+    outputs:
+      image: { media_type: image/png }
