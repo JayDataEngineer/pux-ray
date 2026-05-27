@@ -24,7 +24,9 @@ export function Layout({ spec, allSpecs, run, onStart, onNewRun, onSpecChange, o
         <PreviewPanel run={run} />
         <ControlPanel spec={spec} run={run} onStart={onStart} />
       </div>
-      <TimelineBar spec={spec} run={run} />
+      <div className="editor-timeline">
+        <TimelineBar spec={spec} run={run} />
+      </div>
     </div>
   )
 }
