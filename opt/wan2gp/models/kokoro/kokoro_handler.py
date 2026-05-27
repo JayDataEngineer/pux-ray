@@ -78,8 +78,9 @@ class _Pipeline:
         audio_parts = []
 
         for ps in chunks:
-            # Select voice row matching phoneme length → [1, 256]
             ref_s = voice_pack[len(ps) - 1]
+            # mmgp may place model on GPU — move voice ref to match
+            ref_s = ref_s.to(next(self.kmodel.parameters()).device)
             output = self.kmodel(ps, ref_s, speed)
             audio_parts.append(output.audio.numpy())
 

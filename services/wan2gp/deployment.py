@@ -389,6 +389,7 @@ CUSTOM_HANDLERS = [
     "models.faster_whisper.faster_whisper_handler",
     "models.faster_qwen3_tts.faster_qwen3_tts_handler",
     "models.vibevoice_asr.vibevoice_asr_handler",
+    "models.trellis.trellis_handler",
     "models.anigen.anigen_handler",
     "models.see_through.see_through_handler",
     "models.hy_motion.hy_motion_handler",
@@ -1127,7 +1128,11 @@ class Wan2GPService:
         # they bypass Wan2GP's mmgp device management. Native models handle
         # device placement internally via the offloadobj — setting this would
         # cause "weights on cpu, input on cuda" mismatches.
-        if torch.cuda.is_available() and not self._native_loaded:
+        # CPU-only models (kokoro, espeak, faster_whisper) stay on CPU.
+        is_cpu_model = self._loaded_model in _CPU_ONLY_TYPES or (
+            self._registry.get(self._loaded_model, {}).get("model_type") in _CPU_ONLY_TYPES
+        )
+        if torch.cuda.is_available() and not self._native_loaded and not is_cpu_model:
             torch.set_default_device("cuda")
 
         entry = self._registry.get(self._loaded_model)
