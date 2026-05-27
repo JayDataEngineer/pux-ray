@@ -360,6 +360,14 @@ class ForgeCore:
     def status_sync(self) -> dict:
         """Synchronous status — no torch.cuda dependency."""
         self._cleanup_stale_allocations()
+        # Reconcile stale counters: if nothing is loaded but allocations
+        # persist (from orphaned loads), reset to ground truth.
+        if not any(self._loaded.values()):
+            stale = self._total_allocated()
+            if stale > 0:
+                logger.warning("Forge: resetting %dMB in stale allocations", stale)
+                self._vram_allocations.clear()
+                self._vram_free_mb = AVAILABLE_MB
         loaded_services = {n: mb for n, mb in self._vram_allocations.items()
                            if self._loaded.get(n)}
         return {
