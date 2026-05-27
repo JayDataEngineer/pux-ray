@@ -150,3 +150,64 @@ async def extract_frame(params: dict, context: StepContext) -> Path:
     if proc.returncode != 0:
         raise RuntimeError(f"ffmpeg extract_frame failed: {stderr.decode(errors='replace')[-300:]}")
     return output
+
+
+@_register("composite")
+async def composite_images(params: dict, context: StepContext) -> Path:
+    """Overlay one image onto another at a position specified by keypoints.
+
+    Params:
+      base_image: path to the base/background image
+      overlay_image: path to the image to overlay (e.g., refined face)
+      position: either "center" or a dict/JSON with x, y (and optionally width, height)
+    """
+    from PIL import Image
+    import json
+
+    base_path = Path(params.get("base_image", ""))
+    overlay_path = Path(params.get("overlay_image", ""))
+    position = params.get("position", "center")
+
+    if not base_path.exists():
+        raise FileNotFoundError(f"Base image not found: {base_path}")
+    if not overlay_path.exists():
+        raise FileNotFoundError(f"Overlay image not found: {overlay_path}")
+
+    base = Image.open(base_path).convert("RGBA")
+    overlay = Image.open(overlay_path).convert("RGBA")
+
+    # Parse position
+    if isinstance(position, str):
+        try:
+            pos = json.loads(position)
+        except (json.JSONDecodeError, TypeError):
+            pos = position
+    else:
+        pos = position
+
+    if isinstance(pos, dict):
+        # Keypoint format: {x, y} or {x, y, width, height}
+        x = int(pos.get("x", 0))
+        y = int(pos.get("y", 0))
+        w = pos.get("width")
+        h = pos.get("height")
+        if w and h:
+            overlay = overlay.resize((int(w), int(h)), Image.LANCZOS)
+    elif isinstance(pos, (list, tuple)) and len(pos) >= 2:
+        # Keypoint array format: first element is the primary point
+        if isinstance(pos[0], dict):
+            x = int(pos[0].get("x", 0))
+            y = int(pos[0].get("y", 0))
+        else:
+            x, y = int(pos[0]), int(pos[1])
+    else:
+        # Default: center the overlay
+        x = (base.width - overlay.width) // 2
+        y = (base.height - overlay.height) // 2
+
+    # Paste overlay onto base
+    base.paste(overlay, (x, y), overlay)
+
+    output = Path(tempfile.mktemp(suffix=".png"))
+    base.convert("RGB").save(output, "PNG")
+    return output

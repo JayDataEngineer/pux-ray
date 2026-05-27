@@ -58,6 +58,7 @@ class WorkflowEngine:
         from .steps.transform import TransformStepExecutor
         from .steps.external import ExternalWaitStep
         from .steps.python import PythonStepExecutor
+        from .steps.mock import MockStepExecutor
 
         self.registry.register("forge", ForgeStepExecutor)
         self.registry.register("serve", ServeStepExecutor)
@@ -65,6 +66,7 @@ class WorkflowEngine:
         self.registry.register("transform", TransformStepExecutor)
         self.registry.register("external_wait", ExternalWaitStep)
         self.registry.register("python", PythonStepExecutor)
+        self.registry.register("mock", MockStepExecutor)
 
     # ------------------------------------------------------------------
     # Run lifecycle
@@ -383,6 +385,8 @@ class WorkflowEngine:
                 params["_service"] = step.service
             if step.model:
                 params["_model"] = step.model
+            if step.method:
+                params["_method"] = step.method
             if step.function:
                 params["_function"] = step.function
 
@@ -396,7 +400,7 @@ class WorkflowEngine:
                 artifacts=self.artifacts,
             )
 
-            # Handle interaction steps (external_wait)
+            # Handle interaction steps
             if step.type == "external_wait" or step.interaction == "required":
                 await self.state_store.update_step(run_id, step.id, status="waiting_input")
                 # Wait for approve_step() to signal
@@ -408,36 +412,37 @@ class WorkflowEngine:
                 run = await self.state_store.load(run_id)
                 return
 
+            if step.interaction == "optional":
+                # Run normally but tag as interactive so frontend can offer re-run
+                await self.state_store.update_step(
+                    run_id, step.id,
+                    status="running",
+                    error=None,  # clear any previous metadata key
+                )
+
             t0 = time.monotonic()
             result: StepResult = await executor.execute(resolved, context)
             elapsed_ms = int((time.monotonic() - t0) * 1000)
 
-            # Store artifact refs in run state
+            # Record artifact refs from executor outputs into run state
             run = await self.state_store.load(run_id)
             for name, path in result.outputs.items():
                 artifact_path = Path(path) if isinstance(path, str) else path
                 if artifact_path.exists():
-                    # Executor already stored the file; just record the ref
-                    from services.workflows.artifacts import _media_for_ext
-                    ref_dict = {
-                        "run_id": run_id,
-                        "step_id": step.id,
-                        "name": name,
-                        "file_path": str(artifact_path),
-                        "media_type": _media_for_ext(artifact_path.suffix.lstrip(".")),
-                        "url": f"/v1/wf/runs/{run_id}/artifacts/{step.id}/{artifact_path.name}",
-                        "size_bytes": artifact_path.stat().st_size,
-                        "created_at": _now(),
-                    }
-                    run.artifacts[f"{step.id}.{name}"] = ref_dict
+                    ref = await self.artifacts.store_from_file(
+                        run_id, step.id, name, artifact_path,
+                    )
+                    run.artifacts[f"{step.id}.{name}"] = ref.to_dict()
 
-            await self.state_store.update_step(
-                run_id, step.id,
+            update_kwargs = dict(
                 status="completed",
                 outputs=result.outputs,
                 duration_ms=elapsed_ms,
                 completed_at=_now(),
             )
+            if step.interaction:
+                update_kwargs["interaction"] = step.interaction
+            await self.state_store.update_step(run_id, step.id, **update_kwargs)
 
         except Exception as e:
             logger.exception("Step %s failed", step.id)

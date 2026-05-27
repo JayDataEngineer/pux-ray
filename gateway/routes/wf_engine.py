@@ -103,17 +103,24 @@ async def wf_start_run(request: Request) -> JSONResponse:
 
 
 async def wf_get_run(request: Request) -> JSONResponse:
+    spec_name = request.path_params.get("spec_name", "")
     run_id = request.path_params.get("run_id", "")
     engine = _get_engine()
     run = await engine.get_run.remote(run_id)
     if not run:
         return JSONResponse({"error": "Run not found"}, status_code=404)
+    if run.get("spec_name") != spec_name:
+        return JSONResponse({"error": "Run does not belong to this spec"}, status_code=400)
     return JSONResponse(run)
 
 
 async def wf_cancel_run(request: Request) -> JSONResponse:
+    spec_name = request.path_params.get("spec_name", "")
     run_id = request.path_params.get("run_id", "")
     engine = _get_engine()
+    run = await engine.get_run.remote(run_id)
+    if run and run.get("spec_name") != spec_name:
+        return JSONResponse({"error": "Run does not belong to this spec"}, status_code=400)
     result = await engine.cancel_run.remote(run_id)
     return JSONResponse(result)
 
@@ -123,8 +130,16 @@ async def wf_cancel_run(request: Request) -> JSONResponse:
 # ---------------------------------------------------------------------------
 
 async def wf_approve_step(request: Request) -> JSONResponse:
+    spec_name = request.path_params.get("spec_name", "")
     run_id = request.path_params.get("run_id", "")
     step_id = request.path_params.get("step_id", "")
+
+    engine = _get_engine()
+    run = await engine.get_run.remote(run_id)
+    if not run:
+        return JSONResponse({"error": "Run not found"}, status_code=404)
+    if run.get("spec_name") != spec_name:
+        return JSONResponse({"error": "Run does not belong to this spec"}, status_code=400)
 
     content_type = request.headers.get("content-type", "")
 
@@ -145,34 +160,49 @@ async def wf_approve_step(request: Request) -> JSONResponse:
         except Exception:
             return JSONResponse({"error": "invalid JSON or multipart body"}, status_code=400)
 
-    engine = _get_engine()
     result = await engine.approve_step.remote(run_id, step_id, data)
     return JSONResponse(result)
 
 
 async def wf_rerun_step(request: Request) -> JSONResponse:
+    spec_name = request.path_params.get("spec_name", "")
     run_id = request.path_params.get("run_id", "")
     step_id = request.path_params.get("step_id", "")
+
+    engine = _get_engine()
+    run = await engine.get_run.remote(run_id)
+    if not run:
+        return JSONResponse({"error": "Run not found"}, status_code=404)
+    if run.get("spec_name") != spec_name:
+        return JSONResponse({"error": "Run does not belong to this spec"}, status_code=400)
+
     try:
         new_params = await request.json()
     except Exception:
         new_params = None
 
-    engine = _get_engine()
     result = await engine.rerun_from.remote(run_id, step_id, new_params)
     return JSONResponse(result)
 
 
 async def wf_execute_step(request: Request) -> JSONResponse:
     """Execute a single step in isolation (no downstream cascade)."""
+    spec_name = request.path_params.get("spec_name", "")
     run_id = request.path_params.get("run_id", "")
     step_id = request.path_params.get("step_id", "")
+
+    engine = _get_engine()
+    run = await engine.get_run.remote(run_id)
+    if not run:
+        return JSONResponse({"error": "Run not found"}, status_code=404)
+    if run.get("spec_name") != spec_name:
+        return JSONResponse({"error": "Run does not belong to this spec"}, status_code=400)
+
     try:
         params = await request.json()
     except Exception:
         params = None
 
-    engine = _get_engine()
     result = await engine.execute_single_step.remote(run_id, step_id, params)
     status_code = 200 if result.get("status") != "error" else 400
     return JSONResponse(result, status_code=status_code)
@@ -183,6 +213,7 @@ async def wf_execute_step(request: Request) -> JSONResponse:
 # ---------------------------------------------------------------------------
 
 async def wf_get_artifact(request: Request) -> Response:
+    spec_name = request.path_params.get("spec_name", "")
     run_id = request.path_params.get("run_id", "")
     step_id = request.path_params.get("step_id", "")
     filename = request.path_params.get("filename", "")
@@ -197,7 +228,8 @@ async def wf_get_artifact(request: Request) -> Response:
         "png": "image/png", "jpg": "image/jpeg", "jpeg": "image/jpeg",
         "webp": "image/webp", "mp4": "video/mp4", "webm": "video/webm",
         "wav": "audio/wav", "mp3": "audio/mp3", "ogg": "audio/ogg",
-        "json": "application/json",
+        "json": "application/json", "glb": "model/gltf-binary",
+        "gltf": "model/gltf+json", "obj": "model/obj", "zip": "application/zip",
     }
     media_type = media_types.get(ext, "application/octet-stream")
 
@@ -209,10 +241,19 @@ async def wf_get_artifact(request: Request) -> Response:
 
 
 async def wf_list_artifacts(request: Request) -> JSONResponse:
+    spec_name = request.path_params.get("spec_name", "")
     run_id = request.path_params.get("run_id", "")
+
+    engine = _get_engine()
+    run = await engine.get_run.remote(run_id)
+    if not run:
+        return JSONResponse({"error": "Run not found"}, status_code=404)
+    if run.get("spec_name") != spec_name:
+        return JSONResponse({"error": "Run does not belong to this spec"}, status_code=400)
+
     base = Path("/mnt/data/workflows") / run_id
     if not base.exists():
-        return JSONResponse({"error": "Run not found"}, status_code=404)
+        return JSONResponse({"run_id": run_id, "artifacts": []})
 
     artifacts = []
     for step_dir in sorted(base.iterdir()):
@@ -233,8 +274,15 @@ async def wf_list_artifacts(request: Request) -> JSONResponse:
 # ---------------------------------------------------------------------------
 
 async def wf_events(request: Request) -> StreamingResponse:
+    spec_name = request.path_params.get("spec_name", "")
     run_id = request.path_params.get("run_id", "")
+
     engine = _get_engine()
+    run = await engine.get_run.remote(run_id)
+    if not run:
+        return JSONResponse({"error": "Run not found"}, status_code=404)
+    if run.get("spec_name") != spec_name:
+        return JSONResponse({"error": "Run does not belong to this spec"}, status_code=400)
 
     async def event_stream():
         try:

@@ -33,6 +33,7 @@ class StepState:
     started_at: str | None = None
     completed_at: str | None = None
     duration_ms: int | None = None
+    interaction: str | None = None  # required | optional | None
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)

@@ -74,7 +74,7 @@ class ArtifactStore:
     override _write_bytes / _read_bytes / _move_file to use S3/MinIO.
     """
 
-    def __init__(self, base_dir: Path = _DEFAULT_BASE, url_prefix: str = "/v1/workflows"):
+    def __init__(self, base_dir: Path = _DEFAULT_BASE, url_prefix: str = "/v1/wf"):
         self.base_dir = base_dir
         self.url_prefix = url_prefix
 
@@ -193,6 +193,10 @@ _MEDIA_EXT = {
     "audio/ogg": "ogg",
     "application/json": "json",
     "application/octet-stream": "bin",
+    "model/gltf-binary": "glb",
+    "model/gltf+json": "gltf",
+    "model/obj": "obj",
+    "application/zip": "zip",
 }
 
 _EXT_MEDIA = {v: k for k, v in _MEDIA_EXT.items()}
