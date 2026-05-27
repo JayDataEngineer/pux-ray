@@ -20,5 +20,27 @@ export function TimelineBar({ spec, run }: Props) {
     }
   }, [run, spec, loadFromRun, reset])
 
+  if (!run) {
+    return <SimpleTimeline spec={spec} />
+  }
+
   return <TimelineEditor />
+}
+
+function SimpleTimeline({ spec }: { spec: WorkflowSpec }) {
+  return (
+    <div className="timeline-bar">
+      <div className="timeline-stages">
+        {spec.steps.map((step) => (
+          <div key={step.id} className="timeline-stage timeline-stage--pending">
+            <div className="stage-dot" />
+            <div className="stage-label">{step.id.replace(/_/g, ' ')}</div>
+          </div>
+        ))}
+      </div>
+      <div className="timeline-progress">
+        {spec.steps.length} steps
+      </div>
+    </div>
+  )
 }

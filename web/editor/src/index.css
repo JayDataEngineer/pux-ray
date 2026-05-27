@@ -1132,7 +1132,6 @@ body {
 
 .editor-timeline {
   flex-shrink: 0;
-  height: 380px;
   border-top: 1px solid var(--border);
 }
 
