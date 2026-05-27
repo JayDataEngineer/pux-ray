@@ -413,7 +413,8 @@ spec:
       - /comfyui
 
 ---
-# Kimodo — routed through Ray Serve (auto-loads via Forge on first request)
+# Kimodo Viser — direct to subprocess (interactive 3D posing UI + WebSocket)
+# Forge loads kimodo_demo which starts Viser on port 18470.
 # URL: http://100.86.69.57:30080/kimodo/
 apiVersion: traefik.io/v1alpha1
 kind: IngressRoute
@@ -426,9 +427,22 @@ spec:
   routes:
     - match: PathPrefix(`/kimodo`)
       kind: Rule
+      middlewares:
+        - name: kimodo-strip
       services:
-        - name: tech-noir-ray-serve-svc
-          port: 8000
+        - name: gpu-worker-subprocess
+          port: 18470
+
+---
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: kimodo-strip
+  namespace: ai-services
+spec:
+  stripPrefix:
+    prefixes:
+      - /kimodo
 
 ---
 # llama.cpp — routed through Ray Serve (auto-loads via Forge on first request)

@@ -1,6 +1,7 @@
 # GPU worker subprocess service — targets worker pod for subprocess UIs.
-# ComfyUI (18465) and llama.cpp (18399) run as Forge-managed subprocesses.
-# These ports only respond when Forge has loaded the service.
+# ComfyUI (18465), llama.cpp (18399), and Kimodo Viser (18470) run as
+# Forge-managed subprocesses. These ports only respond when Forge has loaded
+# the service.
 apiVersion: v1
 kind: Service
 metadata:
@@ -16,6 +17,9 @@ spec:
     - name: llm
       port: 18399
       targetPort: 18399
+    - name: kimodo
+      port: 18470
+      targetPort: 18470
 ---
 # Ray Dashboard service — uses broad selector that matches any Ray head pod.
 # The KubeRay-managed tech-noir-ray-head-svc has a broken selector

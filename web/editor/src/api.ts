@@ -2,10 +2,30 @@ import type { WorkflowSpec, WorkflowRun } from './types'
 
 const BASE = '/v1/wf'
 
+const STATUS_SUMMARIES: Record<number, string> = {
+  400: 'Invalid request',
+  401: 'Authentication required',
+  403: 'Permission denied',
+  404: 'Not found',
+  408: 'Request timed out',
+  409: 'Conflict — resource already exists',
+  422: 'Validation failed',
+  429: 'Too many requests — slow down',
+  500: 'Server error — try again',
+  502: 'Service unavailable',
+  503: 'Service overloaded — retry shortly',
+  504: 'Gateway timed out',
+}
+
+function summarizeError(status: number, detail: string): string {
+  if (detail && detail !== `HTTP ${status}`) return detail
+  return STATUS_SUMMARIES[status] || `Request failed (${status})`
+}
+
 async function json<T>(res: Response): Promise<T> {
   if (!res.ok) {
-    const err = await res.json().catch(() => ({ error: res.statusText }))
-    throw new Error(err.error || `HTTP ${res.status}`)
+    const body = await res.json().catch(() => ({ error: '' }))
+    throw new Error(summarizeError(res.status, body.error || body.detail || ''))
   }
   return res.json()
 }
@@ -76,4 +96,17 @@ export function artifactUrl(specName: string, runId: string, stepId: string, fil
 
 export function sseUrl(specName: string, runId: string) {
   return `${BASE}/${specName}/runs/${runId}/events`
+}
+
+export async function loadKimodo(): Promise<{ status: string }> {
+  const res = await fetch('/forge', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action: 'preload', service: 'kimodo_demo' }),
+  })
+  return json(res)
+}
+
+export function kimodoUrl() {
+  return `${window.location.origin}/kimodo/`
 }

@@ -2,6 +2,7 @@ import { useRef, lazy, Suspense } from 'react'
 import type { WorkflowRun } from '../types'
 import { useWorkflowStore } from '../stores/workflow'
 import { AudioPreview } from './AudioPreview'
+import { KimodoEmbed } from './KimodoEmbed'
 
 const Preview3D = lazy(() => import('./Preview3D').then((m) => ({ default: m.Preview3D })))
 
@@ -30,15 +31,23 @@ export function PreviewPanel({ run }: Props) {
     .map(([, v]) => v)
 
   if (!stepState || stepState.status !== 'completed' || artifacts.length === 0) {
+    const showKimodo = selectedStepId === 'mesh_pose' && stepState?.status === 'waiting_input'
     return (
       <div className="preview-panel">
-        <div className="panel-header">Preview — {selectedStepId.replace(/_/g, ' ')}</div>
-        <div className="preview-empty">
-          {stepState?.status === 'running' ? 'Generating...' :
-           stepState?.status === 'waiting_input' ? 'Waiting for input' :
-           stepState?.status === 'failed' ? `Failed: ${stepState.error}` :
-           'No output yet'}
+        <div className="panel-header">
+          Preview — {selectedStepId.replace(/_/g, ' ')}
+          {showKimodo && <span className="preview-meta">Kimodo Director</span>}
         </div>
+        {showKimodo ? (
+          <KimodoEmbed />
+        ) : (
+          <div className="preview-empty">
+            {stepState?.status === 'running' ? 'Generating...' :
+             stepState?.status === 'waiting_input' ? 'Waiting for input' :
+             stepState?.status === 'failed' ? `Failed: ${stepState.error}` :
+             'No output yet'}
+          </div>
+        )}
       </div>
     )
   }

@@ -634,3 +634,52 @@ body {
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
 ::-webkit-scrollbar-thumb:hover { background: var(--border-focus); }
+
+/* ─── Kimodo Embed ─────────────────────────────────────────── */
+
+.kimodo-container {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.kimodo-iframe {
+  flex: 1;
+  width: 100%;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: var(--bg-card);
+}
+
+.kimodo-loading {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  color: var(--text-secondary);
+}
+
+.kimodo-hint {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+.kimodo-error {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  color: var(--red);
+}
+
+.kimodo-error-detail {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  max-width: 400px;
+  text-align: center;
+}
