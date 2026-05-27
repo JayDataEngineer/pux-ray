@@ -90,6 +90,14 @@ export async function approveStep(
   return json(res)
 }
 
+export async function continueStep(specName: string, runId: string, stepId: string) {
+  const res = await fetch(`${BASE}/${specName}/runs/${runId}/steps/${stepId}/continue`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+  })
+  return json(res)
+}
+
 export function artifactUrl(specName: string, runId: string, stepId: string, filename: string) {
   return `${BASE}/${specName}/runs/${runId}/artifacts/${stepId}/${filename}`
 }

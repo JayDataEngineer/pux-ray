@@ -58,7 +58,7 @@ export function App() {
         return null
       })
       .then((s) => { if (s) setSpec(s) })
-      .catch((e) => toast('error', 'Could not load pipeline specs'))
+      .catch(() => toast('error', 'Could not load pipeline specs'))
   }, [setSpec, toast])
 
   const handleSpecChange = useCallback(async (name: string) => {

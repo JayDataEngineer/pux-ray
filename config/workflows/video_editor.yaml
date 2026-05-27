@@ -53,6 +53,10 @@ inputs:
   upscale_target:
     type: string
     default: "1920x1080"
+  last_frame_image:
+    type: string
+    required: false
+    description: "Optional last-frame image (URL or base64) for first-frame-last-frame video generation. When provided, uses 2-stage FFLF conditioning."
 
 steps:
   # ─── Stage 1: Character generation ──────────────────────────────────────
@@ -114,6 +118,7 @@ steps:
       fps: "{{ inputs.video_fps }}"
       frame_num: "{{ inputs.video_frames }}"
       guide_scale: 3.0
+      last_frame_b64: "{{ inputs.last_frame_image }}"
     outputs:
       video: { media_type: video/mp4 }
 

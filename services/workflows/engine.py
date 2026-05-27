@@ -444,6 +444,19 @@ class WorkflowEngine:
                 update_kwargs["interaction"] = step.interaction
             await self.state_store.update_step(run_id, step.id, **update_kwargs)
 
+            # Review mode: pause after every completed step for user approval.
+            # Skip for steps that already manage their own interaction
+            # (external_wait steps pause before execution, not after).
+            if step.type != "external_wait":
+                await self.state_store.update_step(
+                    run_id, step.id, status="waiting_input", interaction="review",
+                )
+                event_key = f"{run_id}.{step.id}"
+                evt = asyncio.Event()
+                self._wait_events[event_key] = evt
+                await evt.wait()
+                await self.state_store.update_step(run_id, step.id, status="completed")
+
         except Exception as e:
             logger.exception("Step %s failed", step.id)
             await self.state_store.update_step(

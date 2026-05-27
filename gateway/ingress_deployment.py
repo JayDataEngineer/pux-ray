@@ -22,7 +22,7 @@ from gateway.studio import studio_page, studio_apps, studio_switch, studio_relea
 from gateway.routes.workflows import list_workflows, get_workflow, execute_workflow, _get_workflow_json, _execute_workflow
 from gateway.routes.wf_engine import (
     wf_list_specs, wf_get_spec, wf_start_run, wf_get_run, wf_cancel_run,
-    wf_approve_step, wf_rerun_step, wf_execute_step, wf_list_artifacts,
+    wf_approve_step, wf_continue_step, wf_rerun_step, wf_execute_step, wf_list_artifacts,
     wf_get_artifact, wf_events,
 )
 from gateway.routes.editor import editor_page, editor_static
@@ -194,6 +194,8 @@ class APIIngressDeployment:
                 run_id, step_id, action = parts[2], parts[4], parts[5]
                 if action == "approve" and method == "POST":
                     return await wf_approve_step(_ParamsRequest(request, {"spec_name": spec_name, "run_id": run_id, "step_id": step_id}))
+                if action == "continue" and method == "POST":
+                    return await wf_continue_step(_ParamsRequest(request, {"spec_name": spec_name, "run_id": run_id, "step_id": step_id}))
                 if action == "rerun" and method == "POST":
                     return await wf_rerun_step(_ParamsRequest(request, {"spec_name": spec_name, "run_id": run_id, "step_id": step_id}))
                 if action == "execute" and method == "POST":

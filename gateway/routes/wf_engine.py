@@ -158,9 +158,22 @@ async def wf_approve_step(request: Request) -> JSONResponse:
         try:
             data = await request.json()
         except Exception:
+            data = {}
+        except Exception:
             return JSONResponse({"error": "invalid JSON or multipart body"}, status_code=400)
 
     result = await engine.approve_step.remote(run_id, step_id, data)
+    return JSONResponse(result)
+
+
+async def wf_continue_step(request: Request) -> JSONResponse:
+    """Continue past a review pause — signals the engine to advance."""
+    spec_name = request.path_params.get("spec_name", "")
+    run_id = request.path_params.get("run_id", "")
+    step_id = request.path_params.get("step_id", "")
+
+    engine = _get_engine()
+    result = await engine.approve_step.remote(run_id, step_id, {})
     return JSONResponse(result)
 
 
