@@ -154,10 +154,11 @@ def _ensure_quantized_cache():
 def _patch_quanto_compat():
     """Patch optimum-quanto WeightQBytesTensor to handle old serialization format.
 
-    optimum-quanto <= 0.2.2 stored _qtype (with underscore) in safetensors metadata.
-    v0.2.3+ expects qtype (no underscore). Old quantized files (e.g. flux1-dev_quanto_bf16_int8)
-    fail with "unexpected keyword argument '_qtype'" when loaded in a process where
-    WeightQBytesTensor is registered as a safetensors tensor subclass.
+    optimum-quanto <= 0.2.2 stored fields with leading underscores (_qtype, _axis,
+    _data, _size, _stride, _scale) in safetensors metadata.  v0.2.3+ expects them
+    without underscores.  Old quantized files (e.g. flux1-dev_quanto_bf16_int8)
+    fail with "unexpected keyword argument '_qtype'" (or '_axis', '_data', etc.)
+    when loaded in a process where WeightQBytesTensor is a safetensors subclass.
     """
     try:
         from optimum.quanto.tensor.weights.qbytes import WeightQBytesTensor
@@ -169,9 +170,21 @@ def _patch_quanto_compat():
     @staticmethod
     def _compat_new(cls, qtype=None, axis=None, size=None, stride=None,
                     data=None, scale=None, activation_qtype=None,
-                    requires_grad=False, _qtype=None, **kwargs):
+                    requires_grad=False,
+                    _qtype=None, _axis=None, _data=None, _size=None,
+                    _stride=None, _scale=None, **kwargs):
         if qtype is None and _qtype is not None:
             qtype = _qtype
+        if axis is None and _axis is not None:
+            axis = _axis
+        if data is None and _data is not None:
+            data = _data
+        if size is None and _size is not None:
+            size = _size
+        if stride is None and _stride is not None:
+            stride = _stride
+        if scale is None and _scale is not None:
+            scale = _scale
         return _orig_new(
             cls, qtype=qtype, axis=axis, size=size, stride=stride,
             data=data, scale=scale, activation_qtype=activation_qtype,
