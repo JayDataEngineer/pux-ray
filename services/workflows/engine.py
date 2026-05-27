@@ -72,8 +72,8 @@ class WorkflowEngine:
     # Run lifecycle
     # ------------------------------------------------------------------
 
-    async def start_run(self, spec_name: str, inputs: dict) -> dict:
-        """Create and start a new workflow run. Returns initial state."""
+    async def start_run(self, spec_name: str, inputs: dict, manual: bool = False) -> dict:
+        """Create a new workflow run. If manual=True, don't auto-execute steps."""
         spec = load_spec(spec_name)
         self._validate_inputs(spec, inputs)
 
@@ -86,11 +86,13 @@ class WorkflowEngine:
         )
         await self.state_store.create(run)
 
-        # Start execution in background
-        task = asyncio.create_task(self._run_workflow(run_id))
-        self._running[run_id] = task
+        if not manual:
+            # Start execution in background
+            task = asyncio.create_task(self._run_workflow(run_id))
+            self._running[run_id] = task
 
-        return {"run_id": run_id, "status": "running", "spec": spec_name}
+        status = "pending" if manual else "running"
+        return {"run_id": run_id, "status": status, "spec": spec_name}
 
     async def get_run(self, run_id: str) -> dict | None:
         run = await self.state_store.load(run_id)

@@ -45,9 +45,11 @@ interface Props {
   runId: string
   selected: boolean
   onClick: () => void
+  onExecute?: (stepId: string) => void
+  canExecute?: boolean
 }
 
-export function StepCard({ stepId, stepType, interaction, status, durationMs, error, artifacts, sourceArtifacts, specName, runId, selected, onClick }: Props) {
+export function StepCard({ stepId, stepType, interaction, status, durationMs, error, artifacts, sourceArtifacts, specName, runId, selected, onClick, onExecute, canExecute }: Props) {
   const label = STEP_LABELS[stepId] || stepId.replace(/_/g, ' ')
   const icon = STATUS_ICONS[status] || '○'
   const hasArtifact = artifacts.length > 0
@@ -150,6 +152,17 @@ export function StepCard({ stepId, stepType, interaction, status, durationMs, er
 
       {status === 'failed' && error && (
         <div className="step-error">{error}</div>
+      )}
+
+      {status === 'pending' && canExecute && runId && (
+        <div className="step-upload">
+          <button
+            className="btn btn-primary btn-sm"
+            onClick={(e) => { e.stopPropagation(); onExecute?.(stepId) }}
+          >
+            Run Step
+          </button>
+        </div>
       )}
 
       {status === 'waiting_input' && runId && (

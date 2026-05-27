@@ -93,9 +93,10 @@ async def wf_start_run(request: Request) -> JSONResponse:
     except Exception:
         return JSONResponse({"error": "invalid JSON body"}, status_code=400)
 
+    manual = body.pop("_manual", False)
     engine = _get_engine()
     try:
-        result = await engine.start_run.remote(spec_name, body)
+        result = await engine.start_run.remote(spec_name, body, manual=manual)
         return JSONResponse(result, status_code=201)
     except (ValueError, FileNotFoundError) as e:
         return JSONResponse({"error": str(e)}, status_code=400)

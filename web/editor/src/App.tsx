@@ -75,10 +75,10 @@ export function App() {
     if (!spec) return
     setLoading(true)
     try {
-      const result = await startRun(spec.name, inputs)
+      const result = await startRun(spec.name, inputs, true)
       const fullRun = await getRun(spec.name, result.run_id)
       setRun(fullRun)
-      toast('info', 'Pipeline started')
+      toast('info', 'Run created — run each step individually')
     } catch (e) {
       toast('error', e instanceof Error ? e.message : 'Could not start pipeline')
     } finally {

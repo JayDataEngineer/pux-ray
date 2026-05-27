@@ -308,7 +308,7 @@ export function ControlPanel({ spec, run, onStart }: Props) {
             </div>
           ))}
           <button className="btn btn-primary btn-block" onClick={handleStart}>
-            Start Pipeline
+            Start Pipeline (Manual)
           </button>
         </div>
       ) : selectedStep && selectedStep.state ? (

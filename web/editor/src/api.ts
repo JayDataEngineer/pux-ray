@@ -41,11 +41,12 @@ export async function getSpec(name: string): Promise<WorkflowSpec> {
   return json<WorkflowSpec>(res)
 }
 
-export async function startRun(specName: string, inputs: Record<string, unknown>): Promise<{ run_id: string; status: string }> {
+export async function startRun(specName: string, inputs: Record<string, unknown>, manual = false): Promise<{ run_id: string; status: string }> {
+  const body = manual ? { ...inputs, _manual: true } : inputs
   const res = await fetch(`${BASE}/${specName}/runs`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(inputs),
+    body: JSON.stringify(body),
   })
   return json(res)
 }

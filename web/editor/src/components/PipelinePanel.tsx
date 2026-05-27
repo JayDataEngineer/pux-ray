@@ -1,6 +1,8 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import type { WorkflowSpec, WorkflowRun } from '../types'
 import { useWorkflowStore } from '../stores/workflow'
+import { useToastStore } from '../stores/toast'
+import { executeStep, getRun } from '../api'
 import { StepCard } from './StepCard'
 import { getSourceRefs } from '../utils/stepUtils'
 
@@ -10,10 +12,22 @@ interface Props {
   onLoadRun: (specName: string, runId: string) => void
 }
 
+function canExecuteStep(stepId: string, spec: WorkflowSpec, run: WorkflowRun): boolean {
+  const step = spec.steps.find((s) => s.id === stepId)
+  if (!step) return false
+  return step.depends_on.every((dep) => {
+    const depState = run.step_states[dep]
+    return depState?.status === 'completed'
+  })
+}
+
 export function PipelinePanel({ spec, run, onLoadRun }: Props) {
   const selectedStepId = useWorkflowStore((s) => s.selectedStepId)
   const setSelectedStep = useWorkflowStore((s) => s.setSelectedStep)
+  const setRun = useWorkflowStore((s) => s.setRun)
+  const toast = useToastStore((s) => s.addToast)
   const [pastRuns, setPastRuns] = useState<{ run_id: string; status: string; created_at?: string }[]>([])
+  const [executing, setExecuting] = useState<string | null>(null)
 
   useEffect(() => {
     const stored = localStorage.getItem(`runs_${spec.name}`)
@@ -22,7 +36,6 @@ export function PipelinePanel({ spec, run, onLoadRun }: Props) {
     }
   }, [spec.name])
 
-  // Persist current run ID
   useEffect(() => {
     if (run?.run_id) {
       const key = `runs_${spec.name}`
@@ -36,6 +49,23 @@ export function PipelinePanel({ spec, run, onLoadRun }: Props) {
       }
     }
   }, [run?.run_id, run?.status, spec.name])
+
+  const handleExecuteStep = useCallback(async (stepId: string) => {
+    if (!run) return
+    setExecuting(stepId)
+    try {
+      const result = await executeStep(run.spec_name, run.run_id, stepId) as Record<string, unknown>
+      if (result.status === 'error') {
+        toast('error', (result.error as string) || 'Step failed')
+      }
+      const updated = await getRun(run.spec_name, run.run_id)
+      setRun(updated)
+    } catch (err) {
+      toast('error', err instanceof Error ? err.message : 'Step execution failed')
+    } finally {
+      setExecuting(null)
+    }
+  }, [run, setRun, toast])
 
   const tabs = ['Steps', 'History'] as const
   const [activeTab, setActiveTab] = useState<typeof tabs[number]>('Steps')
@@ -60,6 +90,9 @@ export function PipelinePanel({ spec, run, onLoadRun }: Props) {
         <div className="pipeline-steps">
           {spec.steps.map((step) => {
             const state = run?.step_states[step.id]
+            const status = state?.status ?? 'pending'
+            const isExecuting = executing === step.id
+
             const artifacts = run
               ? Object.entries(run.artifacts)
                   .filter(([k]) => k.startsWith(`${step.id}.`))
@@ -76,13 +109,15 @@ export function PipelinePanel({ spec, run, onLoadRun }: Props) {
               return { stepId: ref.stepId, outputKey: ref.outputKey, thumbnailUrl }
             })
 
+            const depsMet = run ? canExecuteStep(step.id, spec, run) : false
+
             return (
               <StepCard
                 key={step.id}
                 stepId={step.id}
                 stepType={step.type}
                 interaction={step.interaction}
-                status={state?.status ?? 'pending'}
+                status={isExecuting ? 'running' : status}
                 durationMs={state?.duration_ms ?? null}
                 error={state?.error ?? null}
                 artifacts={artifacts}
@@ -91,6 +126,8 @@ export function PipelinePanel({ spec, run, onLoadRun }: Props) {
                 runId={run?.run_id ?? ''}
                 selected={selectedStepId === step.id}
                 onClick={() => setSelectedStep(selectedStepId === step.id ? null : step.id)}
+                onExecute={handleExecuteStep}
+                canExecute={depsMet}
               />
             )
           })}
