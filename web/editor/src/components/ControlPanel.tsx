@@ -14,9 +14,61 @@ interface Props {
 type InputEntry = [string, InputSpec]
 interface InputGroup { label: string; inputs: InputEntry[] }
 
-/** Whether an input accepts file uploads (images, media) */
-function isFileInput(key: string, _spec: InputSpec): boolean {
-  return key.includes('image') || key.includes('file') || key.includes('reference')
+/** Whether a text prompt input should also offer an image upload option */
+function isVisualPrompt(key: string): boolean {
+  const k = key.toLowerCase()
+  return k.includes('character') || k.includes('scene') || k.includes('style') || k.includes('reference')
+}
+
+/** File upload for a text prompt input — attaches an image alongside the text */
+function ImageAttach({ inputKey, value, onChange }: {
+  inputKey: string
+  value: unknown
+  onChange: (key: string, value: unknown) => void
+}) {
+  const fileRef = useRef<HTMLInputElement>(null)
+  const [preview, setPreview] = useState<string | null>(value && typeof value === 'string' && value.startsWith('data:') ? value : null)
+
+  const handleFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    const reader = new FileReader()
+    reader.onload = () => {
+      const base64 = reader.result as string
+      onChange(inputKey, base64)
+      setPreview(base64)
+    }
+    reader.readAsDataURL(file)
+  }
+
+  const clear = () => {
+    onChange(inputKey, '')
+    setPreview(null)
+  }
+
+  if (preview) {
+    return (
+      <div className="image-attach-preview">
+        <img src={preview} alt="Attached" className="image-attach-thumb" />
+        <button className="btn btn-ghost btn-sm" onClick={clear}>Remove</button>
+      </div>
+    )
+  }
+
+  return (
+    <button className="btn btn-ghost btn-sm image-attach-btn" onClick={() => fileRef.current?.click()}>
+      <input ref={fileRef} type="file" style={{ display: 'none' }} accept="image/*" onChange={handleFile} />
+      + Attach image
+    </button>
+  )
+}
+function isFileInput(key: string, spec: InputSpec): boolean {
+  const k = key.toLowerCase()
+  if (k.includes('image') || k.includes('file') || k.includes('reference') || k.includes('audio') || k.includes('video') || k.includes('upload') || k.includes('attachment')) return true
+  if (k.includes('frame') && k.includes('image')) return true
+  const d = (spec.description || '').toLowerCase()
+  if (d.includes('base64') || d.includes('upload') || d.includes('image file') || d.includes('audio file')) return true
+  return false
 }
 
 function InputField({ inputKey, spec, value, onChange }: {
@@ -81,13 +133,18 @@ function InputField({ inputKey, spec, value, onChange }: {
   }
 
   return (
-    <textarea
-      className="form-input form-textarea"
-      value={(value as string) ?? (spec.default as string) ?? ''}
-      onChange={(e) => onChange(inputKey, e.target.value)}
-      placeholder={spec.description}
-      rows={inputKey.includes('prompt') ? 3 : 1}
-    />
+    <div className="form-field-group">
+      <textarea
+        className="form-input form-textarea"
+        value={(value as string) ?? (spec.default as string) ?? ''}
+        onChange={(e) => onChange(inputKey, e.target.value)}
+        placeholder={spec.description}
+        rows={inputKey.includes('prompt') ? 3 : 1}
+      />
+      {isVisualPrompt(inputKey) && (
+        <ImageAttach inputKey={inputKey} value={value} onChange={onChange} />
+      )}
+    </div>
   )
 }
 

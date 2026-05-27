@@ -1,6 +1,6 @@
 import { useRef, useState } from 'react'
 import type { ArtifactRef } from '../types'
-import { approveStep, continueStep, getRun } from '../api'
+import { approveStep, continueStep, getRun, loadKimodo, kimodoUrl } from '../api'
 import { useWorkflowStore } from '../stores/workflow'
 
 const STATUS_ICONS: Record<string, string> = {
@@ -61,15 +61,26 @@ export function StepCard({ stepId, stepType, interaction, status, durationMs, er
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [uploading, setUploading] = useState(false)
   const [continuing, setContinuing] = useState(false)
+  const [kimodoLoading, setKimodoLoading] = useState(false)
   const setRun = useWorkflowStore((s) => s.setRun)
+
+  const isExternalTool = stepType === 'external_wait'
+  const isKimodo = stepId === 'mesh_pose'
 
   const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (!file || !runId) return
     setUploading(true)
     try {
-      const data = await file.arrayBuffer()
-      const base64 = btoa(String.fromCharCode(...new Uint8Array(data)))
+      const base64 = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader()
+        reader.onload = () => {
+          const dataUrl = reader.result as string
+          resolve(dataUrl.split(',')[1] || '')
+        }
+        reader.onerror = reject
+        reader.readAsDataURL(file)
+      })
       await approveStep(specName, runId, stepId, {
         file_data: base64,
         name: file.name,
@@ -95,6 +106,18 @@ export function StepCard({ stepId, stepType, interaction, status, durationMs, er
       console.error('Continue failed:', err)
     } finally {
       setContinuing(false)
+    }
+  }
+
+  const handleLaunchKimodo = async () => {
+    setKimodoLoading(true)
+    try {
+      await loadKimodo()
+      window.open(kimodoUrl(), '_blank')
+    } catch (err) {
+      console.error('Kimodo launch failed:', err)
+    } finally {
+      setKimodoLoading(false)
     }
   }
 
@@ -131,6 +154,15 @@ export function StepCard({ stepId, stepType, interaction, status, durationMs, er
 
       {status === 'waiting_input' && runId && (
         <div className="step-upload">
+          {isKimodo && (
+            <button
+              className="btn btn-primary btn-sm"
+              disabled={kimodoLoading}
+              onClick={(e) => { e.stopPropagation(); handleLaunchKimodo() }}
+            >
+              {kimodoLoading ? 'Starting Kimodo...' : 'Open Kimodo Director'}
+            </button>
+          )}
           <input
             ref={fileInputRef}
             type="file"
@@ -157,15 +189,29 @@ export function StepCard({ stepId, stepType, interaction, status, durationMs, er
             </>
           ) : (
             <>
-              <button
-                className="btn btn-primary btn-sm"
-                disabled={uploading}
-                onClick={(e) => { e.stopPropagation(); fileInputRef.current?.click() }}
-              >
-                {uploading ? 'Uploading...' : 'Upload File'}
-              </button>
-              {stepType === 'external_wait' && (
-                <span className="upload-hint">External tool output</span>
+              {!isKimodo && (
+                <button
+                  className="btn btn-primary btn-sm"
+                  disabled={uploading}
+                  onClick={(e) => { e.stopPropagation(); fileInputRef.current?.click() }}
+                >
+                  {uploading ? 'Uploading...' : 'Upload File'}
+                </button>
+              )}
+              {isExternalTool && (
+                <button
+                  className="btn btn-secondary btn-sm"
+                  disabled={uploading}
+                  onClick={(e) => { e.stopPropagation(); fileInputRef.current?.click() }}
+                >
+                  {uploading ? 'Uploading...' : 'Upload result'}
+                </button>
+              )}
+              {isKimodo && (
+                <span className="upload-hint">Pose the character in Kimodo, then upload the result image</span>
+              )}
+              {isExternalTool && !isKimodo && (
+                <span className="upload-hint">Upload output from external tool</span>
               )}
             </>
           )}

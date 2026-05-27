@@ -1,4 +1,4 @@
-import { useRef, useEffect, useState, useCallback } from 'react'
+import React, { useRef, useEffect, useState, useCallback } from 'react'
 import { Player, type PlayerRef } from '@remotion/player'
 import { AbsoluteFill, Html5Video, Html5Audio, Sequence } from 'remotion'
 
@@ -36,10 +36,11 @@ interface UseVideoMetaResult {
   width: number
   height: number
   loading: boolean
+  error: boolean
 }
 
 function useVideoMeta(url: string): UseVideoMetaResult {
-  const [meta, setMeta] = useState<UseVideoMetaResult>({ duration: 0, fps: 24, width: 1920, height: 1080, loading: true })
+  const [meta, setMeta] = useState<UseVideoMetaResult>({ duration: 0, fps: 24, width: 1920, height: 1080, loading: true, error: false })
 
   useEffect(() => {
     const v = document.createElement('video')
@@ -52,10 +53,13 @@ function useVideoMeta(url: string): UseVideoMetaResult {
         width: v.videoWidth || 1920,
         height: v.videoHeight || 1080,
         loading: false,
+        error: false,
       })
       v.remove()
     }
-    v.onerror = () => setMeta((m) => ({ ...m, loading: false }))
+    v.onerror = () => {
+      setMeta((m) => ({ ...m, loading: false, error: true }))
+    }
     return () => v.remove()
   }, [url])
 
@@ -76,8 +80,6 @@ export function useCurrentPlayerFrame(ref: React.RefObject<PlayerRef | null>): n
   const getFrame = useCallback(() => ref.current?.getCurrentFrame() ?? 0, [ref])
   return React.useSyncExternalStore(subscribe, getFrame, getFrame)
 }
-
-import React from 'react'
 
 interface Props {
   videoUrl: string
@@ -108,6 +110,17 @@ export function RemotionPreview({ videoUrl, audioTracks = [], fps: inputFps }: P
 
   if (meta.loading) {
     return <div className="preview-empty">Loading video metadata...</div>
+  }
+
+  if (meta.error || !meta.duration) {
+    return (
+      <div className="preview-content">
+        <video src={videoUrl} controls className="preview-video" style={{ maxWidth: '100%', maxHeight: '100%' }} />
+        <div className="scrubber-info" style={{ padding: '4px 0' }}>
+          <span>Native player (Remotion unavailable)</span>
+        </div>
+      </div>
+    )
   }
 
   const time = frame / fps

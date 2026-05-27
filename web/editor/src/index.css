@@ -377,12 +377,17 @@ body {
   margin-top: 8px;
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 6px;
+}
+
+.step-upload .btn {
+  width: 100%;
 }
 
 .upload-hint {
   font-size: 0.7rem;
   color: var(--text-muted);
+  line-height: 1.3;
 }
 
 /* ─── Run History ───────────────────────────────────────────── */
@@ -643,6 +648,41 @@ body {
 .upload-placeholder span:first-child {
   font-size: 1.5rem;
   opacity: 0.4;
+}
+
+/* ─── Image Attach (visual prompt uploads) ─────────────── */
+
+.form-field-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.image-attach-btn {
+  align-self: flex-start;
+  font-size: 0.75rem;
+  color: var(--accent);
+  border: 1px dashed var(--border);
+  padding: 4px 10px;
+}
+
+.image-attach-btn:hover {
+  border-color: var(--accent-dim);
+  color: var(--accent);
+}
+
+.image-attach-preview {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.image-attach-thumb {
+  width: 48px;
+  height: 48px;
+  object-fit: cover;
+  border-radius: 6px;
+  border: 1px solid var(--border);
 }
 
 /* ─── Chain Feedback (step cards) ────────────────────────── */
