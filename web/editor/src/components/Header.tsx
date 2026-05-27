@@ -1,6 +1,7 @@
 import type { WorkflowSpec, WorkflowRun } from '../types'
 import { cancelRun } from '../api'
 import { useWorkflowStore } from '../stores/workflow'
+import { useToastStore } from '../stores/toast'
 
 interface HeaderProps {
   spec: WorkflowSpec
@@ -12,14 +13,16 @@ interface HeaderProps {
 
 export function Header({ spec, allSpecs, run, onNewRun, onSpecChange }: HeaderProps) {
   const setRun = useWorkflowStore((s) => s.setRun)
+  const toast = useToastStore((s) => s.addToast)
 
   const handleCancel = async () => {
     if (!run) return
     try {
       await cancelRun(run.spec_name, run.run_id)
       setRun({ ...run, status: 'cancelled' })
+      toast('info', 'Run cancelled')
     } catch (e) {
-      console.error('Cancel failed:', e)
+      toast('error', e instanceof Error ? e.message : 'Could not cancel run')
     }
   }
 

@@ -1,12 +1,15 @@
 import { useEffect, useState, useCallback } from 'react'
 import { useWorkflowStore } from './stores/workflow'
+import { useToastStore } from './stores/toast'
 import { listSpecs, getSpec, startRun, getRun } from './api'
 import { useSSE } from './hooks/useSSE'
 import { Layout } from './components/Layout'
+import { Toaster } from './components/Toaster'
 import type { SSEEvent } from './types'
 
 export function App() {
-  const { spec, run, setSpec, setRun, setLoading, setError, error, loading, updateStepState, reset } = useWorkflowStore()
+  const { spec, run, setSpec, setRun, setLoading, loading, updateStepState, reset } = useWorkflowStore()
+  const toast = useToastStore((s) => s.addToast)
   const specName = run?.spec_name ?? null
   const runId = run?.run_id ?? null
 
@@ -24,16 +27,23 @@ export function App() {
         })
       } else if (event.event === 'step_failed') {
         updateStepState(event.step_id, { status: 'failed', error: event.error })
+        toast('error', event.error || 'Step failed')
       } else if (event.event === 'step_waiting') {
         updateStepState(event.step_id, { status: 'waiting_input' })
       }
     }
-    if (event.event === 'workflow_completed' || event.event === 'workflow_failed') {
+    if (event.event === 'workflow_completed') {
+      toast('success', 'Pipeline completed')
+      if (specName && runId) {
+        getRun(specName, runId).then(setRun).catch(() => {})
+      }
+    } else if (event.event === 'workflow_failed') {
+      toast('error', event.error || 'Pipeline failed')
       if (specName && runId) {
         getRun(specName, runId).then(setRun).catch(() => {})
       }
     }
-  }, [specName, runId, updateStepState, setRun])
+  }, [specName, runId, updateStepState, setRun, toast])
 
   useSSE(specName, runId, onSSEEvent)
 
@@ -48,8 +58,8 @@ export function App() {
         return null
       })
       .then((s) => { if (s) setSpec(s) })
-      .catch(() => setError('Failed to load specs'))
-  }, [setSpec, setError])
+      .catch((e) => toast('error', 'Could not load pipeline specs'))
+  }, [setSpec, toast])
 
   const handleSpecChange = useCallback(async (name: string) => {
     reset()
@@ -57,39 +67,38 @@ export function App() {
       const s = await getSpec(name)
       setSpec(s)
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to load spec')
+      toast('error', e instanceof Error ? e.message : 'Could not load spec')
     }
-  }, [reset, setSpec, setError])
+  }, [reset, setSpec, toast])
 
   const handleStart = useCallback(async (inputs: Record<string, unknown>) => {
     if (!spec) return
     setLoading(true)
-    setError(null)
     try {
       const result = await startRun(spec.name, inputs)
       const fullRun = await getRun(spec.name, result.run_id)
       setRun(fullRun)
+      toast('info', 'Pipeline started')
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to start run')
+      toast('error', e instanceof Error ? e.message : 'Could not start pipeline')
     } finally {
       setLoading(false)
     }
-  }, [spec, setRun, setLoading, setError])
+  }, [spec, setRun, setLoading, toast])
 
   const handleLoadRun = useCallback(async (specName: string, existingRunId: string) => {
     setLoading(true)
-    setError(null)
     try {
       const s = await getSpec(specName)
       setSpec(s)
       const fullRun = await getRun(specName, existingRunId)
       setRun(fullRun)
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to load run')
+      toast('error', e instanceof Error ? e.message : 'Could not load run')
     } finally {
       setLoading(false)
     }
-  }, [setSpec, setRun, setLoading, setError])
+  }, [setSpec, setRun, setLoading, toast])
 
   const handleNewRun = useCallback(() => {
     reset()
@@ -102,12 +111,6 @@ export function App() {
 
   return (
     <>
-      {error && (
-        <div className="error-banner">
-          <span>{error}</span>
-          <button className="btn btn-ghost btn-sm" onClick={() => setError(null)}>Dismiss</button>
-        </div>
-      )}
       {loading && <div className="loading-overlay"><div className="spinner" /></div>}
       <Layout
         spec={spec}
@@ -118,6 +121,7 @@ export function App() {
         onSpecChange={handleSpecChange}
         onLoadRun={handleLoadRun}
       />
+      <Toaster />
     </>
   )
 }

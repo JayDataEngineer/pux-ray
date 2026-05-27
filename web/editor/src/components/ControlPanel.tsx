@@ -2,6 +2,7 @@ import { useState, useCallback } from 'react'
 import type { WorkflowSpec, WorkflowRun } from '../types'
 import { rerunStep, executeStep, getRun } from '../api'
 import { useWorkflowStore } from '../stores/workflow'
+import { useToastStore } from '../stores/toast'
 
 interface Props {
   spec: WorkflowSpec
@@ -16,6 +17,7 @@ export function ControlPanel({ spec, run, onStart }: Props) {
   const [showParamEditor, setShowParamEditor] = useState(false)
   const selectedStepId = useWorkflowStore((s) => s.selectedStepId)
   const setRun = useWorkflowStore((s) => s.setRun)
+  const toast = useToastStore((s) => s.addToast)
 
   const handleInputChange = useCallback((key: string, value: unknown) => {
     setInputs((prev) => ({ ...prev, [key]: value }))
@@ -42,7 +44,7 @@ export function ControlPanel({ spec, run, onStart }: Props) {
       setShowParamEditor(false)
       setEditParams({})
     } catch (e) {
-      console.error('Rerun failed:', e)
+      toast('error', e instanceof Error ? e.message : 'Retry failed')
     } finally {
       setActionLoading(false)
     }
@@ -61,7 +63,7 @@ export function ControlPanel({ spec, run, onStart }: Props) {
       setShowParamEditor(false)
       setEditParams({})
     } catch (e) {
-      console.error('Execute failed:', e)
+      toast('error', e instanceof Error ? e.message : 'Execute failed')
     } finally {
       setActionLoading(false)
     }

@@ -2,6 +2,7 @@ import { useRef, useState } from 'react'
 import type { ArtifactRef } from '../types'
 import { approveStep, getRun } from '../api'
 import { useWorkflowStore } from '../stores/workflow'
+import { useToastStore } from '../stores/toast'
 
 const STATUS_ICONS: Record<string, string> = {
   pending: '○',
@@ -52,6 +53,7 @@ export function StepCard({ stepId, status, durationMs, error, artifacts, specNam
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [uploading, setUploading] = useState(false)
   const setRun = useWorkflowStore((s) => s.setRun)
+  const toast = useToastStore((s) => s.addToast)
 
   const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
@@ -69,7 +71,7 @@ export function StepCard({ stepId, status, durationMs, error, artifacts, specNam
       const updated = await getRun(specName, runId)
       setRun(updated)
     } catch (err) {
-      console.error('Upload failed:', err)
+      toast('error', err instanceof Error ? err.message : 'Upload failed')
     } finally {
       setUploading(false)
     }
