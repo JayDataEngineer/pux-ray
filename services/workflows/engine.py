@@ -57,12 +57,14 @@ class WorkflowEngine:
         from .steps.compose import ComposeStepExecutor
         from .steps.transform import TransformStepExecutor
         from .steps.external import ExternalWaitStep
+        from .steps.python import PythonStepExecutor
 
         self.registry.register("forge", ForgeStepExecutor)
         self.registry.register("serve", ServeStepExecutor)
         self.registry.register("compose", ComposeStepExecutor)
         self.registry.register("transform", TransformStepExecutor)
         self.registry.register("external_wait", ExternalWaitStep)
+        self.registry.register("python", PythonStepExecutor)
 
     # ------------------------------------------------------------------
     # Run lifecycle
@@ -381,6 +383,8 @@ class WorkflowEngine:
                 params["_service"] = step.service
             if step.model:
                 params["_model"] = step.model
+            if step.function:
+                params["_function"] = step.function
 
             # Reload run to get latest artifact paths
             run = await self.state_store.load(run_id)

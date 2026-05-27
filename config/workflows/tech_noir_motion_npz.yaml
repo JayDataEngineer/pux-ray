@@ -1,0 +1,27 @@
+name: tech_noir_motion_npz
+version: "1.0"
+description: HY-Motion NPZ motion generation from text description
+
+inputs:
+  prompt:
+    type: string
+    required: true
+    description: "Motion description"
+  seed:
+    type: integer
+    default: 42
+  duration:
+    type: number
+    default: 4.0
+    description: "Duration in seconds"
+
+steps:
+  generate_motion:
+    type: forge
+    service: hy_motion
+    params:
+      input_prompt: "{{ inputs.prompt }}"
+      seed: "{{ inputs.seed }}"
+      duration_seconds: "{{ inputs.duration }}"
+    outputs:
+      motion: { media_type: application/octet-stream }

@@ -1,0 +1,34 @@
+name: tech_noir_trellis
+version: "1.0"
+description: TRELLIS 3D model generation from character image
+
+inputs:
+  image:
+    type: string
+    required: true
+    description: "Base64-encoded source image"
+  seed:
+    type: integer
+    default: 1
+  steps:
+    type: integer
+    default: 12
+  guidance:
+    type: number
+    default: 7.5
+  resolution:
+    type: string
+    default: "1024_cascade"
+
+steps:
+  generate_3d:
+    type: forge
+    service: trellis
+    params:
+      image_b64: "{{ inputs.image }}"
+      seed: "{{ inputs.seed }}"
+      sampling_steps: "{{ inputs.steps }}"
+      guide_scale: "{{ inputs.guidance }}"
+      resolution: "{{ inputs.resolution }}"
+    outputs:
+      model: { media_type: model/gltf-binary }

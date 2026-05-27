@@ -42,6 +42,7 @@ class StepSpec(BaseModel):
     service: str | None = None
     model: str | None = None
     method: str | None = None
+    function: str | None = None
     depends_on: list[str] = Field(default_factory=list)
     params: dict[str, Any] = Field(default_factory=dict)
     outputs: dict[str, OutputSpec] = Field(default_factory=dict)
@@ -108,7 +109,7 @@ def _parse_file(path: Path) -> WorkflowSpec:
 
 
 def _validate(spec: WorkflowSpec) -> None:
-    """Validate spec integrity: unique IDs, valid deps, no cycles."""
+    """Validate spec integrity: unique IDs, valid deps, no cycles, template refs."""
     ids = {s.id for s in spec.steps}
     if len(ids) != len(spec.steps):
         seen = set()
@@ -117,6 +118,10 @@ def _validate(spec: WorkflowSpec) -> None:
                 raise ValueError(f"Duplicate step id: {s.id}")
             seen.add(s.id)
 
+    step_outputs: dict[str, set[str]] = {}
+    for s in spec.steps:
+        step_outputs[s.id] = set(s.outputs.keys())
+
     for s in spec.steps:
         for dep in s.depends_on:
             if dep not in ids:
@@ -124,8 +129,64 @@ def _validate(spec: WorkflowSpec) -> None:
                     f"Step '{s.id}' depends on '{dep}', which doesn't exist"
                 )
 
+    _validate_template_refs(spec, step_outputs)
+
     # Cycle detection via Kahn's algorithm
     _execution_plan(spec)
+
+
+def _validate_template_refs(
+    spec: WorkflowSpec, step_outputs: dict[str, set[str]]
+) -> None:
+    """Verify all {{ }} references point to real inputs or step outputs."""
+    for step in spec.steps:
+        for ref in _collect_refs(step.params):
+            parts = ref.strip().split(".")
+            if parts[0] == "inputs" and len(parts) == 2:
+                if parts[1] not in spec.inputs:
+                    raise ValueError(
+                        f"Step '{step.id}' references inputs.{parts[1]}, "
+                        f"which is not defined"
+                    )
+            elif len(parts) >= 3 and parts[1] == "outputs":
+                dep_id = parts[0]
+                if dep_id not in step_outputs:
+                    raise ValueError(
+                        f"Step '{step.id}' references {dep_id}.outputs, "
+                        f"but step '{dep_id}' doesn't exist"
+                    )
+                if len(parts) >= 3:
+                    out_name = parts[2]
+                    if out_name not in step_outputs[dep_id]:
+                        raise ValueError(
+                            f"Step '{step.id}' references {dep_id}.outputs.{out_name}, "
+                            f"but step '{dep_id}' doesn't declare that output "
+                            f"(available: {sorted(step_outputs[dep_id])})"
+                        )
+                if dep_id not in step.depends_on:
+                    raise ValueError(
+                        f"Step '{step.id}' references {dep_id}.outputs but "
+                        f"doesn't declare depends_on: [{dep_id}]"
+                    )
+
+
+def _collect_refs(params: dict[str, Any]) -> list[str]:
+    """Extract all {{ }} references from params dict."""
+    refs: list[str] = []
+    _collect_refs_walk(params, refs)
+    return refs
+
+
+def _collect_refs_walk(obj: Any, refs: list[str]) -> None:
+    if isinstance(obj, str):
+        for m in _TEMPLATE_PATTERN.finditer(obj):
+            refs.append(m.group(1))
+    elif isinstance(obj, dict):
+        for v in obj.values():
+            _collect_refs_walk(v, refs)
+    elif isinstance(obj, list):
+        for v in obj:
+            _collect_refs_walk(v, refs)
 
 
 # ---------------------------------------------------------------------------

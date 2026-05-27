@@ -1,0 +1,30 @@
+name: tech_noir_state
+version: "1.0"
+description: Condition state variant (beatup, etc.) via QWEN re-edit
+
+inputs:
+  character_image:
+    type: string
+    required: true
+    description: "Base64-encoded character image"
+  state_description:
+    type: string
+    required: true
+    description: "Condition to apply (e.g., beatup, wounded)"
+  seed:
+    type: integer
+    default: 42
+
+steps:
+  edit_state:
+    type: forge
+    service: wan2gp
+    model: qwen-image-edit
+    params:
+      input_prompt: "Draw character from image2, {{ inputs.state_description }}"
+      image_b64: "{{ inputs.character_image }}"
+      seed: "{{ inputs.seed }}"
+      sampling_steps: 4
+      guide_scale: 1.0
+    outputs:
+      image: { media_type: image/png }

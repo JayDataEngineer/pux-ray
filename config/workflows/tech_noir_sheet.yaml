@@ -1,0 +1,29 @@
+name: tech_noir_sheet
+version: "1.0"
+description: Clone/re-edit existing character sheet via QWEN image editing
+
+inputs:
+  character_image:
+    type: string
+    required: true
+    description: "Base64-encoded character image"
+  character_name:
+    type: string
+    default: "character"
+  seed:
+    type: integer
+    default: 42
+
+steps:
+  edit:
+    type: forge
+    service: wan2gp
+    model: qwen-image-edit
+    params:
+      input_prompt: "Draw character from image2"
+      image_b64: "{{ inputs.character_image }}"
+      seed: "{{ inputs.seed }}"
+      sampling_steps: 4
+      guide_scale: 1.0
+    outputs:
+      image: { media_type: image/png }

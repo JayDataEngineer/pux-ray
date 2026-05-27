@@ -1,0 +1,30 @@
+name: tech_noir_outfit
+version: "1.0"
+description: Outfit variant via QWEN clothes editing
+
+inputs:
+  character_image:
+    type: string
+    required: true
+    description: "Base64-encoded character image"
+  outfit_description:
+    type: string
+    required: true
+    description: "Description of desired outfit"
+  seed:
+    type: integer
+    default: 42
+
+steps:
+  edit_outfit:
+    type: forge
+    service: wan2gp
+    model: qwen-image-edit
+    params:
+      input_prompt: "Draw character from image2, wearing {{ inputs.outfit_description }}"
+      image_b64: "{{ inputs.character_image }}"
+      seed: "{{ inputs.seed }}"
+      sampling_steps: 4
+      guide_scale: 1.0
+    outputs:
+      image: { media_type: image/png }

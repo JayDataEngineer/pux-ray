@@ -1,0 +1,51 @@
+name: tech_noir_face_detailer
+version: "1.0"
+description: Face refinement via DWPose keypoint detection + QWEN crop-refine-composite
+
+inputs:
+  image:
+    type: string
+    required: true
+    description: "Base64-encoded character image"
+  prompt:
+    type: string
+    default: "detailed face, high quality, sharp focus, clear eyes"
+  seed:
+    type: integer
+    default: 42
+
+steps:
+  detect_face:
+    type: forge
+    service: wan2gp
+    model: dwpose
+    params:
+      image_b64: "{{ inputs.image }}"
+    outputs:
+      keypoints: { media_type: application/json }
+      face_crop: { media_type: image/png }
+
+  refine_face:
+    type: forge
+    service: wan2gp
+    model: qwen-image-edit
+    depends_on: [detect_face]
+    params:
+      input_prompt: "{{ inputs.prompt }}"
+      image_b64: "{{ detect_face.outputs.face_crop }}"
+      seed: "{{ inputs.seed }}"
+      sampling_steps: 4
+      guide_scale: 1.0
+    outputs:
+      refined: { media_type: image/png }
+
+  composite:
+    type: transform
+    method: composite
+    depends_on: [detect_face, refine_face]
+    params:
+      base_image: "{{ inputs.image }}"
+      overlay_image: "{{ refine_face.outputs.refined }}"
+      position: "{{ detect_face.outputs.keypoints }}"
+    outputs:
+      image: { media_type: image/png }

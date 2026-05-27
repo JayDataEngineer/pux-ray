@@ -1,0 +1,64 @@
+name: vnccs_pose_edit
+version: "1.0"
+description: Character image + BodyMesh pose → posed character image
+
+inputs:
+  character_image:
+    type: string
+    required: true
+    description: "Base64-encoded character image"
+  rotations:
+    type: string
+    required: true
+    description: "JSON-encoded joint rotations"
+  model_rotation_y:
+    type: number
+    default: 0.0
+  seed:
+    type: integer
+    default: 42
+
+steps:
+  render_mesh:
+    type: forge
+    service: wan2gp
+    model: body_mesh
+    params:
+      rotations: "{{ inputs.rotations }}"
+      model_rotation_y: "{{ inputs.model_rotation_y }}"
+    outputs:
+      mesh: { media_type: image/png }
+
+  extract_skeleton:
+    type: forge
+    service: wan2gp
+    model: dwpose
+    depends_on: [render_mesh]
+    params:
+      image_b64: "{{ render_mesh.outputs.mesh }}"
+    outputs:
+      skeleton: { media_type: image/png }
+
+  pose_transfer:
+    type: forge
+    service: wan2gp
+    model: qwen-image-edit
+    depends_on: [render_mesh, extract_skeleton]
+    params:
+      input_prompt: >-
+        Match the body pose shown in Picture 1 (3D body mesh).
+        Picture 2 is the character to draw. Picture 3 shows the skeleton overlay.
+        Replicate the exact pose, limb positions, and body orientation from Picture 1
+        while maintaining the character's identity, clothing, and appearance.
+      reference_images:
+        - "{{ render_mesh.outputs.mesh }}"
+        - "{{ inputs.character_image }}"
+        - "{{ extract_skeleton.outputs.skeleton }}"
+      seed: "{{ inputs.seed }}"
+      sampling_steps: 4
+      guide_scale: 1.0
+      loras_selected:
+        - "Qwen-Image-Edit-2511-Lightning-4steps-V1.0-bf16.safetensors"
+        - "VNCCS/VNCCS_PoseStudioQIE2511_V2.safetensors"
+    outputs:
+      image: { media_type: image/png }

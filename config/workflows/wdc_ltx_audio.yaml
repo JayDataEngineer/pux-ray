@@ -1,0 +1,47 @@
+name: wdc_ltx_audio
+version: "1.0"
+description: Image-to-video with audio conditioning
+
+inputs:
+  prompt:
+    type: string
+    required: true
+  first_frame:
+    type: string
+    required: true
+    description: "Base64-encoded first frame image"
+  audio:
+    type: string
+    required: true
+    description: "Base64-encoded audio for conditioning"
+  seed:
+    type: integer
+    default: 42
+  width:
+    type: integer
+    default: 768
+  height:
+    type: integer
+    default: 512
+  frames:
+    type: integer
+    default: 97
+
+steps:
+  generate:
+    type: forge
+    service: wan2gp
+    model: ltx2
+    params:
+      input_prompt: "{{ inputs.prompt }}"
+      image_b64: "{{ inputs.first_frame }}"
+      audio_b64: "{{ inputs.audio }}"
+      seed: "{{ inputs.seed }}"
+      width: "{{ inputs.width }}"
+      height: "{{ inputs.height }}"
+      frame_num: "{{ inputs.frames }}"
+      sampling_steps: 24
+      guide_scale: 3.0
+      fps: 24
+    outputs:
+      video: { media_type: video/mp4 }

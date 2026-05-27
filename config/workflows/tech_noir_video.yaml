@@ -1,0 +1,45 @@
+name: tech_noir_video
+version: "1.0"
+description: LTX Video generation from image + prompt
+
+inputs:
+  image:
+    type: string
+    required: true
+    description: "Base64-encoded source image"
+  prompt:
+    type: string
+    default: ""
+  seed:
+    type: integer
+    default: 42
+  fps:
+    type: integer
+    default: 24
+  width:
+    type: integer
+    default: 768
+  height:
+    type: integer
+    default: 512
+  frames:
+    type: integer
+    default: 97
+
+steps:
+  generate_video:
+    type: forge
+    service: wan2gp
+    model: ltx2
+    params:
+      input_prompt: "{{ inputs.prompt }}"
+      image_b64: "{{ inputs.image }}"
+      seed: "{{ inputs.seed }}"
+      fps: "{{ inputs.fps }}"
+      width: "{{ inputs.width }}"
+      height: "{{ inputs.height }}"
+      frame_num: "{{ inputs.frames }}"
+      sampling_steps: 24
+      guide_scale: 3.0
+    outputs:
+      video: { media_type: video/mp4 }

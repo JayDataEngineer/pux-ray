@@ -1,0 +1,41 @@
+name: tech_noir_generate
+version: "1.0"
+description: Z-Image character generation from text prompt
+
+inputs:
+  prompt:
+    type: string
+    required: true
+    description: "Character description"
+  seed:
+    type: integer
+    default: 42
+  quality:
+    type: string
+    default: "turbo"
+    enum: [turbo, standard]
+  negative_prompt:
+    type: string
+    default: "bad quality,worst quality"
+  width:
+    type: integer
+    default: 1024
+  height:
+    type: integer
+    default: 1024
+
+steps:
+  generate:
+    type: forge
+    service: wan2gp
+    model: z_image
+    params:
+      input_prompt: "{{ inputs.prompt }}"
+      n_prompt: "{{ inputs.negative_prompt }}"
+      seed: "{{ inputs.seed }}"
+      sampling_steps: 8
+      guide_scale: 1.0
+      width: "{{ inputs.width }}"
+      height: "{{ inputs.height }}"
+    outputs:
+      image: { media_type: image/png }
