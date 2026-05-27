@@ -71,9 +71,11 @@ async def wf_get_spec(request: Request) -> JSONResponse:
                 "id": s.id,
                 "type": s.type,
                 "service": s.service,
+                "model": s.model,
                 "depends_on": s.depends_on,
                 "outputs": list(s.outputs.keys()),
                 "interaction": s.interaction,
+                "params": s.params,
             }
             for s in spec.steps
         ],

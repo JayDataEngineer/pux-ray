@@ -1,8 +1,9 @@
-import { useRef, lazy, Suspense } from 'react'
+import { lazy, Suspense, useState, useEffect } from 'react'
 import type { WorkflowRun } from '../types'
 import { useWorkflowStore } from '../stores/workflow'
 import { AudioPreview } from './AudioPreview'
 import { KimodoEmbed } from './KimodoEmbed'
+import { RemotionPreview } from './RemotionPreview'
 
 const Preview3D = lazy(() => import('./Preview3D').then((m) => ({ default: m.Preview3D })))
 
@@ -10,9 +11,16 @@ interface Props {
   run: WorkflowRun | null
 }
 
+function artifactBaseUrl(run: WorkflowRun, stepId: string, name: string): string {
+  const filename = name.includes('.') ? name : name + '.bin'
+  return `/v1/wf/${run.spec_name}/runs/${run.run_id}/artifacts/${stepId}/${filename}`
+}
+
 export function PreviewPanel({ run }: Props) {
   const selectedStepId = useWorkflowStore((s) => s.selectedStepId)
-  const videoRef = useRef<HTMLVideoElement>(null)
+  const [selectedIdx, setSelectedIdx] = useState(0)
+
+  useEffect(() => { setSelectedIdx(0) }, [selectedStepId])
 
   if (!run || !selectedStepId) {
     return (
@@ -52,9 +60,11 @@ export function PreviewPanel({ run }: Props) {
     )
   }
 
-  const artifact = artifacts[0]
-  const artifactUrl = `/v1/wf/${run.spec_name}/runs/${run.run_id}/artifacts/${artifact.step_id}/${artifact.name.includes('.') ? artifact.name : artifact.name + '.bin'}`
+  const artifact = artifacts[selectedIdx] || artifacts[0]
+  const artifactUrl = artifactBaseUrl(run, artifact.step_id, artifact.name)
   const mediaType = artifact.media_type
+  const isVideo = mediaType.startsWith('video/')
+  const fps = isVideo ? (typeof run.inputs?.video_fps === 'number' ? run.inputs.video_fps : 24) : 24
 
   return (
     <div className="preview-panel">
@@ -63,6 +73,7 @@ export function PreviewPanel({ run }: Props) {
         <div className="preview-actions">
           <span className="preview-meta">
             {media_type_label(mediaType)} &middot; {formatBytes(artifact.size_bytes)}
+            {artifacts.length > 1 && ` (${selectedIdx + 1}/${artifacts.length})`}
           </span>
           <a href={artifactUrl} download className="btn btn-ghost btn-sm" title="Download">
             Download
@@ -72,19 +83,33 @@ export function PreviewPanel({ run }: Props) {
           </a>
         </div>
       </div>
+
+      {artifacts.length > 1 && (
+        <div className="preview-grid">
+          {artifacts.map((art, idx) => {
+            const url = artifactBaseUrl(run, art.step_id, art.name)
+            const mt = art.media_type
+            return (
+              <div
+                key={art.name}
+                className={`preview-grid-item ${idx === selectedIdx ? 'preview-grid-item--active' : ''}`}
+                onClick={() => setSelectedIdx(idx)}
+              >
+                {mt.startsWith('image/') && <img src={url} alt={art.name} />}
+                {mt.startsWith('video/') && <div className="grid-icon">▶</div>}
+                {mt.startsWith('audio/') && <div className="grid-icon">♪</div>}
+              </div>
+            )
+          })}
+        </div>
+      )}
+
       <div className="preview-content">
         {mediaType.startsWith('image/') && (
           <img src={artifactUrl} alt={selectedStepId} className="preview-image" />
         )}
-        {mediaType.startsWith('video/') && (
-          <video
-            ref={videoRef}
-            src={artifactUrl}
-            controls
-            autoPlay
-            loop
-            className="preview-video"
-          />
+        {isVideo && (
+          <RemotionPreview videoUrl={artifactUrl} fps={fps} />
         )}
         {mediaType.startsWith('audio/') && (
           <AudioPreview url={artifactUrl} />
@@ -124,3 +149,4 @@ function formatBytes(bytes: number): string {
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
 }
+

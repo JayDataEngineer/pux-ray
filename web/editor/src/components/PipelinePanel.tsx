@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import type { WorkflowSpec, WorkflowRun } from '../types'
 import { useWorkflowStore } from '../stores/workflow'
 import { StepCard } from './StepCard'
+import { getSourceRefs } from '../utils/stepUtils'
 
 interface Props {
   spec: WorkflowSpec
@@ -64,6 +65,17 @@ export function PipelinePanel({ spec, run, onLoadRun }: Props) {
                   .filter(([k]) => k.startsWith(`${step.id}.`))
                   .map(([, v]) => v)
               : []
+
+            const sourceRefs = getSourceRefs(step)
+            const sourceArtifacts = sourceRefs.map((ref) => {
+              const artKey = Object.keys(run?.artifacts || {}).find((k) => k.startsWith(`${ref.stepId}.${ref.outputKey}`))
+              const art = artKey && run ? run.artifacts[artKey] : null
+              const thumbnailUrl = art && run
+                ? `/v1/wf/${run.spec_name}/runs/${run.run_id}/artifacts/${art.step_id}/${art.name.includes('.') ? art.name : art.name + '.png'}`
+                : null
+              return { stepId: ref.stepId, outputKey: ref.outputKey, thumbnailUrl }
+            })
+
             return (
               <StepCard
                 key={step.id}
@@ -74,6 +86,7 @@ export function PipelinePanel({ spec, run, onLoadRun }: Props) {
                 durationMs={state?.duration_ms ?? null}
                 error={state?.error ?? null}
                 artifacts={artifacts}
+                sourceArtifacts={sourceArtifacts}
                 specName={run?.spec_name ?? spec.name}
                 runId={run?.run_id ?? ''}
                 selected={selectedStepId === step.id}

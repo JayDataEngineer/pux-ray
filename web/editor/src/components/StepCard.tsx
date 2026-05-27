@@ -26,6 +26,12 @@ const STEP_LABELS: Record<string, string> = {
   upscale: 'Upscale',
 }
 
+export interface SourceRef {
+  stepId: string
+  outputKey: string
+  thumbnailUrl: string | null
+}
+
 interface Props {
   stepId: string
   stepType: string
@@ -34,13 +40,14 @@ interface Props {
   durationMs: number | null
   error: string | null
   artifacts: ArtifactRef[]
+  sourceArtifacts: SourceRef[]
   specName: string
   runId: string
   selected: boolean
   onClick: () => void
 }
 
-export function StepCard({ stepId, stepType, interaction, status, durationMs, error, artifacts, specName, runId, selected, onClick }: Props) {
+export function StepCard({ stepId, stepType, interaction, status, durationMs, error, artifacts, sourceArtifacts, specName, runId, selected, onClick }: Props) {
   const label = STEP_LABELS[stepId] || stepId.replace(/_/g, ' ')
   const icon = STATUS_ICONS[status] || '○'
   const hasArtifact = artifacts.length > 0
@@ -49,6 +56,7 @@ export function StepCard({ stepId, stepType, interaction, status, durationMs, er
     ? `/v1/wf/${specName}/runs/${runId}/artifacts/${artifact.step_id}/${artifact.name.includes('.') ? artifact.name : artifact.name + '.png'}`
     : null
   const isReview = interaction === 'review'
+  const hasSourceThumbs = sourceArtifacts.some((s) => s.thumbnailUrl !== null)
 
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [uploading, setUploading] = useState(false)
@@ -100,14 +108,27 @@ export function StepCard({ stepId, stepType, interaction, status, durationMs, er
         <span className="step-label">{label}</span>
         {durationMs != null && <span className="step-duration">{(durationMs / 1000).toFixed(1)}s</span>}
       </div>
+
+      {hasSourceThumbs && !thumbUrl && (
+        <div className="step-chain">
+          {sourceArtifacts.filter((s) => s.thumbnailUrl).map((src) => (
+            <div key={`${src.stepId}.${src.outputKey}`} className="chain-thumb" title={`from ${STEP_LABELS[src.stepId] || src.stepId}`}>
+              <img src={src.thumbnailUrl!} alt={src.stepId} />
+            </div>
+          ))}
+        </div>
+      )}
+
       {thumbUrl && (
         <div className="step-thumbnail">
           <img src={thumbUrl} alt={stepId} loading="lazy" />
         </div>
       )}
+
       {status === 'failed' && error && (
         <div className="step-error">{error}</div>
       )}
+
       {status === 'waiting_input' && runId && (
         <div className="step-upload">
           <input

@@ -40,7 +40,10 @@ async def editor_page(request: Request) -> HTMLResponse:
             "<h1>Editor not built</h1><p>Run <code>cd web/editor && pnpm build</code></p>",
             status_code=404,
         )
-    return HTMLResponse(index.read_text())
+    return HTMLResponse(
+        index.read_text(),
+        headers={"Cache-Control": "no-cache, no-store, must-revalidate"},
+    )
 
 
 async def editor_static(request: Request) -> Response:
@@ -65,8 +68,12 @@ async def editor_static(request: Request) -> Response:
     ext = file_path.suffix.lower()
     media_type = _MIME_TYPES.get(ext, "application/octet-stream")
 
+    # Hashed asset filenames (e.g. index-AbCd123.js) are immutable
+    is_hashed = len(file_path.stem.split("-")) > 1 and any(c.isdigit() for c in file_path.stem)
+    cache = "public, immutable, max-age=31536000" if is_hashed else "no-cache"
+
     return Response(
         content=file_path.read_bytes(),
         media_type=media_type,
-        headers={"Cache-Control": "public, max-age=3600"},
+        headers={"Cache-Control": cache},
     )

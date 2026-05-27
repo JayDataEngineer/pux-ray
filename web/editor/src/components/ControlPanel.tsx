@@ -1,13 +1,94 @@
-import { useState, useCallback } from 'react'
-import type { WorkflowSpec, WorkflowRun } from '../types'
+import { useState, useCallback, useMemo, useRef } from 'react'
+import type { WorkflowSpec, WorkflowRun, InputSpec } from '../types'
 import { rerunStep, executeStep, getRun } from '../api'
 import { useWorkflowStore } from '../stores/workflow'
 import { useToastStore } from '../stores/toast'
+import { getInputsForStep, buildInputStepMap } from '../utils/stepUtils'
 
 interface Props {
   spec: WorkflowSpec
   run: WorkflowRun | null
   onStart: (inputs: Record<string, unknown>) => void
+}
+
+type InputEntry = [string, InputSpec]
+interface InputGroup { label: string; inputs: InputEntry[] }
+
+/** Whether an input accepts file uploads (images, media) */
+function isFileInput(key: string, _spec: InputSpec): boolean {
+  return key.includes('image') || key.includes('file') || key.includes('reference')
+}
+
+function InputField({ inputKey, spec, value, onChange }: {
+  inputKey: string
+  spec: InputSpec
+  value: unknown
+  onChange: (key: string, value: unknown) => void
+}) {
+  const fileRef = useRef<HTMLInputElement>(null)
+  const [preview, setPreview] = useState<string | null>(null)
+
+  const handleFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    const reader = new FileReader()
+    reader.onload = () => {
+      const base64 = reader.result as string
+      onChange(inputKey, base64)
+      setPreview(base64)
+    }
+    reader.readAsDataURL(file)
+  }
+
+  if (isFileInput(inputKey, spec)) {
+    return (
+      <div className="upload-zone" onClick={() => fileRef.current?.click()}>
+        <input ref={fileRef} type="file" style={{ display: 'none' }} accept="image/*,video/*" onChange={handleFile} />
+        {preview ? (
+          <img src={preview} alt="Preview" className="upload-preview" />
+        ) : (
+          <div className="upload-placeholder">
+            <span>+</span>
+            <span>{spec.description || 'Drop or click to upload'}</span>
+          </div>
+        )}
+      </div>
+    )
+  }
+
+  if (spec.enum) {
+    return (
+      <select
+        className="form-input"
+        value={(value as string) ?? (spec.default as string) ?? ''}
+        onChange={(e) => onChange(inputKey, e.target.value)}
+      >
+        {spec.enum.map((opt) => <option key={opt} value={opt}>{opt}</option>)}
+      </select>
+    )
+  }
+
+  if (spec.type === 'integer' || spec.type === 'number') {
+    return (
+      <input
+        className="form-input"
+        type="number"
+        value={(value as string | number) ?? spec.default ?? ''}
+        onChange={(e) => onChange(inputKey, spec.type === 'integer' ? parseInt(e.target.value) : parseFloat(e.target.value))}
+        placeholder={spec.description}
+      />
+    )
+  }
+
+  return (
+    <textarea
+      className="form-input form-textarea"
+      value={(value as string) ?? (spec.default as string) ?? ''}
+      onChange={(e) => onChange(inputKey, e.target.value)}
+      placeholder={spec.description}
+      rows={inputKey.includes('prompt') ? 3 : 1}
+    />
+  )
 }
 
 export function ControlPanel({ spec, run, onStart }: Props) {
@@ -19,7 +100,55 @@ export function ControlPanel({ spec, run, onStart }: Props) {
   const setRun = useWorkflowStore((s) => s.setRun)
   const toast = useToastStore((s) => s.addToast)
 
-  const handleInputChange = useCallback((key: string, value: unknown) => {
+  const inputStepMap = useMemo(
+    () => buildInputStepMap(spec.inputs, spec.steps),
+    [spec.inputs, spec.steps],
+  )
+
+  const relevantInputs = useMemo(() => {
+    if (!selectedStepId || run) return null
+    const step = spec.steps.find((s) => s.id === selectedStepId)
+    if (!step) return null
+    const stepInputs = getInputsForStep(step)
+    const shared = [...inputStepMap.entries()]
+      .filter(([, steps]) => steps.length === 0 || steps.length > 1)
+      .map(([name]) => name)
+    return new Set([...stepInputs, ...shared])
+  }, [selectedStepId, run, spec.steps, inputStepMap])
+
+  const inputGroups = useMemo((): InputGroup[] | null => {
+    if (run) return null
+
+    if (relevantInputs) {
+      const entries = Object.entries(spec.inputs).filter(([k]) => relevantInputs.has(k))
+      return [{ label: selectedStepId!.replace(/_/g, ' '), inputs: entries }]
+    }
+
+    const groups = new Map<string, InputEntry[]>()
+    const sharedEntries: InputEntry[] = []
+
+    for (const [name, inputSpec] of Object.entries(spec.inputs)) {
+      const steps = inputStepMap.get(name) || []
+      if (steps.length === 0 || steps.length > 1) {
+        sharedEntries.push([name, inputSpec])
+      } else {
+        const stepId = steps[0]
+        if (!groups.has(stepId)) groups.set(stepId, [])
+        groups.get(stepId)!.push([name, inputSpec])
+      }
+    }
+
+    const result: InputGroup[] = []
+    for (const step of spec.steps) {
+      const entries = groups.get(step.id)
+      if (entries) result.push({ label: step.id.replace(/_/g, ' '), inputs: entries })
+    }
+    if (sharedEntries.length > 0) result.push({ label: 'Shared', inputs: sharedEntries })
+
+    return result
+  }, [run, relevantInputs, selectedStepId, spec.inputs, spec.steps, inputStepMap])
+
+  const handleChange = useCallback((key: string, value: unknown) => {
     setInputs((prev) => ({ ...prev, [key]: value }))
   }, [])
 
@@ -48,7 +177,7 @@ export function ControlPanel({ spec, run, onStart }: Props) {
     } finally {
       setActionLoading(false)
     }
-  }, [run, selectedStepId, showParamEditor, editParams])
+  }, [run, selectedStepId, showParamEditor, editParams, toast])
 
   const handleExecute = useCallback(async () => {
     if (!run || !selectedStepId) return
@@ -67,7 +196,7 @@ export function ControlPanel({ spec, run, onStart }: Props) {
     } finally {
       setActionLoading(false)
     }
-  }, [run, selectedStepId, setRun, showParamEditor, editParams])
+  }, [run, selectedStepId, setRun, showParamEditor, editParams, toast])
 
   const selectedStep = run && selectedStepId
     ? { id: selectedStepId, state: run.step_states[selectedStepId] }
@@ -75,50 +204,47 @@ export function ControlPanel({ spec, run, onStart }: Props) {
 
   const stepSpec = spec.steps.find((s) => s.id === selectedStepId)
 
+  const headerLabel = run
+    ? 'Step Actions'
+    : relevantInputs
+      ? `${selectedStepId!.replace(/_/g, ' ')} Config`
+      : 'Configure'
+
   return (
     <div className="control-panel">
       <div className="panel-header">
-        {run ? 'Step Actions' : 'Configure'}
+        {headerLabel}
+        {relevantInputs && (
+          <button className="btn btn-ghost btn-sm" onClick={() => useWorkflowStore.getState().setSelectedStep(null)}>
+            Show all
+          </button>
+        )}
       </div>
 
       {!run ? (
         <div className="control-form">
-          {Object.entries(spec.inputs).map(([key, inputSpec]) => (
-            <div key={key} className="form-group">
-              <label className="form-label">
-                {key.replace(/_/g, ' ')}
-                {inputSpec.required && <span className="form-required">*</span>}
-                {inputSpec.enum && (
-                  <span className="form-hint">[{inputSpec.enum.join(', ')}]</span>
-                )}
-              </label>
-              {inputSpec.enum ? (
-                <select
-                  className="form-input"
-                  value={(inputs[key] as string) ?? (inputSpec.default as string) ?? ''}
-                  onChange={(e) => handleInputChange(key, e.target.value)}
-                >
-                  {inputSpec.enum.map((opt) => (
-                    <option key={opt} value={opt}>{opt}</option>
-                  ))}
-                </select>
-              ) : inputSpec.type === 'integer' || inputSpec.type === 'number' ? (
-                <input
-                  className="form-input"
-                  type="number"
-                  value={(inputs[key] as string | number) ?? inputSpec.default ?? ''}
-                  onChange={(e) => handleInputChange(key, inputSpec.type === 'integer' ? parseInt(e.target.value) : parseFloat(e.target.value))}
-                  placeholder={inputSpec.description}
-                />
-              ) : (
-                <textarea
-                  className="form-input form-textarea"
-                  value={(inputs[key] as string) ?? (inputSpec.default as string) ?? ''}
-                  onChange={(e) => handleInputChange(key, e.target.value)}
-                  placeholder={inputSpec.description}
-                  rows={key.includes('prompt') ? 3 : 1}
-                />
+          {inputGroups?.map((group) => (
+            <div key={group.label} className="config-group">
+              {(inputGroups.length > 1 || relevantInputs) && (
+                <div className="config-group-label">{group.label}</div>
               )}
+              {group.inputs.map(([key, inputSpec]) => (
+                <div key={key} className="form-group">
+                  <label className="form-label">
+                    {key.replace(/_/g, ' ')}
+                    {inputSpec.required && <span className="form-required">*</span>}
+                    {inputSpec.enum && (
+                      <span className="form-hint">[{inputSpec.enum.join(', ')}]</span>
+                    )}
+                  </label>
+                  <InputField
+                    inputKey={key}
+                    spec={inputSpec}
+                    value={inputs[key]}
+                    onChange={handleChange}
+                  />
+                </div>
+              ))}
             </div>
           ))}
           <button className="btn btn-primary btn-block" onClick={handleStart}>

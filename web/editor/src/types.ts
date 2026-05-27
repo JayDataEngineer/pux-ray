@@ -10,6 +10,7 @@ export interface StepSpecInfo {
   id: string
   type: string
   service?: string
+  model?: string | null
   depends_on: string[]
   outputs: string[]
   interaction?: string | null
