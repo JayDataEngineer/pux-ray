@@ -28,6 +28,13 @@ logger = logging.getLogger(__name__)
 _LANCE_SRC = "/opt/lance"
 _LANCE_QUANT = "/opt/lance-quant"
 
+# transformers 4.57.3 lacks mrope in ROPE_VALIDATION_FUNCTIONS (needed by
+# Qwen2.5-VL ViT used by Lance). Inject default validation for mrope.
+_MROPE_PATCH = (
+    "from transformers.modeling_rope_utils import ROPE_VALIDATION_FUNCTIONS;"
+    "ROPE_VALIDATION_FUNCTIONS.setdefault('mrope',ROPE_VALIDATION_FUNCTIONS['default'])"
+)
+
 # (resolution, h, w, default_frames, native_task)
 RES_CONF = {
     "t2i":         ("image_768res", 768, 768, 1,    "t2i"),
@@ -39,7 +46,6 @@ RES_CONF = {
     "x2t_video":   ("video_480p",   480, 848, 50,   "x2t_video"),
 }
 
-# Task → which script handles it (run_quant_eval handles all)
 _TASK = "task"
 
 
@@ -165,7 +171,8 @@ class LanceForgeService(ForgeService):
             env = self._build_env()
 
             logger.info("lance: %s native_task=%s", script_src.name, native_task)
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=600, cwd=str(_LANCE_SRC), env=env)
+            lance_cwd = self._ensure_cwd()
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=600, cwd=str(lance_cwd), env=env)
 
             if result.returncode != 0:
                 err = (result.stderr or result.stdout or "")[-2000:]
@@ -176,7 +183,6 @@ class LanceForgeService(ForgeService):
 
     def _resolve_script(self, task: str) -> tuple[Path | None, list[str]]:
         if self._awq:
-            # Use the patched run_quant_eval.py from /opt/lance (has Lance.to() fix)
             s = Path(_LANCE_SRC) / "run_quant_eval.py"
             if s.exists():
                 return s, ["--awq_dir", str(self._ap), "--mode", "ondemand"]
@@ -185,9 +191,30 @@ class LanceForgeService(ForgeService):
                 return p, []
         return None, []
 
+    def _ensure_cwd(self) -> Path:
+        """Create a writable CWD for LANCE subprocess with 'downloads' symlink to /models/lance."""
+        from registry.config import Config
+        models_lance = Path(Config().models_root) / "lance"
+        cwd = Path(tempfile.gettempdir()) / "_lance_cwd"
+        cwd.mkdir(exist_ok=True)
+        dl = cwd / "downloads"
+        if not dl.exists() or dl.resolve() != models_lance.resolve():
+            if dl.is_symlink() or dl.exists():
+                dl.unlink()
+            dl.symlink_to(models_lance)
+        return cwd
+
     def _build_cmd(self, script, task, resolution, h, w, nf, prompt_file, save_dir, payload, extra):
-        cmd = [
-            sys.executable, str(script),
+        # Write a tiny wrapper that patches mrope before running the real script
+        wrapper = Path(_LANCE_SRC) / "_run_with_mrope.py"
+        if not wrapper.exists():
+            wrapper.write_text(
+                f"import sys\n{_MROPE_PATCH}\n"
+                f"sys.argv[0] = '{script}'\n"
+                f"exec(open('{script}').read())\n"
+            )
+        return [
+            sys.executable, str(wrapper),
             "--task", task,
             "--model_path", str(self._mp),
             "--vit_path", str(self._vp),
@@ -201,7 +228,6 @@ class LanceForgeService(ForgeService):
             "--resolution", resolution,
             "--example_json", str(prompt_file),
         ] + extra
-        return cmd
 
     def _build_env(self):
         env = os.environ.copy()

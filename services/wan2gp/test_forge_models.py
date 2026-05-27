@@ -1,8 +1,9 @@
-"""Forge model test suite — validates every Wan2GP model end-to-end.
+"""Forge service test suite — validates every Forge model end-to-end.
 
 Usage:
     kubectl exec -n ai-services <head-pod> -- python3 /app/services/wan2gp/test_forge_models.py
     kubectl exec -n ai-services <worker-pod> -c ray-worker -- python3 /app/services/wan2gp/test_forge_models.py
+    kubectl exec -n ai-services <worker-pod> -c ray-worker -- python3 /tmp/test_forge_models.py --only lance avatar
 
 All test data (images, audio) is generated in-process — no external files needed.
 """
@@ -18,7 +19,6 @@ import time
 import requests
 
 FORGE = "http://localhost:8000/forge"
-RELEASE = {"action": "release", "service": "wan2gp"}
 
 # ─── Test Data Generators ────────────────────────────────────────────────────
 
@@ -45,13 +45,11 @@ def make_png(w: int = 512, h: int = 512) -> str:
 
     img = Image.new("RGB", (w, h), (220, 210, 200))
     draw = ImageDraw.Draw(img)
-    # Background gradient bands
     for y in range(h):
         r = int(180 + 60 * y / h)
         g = int(200 - 80 * y / h)
         b = int(160 + 40 * y / h)
         draw.line([(0, y), (w, y)], fill=(r, g, b))
-    # Foreground shapes (circles, rectangles — objects to detect)
     draw.ellipse([w // 4, h // 4, 3 * w // 4, 3 * h // 4], fill=(180, 60, 60), outline=(100, 30, 30))
     draw.rectangle([w // 6, h // 6, w // 3, h // 3], fill=(60, 180, 60))
     draw.ellipse([2 * w // 3, 2 * h // 3, 5 * w // 6, 5 * h // 6], fill=(60, 60, 180))
@@ -61,31 +59,21 @@ def make_png(w: int = 512, h: int = 512) -> str:
 
 
 def make_anime_png(w: int = 1280, h: int = 1280) -> str:
-    """Generate an anime-style test image for layer-decomposition models.
-
-    See-through needs recognizable foreground/background structure with
-    edges and color variation to decompose into layers.
-    """
+    """Generate an anime-style test image for layer-decomposition models."""
     from PIL import Image, ImageDraw
 
     img = Image.new("RGBA", (w, h), (255, 240, 245, 255))
     draw = ImageDraw.Draw(img)
-    # Gradient background
     for y in range(h):
         r = int(200 + 40 * y / h)
         g = int(180 + 30 * (1 - y / h))
         b = int(220 - 60 * y / h)
         draw.line([(0, y), (w, y)], fill=(r, g, b, 255))
-    # Foreground figure (simple character silhouette)
     cx, cy = w // 2, h // 2
-    # Head
     draw.ellipse([cx - 120, cy - 300, cx + 120, cy - 60], fill=(255, 220, 200, 255), outline=(60, 40, 30, 255))
-    # Body
     draw.rectangle([cx - 100, cy - 80, cx + 100, cy + 200], fill=(180, 100, 160, 255), outline=(60, 40, 30, 255))
-    # Eyes
     draw.ellipse([cx - 60, cy - 220, cx - 20, cy - 170], fill=(40, 60, 120, 255))
     draw.ellipse([cx + 20, cy - 220, cx + 60, cy - 170], fill=(40, 60, 120, 255))
-    # Hair
     draw.ellipse([cx - 150, cy - 340, cx + 150, cy - 120], fill=(60, 30, 90, 255))
     buf = io.BytesIO()
     img.save(buf, format="PNG")
@@ -96,57 +84,64 @@ AUDIO_B64 = make_wav()
 IMAGE_B64 = make_png()
 ANIME_B64 = make_anime_png()
 
-# ─── Model Test Definitions ──────────────────────────────────────────────────
+# ─── Test Definitions ─────────────────────────────────────────────────────────
 
-# (model_key, payload_extras, timeout_seconds)
-# model_key is the exact Forge registry key.
-# payload_extras are merged into {"service": "wan2gp", "model": model_key}.
+# Each test is (label, full_forge_payload, timeout_seconds).
+# Wan2GP models: {"service": "wan2gp", "model": "family/model", ...extras}
+# Other Forge services: {"service": "lance"|"avatar", ...payload}
 
 TESTS: list[tuple[str, dict, int]] = [
     # ── CPU models (fast, no GPU) ──
-    ("kokoro/kokoro", {"text": "The quick brown fox jumps over the lazy dog.", "voice": "af_heart"}, 60),
-    ("espeak/espeak", {"text": "Testing one two three."}, 30),
-    ("faster_whisper/faster_whisper", {"audio_b64": AUDIO_B64, "language": "en"}, 60),
+    ("kokoro/kokoro", {"service": "wan2gp", "model": "kokoro/kokoro", "text": "The quick brown fox jumps over the lazy dog.", "voice": "af_heart"}, 60),
+    ("espeak/espeak", {"service": "wan2gp", "model": "espeak/espeak", "text": "Testing one two three."}, 30),
+    ("faster_whisper/faster_whisper", {"service": "wan2gp", "model": "faster_whisper/faster_whisper", "audio_b64": AUDIO_B64, "language": "en"}, 60),
     # ── GPU TTS ──
-    ("faster_qwen3_tts/faster-qwen3-tts", {"text": "Hello, this is a synthesis test.", "voice": "Serena"}, 180),
-    ("tts/index_tts2", {"text": "Voice clone test.", "audio_b64": AUDIO_B64}, 180),
+    ("faster_qwen3_tts/faster-qwen3-tts", {"service": "wan2gp", "model": "faster_qwen3_tts/faster-qwen3-tts", "text": "Hello, this is a synthesis test.", "voice": "Serena"}, 180),
+    ("tts/index_tts2", {"service": "wan2gp", "model": "tts/index_tts2", "text": "Voice clone test.", "audio_b64": AUDIO_B64}, 180),
     # ── GPU Audio ──
-    ("moss/moss-soundeffect", {"prompt": "rain on a tin roof", "seconds": 3}, 180),
-    ("moss/moss_soundeffect_v2", {"prompt": "thunder crashing in the distance", "seconds": 5, "steps": 50}, 120),
-    ("tts/ace_step_v1_5", {"prompt": "calm piano melody with strings", "duration_seconds": 5, "steps": 20}, 180),
+    ("moss/moss-soundeffect", {"service": "wan2gp", "model": "moss/moss-soundeffect", "prompt": "rain on a tin roof", "seconds": 3}, 180),
+    ("moss/moss_soundeffect_v2", {"service": "wan2gp", "model": "moss/moss_soundeffect_v2", "prompt": "thunder crashing in the distance", "seconds": 5, "steps": 50}, 120),
+    ("tts/ace_step_v1_5", {"service": "wan2gp", "model": "tts/ace_step_v1_5", "prompt": "calm piano melody with strings", "duration_seconds": 5, "steps": 20}, 180),
     # ── GPU Image (native Wan2GP) ──
-    ("flux/flux", {"prompt": "a cat sitting on a windowsill", "width": 512, "height": 512, "steps": 4, "seed": 42}, 120),
-    ("flux/flux_schnell", {"prompt": "mountain sunset landscape", "width": 512, "height": 512, "steps": 4, "seed": 42}, 120),
-    ("flux/flux2_klein_4b", {"prompt": "a robot painting a picture", "width": 512, "height": 512, "steps": 4, "seed": 42, "embedded_guidance_scale": 1.0}, 120),
-    ("flux/flux2_dev", {"prompt": "a dog playing in a park", "width": 512, "height": 512, "steps": 4, "seed": 42}, 180),
+    ("flux/flux", {"service": "wan2gp", "model": "flux/flux", "prompt": "a cat sitting on a windowsill", "width": 512, "height": 512, "steps": 4, "seed": 42}, 120),
+    ("flux/flux_schnell", {"service": "wan2gp", "model": "flux/flux_schnell", "prompt": "mountain sunset landscape", "width": 512, "height": 512, "steps": 4, "seed": 42}, 120),
+    ("flux/flux2_klein_4b", {"service": "wan2gp", "model": "flux/flux2_klein_4b", "prompt": "a robot painting a picture", "width": 512, "height": 512, "steps": 4, "seed": 42, "embedded_guidance_scale": 1.0}, 120),
+    ("flux/flux2_dev", {"service": "wan2gp", "model": "flux/flux2_dev", "prompt": "a dog playing in a park", "width": 512, "height": 512, "steps": 4, "seed": 42}, 180),
     # ── GPU Video (native Wan2GP) ──
-    ("wan/t2v_1.3B", {"prompt": "ocean waves on a beach", "steps": 10, "seed": 42, "frame_num": 13}, 180),
-    ("wan/t2v", {"prompt": "a bird flying over mountains", "steps": 10, "seed": 42, "frame_num": 13}, 300),
+    ("wan/t2v_1.3B", {"service": "wan2gp", "model": "wan/t2v_1.3B", "prompt": "ocean waves on a beach", "steps": 10, "seed": 42, "frame_num": 13}, 180),
+    ("wan/t2v", {"service": "wan2gp", "model": "wan/t2v", "prompt": "a bird flying over mountains", "steps": 10, "seed": 42, "frame_num": 13}, 300),
     # ── GPU 3D ──
-    ("trellis/trellis", {"image_b64": IMAGE_B64, "prompt": "A colorful 3D object"}, 300),
-    ("pixal3d/pixal3d", {"image_b64": IMAGE_B64}, 180),  # known: needs NATTEN built in image
+    ("trellis/trellis", {"service": "wan2gp", "model": "trellis/trellis", "image_b64": IMAGE_B64, "prompt": "A colorful 3D object"}, 300),
+    ("pixal3d/pixal3d", {"service": "wan2gp", "model": "pixal3d/pixal3d", "image_b64": IMAGE_B64}, 180),
     # ── GPU Image editing ──
     # see_through disabled: ~15GB VRAM load crashes worker on overcommitted nodes.
-    # Re-enable when node has headroom or see_through gets mmgp decomposition.
-    # ("see_through/see-through", {"prompt": "anime girl layers", "image_b64": ANIME_B64}, 180),
+    # ("see_through/see-through", {"service": "wan2gp", "model": "see_through/see-through", "prompt": "anime girl layers", "image_b64": ANIME_B64}, 180),
     # ── GPU 3D character ──
-    ("anigen/anigen", {"prompt": "a male warrior character, fantasy style", "image_b64": IMAGE_B64}, 300),
+    ("anigen/anigen", {"service": "wan2gp", "model": "anigen/anigen", "prompt": "a male warrior character, fantasy style", "image_b64": IMAGE_B64}, 300),
     # ── GPU Motion ──
-    ("hy_motion/hy-motion-1.0-lite", {"prompt": "a person waving their hand hello"}, 180),
+    ("hy_motion/hy-motion-1.0-lite", {"service": "wan2gp", "model": "hy_motion/hy-motion-1.0-lite", "prompt": "a person waving their hand hello"}, 180),
+    # ── LANCE (text-to-image via Forge) ──
+    ("lance/t2i", {"service": "lance", "task": "t2i", "text": "a cat sitting on a windowsill at sunset", "num_timesteps": 10, "seed": 42}, 300),
+    # ── Avatar / KIMODO (text-to-motion via Forge) ──
+    ("avatar/kimodo", {"service": "avatar", "text": "a person waving their hand hello", "duration_seconds": 3.0, "denoising_steps": 50, "render": False}, 300),
 ]
 
 # ─── Runner ───────────────────────────────────────────────────────────────────
 
 
-def _release():
+def _release(service: str = "wan2gp"):
     try:
-        requests.post(FORGE, json=RELEASE, timeout=60)
+        requests.post(FORGE, json={"action": "release", "service": service}, timeout=60)
     except Exception:
         pass
 
 
-def test_model(model: str, extras: dict, timeout: int) -> dict:
-    payload = {"service": "wan2gp", "model": model, "seed": 42, **extras}
+def _release_all():
+    for svc in ("wan2gp", "lance", "avatar"):
+        _release(svc)
+
+
+def test_model(label: str, payload: dict, timeout: int) -> dict:
     t0 = time.time()
     try:
         resp = requests.post(FORGE, json=payload, timeout=timeout)
@@ -172,23 +167,23 @@ def main():
 
     tests = TESTS
     if args.only:
-        tests = [(m, e, t) for m, e, t in tests if any(k in m for k in args.only)]
+        tests = [(l, p, t) for l, p, t in tests if any(k in l for k in args.only)]
     if args.skip:
-        tests = [(m, e, t) for m, e, t in tests if not any(k in m for k in args.skip)]
+        tests = [(l, p, t) for l, p, t in tests if not any(k in l for k in args.skip)]
 
     print(f"\n{'='*72}")
-    print("  FORGE MODEL TEST SUITE")
-    print(f"  {time.strftime('%Y-%m-%d %H:%M:%S')}   {len(tests)} models")
+    print("  FORGE SERVICE TEST SUITE")
+    print(f"  {time.strftime('%Y-%m-%d %H:%M:%S')}   {len(tests)} services")
     print(f"{'='*72}\n")
 
     results: list[tuple[str, dict]] = []
 
-    for model, extras, timeout in tests:
-        sys.stdout.write(f"  {model:45s} ")
+    for label, payload, timeout in tests:
+        sys.stdout.write(f"  {label:45s} ")
         sys.stdout.flush()
-        _release()
-        result = test_model(model, extras, timeout)
-        results.append((model, result))
+        _release_all()
+        result = test_model(label, payload, timeout)
+        results.append((label, result))
 
         elapsed = result.get("elapsed", 0)
         if result.get("status") != "error":
@@ -200,10 +195,10 @@ def main():
             print(f"{elapsed:6.1f}s  FAIL: {err}")
         sys.stdout.flush()
 
-    _release()
+    _release_all()
 
-    ok = [m for m, r in results if r.get("status") != "error"]
-    fail = [(m, r) for m, r in results if r.get("status") == "error"]
+    ok = [l for l, r in results if r.get("status") != "error"]
+    fail = [(l, r) for l, r in results if r.get("status") == "error"]
 
     print(f"\n{'='*72}")
     print(f"  {len(ok)} PASSED / {len(fail)} FAILED / {len(results)} TOTAL")
@@ -211,8 +206,8 @@ def main():
 
     if fail:
         print("\n  Failures:")
-        for model, r in fail:
-            print(f"    {model}: {r.get('error', '')[:120]}")
+        for label, r in fail:
+            print(f"    {label}: {r.get('error', '')[:120]}")
 
     print()
     return 0 if not fail else 1

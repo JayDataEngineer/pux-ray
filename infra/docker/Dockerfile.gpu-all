@@ -115,10 +115,9 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     "protobuf>=6,<7" packaging webcolors \
     geffnet
 
-# natten needs FORCE_CUDA=1 and build isolation off to see system torch
+# natten — pre-compiled CUDA wheel (source build fails silently, gives CPU-only)
 RUN --mount=type=cache,target=/root/.cache/uv \
-    FORCE_CUDA=1 TORCH_CUDA_ARCH_LIST="${CUDA_ARCHITECTURES}" MAX_JOBS=${MAX_JOBS} \
-    uv pip install natten==0.21.0 --no-build-isolation
+    uv pip install natten==0.21.5+torch2100cu128 -f https://whl.natten.org
 
 # qwen-tts (no-deps to avoid accelerate version conflict)
 RUN --mount=type=cache,target=/root/.cache/uv \
