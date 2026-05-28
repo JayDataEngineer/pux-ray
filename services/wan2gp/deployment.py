@@ -1953,6 +1953,11 @@ class Wan2GPService:
                 # Larger models: Wan2GP's default profile 4 budgets
                 budgets_override = {"transformer": 100, "text_encoder": 100,
                                     "*": 3000}
+        elif model_type in _CPU_ONLY_TYPES:
+            # CPU-only models (kokoro 82M, espeak, faster_whisper) stay on CPU.
+            # mmgp's init_empty_weights creates meta tensors that break
+            # when default_device gets set to "cuda" by GPU models.
+            return None
         elif n_modules > 4 and model_type not in ("see-through", "trellis"):
             profile = MMGP_PROFILES["minimum"]
             budgets_override = {"*": 2000}
