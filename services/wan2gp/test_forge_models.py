@@ -106,13 +106,15 @@ TESTS: list[tuple[str, dict, int]] = [
     ("flux/flux", {"service": "wan2gp", "model": "flux/flux", "prompt": "a cat sitting on a windowsill", "width": 512, "height": 512, "steps": 4, "seed": 42}, 120),
     ("flux/flux_schnell", {"service": "wan2gp", "model": "flux/flux_schnell", "prompt": "mountain sunset landscape", "width": 512, "height": 512, "steps": 4, "seed": 42}, 120),
     ("flux/flux2_klein_4b", {"service": "wan2gp", "model": "flux/flux2_klein_4b", "prompt": "a robot painting a picture", "width": 512, "height": 512, "steps": 4, "seed": 42, "embedded_guidance_scale": 1.0}, 120),
-    ("flux/flux2_dev", {"service": "wan2gp", "model": "flux/flux2_dev", "prompt": "a dog playing in a park", "width": 512, "height": 512, "steps": 4, "seed": 42}, 180),
+    # flux2_dev disabled: 31GB quantized transformer + 24GB mistral3_small text encoder = ~55GB total.
+    # Exceeds RTX 4090 24GB VRAM. Needs proper INT8 quantization or a smaller model variant.
+    # ("flux/flux2_dev", {"service": "wan2gp", "model": "flux/flux2_dev", "prompt": "a dog playing in a park", "width": 512, "height": 512, "steps": 4, "seed": 42}, 180),
     # ── GPU Video (native Wan2GP) ──
     ("wan/t2v_1.3B", {"service": "wan2gp", "model": "wan/t2v_1.3B", "prompt": "ocean waves on a beach", "steps": 10, "seed": 42, "frame_num": 13}, 180),
     ("wan/t2v", {"service": "wan2gp", "model": "wan/t2v", "prompt": "a bird flying over mountains", "steps": 10, "seed": 42, "frame_num": 13}, 300),
     # ── GPU 3D ──
     ("trellis/trellis", {"service": "wan2gp", "model": "trellis/trellis", "image_b64": IMAGE_B64, "prompt": "A colorful 3D object"}, 300),
-    ("pixal3d/pixal3d", {"service": "wan2gp", "model": "pixal3d/pixal3d", "image_b64": IMAGE_B64}, 180),
+    ("pixal3d/pixal3d", {"service": "wan2gp", "model": "pixal3d/pixal3d", "image_b64": IMAGE_B64}, 300),
     # ── GPU Image editing ──
     # see_through disabled: ~15GB VRAM load crashes worker on overcommitted nodes.
     # ("see_through/see-through", {"service": "wan2gp", "model": "see_through/see-through", "prompt": "anime girl layers", "image_b64": ANIME_B64}, 180),
@@ -125,8 +127,10 @@ TESTS: list[tuple[str, dict, int]] = [
     # Needs device_map="auto" or sequential loading in LANCE vendor code.
     # ("lance/t2i", {"service": "lance", "task": "t2i", "text": "a cat sitting on a windowsill at sunset", "num_timesteps": 10, "seed": 42}, 600),
     # ── Avatar / KIMODO (text-to-motion via Forge) ──
-    # Timeout: Kimodo loading + inference exceeds 600s on first run.
-    # ("avatar/kimodo", {"service": "avatar", "text": "a person waving their hand hello", "duration_seconds": 3.0, "denoising_steps": 50, "render": False}, 600),
+    ("avatar/kimodo", {"service": "avatar", "text": "a person waving their hand hello", "duration_seconds": 3.0, "denoising_steps": 50, "render": False}, 600),
+    # ── Kimodo direct (text-to-motion via Wan2GP) ──
+    # First run downloads Llama-3-8B (~14GB, ~400s). Subsequent runs: ~40s.
+    ("kimodo/kimodo-soma-rp", {"service": "wan2gp", "model": "kimodo/kimodo-soma-rp", "prompts": "a person waving hello", "num_frames": 90, "num_denoising_steps": 50, "post_processing": False, "seed": 42}, 600),
 ]
 
 # ─── Runner ───────────────────────────────────────────────────────────────────
