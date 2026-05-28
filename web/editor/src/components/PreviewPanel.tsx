@@ -18,9 +18,22 @@ function artifactBaseUrl(run: WorkflowRun, stepId: string, name: string): string
 
 export function PreviewPanel({ run }: Props) {
   const selectedStepId = useWorkflowStore((s) => s.selectedStepId)
+  const viewMode = useWorkflowStore((s) => s.viewMode)
   const [selectedIdx, setSelectedIdx] = useState(0)
 
   useEffect(() => { setSelectedIdx(0) }, [selectedStepId])
+
+  // Kimodo view — toggle from header
+  if (viewMode === 'kimodo') {
+    return (
+      <div className="preview-panel">
+        <div className="panel-header">
+          Preview — Kimodo Director
+        </div>
+        <KimodoEmbed />
+      </div>
+    )
+  }
 
   if (!run || !selectedStepId) {
     return (

@@ -16,6 +16,9 @@ export default defineConfig({
       '/mcp': 'http://localhost:30080',
       '/forge': 'http://localhost:30080',
       '/health': 'http://localhost:30080',
+      '/kimodo': 'http://localhost:30080',
+      '/studio': 'http://localhost:30080',
+      '/dashboard': 'http://localhost:30080',
     },
   },
   preview: {
@@ -26,6 +29,9 @@ export default defineConfig({
       '/mcp': 'http://localhost:30080',
       '/forge': 'http://localhost:30080',
       '/health': 'http://localhost:30080',
+      '/kimodo': 'http://localhost:30080',
+      '/studio': 'http://localhost:30080',
+      '/dashboard': 'http://localhost:30080',
     },
   },
 })

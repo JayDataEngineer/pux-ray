@@ -590,6 +590,7 @@ body {
   padding: 6px 12px;
 }
 .btn-ghost:hover { color: var(--text-primary); }
+.btn-active { color: var(--accent) !important; }
 
 .btn-sm { padding: 5px 12px; font-size: 0.8rem; }
 .btn-block { width: 100%; }

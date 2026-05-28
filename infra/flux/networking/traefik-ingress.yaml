@@ -148,8 +148,6 @@ spec:
           port: 8002
     - match: PathPrefix(`/studio`)
       kind: Rule
-      middlewares:
-        - name: studio-rewrite
       services:
         - name: wan2gp-studio-web
           port: 3000
@@ -208,17 +206,6 @@ spec:
   replacePathRegex:
     regex: ^/mcp/wan2gp-studio(/.*)?$
     replacement: /mcp
-
----
-apiVersion: traefik.io/v1alpha1
-kind: Middleware
-metadata:
-  name: studio-rewrite
-  namespace: mcp
-spec:
-  stripPrefix:
-    prefixes:
-      - /studio
 
 ---
 # ─── Infra Services (infra namespace) ────────────────────────────────

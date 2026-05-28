@@ -1,6 +1,7 @@
 "use client";
 
 import { useChat } from "@ai-sdk/react";
+import { DefaultChatTransport } from "ai";
 import { useState, useEffect, useCallback, type FormEvent } from "react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -47,6 +48,8 @@ type TVoiceCatalog = {
 
 type KimodoStatus = "idle" | "loading" | "ready" | "error";
 
+const API = "/studio/api";
+
 export default function Home() {
   const [history, setHistory] = useState<GeneratedContent[]>([]);
   const [generating, setGenerating] = useState(false);
@@ -63,7 +66,7 @@ export default function Home() {
   const [height, setHeight] = useState(1024);
 
   // Chat
-  const chat = useChat();
+  const chat = useChat({ transport: new DefaultChatTransport({ api: `${API}/chat` }) });
   const [chatInput, setChatInput] = useState("");
 
   // TTS state
@@ -92,7 +95,7 @@ export default function Home() {
   useEffect(() => {
     (async () => {
       try {
-        const resp = await fetch("/api/models");
+        const resp = await fetch(`${API}/models`);
         if (resp.ok) {
           const { data } = await resp.json();
           setModels(data);
@@ -112,7 +115,7 @@ export default function Home() {
   useEffect(() => {
     (async () => {
       try {
-        const resp = await fetch("/api/tts/voices");
+        const resp = await fetch(`${API}/tts/voices`);
         if (resp.ok) {
           const catalog = await resp.json();
           setVoiceCatalog(catalog);
@@ -171,7 +174,7 @@ export default function Home() {
         params.image_b64 = b64;
       }
 
-      const resp = await fetch("/api/generate", {
+      const resp = await fetch(`${API}/generate`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ service: "wan2gp", params }),
@@ -210,7 +213,7 @@ export default function Home() {
     if (!ttsText) return;
     setTtsGenerating(true);
     try {
-      const resp = await fetch("/api/tts", {
+      const resp = await fetch(`${API}/tts`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -253,7 +256,7 @@ export default function Home() {
     setKimodoStatus("loading");
     setKimodoError(null);
     try {
-      const resp = await fetch("/api/kimodo", { method: "POST" });
+      const resp = await fetch(`${API}/kimodo`, { method: "POST" });
       const result = await resp.json();
       const parsed = result.content?.[0]?.text
         ? JSON.parse(result.content[0].text)
@@ -281,7 +284,7 @@ export default function Home() {
         reader.onload = () => resolve((reader.result as string).split(",")[1]);
         reader.readAsDataURL(meshImage);
       });
-      const resp = await fetch("/api/3d", {
+      const resp = await fetch(`${API}/3d`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ image_b64: b64, steps: meshSteps, guidance: meshGuidance }),

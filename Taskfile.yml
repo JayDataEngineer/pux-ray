@@ -427,6 +427,24 @@ tasks:
     cmds:
       - pnpm dev
 
+  studio:dev:
+    desc: "Start wan2gp-studio-web dev server (Next.js, proxies API to :30080)"
+    dir: mcp/wan2gp-studio-web
+    cmds:
+      - pnpm dev
+
+  studio:build:
+    desc: "Build wan2gp-studio-web for production"
+    dir: mcp/wan2gp-studio-web
+    cmds:
+      - pnpm build
+
+  dev:
+    desc: "Start all dev servers (editor + studio)"
+    cmds:
+      - task: editor:dev
+      - task: studio:dev
+
   editor:build:
     desc: "Build video editor SPA to gateway/editor/"
     dir: web/editor

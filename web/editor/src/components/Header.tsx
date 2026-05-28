@@ -1,6 +1,6 @@
 import type { WorkflowSpec, WorkflowRun } from '../types'
 import { cancelRun } from '../api'
-import { useWorkflowStore } from '../stores/workflow'
+import { useWorkflowStore, type ViewMode } from '../stores/workflow'
 import { useToastStore } from '../stores/toast'
 
 interface HeaderProps {
@@ -13,6 +13,8 @@ interface HeaderProps {
 
 export function Header({ spec, allSpecs, run, onNewRun, onSpecChange }: HeaderProps) {
   const setRun = useWorkflowStore((s) => s.setRun)
+  const viewMode = useWorkflowStore((s) => s.viewMode)
+  const setViewMode = useWorkflowStore((s) => s.setViewMode)
   const toast = useToastStore((s) => s.addToast)
 
   const handleCancel = async () => {
@@ -24,6 +26,10 @@ export function Header({ spec, allSpecs, run, onNewRun, onSpecChange }: HeaderPr
     } catch (e) {
       toast('error', e instanceof Error ? e.message : 'Could not cancel run')
     }
+  }
+
+  const toggleView = (mode: ViewMode) => {
+    setViewMode(viewMode === mode ? 'pipeline' : mode)
   }
 
   return (
@@ -56,8 +62,14 @@ export function Header({ spec, allSpecs, run, onNewRun, onSpecChange }: HeaderPr
             <button className="btn btn-ghost btn-sm" onClick={onNewRun}>New Run</button>
           </>
         )}
-        <a href="/studio" className="btn btn-ghost btn-sm">Studio</a>
-        <a href="/dashboard" className="btn btn-ghost btn-sm">Dashboard</a>
+        <button
+          className={`btn btn-ghost btn-sm ${viewMode === 'kimodo' ? 'btn-active' : ''}`}
+          onClick={() => toggleView('kimodo')}
+        >
+          Kimodo
+        </button>
+        <a href="/studio/" target="_blank" rel="noreferrer" className="btn btn-ghost btn-sm">Studio</a>
+        <a href="/dashboard" target="_blank" rel="noreferrer" className="btn btn-ghost btn-sm">Dashboard</a>
       </div>
     </header>
   )
