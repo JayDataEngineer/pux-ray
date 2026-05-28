@@ -27,13 +27,17 @@ logger = logging.getLogger(__name__)
 
 
 def _real_gpu_free_mb() -> int | None:
-    """Return actual free GPU memory in MB, or None if CUDA unavailable."""
+    """Return actual free GPU memory in MB, or None if CUDA unavailable.
+
+    Uses torch.cuda.mem_get_info() which reports driver-level free memory,
+    accounting for ALL GPU allocations (PyTorch, subprocesses like llama.cpp,
+    CUDA contexts, etc.), not just PyTorch-tracked allocations.
+    """
     try:
         import torch
         if torch.cuda.is_available():
-            total = torch.cuda.get_device_properties(0).total_memory / (1024 * 1024)
-            alloc = torch.cuda.memory_allocated(0) / (1024 * 1024)
-            return int(total - alloc)
+            free_bytes, _total = torch.cuda.mem_get_info(0)
+            return int(free_bytes / (1024 * 1024))
     except Exception:
         pass
     return None

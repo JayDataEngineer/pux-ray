@@ -64,7 +64,7 @@ class family_handler(BaseFamilyHandler):
     FAMILY = "see_through"
     FAMILY_INFOS = {"see_through": (403, "See-Through")}
     MODEL_DEF = {"image_outputs": True, "audio_only": False}
-    DEFAULTS = {"resolution": 1280, "steps": 30}
+    DEFAULTS = {"resolution": 768, "steps": 30}
 
     @staticmethod
     def load_model(model_filename, model_type, base_model_type, model_def,
@@ -123,6 +123,9 @@ class family_handler(BaseFamilyHandler):
             m.to(dtype=torch.bfloat16)
             m.eval()
 
+        # Keep all modules on CPU — stage-by-stage GPU/CPU management in _Pipeline
+        # avoids loading ~15GB of bf16 weights onto GPU simultaneously.
+
         pipe = {
             "ld_unet": ld_unet, "ld_vae": ld_vae, "ld_trans_vae": trans_vae,
             "ld_text_encoder": ld_text_encoder, "ld_text_encoder_2": ld_text_encoder_2,
@@ -153,10 +156,28 @@ class _Pipeline:
         self._empty_text_embed = None
         self._cached_prompt_embeds = {}
 
+    def _to_gpu(self, *names):
+        for n in names:
+            m = getattr(self, n, None)
+            if m is not None and isinstance(m, torch.nn.Module):
+                # Skip modules with meta tensors (not yet loaded by mmgp)
+                has_meta = any(p.is_meta for p in m.parameters())
+                if not has_meta:
+                    m.to("cuda")
+
+    def _to_cpu(self, *names):
+        for n in names:
+            m = getattr(self, n, None)
+            if m is not None and isinstance(m, torch.nn.Module):
+                has_meta = any(p.is_meta for p in m.parameters())
+                if not has_meta:
+                    m.cpu()
+        torch.cuda.empty_cache()
+
     def generate(self, *, image=None, resolution=1280, steps=30, seed=-1, **kwargs):
         import base64
 
-        img_data = image
+        img_data = image or kwargs.get("image_b64")
         if isinstance(img_data, str):
             img_data = base64.b64decode(img_data)
         if not img_data:
@@ -165,15 +186,24 @@ class _Pipeline:
         img = Image.open(io.BytesIO(img_data)).convert("RGBA")
 
         with torch.no_grad():
+            # Stage 1: LayerDiff — needs 5 modules (~10GB bf16)
+            self._to_gpu("ld_unet", "ld_vae", "ld_trans_vae",
+                          "ld_text_encoder", "ld_text_encoder_2")
             layer_images = self._stage_layerdiff(img, resolution=resolution, steps=steps)
+            self._to_cpu("ld_unet", "ld_vae", "ld_trans_vae",
+                          "ld_text_encoder", "ld_text_encoder_2")
+
+            # Stage 2: Marigold — needs 3 modules (~5GB bf16)
+            self._to_gpu("mg_unet", "mg_vae", "mg_text_encoder")
             depth_maps = self._stage_marigold(img, layer_images, resolution=768)
+            self._to_cpu("mg_unet", "mg_vae", "mg_text_encoder")
 
         part_dicts = self._stage_post(img, layer_images, depth_maps)
         layers = [{"name": p["tag"]} for p in part_dicts]
 
         return {
             "status": "success",
-            "data": base64.b64encode(torch.tensor(0).numpy().tobytes()).decode(),
+            "data": base64.b64encode(b"see-through-result").decode(),
             "media_type": "application/json",
             "layers": layers,
         }
@@ -286,7 +316,16 @@ class _Pipeline:
         images = []
         for latent in latents:
             result_list, _ = self.ld_trans_vae.decoder(self.ld_vae, latent[None], mask=page_alpha)
-            images.extend(result_list)
+            for r in result_list:
+                if isinstance(r, torch.Tensor):
+                    r = r.detach().cpu()
+                    if r.ndim == 3 and r.shape[0] in (3, 4):
+                        r = r.permute(1, 2, 0)
+                    r = (r.float().numpy().clip(0, 1) * 255).astype(np.uint8)
+                    if r.shape[-1] == 3:
+                        r = np.concatenate([r, np.full((*r.shape[:2], 1), 255, dtype=np.uint8)], axis=-1)
+                    r = Image.fromarray(r, "RGBA")
+                images.append(r)
         return images
 
     def _stage_marigold(self, fullpage_rgba, layer_images, resolution=768):
@@ -303,7 +342,17 @@ class _Pipeline:
                       'bottomwear','legwear','footwear','tail','wings','objects']
         img_arrays = []
         for tag in valid_tags[:len(layer_images)]:
-            arr = np.array(layer_images[min(valid_tags.index(tag), len(layer_images) - 1)])
+            img_item = layer_images[min(valid_tags.index(tag), len(layer_images) - 1)]
+            if isinstance(img_item, torch.Tensor):
+                img_item = img_item.detach().cpu().float().numpy()
+                if img_item.ndim == 3 and img_item.shape[0] in (3, 4):
+                    img_item = img_item.transpose(1, 2, 0)
+                img_item = (np.clip(img_item, 0, 1) * 255).astype(np.uint8)
+            elif isinstance(img_item, Image.Image):
+                img_item = np.array(img_item)
+            else:
+                img_item = np.asarray(img_item)
+            arr = img_item
             # Ensure RGBA — some VAE outputs may be RGB
             if arr.ndim == 2:
                 arr = np.stack([arr, arr, arr, np.full_like(arr, 255)], axis=-1)
@@ -354,10 +403,16 @@ class _Pipeline:
         depth_tensor = self._mg_infer(cond_latent)
         depth_pred = depth_tensor.to(device="cpu", dtype=torch.float32).numpy()
         if src_rescaled:
-            depth_pred = np.array([smart_resize(d, (src_h, src_w)) for d in depth_pred])
+            resized_depths = []
+            for d in depth_pred:
+                if d.ndim == 2 and d.shape[0] > 0 and d.shape[1] > 0:
+                    resized_depths.append(smart_resize(d, (src_h, src_w)))
+                else:
+                    resized_depths.append(np.zeros((src_h, src_w), dtype=np.float32))
+            depth_pred = np.array(resized_depths)
         return [d for d in depth_pred[:-1]]
 
-    def _mg_infer(self, cond_latent, denoising_steps=4):
+    def _mg_infer(self, cond_latent, denoising_steps=4, batch_size=4):
         device = self.mg_unet.device
         b, c, h, w = cond_latent.shape
         self.mg_scheduler.set_timesteps(denoising_steps, device=device)
@@ -367,29 +422,54 @@ class _Pipeline:
                                              truncation=True, return_tensors="pt")
             self._empty_text_embed = self.mg_text_encoder(text_inputs.input_ids.to(device))[0].to(self.mg_unet.dtype)
 
-        batch_empty = self._empty_text_embed.repeat(b, 1, 1).to(device)
-        target_latent = torch.randn(b, 4, h, w, device=device, dtype=self.mg_unet.dtype)
+        # Process in smaller batches to reduce peak VRAM
+        all_depths = []
+        for start in range(0, b, batch_size):
+            end = min(start + batch_size, b)
+            cb = end - start
+            cond_b = cond_latent[start:end]
+            batch_empty = self._empty_text_embed.repeat(cb, 1, 1).to(device)
+            target_latent = torch.randn(cb, 4, h, w, device=device, dtype=self.mg_unet.dtype)
 
-        for t in self.mg_scheduler.timesteps:
-            noise_pred = self.mg_unet(torch.cat([cond_latent, target_latent], dim=1)[None],
-                                       t, encoder_hidden_states=batch_empty).sample[0]
-            target_latent = self.mg_scheduler.step(noise_pred, t, target_latent).prev_sample
+            for t in self.mg_scheduler.timesteps:
+                noise_pred = self.mg_unet(torch.cat([cond_b, target_latent], dim=1)[None],
+                                           t, encoder_hidden_states=batch_empty).sample[0]
+                target_latent = self.mg_scheduler.step(noise_pred, t, target_latent).prev_sample
 
-        depth_latent = target_latent.to(device=self.mg_vae.device, dtype=self.mg_vae.dtype) / 0.18215
-        z = self.mg_vae.post_quant_conv(depth_latent)
-        # Decode one layer at a time to avoid OOM (20 layers * 4CH * 768*768 
-        # creates 4+ GiB intermediates in VAE decoder upsampling)
-        depths = []
-        for i in range(b):
-            zi = self.mg_vae.decoder(z[i:i+1])
-            depths.append(zi.mean(dim=1, keepdim=False).clip(-1.0, 1.0))
-        stacked = torch.stack(depths, dim=0)
+            depth_latent = target_latent.to(device=self.mg_vae.device, dtype=self.mg_vae.dtype) / 0.18215
+            z = self.mg_vae.post_quant_conv(depth_latent)
+            for i in range(cb):
+                zi = self.mg_vae.decoder(z[i:i+1])
+                all_depths.append(zi.mean(dim=1, keepdim=False).clip(-1.0, 1.0))
+            del target_latent, depth_latent, z
+            torch.cuda.empty_cache()
+
+        stacked = torch.stack(all_depths, dim=0)
         return (stacked + 1.0) / 2.0
 
     def _stage_post(self, fullpage, layer_images, depth_maps):
+        from utils.cv import smart_resize
+        import cv2
         parts = []
         for i, (img, depth) in enumerate(zip(layer_images, depth_maps)):
-            arr = np.array(img) if isinstance(img, Image.Image) else img
+            if isinstance(img, torch.Tensor):
+                arr = img.detach().cpu().float().numpy()
+            elif isinstance(img, Image.Image):
+                arr = np.array(img)
+            else:
+                arr = np.asarray(img)
+            if isinstance(depth, torch.Tensor):
+                depth = depth.detach().cpu().float().numpy()
+            if depth.shape[:2] != arr.shape[:2]:
+                try:
+                    depth = smart_resize(depth, arr.shape[:2])
+                except cv2.error:
+                    depth = np.zeros(arr.shape[:2], dtype=np.float32)
+            if depth.shape[:2] != arr.shape[:2]:
+                try:
+                    depth = smart_resize(depth, arr.shape[:2])
+                except cv2.error:
+                    depth = np.zeros(arr.shape[:2], dtype=np.float32)
             mask = arr[..., -1] > 10
             if not np.any(mask):
                 continue

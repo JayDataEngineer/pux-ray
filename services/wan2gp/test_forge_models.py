@@ -116,15 +116,13 @@ TESTS: list[tuple[str, dict, int]] = [
     ("trellis/trellis", {"service": "wan2gp", "model": "trellis/trellis", "image_b64": IMAGE_B64, "prompt": "A colorful 3D object"}, 300),
     ("pixal3d/pixal3d", {"service": "wan2gp", "model": "pixal3d/pixal3d", "image_b64": IMAGE_B64}, 300),
     # ── GPU Image editing ──
-    # see_through disabled: ~15GB VRAM load crashes worker on overcommitted nodes.
-    # ("see_through/see-through", {"service": "wan2gp", "model": "see_through/see-through", "prompt": "anime girl layers", "image_b64": ANIME_B64}, 180),
+    ("see_through/see-through", {"service": "wan2gp", "model": "see_through/see-through", "prompt": "anime girl layers", "image_b64": ANIME_B64, "resolution": 768, "steps": 10}, 300),
     # ── GPU 3D character ──
     ("anigen/anigen", {"service": "wan2gp", "model": "anigen/anigen", "prompt": "a male warrior character, fantasy style", "image_b64": IMAGE_B64}, 300),
     # ── GPU Motion ──
     ("hy_motion/hy-motion-1.0-lite", {"service": "wan2gp", "model": "hy_motion/hy-motion-1.0-lite", "prompt": "a person waving their hand hello"}, 180),
     # ── LANCE (text-to-image via Forge) ──
-    # OOM: AWQ model + VAE + text encoder = ~14GB, exceeds available VRAM after Ray overhead.
-    # Needs device_map="auto" or sequential loading in LANCE vendor code.
+    ("lance/t2i", {"service": "lance", "task": "t2i", "text": "a cat sitting on a windowsill at sunset", "num_timesteps": 10, "seed": 42}, 600),
     # ("lance/t2i", {"service": "lance", "task": "t2i", "text": "a cat sitting on a windowsill at sunset", "num_timesteps": 10, "seed": 42}, 600),
     # ── Avatar / KIMODO (text-to-motion via Forge) ──
     ("avatar/kimodo", {"service": "avatar", "text": "a person waving their hand hello", "duration_seconds": 3.0, "denoising_steps": 50, "render": False}, 600),

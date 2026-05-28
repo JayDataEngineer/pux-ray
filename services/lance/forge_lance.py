@@ -30,9 +30,12 @@ _LANCE_QUANT = "/opt/lance-quant"
 
 # transformers 4.57.3 lacks mrope in ROPE_VALIDATION_FUNCTIONS (needed by
 # Qwen2.5-VL ViT used by Lance). Inject default validation for mrope.
+# Also suppress mrope_section warning by adding it to optional_keys.
 _MROPE_PATCH = (
     "from transformers.modeling_rope_utils import ROPE_VALIDATION_FUNCTIONS;"
-    "ROPE_VALIDATION_FUNCTIONS.setdefault('mrope',ROPE_VALIDATION_FUNCTIONS['default'])"
+    "ROPE_VALIDATION_FUNCTIONS.setdefault('mrope',ROPE_VALIDATION_FUNCTIONS['default']);"
+    "import logging;"
+    "logging.getLogger('transformers.modeling_rope_utils').setLevel(logging.ERROR)"
 )
 
 # (resolution, h, w, default_frames, native_task)
@@ -182,6 +185,14 @@ class LanceForgeService(ForgeService):
             return self._encode_output(save_dir, task)
 
     def _resolve_script(self, task: str) -> tuple[Path | None, list[str]]:
+        # Prefer GGUF (dequantizes to bf16, lower VRAM than AWQ cached mode)
+        gguf_script = Path("/app/services/lance/run_gguf_eval.py")
+        gguf_model = Path("/models/lance/Lance_3B_Video-Q5_K_M.gguf") if self._vid else None
+        if not gguf_model or not gguf_model.exists():
+            gguf_model = Path("/models/lance") / "Lance_3B_Video-Q5_K_M.gguf"
+        if gguf_script.exists() and gguf_model.exists():
+            return gguf_script, ["--gguf_path", str(gguf_model)]
+        # Fallback to AWQ
         if self._awq:
             s = Path(_LANCE_SRC) / "run_quant_eval.py"
             if s.exists():
@@ -205,16 +216,12 @@ class LanceForgeService(ForgeService):
         return cwd
 
     def _build_cmd(self, script, task, resolution, h, w, nf, prompt_file, save_dir, payload, extra):
-        # Write a tiny wrapper that patches mrope before running the real script
-        wrapper = Path(_LANCE_SRC) / "_run_with_mrope.py"
-        if not wrapper.exists():
-            wrapper.write_text(
-                f"import sys\n{_MROPE_PATCH}\n"
-                f"sys.argv[0] = '{script}'\n"
-                f"exec(open('{script}').read())\n"
-            )
-        return [
-            sys.executable, str(wrapper),
+        is_gguf = "gguf" in script.name
+        cmd = [
+            sys.executable, "-c",
+            f"{_MROPE_PATCH}\n"
+            f"exec(open('{script}').read())\n",
+            # positional args parsed by the script:
             "--task", task,
             "--model_path", str(self._mp),
             "--vit_path", str(self._vp),
@@ -228,6 +235,7 @@ class LanceForgeService(ForgeService):
             "--resolution", resolution,
             "--example_json", str(prompt_file),
         ] + extra
+        return cmd
 
     def _build_env(self):
         env = os.environ.copy()
