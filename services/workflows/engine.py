@@ -441,12 +441,17 @@ class WorkflowEngine:
             # Record artifact refs from executor outputs into run state
             run = await self.state_store.load(run_id)
             for name, path in result.outputs.items():
-                artifact_path = Path(path) if isinstance(path, str) else path
-                if artifact_path.exists():
-                    ref = await self.artifacts.store_from_file(
-                        run_id, step.id, name, artifact_path,
-                    )
-                    run.artifacts[f"{step.id}.{name}"] = ref.to_dict()
+                if not isinstance(path, (str, Path)):
+                    continue
+                try:
+                    artifact_path = Path(path)
+                    if artifact_path.exists():
+                        ref = await self.artifacts.store_from_file(
+                            run_id, step.id, name, artifact_path,
+                        )
+                        run.artifacts[f"{step.id}.{name}"] = ref.to_dict()
+                except OSError:
+                    continue  # Not a valid file path (e.g., base64 data)
             await self.state_store.save(run)
 
             update_kwargs = dict(

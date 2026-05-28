@@ -45,7 +45,8 @@ class ForgeStepExecutor(StepExecutor):
 
         elapsed_ms = int((time.monotonic() - t0) * 1000)
 
-        if result.get("status") != "ok":
+        status = result.get("status", "")
+        if status not in ("ok", "success"):
             error = result.get("error", "Unknown error")
             raise RuntimeError(f"Forge service '{service}' failed: {error}")
 
@@ -53,22 +54,38 @@ class ForgeStepExecutor(StepExecutor):
         outputs = await self._store_outputs(result, context)
         return StepResult(outputs=outputs, duration_ms=elapsed_ms)
 
+    def _is_file_path(self, value: str) -> bool:
+        """Check if a string looks like a file path (short, starts with /)."""
+        return len(value) < 4096 and value.startswith("/")
+
     async def _prepare_params(self, params: dict, context: StepContext) -> dict:
         """Translate file-path artifact references to the format services expect."""
         resolved = {}
         for key, value in params.items():
             if key in _B64_PARAMS and isinstance(value, (str, Path)):
-                path = Path(value)
-                if path.exists():
-                    resolved[key] = base64.b64encode(path.read_bytes()).decode()
+                if isinstance(value, Path) or self._is_file_path(str(value)):
+                    path = Path(value)
+                    try:
+                        if path.exists():
+                            resolved[key] = base64.b64encode(path.read_bytes()).decode()
+                        else:
+                            resolved[key] = value
+                    except OSError:
+                        resolved[key] = value
                 else:
                     resolved[key] = value
             elif key in _B64_PARAMS and isinstance(value, list):
                 encoded = []
                 for v in value:
-                    p = Path(v) if isinstance(v, (str, Path)) else v
-                    if isinstance(p, Path) and p.exists():
-                        encoded.append(base64.b64encode(p.read_bytes()).decode())
+                    if isinstance(v, (str, Path)) and (isinstance(v, Path) or self._is_file_path(str(v))):
+                        p = Path(v)
+                        try:
+                            if p.exists():
+                                encoded.append(base64.b64encode(p.read_bytes()).decode())
+                            else:
+                                encoded.append(v)
+                        except OSError:
+                            encoded.append(v)
                     else:
                         encoded.append(v)
                 resolved[key] = encoded
@@ -93,9 +110,10 @@ class ForgeStepExecutor(StepExecutor):
             )
             outputs["output"] = str(artifact.file_path)
 
-        # Store any additional metadata
+        # Store any additional metadata (exclude large data fields)
+        _SKIP_KEYS = {"status", "data", "media_type", "npz_data", "motion_data"}
         for k, v in result.items():
-            if k not in ("status", "data", "media_type") and isinstance(v, (str, int, float, bool)):
+            if k not in _SKIP_KEYS and isinstance(v, (str, int, float, bool)):
                 outputs[k] = str(v)
 
         return outputs

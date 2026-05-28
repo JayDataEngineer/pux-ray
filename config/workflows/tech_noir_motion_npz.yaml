@@ -23,6 +23,6 @@ steps:
     params:
       input_prompt: "{{ inputs.prompt }}"
       seed: "{{ inputs.seed }}"
-      duration_seconds: "{{ inputs.duration }}"
+      duration: "{{ inputs.duration }}"
     outputs:
       motion: { media_type: application/octet-stream }

@@ -28,8 +28,8 @@ steps:
     params:
       image_b64: "{{ inputs.image }}"
       seed: "{{ inputs.seed }}"
-      sampling_steps: "{{ inputs.steps }}"
-      guide_scale: "{{ inputs.guidance }}"
+      steps: "{{ inputs.steps }}"
+      guidance: "{{ inputs.guidance }}"
       resolution: "{{ inputs.resolution }}"
     outputs:
       model: { media_type: model/gltf-binary }
