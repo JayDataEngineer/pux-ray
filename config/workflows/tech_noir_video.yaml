@@ -41,5 +41,6 @@ steps:
       frame_num: "{{ inputs.frames }}"
       sampling_steps: 24
       guide_scale: 3.0
+      sample_solver: euler
     outputs:
       video: { media_type: video/mp4 }

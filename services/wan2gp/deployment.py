@@ -1068,6 +1068,15 @@ class Wan2GPService:
         "audio_guide": None,
     }
 
+    # Params with None defaults that crash at runtime
+    _SAFE_DEFAULTS = {
+        "input_video_strength": 1.0,
+        "masking_strength": 0.0,
+        "denoising_strength": 1.0,
+        "audio_cfg_scale": 1.0,
+        "audio_scale": 1.0,
+    }
+
     def _infer_native(self, model, payload: dict, defaults: dict) -> dict:
         """Inference via model.generate() with automatic parameter matching.
 
@@ -1123,7 +1132,11 @@ class Wan2GPService:
                 if name == "offloadobj":
                     kwargs[name] = self._offload
                 continue
-            # 5. Parameter's own default
+            # 5. Safe defaults (params with None that crash at runtime)
+            if name in self._SAFE_DEFAULTS:
+                kwargs[name] = self._SAFE_DEFAULTS[name]
+                continue
+            # 6. Parameter's own default
             if param.default != inspect.Parameter.empty:
                 continue
 
@@ -2361,14 +2374,12 @@ class Wan2GPService:
         # 2. Output dict has "audio_sampling_rate" → audio even if key is "x"
         # 3. Tensor with audio-like shape (1D mono, or 2D/3D with channels<=2, samples>>1000)
         is_audio = False
-        if audio is not None:
+        # If we have video frames (x key), that takes priority over audio.
+        # LTX-2 returns both audio and video, but we want the video.
+        has_video = frames_tensor is not None and isinstance(frames_tensor, torch.Tensor) and frames_tensor.ndim >= 4
+        if audio is not None and not has_video:
             is_audio = True
-        elif isinstance(output, dict) and "audio_sampling_rate" in output:
-            if frames_tensor is not None and isinstance(frames_tensor, torch.Tensor):
-                audio = frames_tensor
-                frames_tensor = None
-                is_audio = True
-        elif frames_tensor is not None and isinstance(frames_tensor, torch.Tensor):
+        elif frames_tensor is not None and isinstance(frames_tensor, torch.Tensor) and not has_video:
             if frames_tensor.ndim == 1 and frames_tensor.shape[0] > 1000:
                 audio = frames_tensor
                 frames_tensor = None
@@ -2387,8 +2398,8 @@ class Wan2GPService:
                      audio.shape if isinstance(audio, torch.Tensor) else type(audio) if audio is not None else None,
                      is_audio)
 
-        # Audio-first: if the model returned audio, that's the primary output
-        if audio is not None:
+        # Audio-only: encode as WAV when there's no video output
+        if is_audio and audio is not None:
             audio_np = audio.cpu().float().numpy() if isinstance(audio, torch.Tensor) else audio
             # Ensure shape is (channels, samples) then transpose to (samples, channels) for soundfile
             if audio_np.ndim == 3:
@@ -2400,10 +2411,20 @@ class Wan2GPService:
                          output.get("audio_sampling_rate",
                          defaults.get("sample_rate", 24000))) if isinstance(output, dict)
                          else defaults.get("sample_rate", 24000))
-            import soundfile as sf
             import io as audio_io
+            import wave
             audio_buf = audio_io.BytesIO()
-            sf.write(audio_buf, audio_np.T, sr, format="WAV")
+            # Write WAV manually — soundfile requires libsndfile which may
+            # be missing in minimal containers. wave always works.
+            n_channels = audio_np.shape[0]
+            # Clip to [-1, 1] before scaling to int16
+            audio_clipped = np.clip(audio_np, -1.0, 1.0)
+            pcm = (audio_clipped.T * 32767).astype(np.int16)
+            with wave.open(audio_buf, 'wb') as wf:
+                wf.setnchannels(n_channels)
+                wf.setsampwidth(2)
+                wf.setframerate(sr)
+                wf.writeframes(pcm.tobytes())
             return {
                 "status": "ok",
                 "data": base64.b64encode(audio_buf.getvalue()).decode(),
