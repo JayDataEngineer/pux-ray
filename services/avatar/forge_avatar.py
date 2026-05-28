@@ -97,7 +97,8 @@ class AvatarForgeService(ForgeService):
             "prompts": prompt,
             "num_frames": num_frames,
             "num_denoising_steps": denoising_steps,
-            "post_processing": True,
+            "post_processing": False,
+            "seed": 42,
         }
 
         wan2gp = self._get_wan2gp()

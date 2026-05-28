@@ -84,9 +84,8 @@ class family_handler:
         # NVIDIA Kimodo checkpoints store denoiser weights in bfloat16.
         # Inference inputs (noise, text features, diffusion buffers) are float32.
         # PyTorch does not auto-promote dtypes in matmul/linear — it errors
-        # when float32 input hits bfloat16 weights. Convert the denoiser to
-        # float32 on GPU. LLM2VecEncoder (not nn.Module) is untouched — it
-        # stays bfloat16 on CPU via TEXT_ENCODER_DEVICE=cpu above.
+        # when float32 input hits bfloat16 weights. Convert nn.Module params
+        # to float32. LLM2VecEncoder is NOT nn.Module so model.float() skips it.
         model.float()
 
         model.eval()
@@ -140,7 +139,7 @@ class _Pipeline:
         if not text:
             raise ValueError("'prompts' (text description) required")
 
-        if seed is not None:
+        if seed is not None and int(seed) >= 0:
             torch.manual_seed(int(seed))
             np.random.seed(int(seed))
 

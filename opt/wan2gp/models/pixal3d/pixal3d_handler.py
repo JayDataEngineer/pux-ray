@@ -163,15 +163,13 @@ class family_handler(BaseFamilyHandler):
         if hasattr(pipeline, 'rembg_model') and pipeline.rembg_model is not None:
             pipe['rembg'] = pipeline.rembg_model
 
-        # All modules → CUDA. Flow models and decoders → bfloat16.
-        # DINOv3 conditioners and rembg stay float32 (ops like RoPE don't
-        # support bf16). bf16 autocast is disabled for pixal3d via HANDLER_META.
+        # Do NOT move modules to CUDA — keep on CPU so mmgp can manage VRAM
+        # by swapping them just-in-time during forward(). Total weights ~25GB
+        # exceeds 24GB VRAM; mmgp co-tenancy handles stage-by-stage loading.
         for k, v in pipe.items():
             if isinstance(v, torch.nn.Module):
-                v.to(device=dev)
                 v.eval()
             elif hasattr(v, 'model') and isinstance(v.model, torch.nn.Module):
-                v.model.to(device=dev)
                 v.model.eval()
 
         co_tenants = {
@@ -219,6 +217,27 @@ class _Pipeline:
         self.pbr_layout = pbr_layout
         self.device = device
 
+    def _to_gpu(self, *keys):
+        """Move modules to GPU for a stage."""
+        for k in keys:
+            mod = self.m.get(k)
+            if mod is None:
+                continue
+            target = mod if isinstance(mod, torch.nn.Module) else getattr(mod, 'model', None)
+            if target is not None:
+                target.to(self.device)
+
+    def _to_cpu(self, *keys):
+        """Move modules back to CPU after a stage."""
+        for k in keys:
+            mod = self.m.get(k)
+            if mod is None:
+                continue
+            target = mod if isinstance(mod, torch.nn.Module) else getattr(mod, 'model', None)
+            if target is not None:
+                target.cpu()
+        torch.cuda.empty_cache()
+
     @torch.inference_mode()
     def generate(self, *, image=None, image_b64=None, seed=1, steps=12, guidance=7.5,
                  resolution="1024_cascade", camera_angle_x=0.8575,
@@ -246,28 +265,31 @@ class _Pipeline:
         img = self._preprocess_image(img)
 
         # Stage 1: Sparse Structure (proj mode)
+        self._to_gpu('ss_flow_model', 'ss_decoder', 'image_cond_ss')
         cond_ss = self._get_proj_cond_ss(
             [img], camera_angle_x, camera_distance, mesh_scale)
         ss_res = 32
         coords = self._sample_sparse_structure(cond_ss, ss_res, steps, guidance)
         del cond_ss
-        torch.cuda.empty_cache()
+        self._to_cpu('ss_flow_model', 'ss_decoder', 'image_cond_ss')
 
         # Stage 2: Shape LR 512 (proj mode)
+        self._to_gpu('slat_flow_512', 'image_cond_shape_512')
         cond_shape_lr = self._get_proj_cond_shape(
             'image_cond_shape_512', [img], coords,
             camera_angle_x, camera_distance, mesh_scale)
         lr_slat = self._sample_shape_slat(
             cond_shape_lr, 'slat_flow_512', coords, steps, guidance)
         del cond_shape_lr
-        torch.cuda.empty_cache()
+        self._to_cpu('slat_flow_512', 'image_cond_shape_512')
 
         # Stage 3: Upsample LR → HR coords
         target_res = 1536 if resolution == '1536_cascade' else 1024
+        self._to_gpu('shape_decoder')
         shape_dec = self.m['shape_decoder']
         hr_coords = shape_dec.upsample(lr_slat, upsample_times=4)
         del lr_slat
-        torch.cuda.empty_cache()
+        self._to_cpu('shape_decoder')
 
         lr_resolution = 512
         hr_resolution = target_res
@@ -284,6 +306,7 @@ class _Pipeline:
         torch.cuda.empty_cache()
 
         # Stage 4: Shape HR (proj mode)
+        self._to_gpu('slat_flow_1024', 'image_cond_shape_1024')
         grid_res = hr_resolution // 16
         cond_shape_hr = self._get_proj_cond_shape(
             'image_cond_shape_1024', [img], coords,
@@ -292,9 +315,10 @@ class _Pipeline:
         shape_slat = self._sample_shape_slat_hr(
             cond_shape_hr, 'slat_flow_1024', coords, steps, guidance)
         del cond_shape_hr
-        torch.cuda.empty_cache()
+        self._to_cpu('slat_flow_1024', 'image_cond_shape_1024')
 
         # Stage 5: Texture (proj mode)
+        self._to_gpu('tex_slat_flow_1024', 'image_cond_tex_1024')
         tex_grid_res = hr_resolution // 16
         cond_tex = self._get_proj_cond_shape(
             'image_cond_tex_1024', [img], shape_slat.coords,
@@ -303,10 +327,12 @@ class _Pipeline:
         tex_slat = self._sample_tex_slat(
             cond_tex, 'tex_slat_flow_1024', shape_slat, steps)
         del cond_tex
-        torch.cuda.empty_cache()
+        self._to_cpu('tex_slat_flow_1024', 'image_cond_tex_1024')
 
         # Stage 6: Decode
+        self._to_gpu('shape_decoder', 'tex_decoder')
         out_mesh = self._decode_latent(shape_slat, tex_slat, hr_resolution)
+        self._to_cpu('shape_decoder', 'tex_decoder')
 
         data = b""
         if out_mesh:
@@ -332,7 +358,13 @@ class _Pipeline:
         if not has_alpha:
             rembg = self.m.get('rembg')
             if rembg is not None:
+                target = rembg if isinstance(rembg, torch.nn.Module) else getattr(rembg, 'model', None)
+                if target is not None:
+                    target.to(self.device)
                 img = rembg(img.convert('RGB'))
+                if target is not None:
+                    target.cpu()
+                    torch.cuda.empty_cache()
 
         if has_alpha or (self.m.get('rembg') and not has_alpha):
             arr = np.array(img)
