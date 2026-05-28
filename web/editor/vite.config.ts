@@ -13,6 +13,8 @@ export default defineConfig({
     port: 5173,
     proxy: {
       '/v1': 'http://localhost:30080',
+      '/mcp': 'http://localhost:30080',
+      '/forge': 'http://localhost:30080',
       '/health': 'http://localhost:30080',
     },
   },
@@ -21,6 +23,8 @@ export default defineConfig({
     port: 4173,
     proxy: {
       '/v1': 'http://localhost:30080',
+      '/mcp': 'http://localhost:30080',
+      '/forge': 'http://localhost:30080',
       '/health': 'http://localhost:30080',
     },
   },
