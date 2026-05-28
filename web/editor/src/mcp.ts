@@ -28,12 +28,21 @@ async function ensureInit() {
       }),
     })
 
+    if (!resp.ok) {
+      throw new Error(`MCP initialize failed: ${resp.status} ${await resp.text()}`)
+    }
+
     const text = await resp.text()
     const dataLine = text.split('\n').find((l) => l.startsWith('data: '))
-    if (dataLine) {
-      const msg = JSON.parse(dataLine.slice(6))
-      sessionId = msg.result?.sessionId ?? null
+    if (!dataLine) {
+      throw new Error('MCP initialize: no data line in response')
     }
+
+    const msg = JSON.parse(dataLine.slice(6))
+    if (msg.error) {
+      throw new Error(`MCP initialize error: ${msg.error.message}`)
+    }
+    sessionId = msg.result?.sessionId ?? null
 
     // Send initialized notification
     await fetch(MCP_URL, {
@@ -91,8 +100,8 @@ export async function callTool<T = unknown>(name: string, args: Record<string, u
 // ========== Convenience wrappers ==========
 
 export async function listSpecs() {
-  const data = await callTool<{ data: { name: string; description: string; steps: number }[] }>('workflow_list_specs', {})
-  return data.data
+  const data = await callTool<{ name: string; description: string; steps: number }[] | { data: { name: string; description: string; steps: number }[] }>('workflow_list_specs', {})
+  return Array.isArray(data) ? data : (data as { data: unknown[] }).data as { name: string; description: string; steps: number }[]
 }
 
 export async function getSpec(name: string): Promise<WorkflowSpec> {
