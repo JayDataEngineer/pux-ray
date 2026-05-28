@@ -23,7 +23,8 @@ inputs:
 steps:
   generate_3d:
     type: forge
-    service: trellis
+    service: wan2gp
+    model: trellis
     params:
       image_b64: "{{ inputs.image }}"
       seed: "{{ inputs.seed }}"

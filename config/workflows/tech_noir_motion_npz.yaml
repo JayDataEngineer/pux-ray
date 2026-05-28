@@ -18,7 +18,8 @@ inputs:
 steps:
   generate_motion:
     type: forge
-    service: hy_motion
+    service: wan2gp
+    model: hy_motion
     params:
       input_prompt: "{{ inputs.prompt }}"
       seed: "{{ inputs.seed }}"
