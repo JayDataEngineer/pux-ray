@@ -193,6 +193,7 @@ class APIIngress:
     async def audio_speech(self, request: Request) -> Response:
         body = await request.json()
         model = body.get("model", "tts-01-kokoro")
+        response_format = body.get("response_format", "wav")
 
         resolved = resolve_model(model)
         if resolved:
@@ -203,16 +204,26 @@ class APIIngress:
         if _is_forge_service(service_key):
             forge = _get_forge()
             result = await forge.invoke.remote(service_key, body)
-            return JSONResponse(result)
-
-        if entry.deployment == "wan2gp":
+        elif entry.deployment == "wan2gp":
             body.setdefault("model", _model_name_for(service_key, entry))
             forge = _get_forge()
             result = await forge.invoke.remote("wan2gp", body)
-            return JSONResponse(result)
+        else:
+            handle = serve.get_deployment_handle(entry.deployment, entry.app)
+            return await handle.remote(request)
 
-        handle = serve.get_deployment_handle(entry.deployment, entry.app)
-        return await handle.remote(request)
+        # OpenAI-compatible: return raw binary audio, not JSON+base64
+        if isinstance(result, dict) and result.get("data"):
+            audio_bytes = base64.b64decode(result["data"])
+            content_types = {
+                "wav": "audio/wav", "mp3": "audio/mpeg",
+                "opus": "audio/opus", "flac": "audio/flac",
+                "aac": "audio/aac", "pcm": "audio/pcm",
+            }
+            ct = content_types.get(response_format, "audio/wav")
+            return Response(content=audio_bytes, media_type=ct)
+
+        return JSONResponse(result)
 
     async def audio_transcriptions(self, request: Request) -> Response:
         form = await request.form()
