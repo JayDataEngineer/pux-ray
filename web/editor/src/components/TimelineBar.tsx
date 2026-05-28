@@ -24,6 +24,14 @@ export function TimelineBar({ spec, run }: Props) {
     return <SimpleTimeline spec={spec} />
   }
 
+  // Only show the full timeline editor when there's video or audio content
+  const hasMedia = Object.values(run.artifacts).some(
+    (a) => a.media_type?.startsWith('video/') || a.media_type?.startsWith('audio/'),
+  )
+  if (!hasMedia) {
+    return <SimpleTimeline spec={spec} />
+  }
+
   return <TimelineEditor />
 }
 

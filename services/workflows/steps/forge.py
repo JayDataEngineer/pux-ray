@@ -36,6 +36,9 @@ class ForgeStepExecutor(StepExecutor):
         # Resolve artifact file paths → format the service expects
         resolved = await self._prepare_params(params, context)
 
+        # Drop None values — unresolved template placeholders (e.g. missing inputs.seed)
+        resolved = {k: v for k, v in resolved.items() if v is not None}
+
         # Call Forge via Ray handle
         forge = serve.get_deployment_handle("forge", "forge")
         result = await forge.invoke.remote(service, resolved, model)
