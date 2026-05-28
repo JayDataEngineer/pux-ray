@@ -2,7 +2,7 @@ import { callMcpTool } from "@/lib/mcp-client";
 
 export async function GET() {
   try {
-    const result = await callMcpTool("list_models", {});
+    const result = await callMcpTool("list_models", {}) as { content?: { text?: string }[] };
     const content = result.content?.[0]?.text;
     if (content) {
       const parsed = JSON.parse(content);

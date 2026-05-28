@@ -8,6 +8,10 @@ Forge tools:
 - list_models: Discover available model families
 - forge_status: GPU/VRAM usage and loaded services
 
+TTS tools:
+- tts_speak: Generate speech (kokoro, qwen3_tts, moss_voicegenerator)
+- tts_voices: List available TTS engines and voice presets
+
 Workflow tools:
 - workflow_list_specs: List available pipeline specs
 - workflow_get_spec: Get spec details and input schema
@@ -53,6 +57,8 @@ mcp = FastMCP(
         "Use `run` to call any registered GPU service. "
         "Use `list_models` to discover available services and models. "
         "Use `forge_status` to check GPU/VRAM state. "
+        "Use `tts_speak` to generate speech with voice design or cloning. "
+        "Use `tts_voices` to list available TTS engines and voices. "
         "Use `workflow_list_specs` to discover pipelines. "
         "Use `workflow_start_run` to create a manual run, then "
         "`workflow_execute_step` to run steps one at a time. "
@@ -66,6 +72,7 @@ mcp = FastMCP(
 
 from .tools.generate import run
 from .tools.status import list_models, forge_status
+from .tools.tts import tts_speak, tts_voices
 from .tools.workflow import (
     workflow_list_specs,
     workflow_get_spec,
@@ -80,6 +87,9 @@ from .tools.workflow import (
 mcp.add_tool(run)
 mcp.add_tool(list_models)
 mcp.add_tool(forge_status)
+
+mcp.add_tool(tts_speak)
+mcp.add_tool(tts_voices)
 
 mcp.add_tool(workflow_list_specs)
 mcp.add_tool(workflow_get_spec)
