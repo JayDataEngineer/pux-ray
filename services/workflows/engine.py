@@ -75,7 +75,8 @@ class WorkflowEngine:
     async def start_run(self, spec_name: str, inputs: dict, manual: bool = False) -> dict:
         """Create a new workflow run. If manual=True, don't auto-execute steps."""
         spec = load_spec(spec_name)
-        self._validate_inputs(spec, inputs)
+        if not manual:
+            self._validate_inputs(spec, inputs)
 
         run_id = uuid.uuid4().hex[:12]
         run = WorkflowRun(
@@ -223,9 +224,9 @@ class WorkflowEngine:
             del run.artifacts[k]
         await self.state_store.save(run)
 
-        # Execute just this step
+        # Execute just this step (skip review pause so it completes immediately)
         try:
-            await self._execute_step(run, step)
+            await self._execute_step(run, step, skip_review=True)
             run = await self.state_store.load(run_id)
             ss = run.step_states.get(step_id)
             return {
@@ -372,7 +373,7 @@ class WorkflowEngine:
             if isinstance(result, Exception):
                 raise result
 
-    async def _execute_step(self, run: WorkflowRun, step: StepSpec) -> None:
+    async def _execute_step(self, run: WorkflowRun, step: StepSpec, *, skip_review: bool = False) -> None:
         """Execute a single step: resolve params → pick executor → run → store."""
         run_id = run.run_id
 
@@ -435,6 +436,7 @@ class WorkflowEngine:
                         run_id, step.id, name, artifact_path,
                     )
                     run.artifacts[f"{step.id}.{name}"] = ref.to_dict()
+            await self.state_store.save(run)
 
             update_kwargs = dict(
                 status="completed",
@@ -449,7 +451,8 @@ class WorkflowEngine:
             # Review mode: pause after every completed step for user approval.
             # Skip for steps that already manage their own interaction
             # (external_wait steps pause before execution, not after).
-            if step.type != "external_wait":
+            # Also skip when called from execute_single_step (skip_review=True).
+            if step.type != "external_wait" and not skip_review:
                 await self.state_store.update_step(
                     run_id, step.id, status="waiting_input", interaction="review",
                 )
