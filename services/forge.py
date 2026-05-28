@@ -300,6 +300,10 @@ class ForgeCore:
         if service not in self._service_map:
             return {"status": "error", "error": f"Unknown service: {service}"}
 
+        # Inject model into payload so service.infer() can find it
+        if model and "model" not in payload:
+            payload = {**payload, "model": model}
+
         if self._loaded.get(service):
             svc = self._services[service]
             return await asyncio.to_thread(svc.infer, payload)

@@ -44,6 +44,9 @@ class ForgeClient:
         The payload must include 'service' key (e.g. "wan2gp").
         All other keys are passed through as-is.
         """
+        # Drop None values — unresolved template placeholders
+        payload = {k: v for k, v in payload.items() if v is not None}
+
         client = await self._get_client()
         logger.info("API invoke: service={} model={}",
                      payload.get("service"), payload.get("model", "default"))

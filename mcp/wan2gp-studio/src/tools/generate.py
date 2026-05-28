@@ -16,11 +16,10 @@ async def run(
     service: Annotated[str, Field(
         description="Service name from the registry. Use list_models to discover.",
     )],
-    params: Annotated[dict[str, Any], Field(
+    params: Annotated[dict[str, Any] | None, Field(
         description="Parameters passed through to the service. Common: model, prompt, "
                     "text, image_b64, audio_b64, seed, steps, guidance, width, height, "
                     "frames, negative_prompt, voice, language. All optional.",
-        default_factory=dict,
     )] = None,
     ctx: Context | None = None,
 ) -> dict:

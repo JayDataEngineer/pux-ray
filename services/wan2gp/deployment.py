@@ -1167,7 +1167,9 @@ class Wan2GPService:
         is_cpu_model = self._loaded_model in _CPU_ONLY_TYPES or (
             self._registry.get(self._loaded_model, {}).get("model_type") in _CPU_ONLY_TYPES
         )
-        if torch.cuda.is_available() and not self._native_loaded and not is_cpu_model:
+        if is_cpu_model:
+            torch.set_default_device("cpu")
+        elif torch.cuda.is_available() and not self._native_loaded:
             torch.set_default_device("cuda")
 
         entry = self._registry.get(self._loaded_model)
@@ -1835,7 +1837,7 @@ class Wan2GPService:
         return {}, {}
 
     # Models whose handlers manage GPU memory internally (no mmgp needed)
-    _NO_MMGP_MODELS = {"pixal3d", "kimodo-soma-rp", "kimodo-soma-seed",
+    _NO_MMGP_MODELS = {"pixal3d", "see-through", "kimodo-soma-rp", "kimodo-soma-seed",
                        "kimodo-g1-rp", "kimodo-smplx-rp"}
 
     @staticmethod
@@ -1954,11 +1956,14 @@ class Wan2GPService:
         elif n_modules > 4 and model_type not in ("see-through", "trellis"):
             profile = MMGP_PROFILES["minimum"]
             budgets_override = {"*": 2000}
-        elif model_type in ("see-through", "trellis"):
-            # See-through: mmgp causes cascading device mismatches in deeply
-            # nested UNet submodules.
+        elif model_type == "see-through":
+            # See-through: 8 modules (~15GB bf16) don't all fit on GPU at once.
+            # Handler manages stage-by-stage GPU/CPU placement internally.
+            # Leave all modules on CPU; handler's _to_gpu/_to_cpu handles it.
+            return None
+        elif model_type == "trellis":
             # TRELLIS: ~14.4GB of weights (6 flow models + decoders).
-            # Both load all modules directly to CUDA.
+            # Load all modules directly to CUDA.
             for v in pipe.values():
                 if isinstance(v, torch.nn.Module):
                     v.to("cuda")
