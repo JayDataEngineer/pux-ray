@@ -206,6 +206,8 @@ def resolve_model(model_name: str) -> Optional[tuple[str, ServiceEntry]]:
     for key, entry in SERVICE_REGISTRY.items():
         if model_name in entry.model_aliases:
             return key, entry
+        if model_name == key:
+            return key, entry
     return None
 
 

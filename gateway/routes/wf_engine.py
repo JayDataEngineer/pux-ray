@@ -234,7 +234,7 @@ async def wf_get_artifact(request: Request) -> Response:
     step_id = request.path_params.get("step_id", "")
     filename = request.path_params.get("filename", "")
 
-    base = Path("/mnt/data/workflows")
+    base = Path("/models/workflows")
     artifact_path = base / run_id / step_id / filename
     if not artifact_path.exists():
         return JSONResponse({"error": "Artifact not found"}, status_code=404)
@@ -267,7 +267,7 @@ async def wf_list_artifacts(request: Request) -> JSONResponse:
     if run.get("spec_name") != spec_name:
         return JSONResponse({"error": "Run does not belong to this spec"}, status_code=400)
 
-    base = Path("/mnt/data/workflows") / run_id
+    base = Path("/models/workflows") / run_id
     if not base.exists():
         return JSONResponse({"run_id": run_id, "artifacts": []})
 

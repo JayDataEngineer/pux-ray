@@ -1968,10 +1968,14 @@ class Wan2GPService:
             return None
         elif model_type == "trellis":
             # TRELLIS: ~14.4GB of weights (6 flow models + decoders).
-            # Load all modules directly to CUDA.
+            # Load all modules directly to CUDA. Use to_empty() for meta tensors
+            # created by mmgp's init_empty_weights context.
             for v in pipe.values():
                 if isinstance(v, torch.nn.Module):
-                    v.to("cuda")
+                    try:
+                        v.to("cuda")
+                    except RuntimeError:
+                        v.to_empty(device="cuda")
             return None
         elif model_type.startswith(("moss-", "moss_")):
             # MOSS models (Qwen3-based TTS ~16GB, DiT v2 ~7GB) fit entirely in VRAM.

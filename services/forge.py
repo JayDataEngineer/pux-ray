@@ -32,14 +32,18 @@ def _real_gpu_free_mb() -> int | None:
     Uses torch.cuda.mem_get_info() which reports driver-level free memory,
     accounting for ALL GPU allocations (PyTorch, subprocesses like llama.cpp,
     CUDA contexts, etc.), not just PyTorch-tracked allocations.
+
+    Returns 0 (not None) on CUDA errors — this forces the caller to treat
+    the GPU as full and trigger eviction.
     """
     try:
         import torch
         if torch.cuda.is_available():
             free_bytes, _total = torch.cuda.mem_get_info(0)
             return int(free_bytes / (1024 * 1024))
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.warning("GPU memory query failed (%s) — treating as 0 free", exc)
+        return 0
     return None
 
 # ─── Constants ────────────────────────────────────────────────────────────────
@@ -173,7 +177,12 @@ class ForgeCore:
         )
 
         for svc_name, svc_mb in loaded_by_priority:
-            if self._vram_free_mb >= needed:
+            # Check both ledger AND real GPU memory — subprocess services
+            # (LLM, ComfyUI) use far more VRAM than the ledger tracks.
+            real_free = _real_gpu_free_mb()
+            ledger_ok = self._vram_free_mb >= needed
+            gpu_ok = real_free is None or real_free >= MIN_COFREE_MB
+            if ledger_ok and gpu_ok:
                 break
             if self._get_persistence(svc_name) >= Persistence.PIPELINE_LOCKED:
                 continue

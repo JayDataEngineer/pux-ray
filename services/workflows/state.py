@@ -17,7 +17,7 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
-_DEFAULT_BASE = Path("/mnt/data/workflows")
+_DEFAULT_BASE = Path("/models/workflows")
 
 
 # ---------------------------------------------------------------------------

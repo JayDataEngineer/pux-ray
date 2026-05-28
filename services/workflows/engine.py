@@ -229,6 +229,17 @@ class WorkflowEngine:
             await self._execute_step(run, step, skip_review=True)
             run = await self.state_store.load(run_id)
             ss = run.step_states.get(step_id)
+
+            # Update run status if all steps completed
+            all_done = all(
+                run.step_states.get(s.id).status in ("completed", "skipped")
+                for s in spec.steps
+                if run.step_states.get(s.id)
+            )
+            if all_done:
+                run.status = "completed"
+                await self.state_store.save(run)
+
             return {
                 "run_id": run_id,
                 "step_id": step_id,
