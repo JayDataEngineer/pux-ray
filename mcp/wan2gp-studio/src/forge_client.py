@@ -61,9 +61,26 @@ class ForgeClient:
         resp.raise_for_status()
         return resp.json()
 
-    async def list_models(self) -> dict[str, Any]:
+    async def list_models(self, category: str | None = None) -> dict[str, Any]:
         """Get the full model catalog from the ingress."""
         client = await self._get_client()
-        resp = await client.get(f"{self.base_url}/v1/models")
+        url = f"{self.base_url}/v1/models"
+        if category:
+            url += f"?category={category}"
+        resp = await client.get(url)
+        resp.raise_for_status()
+        return resp.json()
+
+    async def list_services(self) -> dict[str, Any]:
+        """Get all registered services from the ingress."""
+        client = await self._get_client()
+        resp = await client.get(f"{self.base_url}/v1/services")
+        resp.raise_for_status()
+        return resp.json()
+
+    async def get_service(self, service_name: str) -> dict[str, Any]:
+        """Get detailed info about a specific service."""
+        client = await self._get_client()
+        resp = await client.get(f"{self.base_url}/v1/services/{service_name}")
         resp.raise_for_status()
         return resp.json()

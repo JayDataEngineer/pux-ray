@@ -1,0 +1,74 @@
+"""MCP App Host endpoint for assistant-ui.
+
+Handles POST requests from the McpAppsRemoteHost client:
+  - mcp-apps/read-resource → returns MCP app HTML
+  - tools/call → calls an MCP tool
+  - resources/read → reads an MCP resource
+  - resources/list → lists MCP resources
+
+Mounted at /mcp/wan2gp-studio/host
+"""
+from __future__ import annotations
+
+import json
+
+from starlette.requests import Request
+from starlette.responses import JSONResponse
+
+from .apps.registry import get_app_html, list_apps, MCP_APP_MIME
+
+
+async def handle_app_host(request: Request) -> JSONResponse:
+    """Handle MCP app host requests from assistant-ui."""
+    body = await request.json()
+    method = body.get("method", "")
+    params = body.get("params", {})
+
+    if method == "mcp-apps/read-resource":
+        uri = params.get("uri", "")
+        html = get_app_html(uri)
+        if html is None:
+            return JSONResponse({"error": f"Resource not found: {uri}"}, status_code=404)
+        return JSONResponse({
+            "uri": uri,
+            "mimeType": MCP_APP_MIME,
+            "html": html,
+        })
+
+    if method == "tools/call":
+        # Forward to the MCP server's tool handler
+        tool_name = params.get("name", "")
+        tool_args = params.get("arguments", {})
+
+        # Use the MCP server instance to call the tool directly
+        from .server import mcp
+        result = await mcp.call_tool(tool_name, tool_args)
+        return JSONResponse(result)
+
+    if method == "resources/read":
+        uri = params.get("uri", "")
+        html = get_app_html(uri)
+        if html is None:
+            return JSONResponse({"error": f"Resource not found: {uri}"}, status_code=404)
+        return JSONResponse({
+            "contents": [{
+                "uri": uri,
+                "mimeType": MCP_APP_MIME,
+                "text": html,
+            }]
+        })
+
+    if method == "resources/list":
+        return JSONResponse({
+            "resources": [
+                {
+                    "uri": app["resourceUri"],
+                    "name": app["name"],
+                    "description": app["description"],
+                    "mimeType": MCP_APP_MIME,
+                }
+                for app in list_apps()
+            ]
+        })
+
+    return JSONResponse({"error": f"Unknown method: {method}"}, status_code=400)

@@ -18,15 +18,6 @@ export async function POST(req: Request) {
   const result = streamText({
     model: llm(LLM_MODEL),
     messages,
-    system: `You are a creative AI assistant with access to GPU-powered generation tools.
-
-You have a single tool called "run" that calls any registered service.
-Pass {service: "<name>", params: {<whatever the service needs>}}.
-
-Use list_models first to discover available services and models.
-Use forge_status to check GPU/VRAM state.
-
-Be creative and helpful. Suggest parameters that would produce good results.`,
   });
 
   return result.toTextStreamResponse();
