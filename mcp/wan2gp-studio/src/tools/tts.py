@@ -63,7 +63,7 @@ ENGINES = [
 # ---------------------------------------------------------------------------
 
 def _forge(ctx: Context) -> Any:
-    fc = ctx.lifespan.get("forge_client") if ctx else None
+    fc = ctx.lifespan_context.get("forge_client") if ctx else None
     if fc is None:
         raise RuntimeError("Forge client not available")
     return fc

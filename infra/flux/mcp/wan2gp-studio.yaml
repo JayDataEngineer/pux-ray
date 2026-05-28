@@ -27,7 +27,7 @@ spec:
             - containerPort: 8002
           env:
             - name: FORGE_URL
-              value: "http://tech-noir-ray-serve-svc.ai-services:8000/forge"
+              value: "http://tech-noir-ray-serve-svc.ai-services:8000"
             - name: WORKFLOW_URL
               value: "http://tech-noir-ray-serve-svc.ai-services:8000"
             - name: HOST
