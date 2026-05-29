@@ -99,6 +99,13 @@ class ComfyUIService(ForgeSubprocessMixin, ForgeService):
         self._loaded = False
 
     def infer(self, payload: dict) -> dict:
+        # Auto-restart if subprocess died
+        if not self.is_running():
+            logger.warning("ComfyUI subprocess died — restarting")
+            self._loaded = False
+            self.load(self.model_name or self.default_model)
+            self._loaded = True
+
         if "workflow" in payload:
             return self._handle_workflow_sync(payload)
 

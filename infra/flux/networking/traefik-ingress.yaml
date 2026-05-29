@@ -371,24 +371,6 @@ spec:
           port: 18465
 
 ---
-# ComfyUI HTTP — through api-ingress (auto-loads via Forge on first request)
-# Full path preserved — api-ingress expects /comfyui/... routes.
-apiVersion: traefik.io/v1alpha1
-kind: IngressRoute
-metadata:
-  name: comfyui-ingress
-  namespace: ai-services
-spec:
-  entryPoints:
-    - web
-  routes:
-    - match: PathPrefix(`/comfyui`)
-      kind: Rule
-      services:
-        - name: tech-noir-ray-serve-svc
-          port: 8000
-
----
 apiVersion: traefik.io/v1alpha1
 kind: Middleware
 metadata:
