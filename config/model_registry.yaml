@@ -285,6 +285,24 @@ tts:
     vram_estimate_gb: 8.0
     device: gpu
     description: Qwen3-TTS 1.7B CustomVoice. 9 premium voices with instruction control.
+  qwen3-tts-base:
+    path: tts/qwen3/
+    source: hf://Qwen/Qwen3-TTS-1.7B
+    download: snapshot
+    sha256: null
+    size_gb: 4.1
+    vram_estimate_gb: 5.0
+    device: gpu
+    description: Qwen3-TTS 1.7B base model. Text-to-speech without custom voice.
+  qwen3-tts-tokenizer:
+    path: tts/qwen3-tts-tokenizer-12hz/
+    source: hf://Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice
+    download: manual
+    sha256: null
+    size_gb: 0.65
+    vram_estimate_gb: 0.5
+    device: cpu
+    description: Qwen3-TTS 12Hz tokenizer. Part of Qwen3-TTS CustomVoice snapshot.
   vibevoice-tts:
     path: tts/vibevoice/
     source: hf://vibevoice/VibeVoice-7B
@@ -377,6 +395,15 @@ asr:
     vram_estimate_gb: 17.0
     device: gpu
     description: VibeVoice ASR full model. 16GB speech recognition.
+  qwen2-audio-asr:
+    path: asr/qwen-asr/
+    source: hf://Qwen/Qwen2-Audio-7B-Instruct
+    download: snapshot
+    sha256: null
+    size_gb: 1.7
+    vram_estimate_gb: 8.0
+    device: gpu
+    description: Qwen2-Audio 7B Instruct. Audio understanding / ASR model.
 vision:
   qwen3.6-27b-mmproj-bf16:
     path: vision/mmproj-Qwen_Qwen3.6-27B-bf16.gguf
@@ -414,6 +441,26 @@ vision:
     vram_estimate_gb: 1.5
     device: gpu
     description: Qwen 3.6 35B A3B mmproj (BF16).
+  qwen3.6-27b-mmproj-f32:
+    path: vision/mmproj-F32.gguf
+    source: hf://unsloth/Qwen3.6-27B-GGUF/mmproj-F32.gguf
+    download: file
+    sha256: null
+    size_gb: 1.8
+    vram_estimate_gb: 2.0
+    device: gpu
+    description: Qwen 3.6 27B mmproj (F32). Full precision vision projector.
+      Referenced by LLM configs as mmproj_path.
+  qwen3.6-27b-mmproj-bf16-alt:
+    path: vision/mmproj-BF16.gguf
+    source: hf://Qwen/Qwen3-27B-GGUF/mmproj-BF16.gguf
+    download: file
+    sha256: null
+    size_gb: 0.9
+    vram_estimate_gb: 1.5
+    device: gpu
+    description: Qwen 3.6 27B mmproj (BF16 alternate). From Qwen official GGUF.
+      Referenced by some LLM configs as mmproj_path.
 comfyui:
   checkpoint-sdxl-base:
     path: image-gen/comfyui/checkpoints/sd_xl_base_1.0.safetensors
@@ -489,6 +536,16 @@ comfyui:
     vram_estimate_gb: 3.0
     device: gpu
     description: Gemma 3 12B IT text encoder. FP4 mixed quant (9.45 GB). From Comfy-Org/ltx-2.
+  text-encoder-gemma-3-12b-it-full:
+    path: image-gen/comfyui/text_encoders/gemma-3-12b-it/
+    source: hf://google/gemma-3-12b-it
+    download: snapshot
+    sha256: null
+    size_gb: 23.0
+    vram_estimate_gb: 12.0
+    device: gpu
+    description: Gemma 3 12B IT text encoder. Full bf16 (5 shards, 23 GB). Used by ComfyUI LTX
+      text encoder node. Auto-downloaded by ComfyUI on first use. FP4 quant version preferred.
   lora-dmd2-sdxl-4step:
     path: image-gen/comfyui/loras/DMD2/dmd2_sdxl_4step_lora_fp16.safetensors
     source: hf://tianweiy/DMD2/dmd2_sdxl_4step_lora_fp16.safetensors
@@ -751,6 +808,24 @@ comfyui:
     vram_estimate_gb: 0.5
     device: gpu
     description: LTX 2.3 temporal upscaler (2x).
+  upscale-ltx2-spatial:
+    path: image-gen/comfyui/latent_upscale_models/ltx-2-spatial-upscaler-x2-1.0.safetensors
+    source: hf://Lightricks/LTX-Video/ltx-2-spatial-upscaler-x2-1.0.safetensors
+    download: file
+    sha256: null
+    size_gb: 1.0
+    vram_estimate_gb: 1.5
+    device: gpu
+    description: LTX 2.0 spatial upscaler (2x). Older version for LTX 2.0 workflows.
+  upscale-ltx2-temporal:
+    path: image-gen/comfyui/latent_upscale_models/ltx-2-temporal-upscaler-x2-1.0.safetensors
+    source: hf://Lightricks/LTX-Video/ltx-2-temporal-upscaler-x2-1.0.safetensors
+    download: file
+    sha256: null
+    size_gb: 0.25
+    vram_estimate_gb: 0.5
+    device: gpu
+    description: LTX 2.0 temporal upscaler (2x). Older version for LTX 2.0 workflows.
   checkpoint-qwen-image-edit-2511-lc:
     path: image-gen/comfyui/checkpoints/qwen_image_edit_2511_fp8_e4m3fn_scaled_lightning_comfyui_4steps_v1.0.safetensors
     source: hf://lightx2v/Qwen-Image-Edit-2511-Lightning/qwen_image_edit_2511_fp8_e4m3fn_scaled_lightning_comfyui_4steps_v1.0.safetensors
