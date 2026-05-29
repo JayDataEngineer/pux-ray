@@ -6,10 +6,13 @@ export async function GET() {
     const content = result.content?.[0]?.text;
     if (content) {
       const parsed = JSON.parse(content);
-      return Response.json(parsed.catalog || { data: [] });
+      return Response.json({
+        data: parsed.catalog?.data || [],
+        gpu_status: parsed.gpu_status || null,
+      });
     }
-    return Response.json({ data: [] });
+    return Response.json({ data: [], gpu_status: null });
   } catch (e: any) {
-    return Response.json({ data: [], error: e.message }, { status: 503 });
+    return Response.json({ data: [], gpu_status: null, error: e.message }, { status: 503 });
   }
 }

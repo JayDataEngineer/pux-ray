@@ -1158,7 +1158,9 @@ export default function Home() {
                   <div className="space-y-1 mt-2">
                     <p className="text-xs text-zinc-500 font-medium">Steps</p>
                     {((wfSpecDetail as { steps?: Array<{ id: string; description?: string; depends_on?: string[] }> }).steps || []).map((step) => {
-                      const stepState = (wfRunStatus?.steps as Array<{ id: string; status: string }> | undefined)?.find((s) => s.id === step.id);
+                      // The API returns step_states as a dict { stepId: { status, outputs, ... } }
+                      const stepStates = (wfRunStatus as { step_states?: Record<string, { status: string }> })?.step_states;
+                      const stepState = stepStates?.[step.id];
                       const stateLabel = stepState?.status ? (
                         <Badge variant={stepState.status === "completed" ? "default" : stepState.status === "failed" ? "destructive" : "secondary"}>
                           {stepState.status}
