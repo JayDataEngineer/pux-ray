@@ -9,6 +9,7 @@ Empty/unset = no auth (dev mode).
 """
 from __future__ import annotations
 
+import asyncio
 import base64
 import hmac
 import logging
@@ -21,7 +22,7 @@ from starlette.middleware import Middleware
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
-from starlette.routing import Route
+from starlette.routing import Route, WebSocketRoute
 
 from gateway.dashboard import dashboard_page, dashboard_gpu_current, dashboard_gpu_history, dashboard_services
 from gateway.pipeline import PipelineSpec, execute_pipeline
@@ -343,6 +344,65 @@ class APIIngress:
             )
         return JSONResponse(result)
 
+    async def comfyui_ws_proxy(self, ws):
+        """Proxy WebSocket to ComfyUI subprocess at 127.0.0.1:18465.
+
+        Connects directly to the ComfyUI subprocess (bypasses Forge proxy)
+        so the frontend gets real-time progress via /ws.
+        """
+        import websockets
+        from starlette.websockets import WebSocketDisconnect
+
+        await ws.accept()
+        path = ws.url.path.replace("/comfyui", "") or "/"
+        query = ws.url.query
+        target = f"ws://127.0.0.1:18465{path}"
+        if query:
+            target += f"?{query}"
+
+        logger.info("ComfyUI WS proxy: %s -> %s", ws.url.path, target)
+
+        try:
+            async with websockets.connect(target) as backend:
+                async def to_backend():
+                    try:
+                        while True:
+                            msg = await ws.receive()
+                            t = msg.get("type", "")
+                            if t == "websocket.disconnect":
+                                break
+                            if t == "websocket.receive":
+                                txt = msg.get("text")
+                                if txt is not None:
+                                    await backend.send(txt)
+                                bts = msg.get("bytes")
+                                if bts is not None:
+                                    await backend.send(bts)
+                    except WebSocketDisconnect:
+                        pass
+
+                async def to_client():
+                    try:
+                        async for msg in backend:
+                            if isinstance(msg, str):
+                                await ws.send_text(msg)
+                            elif isinstance(msg, bytes):
+                                await ws.send_bytes(msg)
+                    except websockets.exceptions.ConnectionClosed:
+                        pass
+
+                await asyncio.gather(to_backend(), to_client())
+        except (
+            websockets.WebSocketException,
+            ConnectionRefusedError,
+            OSError,
+        ) as e:
+            logger.warning("ComfyUI WS proxy failed: %s", e)
+            try:
+                await ws.close(1011)
+            except Exception:
+                pass
+
     # ── Status / Health / Admin ────────────────────────────────────────────────
 
     async def status(self, request: Request) -> Response:
@@ -411,7 +471,7 @@ class APIIngress:
             return JSONResponse(result)
 
         # Inline pipeline steps — reuse gateway/pipeline.py with Forge dispatch
-        if "steps" in body:
+        if "steps" in body and isinstance(body["steps"], list):
             try:
                 spec = PipelineSpec.from_dict(body)
             except ValueError as e:
@@ -483,6 +543,7 @@ def create_app() -> Starlette:
         # ComfyUI (proxy all paths — ComfyUI has its own routing)
         Route("/comfyui/{path:path}", ingress.comfyui_proxy, methods=["GET", "POST", "PUT", "DELETE"]),
         Route("/comfyui", ingress.comfyui_proxy, methods=["GET", "POST", "PUT", "DELETE"]),
+        WebSocketRoute("/comfyui/ws", ingress.comfyui_ws_proxy),
         # Pipeline execution
         Route("/api/pipelines/execute", ingress.execute_pipeline, methods=["POST"]),
         # Admin

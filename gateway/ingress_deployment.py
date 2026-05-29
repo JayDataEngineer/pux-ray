@@ -13,6 +13,7 @@ from __future__ import annotations
 from ray import serve
 from starlette.requests import Request
 from starlette.responses import Response
+from starlette.websockets import WebSocket as WS
 
 from gateway.ingress import APIIngress, _get_api_key
 from gateway.dashboard import (
@@ -63,6 +64,16 @@ class APIIngressDeployment:
         self._api_key = _get_api_key()
 
     async def __call__(self, request: Request) -> Response:
+        # WebSocket detection — check ASGI scope type
+        scope_type = getattr(request, 'scope', {}).get('type', '')
+        if scope_type == 'websocket':
+            path = request.url.path
+            if path == "/comfyui" or path.startswith("/comfyui/"):
+                await self._ingress.comfyui_ws_proxy(request)
+            else:
+                await request.close()
+            return
+
         # Auth check (mirrors APIKeyMiddleware)
         if self._api_key:
             path = request.url.path
