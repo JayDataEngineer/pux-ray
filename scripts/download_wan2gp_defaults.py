@@ -170,6 +170,86 @@ def download_model(wgp, model_type):
     return "DOWNLOADED (file not found after download — check logs)"
 
 
+def _populate_hub_cache(cache_dir: Path, models: list[tuple[str, str, str]]) -> None:
+    """Create HF hub cache entries from local_dir downloads.
+
+    ``from_pretrained("org/model-name")`` looks for ``models--Org--Model-name/``
+    in the HF hub cache. ``snapshot_download(local_dir=...)`` creates a plain
+    directory, NOT the hub cache format. This function converts local_dir
+    downloads into proper hub cache entries so models load offline.
+
+    Idempotent — safe to run multiple times (skips existing blobs).
+    """
+    import hashlib
+    import shutil
+
+    if not cache_dir.is_dir():
+        print("  SKIP: cache dir not found")
+        return
+
+    def _sha256(path: Path) -> str:
+        h = hashlib.sha256()
+        with open(path, "rb") as f:
+            for chunk in iter(lambda: f.read(65536), b""):
+                h.update(chunk)
+        return h.hexdigest()
+
+    for repo_id, _marker, rel_path in models:
+        # rel_path is relative to PVC_MODELS (e.g. "cache/huggingface/meta-llama/Meta-Llama-3-8B-Instruct")
+        # The actual local_dir is PVC_MODELS / rel_path, which may be outside cache_dir.
+        local_dir = Path(rel_path) if Path(rel_path).is_absolute() else None
+        if local_dir is None:
+            # Try under cache_dir first (e.g. cache/huggingface/LLM2Vec-...)
+            local_dir = cache_dir / Path(rel_path).name
+            # For nested paths (e.g. meta-llama/Meta-Llama-3-8B-Instruct under cache/huggingface/)
+            if not local_dir.is_dir():
+                local_dir = cache_dir / rel_path
+        if not local_dir.is_dir():
+            print(f"  SKIP {repo_id}: local dir not found at {local_dir}")
+            continue
+
+        parts = repo_id.split("/")
+        hub_dir = cache_dir / f"models--{parts[0]}--{parts[1]}"
+        blobs_dir = hub_dir / "blobs"
+        snapshots_dir = hub_dir / "snapshots"
+        refs_dir = hub_dir / "refs"
+
+        blobs_dir.mkdir(parents=True, exist_ok=True)
+        refs_dir.mkdir(parents=True, exist_ok=True)
+
+        # Use a deterministic revision hash based on repo_id
+        rev_hash = hashlib.sha256(repo_id.encode()).hexdigest()[:40]
+        snap_dir = snapshots_dir / rev_hash
+        snap_dir.mkdir(parents=True, exist_ok=True)
+
+        n_files = 0
+        for f in sorted(local_dir.rglob("*")):
+            if not f.is_file():
+                continue
+            rel = f.relative_to(local_dir)
+            file_hash = _sha256(f)
+            blob_path = blobs_dir / file_hash
+
+            if not blob_path.exists():
+                shutil.copy2(f, blob_path)
+
+            snap_file = snap_dir / rel
+            snap_file.parent.mkdir(parents=True, exist_ok=True)
+            if not snap_file.exists():
+                snap_file.symlink_to(blob_path)
+            n_files += 1
+
+        # Write ref
+        (refs_dir / "main").write_text(rev_hash + "\n")
+
+        # Remove .no_exist markers that block local loading
+        no_exist_dir = hub_dir / ".no_exist"
+        if no_exist_dir.is_dir():
+            shutil.rmtree(no_exist_dir)
+
+        print(f"  {repo_id:55s} → hub cache ({n_files} files)")
+
+
 def main():
     print("=" * 70)
     print("  Wan2GP Default Models Pre-Downloader")
@@ -255,6 +335,106 @@ def main():
             snapshot_download(
                 repo_id=info["repo"],
                 local_dir=str(dest),
+                cache_dir=os.environ.get("HF_HUB_CACHE"),
+            )
+            dt = time.time() - t0
+            print(f"DOWNLOADED ({dt:.0f}s)")
+        except Exception as e:
+            print(f"ERR: {e}")
+            failed += 1
+
+    # ── Step 6: Download Kimodo text encoder (LLM2Vec / Llama-3-8B)
+    # Kimodo uses LLM2VecEncoder which needs:
+    #   1. meta-llama/Meta-Llama-3-8B-Instruct (~16GB, gated — base model)
+    #   2. McGill-NLP/LLM2Vec-Meta-Llama-3-8B-Instruct-mntp (~170MB, PEFT adapter)
+    #   3. McGill-NLP/LLM2Vec-Meta-Llama-3-8B-Instruct-mntp-supervised (~170MB, PEFT adapter)
+    # Requires HF_TOKEN with meta-llama license accepted on huggingface.co.
+    print(f"\n── Kimodo text encoder (LLM2Vec / Llama-3-8B) ──")
+    llm2vec_models = [
+        ("meta-llama/Meta-Llama-3-8B-Instruct", "config.json", "cache/huggingface/meta-llama/Meta-Llama-3-8B-Instruct"),
+        ("McGill-NLP/LLM2Vec-Meta-Llama-3-8B-Instruct-mntp", "config.json", "cache/huggingface/LLM2Vec-Meta-Llama-3-8B-Instruct-mntp"),
+        ("McGill-NLP/LLM2Vec-Meta-Llama-3-8B-Instruct-mntp-supervised", "adapter_config.json", "cache/huggingface/LLM2Vec-Meta-Llama-3-8B-Instruct-mntp-supervised"),
+    ]
+    for repo_id, marker, rel_path in llm2vec_models:
+        model_name = repo_id.split("/")[-1]
+        dest = PVC_MODELS / rel_path
+        print(f"  {model_name:55s} ... ", end="", flush=True)
+        if (dest / marker).exists():
+            print("EXISTS")
+            continue
+        t0 = time.time()
+        try:
+            from huggingface_hub import snapshot_download
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            snapshot_download(
+                repo_id=repo_id,
+                local_dir=str(dest),
+                cache_dir=os.environ.get("HF_HUB_CACHE"),
+            )
+            dt = time.time() - t0
+            print(f"DOWNLOADED ({dt:.0f}s)")
+        except Exception as e:
+            print(f"ERR: {e}")
+            failed += 1
+
+    # ── Step 7: Populate HF hub cache from local_dir downloads
+    # from_pretrained("org/model") checks hub cache (models--Org--Model/) not
+    # plain local_dir directories. This step creates the hub cache symlinks so
+    # models load offline. Without this, kimodo's LLM2VecEncoder fails with
+    # "couldn't connect to huggingface.co" on air-gapped pods.
+    print(f"\n── Populating HF hub cache ──")
+    _populate_hub_cache(PVC_MODELS / "cache" / "huggingface", llm2vec_models)
+
+    # ── Step 8: Lance shared components (ViT + VAE from bytedance-research/Lance)
+    print(f"\n── Lance shared components ──")
+    lance_dest = PVC_MODELS / "lance"
+    lance_components = [
+        ("Qwen2.5-VL-ViT/config.json", "ViT encoder"),
+        ("Wan2.2_VAE.pth", "VAE"),
+    ]
+    for rel_path, label in lance_components:
+        target = lance_dest / rel_path
+        print(f"  {rel_path:45s} ({label}) ... ", end="", flush=True)
+        if target.exists():
+            print("EXISTS")
+            continue
+        t0 = time.time()
+        try:
+            from huggingface_hub import hf_hub_download
+            target.parent.mkdir(parents=True, exist_ok=True)
+            hf_hub_download(
+                repo_id="bytedance-research/Lance",
+                filename=rel_path,
+                local_dir=str(lance_dest),
+                local_dir_use_symlinks=False,
+                cache_dir=os.environ.get("HF_HUB_CACHE"),
+            )
+            dt = time.time() - t0
+            print(f"DOWNLOADED ({dt:.0f}s)")
+        except Exception as e:
+            print(f"ERR: {e}")
+            failed += 1
+
+    # ── Step 9: Lance GGUF models (preferred over AWQ)
+    print(f"\n── Lance GGUF models ──")
+    lance_gguf = [
+        ("Lance_3B_Video-Q5_K_M.gguf", "samuelchristlie/Lance-GGUF", 5.53),
+        ("Lance_3B-Q5_K_M.gguf", "samuelchristlie/Lance-GGUF", 4.52),
+    ]
+    for filename, repo_id, size_gb in lance_gguf:
+        target = lance_dest / filename
+        print(f"  {filename:40s} ({size_gb}GB) ... ", end="", flush=True)
+        if target.exists() and target.stat().st_size > 100_000:
+            print("EXISTS")
+            continue
+        t0 = time.time()
+        try:
+            from huggingface_hub import hf_hub_download
+            hf_hub_download(
+                repo_id=repo_id,
+                filename=filename,
+                local_dir=str(lance_dest),
+                local_dir_use_symlinks=False,
                 cache_dir=os.environ.get("HF_HUB_CACHE"),
             )
             dt = time.time() - t0

@@ -1406,6 +1406,45 @@ wan2gp:
     description: FLUX Chroma 3.5B — smallest, color-aware.
 
 lance:
+  # -- GGUF (preferred — dequantizes to bf16, lower VRAM than AWQ cached mode) --
+  lance-video-gguf-q5km:
+    path: lance/Lance_3B_Video-Q5_K_M.gguf
+    source: hf://samuelchristlie/Lance-GGUF/Lance_3B_Video-Q5_K_M.gguf
+    download: file
+    sha256: null
+    size_gb: 5.53
+    vram_estimate_gb: 7.0
+    device: gpu
+    description: Lance 3B Video GGUF Q5_K_M (5.53 GB). Primary quant — t2v, video_edit, x2t_video,
+      i2v. Dequantizes to bf16 at runtime. Lower VRAM than AWQ cached mode.
+  lance-image-gguf-q5km:
+    path: lance/Lance_3B-Q5_K_M.gguf
+    source: hf://samuelchristlie/Lance-GGUF/Lance_3B-Q5_K_M.gguf
+    download: file
+    sha256: null
+    size_gb: 4.52
+    vram_estimate_gb: 7.0
+    device: gpu
+    description: Lance 3B Image GGUF Q5_K_M (4.52 GB). t2i, image_edit, x2t_image.
+  lance-video-gguf-q4km:
+    path: lance/Lance_3B_Video-Q4_K_M.gguf
+    source: hf://samuelchristlie/Lance-GGUF/Lance_3B_Video-Q4_K_M.gguf
+    download: file
+    sha256: null
+    size_gb: 4.96
+    vram_estimate_gb: 6.0
+    device: gpu
+    description: Lance 3B Video GGUF Q4_K_M (4.96 GB). Smaller/faster quant for constrained VRAM.
+  lance-image-gguf-q4km:
+    path: lance/Lance_3B-Q4_K_M.gguf
+    source: hf://samuelchristlie/Lance-GGUF/Lance_3B-Q4_K_M.gguf
+    download: file
+    sha256: null
+    size_gb: 3.95
+    vram_estimate_gb: 5.0
+    device: gpu
+    description: Lance 3B Image GGUF Q4_K_M (3.95 GB). Smallest quant.
+  # -- AWQ INT4 (fallback — requires separate AWQ inference script) --
   lance-image-awq:
     path: lance/Lance-3B-AWQ-INT4/
     source: hf://Reza2kn/Lance-3B-AWQ-INT4
@@ -1414,7 +1453,7 @@ lance:
     size_gb: 4.31
     vram_estimate_gb: 7.0
     device: gpu
-    description: Lance 3B Image AWQ INT4 — 4.31 GB quantized checkpoint for t2i, image_edit, x2t_image.
+    description: Lance 3B Image AWQ INT4 (4.31 GB). Fallback if GGUF unavailable.
       Requires config files from bytedance-research/Lance.
   lance-video-awq:
     path: lance/Lance-3B-Video-AWQ-INT4/
@@ -1424,8 +1463,9 @@ lance:
     size_gb: 6.02
     vram_estimate_gb: 7.0
     device: gpu
-    description: Lance 3B Video AWQ INT4 — 6.02 GB quantized checkpoint for t2v, video_edit, x2t_video.
+    description: Lance 3B Video AWQ INT4 (6.02 GB). Fallback if GGUF unavailable.
       Requires config files from bytedance-research/Lance.
+  # -- Full bf16 (reference, not needed for inference) --
   lance-image:
     path: lance/Lance_3B/
     source: hf://bytedance-research/Lance
@@ -1434,7 +1474,7 @@ lance:
     size_gb: 24.7
     vram_estimate_gb: 14.0
     device: gpu
-    description: Lance 3B image checkpoint (bf16, 24.7 GB). Use lance-image-awq for quantized.
+    description: Lance 3B image bf16 (24.7 GB). Reference only — use GGUF or AWQ.
   lance-video:
     path: lance/Lance_3B_Video/
     source: hf://bytedance-research/Lance
@@ -1443,7 +1483,11 @@ lance:
     size_gb: 28.4
     vram_estimate_gb: 14.0
     device: gpu
-    description: Lance 3B video checkpoint (bf16, 28.4 GB). Use lance-video-awq for quantized.
+    description: Lance 3B video bf16 (28.4 GB). Reference only — use GGUF or AWQ.
+  # -- Shared components (required by all Lance variants) --
+  # These come as subdirectories of the bytedance-research/Lance snapshot.
+  # The AWQ snapshots include their own config files.
+  # For a fresh setup, download the full Lance repo once and the dirs will populate.
   lance-vit:
     path: lance/Qwen2.5-VL-ViT/
     source: hf://bytedance-research/Lance
@@ -1452,7 +1496,8 @@ lance:
     size_gb: 0.67
     vram_estimate_gb: 1.0
     device: gpu
-    description: Qwen2.5-VL ViT for Lance (670M params).
+    description: Qwen2.5-VL ViT for Lance (670M params). Required by all variants.
+      Part of bytedance-research/Lance repo snapshot.
   lance-vae:
     path: lance/Wan2.2_VAE.pth
     source: hf://bytedance-research/Lance
@@ -1461,7 +1506,8 @@ lance:
     size_gb: 2.82
     vram_estimate_gb: 1.0
     device: gpu
-    description: Wan2.2 VAE for Lance (2.82 GB).
+    description: Wan2.2 VAE for Lance (2.82 GB). Required by all variants.
+      Part of bytedance-research/Lance repo snapshot.
 
 cache:
   huggingface:

@@ -187,11 +187,15 @@ class LanceForgeService(ForgeService):
     def _resolve_script(self, task: str) -> tuple[Path | None, list[str]]:
         # Prefer GGUF (dequantizes to bf16, lower VRAM than AWQ cached mode)
         gguf_script = Path("/app/services/lance/run_gguf_eval.py")
-        gguf_model = Path("/models/lance/Lance_3B_Video-Q5_K_M.gguf") if self._vid else None
-        if not gguf_model or not gguf_model.exists():
-            gguf_model = Path("/models/lance") / "Lance_3B_Video-Q5_K_M.gguf"
-        if gguf_script.exists() and gguf_model.exists():
-            return gguf_script, ["--gguf_path", str(gguf_model)]
+        if gguf_script.exists():
+            gguf_name = "Lance_3B_Video-Q5_K_M.gguf" if self._vid else "Lance_3B-Q5_K_M.gguf"
+            gguf_model = Path("/models/lance") / gguf_name
+            if not gguf_model.exists():
+                # Also try Q4_K_M as fallback
+                gguf_name = "Lance_3B_Video-Q4_K_M.gguf" if self._vid else "Lance_3B-Q4_K_M.gguf"
+                gguf_model = Path("/models/lance") / gguf_name
+            if gguf_model.exists():
+                return gguf_script, ["--gguf_path", str(gguf_model)]
         # Fallback to AWQ
         if self._awq:
             s = Path(_LANCE_SRC) / "run_quant_eval.py"
