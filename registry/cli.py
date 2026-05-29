@@ -434,8 +434,9 @@ def cmd_models_verify(args):
             download = meta.get("download", "")
 
             # Skip models are system packages — nothing to verify on disk
-            if download == "skip" or (not meta.get("source") and download not in ("file", "snapshot", "civitai", "modelscope")):
-                table.add_row(f"{category}/{name}", "[dim]SKIP[/dim]", "system package")
+            # Manual models are downloaded by external tools (Wan2GP download job, etc.)
+            if download in ("skip", "manual") or (not meta.get("source") and download not in ("file", "snapshot", "civitai", "modelscope")):
+                table.add_row(f"{category}/{name}", "[dim]SKIP[/dim]", "system package" if download == "skip" else "external download")
                 skipped += 1
                 continue
 

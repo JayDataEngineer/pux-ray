@@ -149,14 +149,29 @@ tasks:
     cmds:
       - "{{.VENV_PYTHON}} -m registry.cli models pull {{.CLI_ARGS}}"
 
-  models:pull:wan2gp:
-    desc: "Pre-download ALL default Wan2GP models via K8s Job (writes to PVC)"
+  models:download:
+    desc: "Download ALL models needed by the system (registry + Wan2GP + Lance AWQ + Kimodo + avatar)"
     cmds:
+      - echo "=== Phase 1: Registry models (TTS, ASR, 3D, audio, ComfyUI, vision, etc.) ==="
+      - "{{.VENV_PYTHON}} -m registry.cli models pull"
+      - echo ""
+      - echo "=== Phase 2: Wan2GP models (183 defaults, via K8s Job on PVC) ==="
       - |
         echo "Launching Wan2GP model download Job ..."
         kubectl delete job wan2gp-model-download -n ai-services --ignore-not-found
         kubectl apply -f infra/k8s/wan2gp-download-job.yaml
-        echo ""
+        echo "Job started. Watching progress (this takes a while)..."
+        kubectl logs -n ai-services -l app=wan2gp-download -f 2>/dev/null || echo "  (pod starting... run 'kubectl logs -n ai-services -l app=wan2gp-download -f' to watch)"
+      - echo ""
+      - echo "=== Done ==="
+      - echo "Run 'task models:status' to check disk usage."
+
+  models:download:wan2gp:
+    desc: "Download ALL Wan2GP default models via K8s Job (writes to PVC)"
+    cmds:
+      - |
+        kubectl delete job wan2gp-model-download -n ai-services --ignore-not-found
+        kubectl apply -f infra/k8s/wan2gp-download-job.yaml
         echo "Job started. Watch progress:"
         echo "  kubectl logs -n ai-services -l app=wan2gp-download -f"
         echo "  kubectl wait --for=condition=complete job/wan2gp-model-download -n ai-services --timeout=86400s"

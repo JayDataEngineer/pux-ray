@@ -7,10 +7,11 @@ Locally (PVC): models already present → instant check, no downloads.
 Cloud burst (empty disk): downloads only the models this worker needs.
 
 Env vars:
-  MODELS           Comma-separated registry keys (e.g. "3d.trellis,3d.trellis_dinov3")
-  MODELS_CATEGORY  Check all models in a category (e.g. "comfyui") — expands to all keys
-  MODELS_ROOT      Root directory for model storage (default: /models)
-  HF_TOKEN         HuggingFace API token for gated models
+  MODELS             Comma-separated registry keys (e.g. "3d.trellis,3d.trellis_dinov3")
+  MODELS_CATEGORIES  Comma-separated categories (e.g. "tts,comfyui,3d") — expands to all keys
+  MODELS_CATEGORY    Legacy: single category (e.g. "comfyui")
+  MODELS_ROOT        Root directory for model storage (default: /models)
+  HF_TOKEN           HuggingFace API token for gated models
 """
 import os
 import sys
@@ -33,7 +34,7 @@ def find_entry(registry: dict, key: str) -> dict | None:
 
 
 def model_exists(path: Path, download_type: str) -> bool:
-    if download_type == "skip":
+    if download_type in ("skip", "manual"):
         return True
     if download_type == "snapshot":
         return path.is_dir() and any(path.iterdir())
@@ -86,12 +87,20 @@ def download_model(key: str, meta: dict, models_root: str):
 
 def resolve_models(registry: dict) -> list[str]:
     explicit = [k.strip() for k in os.environ.get("MODELS", "").split(",") if k.strip()]
+    categories = [c.strip() for c in os.environ.get("MODELS_CATEGORIES", "").split(",") if c.strip()]
+    if categories:
+        for category in categories:
+            if category in registry:
+                cat_keys = [f"{category}.{k}" for k in registry[category]
+                            if registry[category][k].get("download") not in ("skip", "manual")]
+                explicit.extend(cat_keys)
+    # Legacy single-category support
     category = os.environ.get("MODELS_CATEGORY", "")
     if category and category in registry:
         cat_keys = [f"{category}.{k}" for k in registry[category]
-                    if registry[category][k].get("download") != "skip"]
-        return list(dict.fromkeys(explicit + cat_keys))
-    return explicit
+                    if registry[category][k].get("download") not in ("skip", "manual")]
+        explicit.extend(cat_keys)
+    return list(dict.fromkeys(explicit))
 
 
 def main():
