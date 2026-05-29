@@ -498,35 +498,46 @@ _WEIGHT_SEARCH = {
     "hy-motion-1.0": [("motion", "hy-motion-1.0")],
     "hy-motion-1.0-lite": [("motion", "hy-motion-1.0-lite")],
     "vibevoice-asr": [("asr", "vibevoice-asr")],
-    # Wan2GP vendor models — registry keys use versioned names
-    "t2v":           [("wan2gp", "wan-t2v-14B")],
-    "t2v_1.3B":      [("wan2gp", "wan-t2v-1.3B")],
-    "i2v":           [("wan2gp", "wan-i2v-14B")],
-    "t2v_2_2":       [("wan2gp", "wan-t2v-14B")],
-    "i2v_2_2":       [("wan2gp", "wan-i2v-14B")],
-    "trellis":       [("3d", "trellis")],
-    "ace_step_v1_5": [("audio", "acestep")],
-    "ace_step_v1_5_xl": [("audio", "acestep")],
-    "ace_step_v1":  [("audio", "acestep")],
-    "index_tts2":    [("tts", "index-tts")],
-    "kokoro":        [("tts", "kokoro")],
-    "faster_whisper": [("asr", "faster-whisper")],
+    # Wan2GP vendor models — registry keys match model_registry.yaml wan2gp section
+    "t2v":             [("wan2gp", "wan-t2v-14B")],
+    "t2v_1.3B":        [("wan2gp", "wan-t2v-1.3B")],
+    "i2v":             [("wan2gp", "wan-i2v-14B")],
+    "i2v_720p":        [("wan2gp", "wan-i2v-720p")],
+    "FLF2V_720p":      [("wan2gp", "wan-FLF2V-720p")],
+    "chrono_edit":     [("wan2gp", "wan-chrono-edit")],
+    "t2v_2_2":         [("wan2gp", "wan2.2-animate")],
+    "i2v_2_2":         [("wan2gp", "wan-i2v-14B")],
+    "trellis":         [("3d", "trellis")],
+    "ace_step_v1_5":   [("wan2gp", "ace-step-v1-5")],
+    "ace_step_v1_5_xl": [("wan2gp", "ace-step-v1-5-xl")],
+    "ace_step_v1":     [("wan2gp", "ace-step-v1")],
+    "index_tts2":      [("wan2gp", "index-tts-v2")],
+    "kokoro":          [("tts", "kokoro")],
+    "faster_whisper":  [("asr", "faster-whisper")],
+    "moss_soundeffect_v2": [("wan2gp", "moss-soundeffect-v2")],
     # Flux models
-    "flux":          [("wan2gp", "flux")],
-    "flux_schnell":  [("wan2gp", "flux-schnell")],
-    "flux2_dev":     [("wan2gp", "flux2-dev")],
-    "flux2_klein_4b": [("wan2gp", "flux2-klein-4b")],
-    "flux_chroma":   [("wan2gp", "flux-chroma")],
+    "flux":            [("wan2gp", "flux-dev")],
+    "flux_schnell":    [("wan2gp", "flux-schnell")],
+    "flux2_dev":       [("wan2gp", "flux2-dev")],
+    "flux2_klein_4b":  [("wan2gp", "flux2-klein-4b")],
+    "flux2_klein_9b":  [("wan2gp", "flux2-klein-9b")],
+    "flux_chroma":     [("wan2gp", "flux-chroma")],
+    # LTX-Video
+    "ltxv_098_13b":    [("wan2gp", "ltxv-098-13b")],
+    # Other Wan2GP vendor models
+    "magi_human":      [("wan2gp", "magi-human")],
+    "longcat_video":   [("wan2gp", "longcat-video")],
+    "z_image_turbo":   [("wan2gp", "z-image-turbo")],
     # Lance models
     "lance-image":     [("lance", "lance-image")],
     "lance-video":     [("lance", "lance-video")],
     "lance-image-awq": [("lance", "lance-image-awq")],
     "lance-video-awq": [("lance", "lance-video-awq")],
     # Kimodo models (auto-download from HuggingFace, needs HF_TOKEN for gated Llama)
-    "kimodo-soma-rp": [("motion", "kimodo-soma-rp")],
-    "kimodo-soma-seed": [("motion", "kimodo-soma-seed")],
-    "kimodo-g1-rp": [("motion", "kimodo-g1-rp")],
-    "kimodo-smplx-rp": [("motion", "kimodo-smplx-rp")],
+    "kimodo-soma-rp": [("avatar", "kimodo-soma-rp")],
+    "kimodo-soma-seed": [("avatar", "kimodo-soma-rp")],  # same checkpoint, different variant
+    "kimodo-g1-rp": [("avatar", "kimodo-soma-rp")],
+    "kimodo-smplx-rp": [("avatar", "kimodo-soma-rp")],
     # Pixal3D
     "pixal3d": [("3d", "pixal3d")],
 }
@@ -541,6 +552,8 @@ def _find_weights(model_type: str, handler_path: str, registry, models_root: Pat
     weight_exts = ("*.safetensors", "*.pt", "*.pth", "*.ckpt", "*.bin")
 
     def _has_weights(p: Path) -> bool:
+        if p.is_file() and p.suffix in (".safetensors", ".pt", ".pth", ".ckpt", ".bin"):
+            return True
         return p.is_dir() and any(list(p.rglob(ext)) for ext in weight_exts)
 
     # Search wan2gp section first (vendor models)
@@ -608,7 +621,9 @@ class Wan2GPService:
     #   or "wan/t2v_1.3B" for the distilled 1.3B model.
     _ALIASES = {
         "wan/i2v-14B": "wan/i2v",
+        "wan/t2v-14B": "wan/t2v",
         "wan/t2v-lite": "wan/t2v_1.3B",
+        "flux/flux-schnell": "flux/flux_schnell",
         "hy_motion/hy-motion-1.0": "hy_motion/hy-motion-1.0-lite",
         "ace_step": "tts/ace_step_v1_5",
         "index_tts2": "tts/index_tts2",
@@ -805,6 +820,7 @@ class Wan2GPService:
             from mmgp import offload
             if "_cache" in offload.shared_state:
                 del offload.shared_state["_cache"]
+            offload.clear_caches()
             offload.flush_torch_caches()
         except (ImportError, KeyError):
             pass

@@ -22,6 +22,23 @@ class KimodoDemoService(ForgeSubprocessMixin, ForgeService):
 
     def load(self, model_name: str, quant: str | None = None) -> None:
         variant = model_name or self.default_model
+
+        # Resolve local checkpoint dir from model registry.
+        # Kimodo expects CHECKPOINT_DIR/<display_name>/ with config.yaml + weights.
+        # The model registry has the full path (e.g. /models/avatar/kimodo/Kimodo-SOMA-RP-v1.1/);
+        # CHECKPOINT_DIR is the parent (e.g. /models/avatar/kimodo/).
+        checkpoint_dir = "/models/avatar/kimodo"
+        try:
+            from registry.models import ModelRegistry
+            reg = ModelRegistry()
+            model_path = reg.get_path("avatar", variant)
+            from pathlib import Path
+            parent = Path(model_path).parent
+            if parent.is_dir():
+                checkpoint_dir = str(parent)
+        except Exception:
+            pass
+
         self.start_subprocess(
             cmd=[
                 "kimodo_demo",
@@ -31,7 +48,24 @@ class KimodoDemoService(ForgeSubprocessMixin, ForgeService):
             health_path="/",
             timeout=600,
             cwd="/opt/kimodo",
-            env={"SERVER_PORT": str(self.PORT), "SERVER_NAME": "0.0.0.0"},
+            env={
+                "SERVER_PORT": str(self.PORT),
+                "SERVER_NAME": "0.0.0.0",
+                "CHECKPOINT_DIR": checkpoint_dir,
+                "TEXT_ENCODER_MODE": "local",
+                # Point HuggingFace cache at PVC so LLM2Vec finds the
+                # downloaded Llama + adapter models without internet access.
+                # The hub cache (models--Org--Model/) is populated by the
+                # download script so from_pretrained() finds files locally.
+                "HF_HOME": "/models/.hf_cache",
+                "HF_HUB_CACHE": "/models/cache/huggingface",
+                "TRANSFORMERS_CACHE": "/models/cache/huggingface",
+                # The diffusion model uses CHECKPOINT_DIR (local path).
+                # LLM2Vec uses the HF hub cache populated by the download script.
+                # Do NOT set HF_HUB_OFFLINE=1 — the hub cache may need to
+                # verify refs/blobs which requires a brief metadata check.
+                # With the hub cache populated, no large downloads happen.
+            },
         )
         self.model_name = model_name
         self._loaded = True

@@ -1397,88 +1397,298 @@ embeddings:
     device: gpu
     description: Jina v5 nano retrieval (IQ4_NL GGUF).
 wan2gp:
+  # Wan2GP models are downloaded by the Wan2GP download job (task models:download:wan2gp).
+  # The job uses Wan2GP's internal download_models() which resolves quantized variants
+  # from DeepBeepMeep repos. Paths here match the actual flat-file layout on PVC.
   wan-t2v-14B:
-    path: wan2gp/wan/t2v-14B/
+    path: wan2gp/wan2.1_text2video_14B_quanto_mbf16_int8.safetensors
     source: hf://DeepBeepMeep/Wan2.1
     download: manual
     sha256: null
-    size_gb: 22.0
+    size_gb: 14.0
     vram_estimate_gb: 14.0
     device: gpu
-    description: Wan2.1 Text-to-Video 14B — mmgp-managed. Manual download of main model + text encoder + VAE.
+    description: Wan2.1 Text-to-Video 14B quantized int8. Downloaded by Wan2GP job.
   wan-t2v-1.3B:
-    path: wan2gp/wan/t2v-1.3B/
+    path: wan2gp/wan2.1_text2video_1.3B_mbf16.safetensors
     source: hf://DeepBeepMeep/Wan2.1
     download: manual
     sha256: null
     size_gb: 2.4
     vram_estimate_gb: 2.5
     device: gpu
-    description: Wan2.1 Text-to-Video 1.3B (distilled) — fast generation, fits entirely in VRAM.
+    description: Wan2.1 Text-to-Video 1.3B distilled. Downloaded by Wan2GP job.
   wan-i2v-14B:
-    path: wan2gp/wan/i2v-14B/
+    path: wan2gp/wan2.1_image2video_480p_14B_quanto_mbf16_int8.safetensors
     source: hf://DeepBeepMeep/Wan2.1
     download: manual
     sha256: null
-    size_gb: 22.0
+    size_gb: 14.0
     vram_estimate_gb: 14.0
     device: gpu
-    description: Wan2.1 Image-to-Video 14B — mmgp-managed. Manual download of main model + text encoder + VAE + CLIP.
-  index_tts-v2:
-    path: wan2gp/index_tts2/
+    description: Wan2.1 Image-to-Video 14B 480p quantized. Downloaded by Wan2GP job.
+  wan-i2v-720p:
+    path: wan2gp/wan2.1_image2video_720p_14B_quanto_mbf16_int8.safetensors
+    source: hf://DeepBeepMeep/Wan2.1
+    download: manual
+    sha256: null
+    size_gb: 14.0
+    vram_estimate_gb: 14.0
+    device: gpu
+    description: Wan2.1 Image-to-Video 14B 720p quantized. Downloaded by Wan2GP job.
+  wan-FLF2V-720p:
+    path: wan2gp/wan2.1_FLF2V_720p_14B_quanto_mbf16_int8.safetensors
+    source: hf://DeepBeepMeep/Wan2.1
+    download: manual
+    sha256: null
+    size_gb: 14.0
+    vram_estimate_gb: 14.0
+    device: gpu
+    description: Wan2.1 First-Last-Frame-to-Video 720p. Downloaded by Wan2GP job.
+  wan-chrono-edit:
+    path: wan2gp/wan2.1_chrono_edit_14B_quanto_mbf16_int8.safetensors
+    source: hf://DeepBeepMeep/Wan2.1
+    download: manual
+    sha256: null
+    size_gb: 14.0
+    vram_estimate_gb: 14.0
+    device: gpu
+    description: Wan2.1 Chrono Edit 14B video editing. Downloaded by Wan2GP job.
+  wan2.2-animate:
+    path: wan2gp/wan2.2_animate_14B_quanto_bf16_int8.safetensors
+    source: hf://DeepBeepMeep/Wan2.1
+    download: manual
+    sha256: null
+    size_gb: 14.0
+    vram_estimate_gb: 14.0
+    device: gpu
+    description: Wan2.2 Animate 14B animation. Downloaded by Wan2GP job.
+  wan-vae:
+    path: wan2gp/Wan2.1_VAE.safetensors
+    source: hf://DeepBeepMeep/Wan2.1
+    download: manual
+    sha256: null
+    size_gb: 0.3
+    vram_estimate_gb: 0.5
+    device: gpu
+    description: Wan2.1 VAE. Shared by all Wan video models. Downloaded by Wan2GP job.
+  wan2.2-vae:
+    path: wan2gp/Wan2.2_VAE.safetensors
+    source: hf://DeepBeepMeep/Wan2.1
+    download: manual
+    sha256: null
+    size_gb: 2.8
+    vram_estimate_gb: 1.0
+    device: gpu
+    description: Wan2.2 VAE. Used by animate and newer models. Downloaded by Wan2GP job.
+  index-tts-v2:
+    path: wan2gp/index_tts2_gpt_fp16.safetensors
     source: hf://DeepBeepMeep/TTS
     download: manual
     sha256: null
     size_gb: 5.0
     vram_estimate_gb: 6.0
     device: gpu
-    description: IndexTTS v2 via Wan2GP mmgp — safetensors format from DeepBeepMeep/TTS.
-      Includes GPT fp16, s2mel, semantic codec, bigvgan vocoder, w2v-bert, qwen-emo.
+    description: IndexTTS v2 GPT fp16. Downloaded by Wan2GP job.
   flux-schnell:
-    path: wan2gp/flux/flux-schnell/
+    path: wan2gp/flux1-schnell_quanto_bf16_int8.safetensors
     source: hf://DeepBeepMeep/Flux
     download: manual
     sha256: null
-    size_gb: 7.0
+    size_gb: 12.0
     vram_estimate_gb: 12.0
     device: gpu
-    description: FLUX.1 Schnell 12B — distilled rectified flow transformer. Needs main model + VAE + T5 encoder.
-  flux:
-    path: wan2gp/flux/flux/
+    description: FLUX.1 Schnell 12B quantized. Downloaded by Wan2GP job.
+  flux-dev:
+    path: wan2gp/flux1-dev_quanto_bf16_int8.safetensors
     source: hf://DeepBeepMeep/Flux
     download: manual
     sha256: null
     size_gb: 12.0
     vram_estimate_gb: 16.0
     device: gpu
-    description: FLUX.1-dev 12B — rectified flow transformer.
+    description: FLUX.1-dev 12B quantized. Downloaded by Wan2GP job.
+  flux-chroma:
+    path: wan2gp/flux1-chroma_hd_quanto_bf16_int8.safetensors
+    source: hf://DeepBeepMeep/Flux
+    download: manual
+    sha256: null
+    size_gb: 9.0
+    vram_estimate_gb: 12.0
+    device: gpu
+    description: FLUX Chroma HD quantized. Downloaded by Wan2GP job.
   flux2-dev:
-    path: wan2gp/flux/flux2-dev/
+    path: wan2gp/flux2-dev_quanto_bf16_int8.safetensors
     source: hf://DeepBeepMeep/Flux2
     download: manual
     sha256: null
-    size_gb: 7.0
-    vram_estimate_gb: 12.0
+    size_gb: 33.0
+    vram_estimate_gb: 16.0
     device: gpu
-    description: FLUX.2-dev — next-gen.
+    description: FLUX.2-dev quantized. Downloaded by Wan2GP job.
   flux2-klein-4b:
-    path: wan2gp/flux/flux2-klein-4b/
+    path: wan2gp/flux-2-klein-4b_quanto_bf16_int8.safetensors
     source: hf://DeepBeepMeep/Flux2
     download: manual
     sha256: null
     size_gb: 4.0
     vram_estimate_gb: 6.0
     device: gpu
-    description: FLUX.2 Klein 4B — smaller 4B variant.
-  flux-chroma:
-    path: wan2gp/flux/flux-chroma/
+    description: FLUX.2 Klein 4B quantized. Downloaded by Wan2GP job.
+  flux2-klein-9b:
+    path: wan2gp/flux-2-klein-9b_quanto_bf16_int8.safetensors
+    source: hf://DeepBeepMeep/Flux2
+    download: manual
+    sha256: null
+    size_gb: 9.0
+    vram_estimate_gb: 12.0
+    device: gpu
+    description: FLUX.2 Klein 9B quantized. Downloaded by Wan2GP job.
+  flux-vae:
+    path: wan2gp/flux_vae.safetensors
     source: hf://DeepBeepMeep/Flux
     download: manual
     sha256: null
-    size_gb: 3.5
+    size_gb: 0.3
+    vram_estimate_gb: 0.5
+    device: gpu
+    description: FLUX VAE. Shared by all Flux models. Downloaded by Wan2GP job.
+  flux2-vae:
+    path: wan2gp/flux2_vae.safetensors
+    source: hf://DeepBeepMeep/Flux2
+    download: manual
+    sha256: null
+    size_gb: 0.3
+    vram_estimate_gb: 0.5
+    device: gpu
+    description: FLUX.2 VAE. Downloaded by Wan2GP job.
+  ace-step-v1:
+    path: wan2gp/ace_step_v1_transformer_quanto_bf16_int8.safetensors
+    source: hf://DeepBeepMeep/ACE-Step
+    download: manual
+    sha256: null
+    size_gb: 8.0
+    vram_estimate_gb: 8.0
+    device: gpu
+    description: ACE-Step v1 music transformer quantized. Downloaded by Wan2GP job.
+  ace-step-v1-5:
+    path: wan2gp/ace_step_v1_5_transformer_quanto_bf16_int8.safetensors
+    source: hf://DeepBeepMeep/ACE-Step
+    download: manual
+    sha256: null
+    size_gb: 8.0
+    vram_estimate_gb: 8.0
+    device: gpu
+    description: ACE-Step v1.5 music transformer quantized. Downloaded by Wan2GP job.
+  ace-step-v1-5-xl:
+    path: wan2gp/ace_step_v1_5_xl_transformer_quanto_bf16_int8.safetensors
+    source: hf://DeepBeepMeep/ACE-Step
+    download: manual
+    sha256: null
+    size_gb: 8.0
+    vram_estimate_gb: 8.0
+    device: gpu
+    description: ACE-Step v1.5 XL music transformer quantized. Downloaded by Wan2GP job.
+  ltxv-098-13b:
+    path: wan2gp/ltxv_0.9.8_13B_dev_quanto_bf16_int8.safetensors
+    source: hf://DeepBeepMeep/LTX-Video
+    download: manual
+    sha256: null
+    size_gb: 13.0
+    vram_estimate_gb: 14.0
+    device: gpu
+    description: LTX-Video 0.9.8 13B dev quantized. Downloaded by Wan2GP job.
+  magi-human:
+    path: wan2gp/magi_human_quanto_bf16_int8.safetensors
+    source: hf://DeepBeepMeep/MagiHuman
+    download: manual
+    sha256: null
+    size_gb: 14.0
+    vram_estimate_gb: 14.0
+    device: gpu
+    description: MagiHuman 3D human generation quantized. Downloaded by Wan2GP job.
+  longcat-video:
+    path: wan2gp/longcat_video_quanto_bf16_int8.safetensors
+    source: hf://DeepBeepMeep/LongCat
+    download: manual
+    sha256: null
+    size_gb: 14.0
+    vram_estimate_gb: 14.0
+    device: gpu
+    description: LongCat video generation quantized. Downloaded by Wan2GP job.
+  z-image-turbo:
+    path: wan2gp/ZImageTurbo_quanto_bf16_int8.safetensors
+    source: hf://DeepBeepMeep/ZImage
+    download: manual
+    sha256: null
+    size_gb: 8.0
+    vram_estimate_gb: 8.0
+    device: gpu
+    description: Z-Image Turbo quantized. Downloaded by Wan2GP job.
+  moss-soundeffect-v2:
+    path: wan2gp/moss_soundeffect_v2
+    source: hf://OpenMOSS-Team/MOSS-SoundEffect-v2.0
+    download: snapshot
+    sha256: null
+    size_gb: 11.3
+    vram_estimate_gb: 7.0
+    device: gpu
+    description: MOSS-SoundEffect v2.0 DiT+FlowMatching. Downloaded by Wan2GP job.
+  # Wan2GP shared encoders and support models (downloaded by Wan2GP job)
+  t5-xxl:
+    path: wan2gp/T5_xxl_1.1/T5_xxl_1.1_enc_quanto_bf16_int8.safetensors
+    source: hf://DeepBeepMeep/Wan2.1
+    download: manual
+    sha256: null
+    size_gb: 4.8
     vram_estimate_gb: 5.0
     device: gpu
-    description: FLUX Chroma 3.5B — smallest, color-aware.
+    description: T5-XXL 1.1 encoder quantized. Text encoder for Wan/FLUX models.
+  umt5-xxl:
+    path: wan2gp/umt5-xxl/models_t5_umt5-xxl-enc-quanto_int8.safetensors
+    source: hf://DeepBeepMeep/Wan2.1
+    download: manual
+    sha256: null
+    size_gb: 4.8
+    vram_estimate_gb: 5.0
+    device: gpu
+    description: UMT5-XXL encoder quantized. Alternative text encoder.
+  clip-vit-large:
+    path: wan2gp/clip_vit_large_patch14/model.safetensors
+    source: hf://DeepBeepMeep/Wan2.1
+    download: manual
+    sha256: null
+    size_gb: 1.7
+    vram_estimate_gb: 2.0
+    device: gpu
+    description: CLIP ViT-L/14 text encoder for HY-Motion, Wan i2v.
+  w2v-bert:
+    path: wan2gp/w2v-bert-2.0/model_fp16.safetensors
+    source: hf://DeepBeepMeep/TTS
+    download: manual
+    sha256: null
+    size_gb: 1.9
+    vram_estimate_gb: 2.0
+    device: gpu
+    description: Wav2Vec-BERT 2.0 fp16. Audio encoder for IndexTTS.
+  qwen3-8b:
+    path: wan2gp/Qwen3/qwen3_quanto_bf16_int8.safetensors
+    source: hf://DeepBeepMeep/Wan2.1
+    download: manual
+    sha256: null
+    size_gb: 8.0
+    vram_estimate_gb: 8.0
+    device: gpu
+    description: Qwen3 8B quantized. Text encoder for newer Wan2.2 models.
+  mistral3-small:
+    path: wan2gp/mistral3small/mistral3_small_quanto_bf16_int8.safetensors
+    source: hf://DeepBeepMeep/Wan2.1
+    download: manual
+    sha256: null
+    size_gb: 12.0
+    vram_estimate_gb: 12.0
+    device: gpu
+    description: Mistral 3 Small quantized. Alternative text backbone for some models.
 
 lance:
   # -- GGUF (preferred — dequantizes to bf16, lower VRAM than AWQ cached mode) --
