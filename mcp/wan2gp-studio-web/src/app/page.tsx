@@ -552,14 +552,55 @@ export default function Home() {
     return <img src={src} alt={item.prompt} className="w-full rounded-lg" />;
   }
 
+  // Sidebar collapse state
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+
   return (
-    <div className="flex h-screen">
+    <div className="flex h-screen overflow-hidden">
       {/* Sidebar */}
-      <div className="w-80 border-r border-zinc-800 flex flex-col">
-        <div className="p-4 border-b border-zinc-800">
-          <h1 className="text-lg font-semibold">Tech Noir Studio</h1>
-          <p className="text-xs text-zinc-500">GPU-powered generation</p>
-        </div>
+      <div
+        className="relative flex flex-col border-r border-zinc-800 bg-zinc-950 transition-all duration-300 ease-in-out shrink-0"
+        style={{ width: sidebarCollapsed ? 48 : 320 }}
+      >
+        {/* Collapse/expand toggle */}
+        <button
+          type="button"
+          onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
+          className="absolute -right-3 top-4 z-10 w-6 h-6 rounded-full border border-zinc-700 bg-zinc-900 flex items-center justify-center text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800 transition-colors"
+          title={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+        >
+          <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+            {sidebarCollapsed ? (
+              <path d="M4 2L8 6L4 10" />
+            ) : (
+              <path d="M8 2L4 6L8 10" />
+            )}
+          </svg>
+        </button>
+
+        {/* Collapsed view — icon strip */}
+        {sidebarCollapsed && (
+          <div className="flex flex-col items-center pt-4 gap-1">
+            <div className="w-8 h-8 flex items-center justify-center text-zinc-500 text-xs font-bold" title="Tech Noir Studio">T</div>
+            <div className="w-8 h-px bg-zinc-800 my-1" />
+            <button type="button" className="w-8 h-8 flex items-center justify-center text-zinc-500 hover:text-zinc-200 transition-colors rounded" title="Generate" onClick={() => setSidebarCollapsed(false)}>⚡</button>
+            <button type="button" className="w-8 h-8 flex items-center justify-center text-zinc-500 hover:text-zinc-200 transition-colors rounded" title="Speech" onClick={() => setSidebarCollapsed(false)}>🗣</button>
+            <button type="button" className="w-8 h-8 flex items-center justify-center text-zinc-500 hover:text-zinc-200 transition-colors rounded" title="Audio" onClick={() => setSidebarCollapsed(false)}>🎵</button>
+            <button type="button" className="w-8 h-8 flex items-center justify-center text-zinc-500 hover:text-zinc-200 transition-colors rounded" title="Kimodo" onClick={() => setSidebarCollapsed(false)}>🤖</button>
+            <button type="button" className="w-8 h-8 flex items-center justify-center text-zinc-500 hover:text-zinc-200 transition-colors rounded" title="3D Mesh" onClick={() => setSidebarCollapsed(false)}>🧊</button>
+            <button type="button" className="w-8 h-8 flex items-center justify-center text-zinc-500 hover:text-zinc-200 transition-colors rounded" title="Admin" onClick={() => setSidebarCollapsed(false)}>⚙</button>
+            <button type="button" className="w-8 h-8 flex items-center justify-center text-zinc-500 hover:text-zinc-200 transition-colors rounded" title="Workflows" onClick={() => setSidebarCollapsed(false)}>🔀</button>
+            <button type="button" className="w-8 h-8 flex items-center justify-center text-zinc-500 hover:text-zinc-200 transition-colors rounded" title="History" onClick={() => setSidebarCollapsed(false)}>📋</button>
+          </div>
+        )}
+
+        {/* Expanded view */}
+        {!sidebarCollapsed && (
+          <>
+            <div className="p-4 border-b border-zinc-800">
+              <h1 className="text-lg font-semibold">Tech Noir Studio</h1>
+              <p className="text-xs text-zinc-500">GPU-powered generation</p>
+            </div>
 
         <Tabs defaultValue="generate" className="flex-1 flex flex-col">
           <TabsList className="w-full rounded-none border-b border-zinc-800 flex flex-wrap h-auto p-0">
@@ -1219,6 +1260,8 @@ export default function Home() {
             ))}
           </TabsContent>
         </Tabs>
+          </>
+        )}
       </div>
 
       {/* Main — Chat (assistant-ui powered) */}
