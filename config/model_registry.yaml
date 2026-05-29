@@ -1625,6 +1625,51 @@ wan2gp:
     vram_estimate_gb: 8.0
     device: gpu
     description: Z-Image Turbo quantized. Downloaded by Wan2GP job.
+  z-image-base:
+    path: wan2gp/ZImageBase_bf16.safetensors
+    source: hf://DeepBeepMeep/ZImage
+    download: manual
+    sha256: null
+    size_gb: 12.0
+    vram_estimate_gb: 12.0
+    device: gpu
+    description: Z-Image Base 6B (non-distilled, high quality). Downloaded by Wan2GP job.
+  ltx2-22b:
+    path: wan2gp/ltx-2.3-22b-dev_diffusion_model.safetensors
+    source: hf://DeepBeepMeep/LTX-Video
+    download: manual
+    sha256: null
+    size_gb: 22.0
+    vram_estimate_gb: 22.0
+    device: gpu
+    description: LTX-2.3 22B dev. Used by WDC/workflow video stages. Downloaded by Wan2GP job.
+  ltx2-19b:
+    path: wan2gp/ltx-2-19b-dev_diffusion_model.safetensors
+    source: hf://DeepBeepMeep/LTX-Video
+    download: manual
+    sha256: null
+    size_gb: 19.0
+    vram_estimate_gb: 19.0
+    device: gpu
+    description: LTX-2 19B dev. Smaller LTX variant. Downloaded by Wan2GP job.
+  qwen-image-edit-plus:
+    path: wan2gp/qwen_image_edit_plus_20B_quanto_bf16_int8.safetensors
+    source: hf://DeepBeepMeep/Qwen-Image-Edit
+    download: manual
+    sha256: null
+    size_gb: 20.0
+    vram_estimate_gb: 20.0
+    device: gpu
+    description: Qwen-Image-Edit Plus 20B quantized. Primary VNCCS/tech-noir image editor. Downloaded by Wan2GP job.
+  qwen-image-edit:
+    path: wan2gp/qwen_image_edit_20B_bf16.safetensors
+    source: hf://DeepBeepMeep/Qwen-Image-Edit
+    download: manual
+    sha256: null
+    size_gb: 40.0
+    vram_estimate_gb: 40.0
+    device: gpu
+    description: Qwen-Image-Edit 20B bf16. Full precision image editing. Downloaded by Wan2GP job.
   moss-soundeffect-v2:
     path: wan2gp/moss_soundeffect_v2
     source: hf://OpenMOSS-Team/MOSS-SoundEffect-v2.0

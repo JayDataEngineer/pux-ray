@@ -524,6 +524,14 @@ _WEIGHT_SEARCH = {
     "flux_chroma":     [("wan2gp", "flux-chroma")],
     # LTX-Video
     "ltxv_098_13b":    [("wan2gp", "ltxv-098-13b")],
+    "ltx2_22B":        [("wan2gp", "ltx2-22b")],
+    "ltx2_19B":        [("wan2gp", "ltx2-19b")],
+    # Z-Image
+    "z_image":         [("wan2gp", "z-image-turbo")],
+    "z_image_base":    [("wan2gp", "z-image-base")],
+    # Qwen-Image-Edit
+    "qwen_image_edit_plus_20B": [("wan2gp", "qwen-image-edit-plus")],
+    "qwen_image_edit_20B":      [("wan2gp", "qwen-image-edit")],
     # Other Wan2GP vendor models
     "magi_human":      [("wan2gp", "magi-human")],
     "longcat_video":   [("wan2gp", "longcat-video")],
@@ -628,6 +636,12 @@ class Wan2GPService:
         "ace_step": "tts/ace_step_v1_5",
         "index_tts2": "tts/index_tts2",
         "see-through": "see_through/see-through",
+        # Workflow short-name aliases (tech_noir, vnccs, wdc use these)
+        "qwen-image-edit": "qwen/qwen_image_edit_plus_20B",
+        "z_image": "z_image/z_image",
+        "z_image_base": "z_image/z_image_base",
+        "ltx2": "ltx2/ltx2_22B",
+        "hy-motion-1.0": "hy_motion/hy-motion-1.0",
     }
 
     def __init__(self, models_root: Path | None = None):
