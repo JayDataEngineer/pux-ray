@@ -18,21 +18,20 @@ class KimodoDemoService(ForgeSubprocessMixin, ForgeService):
     service_name = "kimodo_demo"
     default_model = "kimodo-soma-rp"
 
-    PORT = 18470
+    PORT = 7860
 
     def load(self, model_name: str, quant: str | None = None) -> None:
         variant = model_name or self.default_model
         self.start_subprocess(
             cmd=[
-                "python3", "-m", "kimodo.scripts.demo",
+                "kimodo_demo",
                 "--model", variant,
-                "--port", str(self.PORT),
-                "--host", "0.0.0.0",
             ],
             port=self.PORT,
             health_path="/",
             timeout=600,
             cwd="/opt/kimodo",
+            env={"SERVER_PORT": str(self.PORT)},
         )
         self.model_name = model_name
         self._loaded = True
