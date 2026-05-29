@@ -160,7 +160,7 @@ class ForgeCore:
             return True
         return estimate <= self._vram_free_mb
 
-    def _evict_for(self, name: str) -> list[str]:
+    def _evict_for(self, name: str, *, force: bool = False) -> list[str]:
         needed = self._estimate_vram(name)
         if needed == 0:
             # Self-managed: evict anything loaded to free real GPU memory
@@ -184,10 +184,11 @@ class ForgeCore:
             gpu_ok = real_free is None or real_free >= MIN_COFREE_MB
             if ledger_ok and gpu_ok:
                 break
-            if self._get_persistence(svc_name) >= Persistence.PIPELINE_LOCKED:
+            # Force mode: evict even pipeline-locked services (explicit user action)
+            if not force and self._get_persistence(svc_name) >= Persistence.PIPELINE_LOCKED:
                 continue
-            logger.info("Forge: evicting %s (%dMB, persistence=%s) for %s (%dMB)",
-                        svc_name, svc_mb, self._get_persistence(svc_name).name, name, needed)
+            logger.info("Forge: evicting %s (%dMB, persistence=%s, force=%s) for %s (%dMB)",
+                        svc_name, svc_mb, self._get_persistence(svc_name).name, force, name, needed)
             self._do_unload(svc_name)
             evicted.append(svc_name)
 
@@ -341,9 +342,13 @@ class ForgeCore:
         if self._loaded.get(service):
             return {"status": "already_loaded", "service": service}
 
+        # Clear stale pipeline locks before eviction — explicit user action
+        # overrides any locks left by crashed/abandoned pipeline runs.
+        self._persistence_overrides.clear()
+
         self._cleanup_stale_allocations()
         if not self._can_fit(service):
-            self._evict_for(service)
+            self._evict_for(service, force=True)
 
         try:
             await self._load_with_cleanup(service, model, quant)

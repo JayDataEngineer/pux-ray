@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: system-ui, sans-serif; padding: 16px; background: #0a0a0a; color: #e5e5e5; }
+  .status { padding: 12px; border-radius: 6px; background: #171717; border: 1px solid #333; margin-bottom: 12px; }
+  .status h3 { font-size: 14px; margin-bottom: 8px; }
+  .field { margin-bottom: 12px; }
+  label { display: block; font-size: 12px; color: #a3a3a3; margin-bottom: 4px; }
+  select { width: 100%; padding: 8px; border-radius: 6px; border: 1px solid #333; background: #171717; color: #e5e5e5; font-size: 14px; }
+  button { padding: 8px 20px; border-radius: 6px; border: none; font-size: 14px; cursor: pointer; margin-right: 8px; }
+  .btn-primary { background: #2563eb; color: #fff; }
+  .btn-primary:hover { background: #1d4ed8; }
+  .btn-danger { background: #991b1b; color: #fff; }
+  .btn-danger:hover { background: #7f1d1d; }
+  button:disabled { opacity: 0.5; cursor: not-allowed; }
+  pre { white-space: pre-wrap; font-size: 12px; color: #a3a3a3; }
+  .bar { height: 8px; border-radius: 4px; background: #333; margin-top: 4px; }
+  .bar-fill { height: 100%; border-radius: 4px; background: #2563eb; transition: width 0.3s; }
+</style>
+</head>
+<body>
+  <div class="status" id="status">
+    <h3>GPU Status</h3>
+    <div id="gpu-info">Loading...</div>
+  </div>
+  <div class="field">
+    <label>Service to Load</label>
+    <select id="service">
+      <option value="wan2gp">Wan2GP (Video Gen)</option>
+      <option value="comfyui">ComfyUI (Image)</option>
+      <option value="llm">LLM (Chat)</option>
+      <option value="kimodo_demo">Kimodo (3D Motion)</option>
+      <option value="avatar">Avatar Pipeline</option>
+    </select>
+  </div>
+  <div style="margin-bottom:12px;">
+    <button class="btn-primary" onclick="doLoad()">Load Service</button>
+    <button class="btn-danger" onclick="doUnload()">Release All</button>
+    <button class="btn-primary" onclick="refreshStatus()" style="background:#333">Refresh</button>
+  </div>
+  <pre id="log"></pre>
+  <script>
+  async function refreshStatus() {
+    try {
+      const r = await window.__mcp.callTool('forge_status', { detailed: true });
+      const gpu = r.gpu || {};
+      const free = r.vram_free_mb || 0;
+      const total = r.vram_total_mb || 24576;
+      const pct = Math.round(((total - free) / total) * 100);
+      const loaded = Object.entries(r.loaded || {}).map(([k,v]) => k + ' (' + v + 'MB)').join(', ') || 'none';
+      document.getElementById('gpu-info').innerHTML =
+        '<div>' + (gpu.device || 'GPU') + ' — ' + free + 'MB free / ' + total + 'MB</div>' +
+        '<div class="bar"><div class="bar-fill" style="width:' + pct + '%"></div></div>' +
+        '<div style="margin-top:8px;font-size:12px;color:#a3a3a3">Loaded: ' + loaded + '</div>';
+    } catch(e) {
+      document.getElementById('gpu-info').textContent = 'Error: ' + e.message;
+    }
+  }
+  async function doLoad() {
+    log('Loading ' + document.getElementById('service').value + '...');
+    try {
+      const r = await window.__mcp.callTool('load_service', { service: document.getElementById('service').value });
+      log(JSON.stringify(r));
+      refreshStatus();
+    } catch(e) { log('Error: ' + e.message); }
+  }
+  async function doUnload() {
+    log('Releasing all services...');
+    try {
+      const r = await window.__mcp.callTool('unload_services', {});
+      log(JSON.stringify(r));
+      refreshStatus();
+    } catch(e) { log('Error: ' + e.message); }
+  }
+  function log(msg) { document.getElementById('log').textContent += msg + '\\n'; }
+  refreshStatus();
+  </script>
+</body>
+</html>

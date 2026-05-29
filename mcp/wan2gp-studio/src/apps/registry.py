@@ -2,36 +2,38 @@
 
 Maps resource URIs to HTML content for the assistant-ui MCP app protocol.
 Each app is a self-contained HTML page that can call back to MCP tools.
+
+URIs use the ui:// scheme per the MCP Apps specification.
 """
 from __future__ import annotations
 
 MCP_APP_MIME = "text/html;profile=mcp-app"
 
 APPS: dict[str, dict] = {
-    "wan2gp://apps/workflow": {
+    "ui://apps/workflow": {
         "name": "Workflow Runner",
         "description": "Interactive DAG workflow runner — select a pipeline, start a run, execute steps",
-        "resourceUri": "wan2gp://apps/workflow",
+        "resourceUri": "ui://apps/workflow",
     },
-    "wan2gp://apps/tts": {
+    "ui://apps/tts": {
         "name": "TTS Speech",
         "description": "Text-to-speech with voice design and cloning",
-        "resourceUri": "wan2gp://apps/tts",
+        "resourceUri": "ui://apps/tts",
     },
-    "wan2gp://apps/audio": {
+    "ui://apps/audio": {
         "name": "Audio Studio",
         "description": "Transcription, sound effects, and music generation",
-        "resourceUri": "wan2gp://apps/audio",
+        "resourceUri": "ui://apps/audio",
     },
-    "wan2gp://apps/generate": {
+    "ui://apps/generate": {
         "name": "Generate",
         "description": "Run any GPU generation service",
-        "resourceUri": "wan2gp://apps/generate",
+        "resourceUri": "ui://apps/generate",
     },
-    "wan2gp://apps/admin": {
+    "ui://apps/admin": {
         "name": "GPU Admin",
         "description": "GPU status, load/unload services",
-        "resourceUri": "wan2gp://apps/admin",
+        "resourceUri": "ui://apps/admin",
     },
 }
 
@@ -47,7 +49,7 @@ def _load_templates():
         return
     for fname in os.listdir(template_dir):
         if fname.endswith(".html"):
-            uri = f"wan2gp://apps/{fname[:-5]}"
+            uri = f"ui://apps/{fname[:-5]}"
             with open(os.path.join(template_dir, fname)) as f:
                 HTML_TEMPLATES[uri] = f.read()
 

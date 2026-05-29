@@ -3,10 +3,11 @@
 Handles POST requests from the McpAppsRemoteHost client:
   - mcp-apps/read-resource → returns MCP app HTML
   - tools/call → calls an MCP tool
+  - tools/list → lists tools with _meta (for assistant-ui widget binding)
   - resources/read → reads an MCP resource
   - resources/list → lists MCP resources
 
-Mounted at /mcp/wan2gp-studio/host
+Mounted at /host
 """
 from __future__ import annotations
 
@@ -28,34 +29,54 @@ async def handle_app_host(request: Request) -> JSONResponse:
         uri = params.get("uri", "")
         html = get_app_html(uri)
         if html is None:
-            return JSONResponse({"error": f"Resource not found: {uri}"}, status_code=404)
+            return JSONResponse(
+                {"error": f"Resource not found: {uri}"}, status_code=404,
+            )
         return JSONResponse({
             "uri": uri,
             "mimeType": MCP_APP_MIME,
             "html": html,
+            "meta": {"ui": {"prefersBorder": True}},
         })
 
     if method == "tools/call":
-        # Forward to the MCP server's tool handler
         tool_name = params.get("name", "")
         tool_args = params.get("arguments", {})
 
-        # Use the MCP server instance to call the tool directly
         from .server import mcp
         result = await mcp.call_tool(tool_name, tool_args)
         return JSONResponse(result)
+
+    if method == "tools/list":
+        from .server import mcp
+        tools = await mcp.list_tools()
+        # Convert to wire format with _meta
+        wire_tools = []
+        for t in tools:
+            entry: dict = {
+                "name": t.name,
+                "description": t.description,
+                "inputSchema": t.parameters,
+            }
+            if t.meta:
+                entry["_meta"] = t.meta
+            wire_tools.append(entry)
+        return JSONResponse({"tools": wire_tools})
 
     if method == "resources/read":
         uri = params.get("uri", "")
         html = get_app_html(uri)
         if html is None:
-            return JSONResponse({"error": f"Resource not found: {uri}"}, status_code=404)
+            return JSONResponse(
+                {"error": f"Resource not found: {uri}"}, status_code=404,
+            )
         return JSONResponse({
             "contents": [{
                 "uri": uri,
                 "mimeType": MCP_APP_MIME,
                 "text": html,
-            }]
+                "_meta": {"ui": {"prefersBorder": True}},
+            }],
         })
 
     if method == "resources/list":
@@ -66,9 +87,10 @@ async def handle_app_host(request: Request) -> JSONResponse:
                     "name": app["name"],
                     "description": app["description"],
                     "mimeType": MCP_APP_MIME,
+                    "_meta": {"ui": {"prefersBorder": True}},
                 }
                 for app in list_apps()
-            ]
+            ],
         })
 
     return JSONResponse({"error": f"Unknown method: {method}"}, status_code=400)

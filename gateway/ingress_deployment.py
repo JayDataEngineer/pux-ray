@@ -165,7 +165,8 @@ class APIIngressDeployment:
         if path == "/editor":
             return await editor_page(request)
         if path.startswith("/editor/"):
-            return await editor_static(request)
+            sub_path = path[len("/editor/"):]
+            return await editor_static(_ParamsRequest(request, {"path": sub_path}))
 
         # Workflow Engine (YAML-based declarative workflows)
         if path == "/v1/wf" and method == "GET":

@@ -48,6 +48,7 @@ type TVoiceCatalog = {
 type KimodoStatus = "idle" | "loading" | "ready" | "error";
 
 const API = "/studio/api";
+const KIMODO_URL = process.env.NEXT_PUBLIC_KIMODO_URL || "/kimodo/";
 
 export default function Home() {
   const [history, setHistory] = useState<GeneratedContent[]>([]);
@@ -964,7 +965,7 @@ export default function Home() {
             )}
             {kimodoStatus === "ready" && (
               <iframe
-                src="/kimodo/"
+                src={KIMODO_URL}
                 className="flex-1 w-full border-0"
                 title="Kimodo Director"
                 allow="clipboard-write"

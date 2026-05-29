@@ -54,7 +54,7 @@ async def editor_static(request: Request) -> Response:
     # Prevent directory traversal
     try:
         file_path = file_path.resolve()
-        _EDITOR_DIR.resolve().relative_to(file_path.parent)
+        file_path.relative_to(_EDITOR_DIR.resolve())
     except ValueError:
         return Response(status_code=403)
 

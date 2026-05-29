@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: system-ui, sans-serif; padding: 16px; background: #0a0a0a; color: #e5e5e5; }
+  .field { margin-bottom: 12px; }
+  label { display: block; font-size: 12px; color: #a3a3a3; margin-bottom: 4px; }
+  select, input, textarea { width: 100%; padding: 8px; border-radius: 6px; border: 1px solid #333; background: #171717; color: #e5e5e5; font-size: 14px; }
+  textarea { min-height: 60px; resize: vertical; }
+  button { padding: 8px 20px; border-radius: 6px; border: none; background: #2563eb; color: #fff; font-size: 14px; cursor: pointer; }
+  button:hover { background: #1d4ed8; }
+  button:disabled { opacity: 0.5; cursor: not-allowed; }
+  .result { margin-top: 12px; padding: 12px; border-radius: 6px; background: #171717; border: 1px solid #333; display: none; }
+  .result img, .result video { max-width: 100%; border-radius: 6px; }
+  .error { color: #ef4444; }
+</style>
+</head>
+<body>
+  <div class="field">
+    <label>Model</label>
+    <select id="model">
+      <option value="wan2gp">Wan2GP (Video)</option>
+      <option value="flux">Flux (Image)</option>
+      <option value="hunyuan">Hunyuan (Video)</option>
+      <option value="trellis">TRELLIS (3D Mesh)</option>
+      <option value="anigen">AniGen (Animation)</option>
+    </select>
+  </div>
+  <div class="field">
+    <label>Prompt</label>
+    <textarea id="prompt" placeholder="Describe what you want to generate..."></textarea>
+  </div>
+  <div class="field">
+    <label>Seed (optional)</label>
+    <input type="number" id="seed" placeholder="Random">
+  </div>
+  <button id="generate" onclick="doGenerate()">Generate</button>
+  <div id="result" class="result"></div>
+  <script>
+  async function doGenerate() {
+    const btn = document.getElementById('generate');
+    const result = document.getElementById('result');
+    btn.disabled = true;
+    btn.textContent = 'Generating...';
+    result.style.display = 'block';
+    result.className = 'result';
+    result.innerHTML = 'Loading...';
+    try {
+      const args = { service: 'wan2gp', params: { model: document.getElementById('model').value, prompt: document.getElementById('prompt').value } };
+      const seed = document.getElementById('seed').value;
+      if (seed) args.params.seed = parseInt(seed);
+      const resp = await window.__mcp.callTool('run', args);
+      if (resp.error) throw new Error(resp.error);
+      const output = resp.outputs || resp;
+      if (output.video_url) {
+        result.innerHTML = '<video controls src="' + output.video_url + '"></video>';
+      } else if (output.image_url) {
+        result.innerHTML = '<img src="' + output.image_url + '" alt="Generated">';
+      } else if (output.mesh_url) {
+        result.innerHTML = '<a href="' + output.mesh_url + '" download>Download 3D Mesh (GLB)</a>';
+      } else {
+        result.innerHTML = '<pre>' + JSON.stringify(output, null, 2) + '</pre>';
+      }
+    } catch(e) {
+      result.className = 'result error';
+      result.textContent = e.message;
+    } finally {
+      btn.disabled = false;
+      btn.textContent = 'Generate';
+    }
+  }
+  </script>
+</body>
+</html>

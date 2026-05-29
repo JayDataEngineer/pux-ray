@@ -61,7 +61,11 @@ async def list_services(
         return {"status": "error", "error": "Forge client not initialized"}
 
     try:
-        return await forge.list_services()
+        services = await forge.list_services()
+        # The ingress returns a list; wrap in dict for FastMCP structured output
+        if isinstance(services, list):
+            return {"services": services}
+        return services
     except Exception as e:
         return {"status": "error", "error": f"Failed to fetch services: {e}"}
 

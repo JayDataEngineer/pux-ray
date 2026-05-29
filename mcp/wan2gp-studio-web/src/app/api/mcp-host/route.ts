@@ -1,12 +1,15 @@
-import { callMcpTool } from "@/lib/mcp-client";
+import { callMcpTool, getMcpTools } from "@/lib/mcp-client";
+
+const MCP_APP_MIME = "text/html;profile=mcp-app";
 
 /**
  * MCP App Host endpoint — handles { method, params } POST requests
  * from assistant-ui's McpAppsRemoteHost.
  *
  * Methods:
- *  - mcp-apps/read-resource → return MCP app HTML
+ *  - mcp-apps/read-resource → return MCP app HTML widget
  *  - tools/call → call an MCP tool
+ *  - tools/list → list MCP tools with _meta (for widget binding)
  *  - resources/read → read an MCP resource
  *  - resources/list → list MCP resources
  */
@@ -25,13 +28,12 @@ export async function POST(req: Request) {
         };
         const content = result?.content;
         if (content && content.length > 0 && content[0].text) {
-          // Parse the resource content
           const text = content[0].text;
-          // If it's HTML, return it as an app resource
           return Response.json({
             uri,
-            mimeType: "text/html;profile=mcp-app",
+            mimeType: MCP_APP_MIME,
             html: text,
+            meta: { ui: { prefersBorder: true } },
           });
         }
         return Response.json({ error: "Resource not found" }, { status: 404 });
@@ -42,6 +44,12 @@ export async function POST(req: Request) {
         const args = params.arguments ?? {};
         const result = await callMcpTool(name, args);
         return Response.json(result);
+      }
+
+      case "tools/list": {
+        const tools = await getMcpTools();
+        // Each tool from the MCP SDK already includes _meta if the server set it
+        return Response.json({ tools });
       }
 
       case "resources/read": {

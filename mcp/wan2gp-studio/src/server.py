@@ -120,54 +120,143 @@ from .tools.workflow import (
 
 # ========== RESOURCE REGISTRATION ==========
 
-@mcp.resource("wan2gp://apps/list")
+@mcp.resource("ui://apps/list", mime_type=MCP_APP_MIME,
+             meta={"ui": {"prefersBorder": True}})
 def apps_list_resource() -> str:
     """List all available MCP app widgets."""
     import json
     return json.dumps(list_apps())
 
 
-@mcp.resource("wan2gp://apps/{app_name}")
-def app_resource(app_name: str) -> str:
-    """Serve an MCP app HTML widget."""
-    html = get_app_html(f"wan2gp://apps/{app_name}")
-    if html is None:
-        raise ValueError(f"Unknown app: {app_name}")
-    return html
+def _register_app_resources():
+    """Register individual app HTML resources.
+
+    FastMCP resource templates don't propagate mime_type/meta to content
+    items, so we register each app as its own resource instead.
+    """
+    APP_META = {"ui": {"prefersBorder": True}}
+
+    for uri in APPS:
+        html = get_app_html(uri)
+        if html is None:
+            continue
+
+        # Capture html in closure
+        def make_handler(content: str):
+            def handler() -> str:
+                return content
+            return handler
+
+        mcp.resource(uri, mime_type=MCP_APP_MIME, meta=APP_META)(
+            make_handler(html)
+        )
+
+
+_register_app_resources()
+
+# ========== TOOL REGISTRATION WITH MCP APP METADATA ==========
+#
+# Tools with a `meta.ui.resourceUri` pointing to an HTML widget will render
+# inline in the assistant-ui chat via McpAppRenderer.  Tools without one
+# fall back to plain-text rendering.
 
 # Forge core
-mcp.add_tool(run)
-mcp.add_tool(list_models)
-mcp.add_tool(list_services)
-mcp.add_tool(get_service)
-mcp.add_tool(forge_status)
+mcp.tool(run, meta={
+    "ui": {"resourceUri": "ui://apps/generate"},
+    "openai/toolInvocation/invoking": "Generating…",
+    "openai/toolInvocation/invoked": "Done",
+})
+mcp.tool(list_models)
+mcp.tool(list_services)
+mcp.tool(get_service)
+mcp.tool(forge_status, meta={
+    "ui": {"resourceUri": "ui://apps/admin"},
+    "openai/toolInvocation/invoking": "Checking GPU…",
+    "openai/toolInvocation/invoked": "Done",
+})
 
 # TTS
-mcp.add_tool(tts_speak)
-mcp.add_tool(tts_voices)
+mcp.tool(tts_speak, meta={
+    "ui": {"resourceUri": "ui://apps/tts"},
+    "openai/toolInvocation/invoking": "Synthesizing speech…",
+    "openai/toolInvocation/invoked": "Done",
+})
+mcp.tool(tts_voices)
 
 # Audio (ASR + generation)
-mcp.add_tool(transcribe)
-mcp.add_tool(generate_sound)
-mcp.add_tool(generate_music)
+mcp.tool(transcribe, meta={
+    "ui": {"resourceUri": "ui://apps/audio"},
+    "openai/toolInvocation/invoking": "Transcribing…",
+    "openai/toolInvocation/invoked": "Done",
+})
+mcp.tool(generate_sound, meta={
+    "ui": {"resourceUri": "ui://apps/audio"},
+    "openai/toolInvocation/invoking": "Generating sound…",
+    "openai/toolInvocation/invoked": "Done",
+})
+mcp.tool(generate_music, meta={
+    "ui": {"resourceUri": "ui://apps/audio"},
+    "openai/toolInvocation/invoking": "Generating music…",
+    "openai/toolInvocation/invoked": "Done",
+})
 
 # LLM
-mcp.add_tool(chat)
-mcp.add_tool(llm_configure)
+mcp.tool(chat)
+mcp.tool(llm_configure)
 
 # Admin
-mcp.add_tool(load_service)
-mcp.add_tool(unload_services)
+mcp.tool(load_service, meta={
+    "ui": {"resourceUri": "ui://apps/admin"},
+    "openai/toolInvocation/invoking": "Loading on GPU…",
+    "openai/toolInvocation/invoked": "Done",
+})
+mcp.tool(unload_services, meta={
+    "ui": {"resourceUri": "ui://apps/admin"},
+    "openai/toolInvocation/invoking": "Releasing GPU…",
+    "openai/toolInvocation/invoked": "Done",
+})
 
 # Workflows
-mcp.add_tool(workflow_list_specs)
-mcp.add_tool(workflow_get_spec)
-mcp.add_tool(workflow_start_run)
-mcp.add_tool(workflow_get_run)
-mcp.add_tool(workflow_cancel_run)
-mcp.add_tool(workflow_execute_step)
-mcp.add_tool(workflow_approve_step)
-mcp.add_tool(workflow_rerun_step)
+mcp.tool(workflow_list_specs, meta={
+    "ui": {"resourceUri": "ui://apps/workflow"},
+    "openai/toolInvocation/invoking": "Loading pipelines…",
+    "openai/toolInvocation/invoked": "Done",
+})
+mcp.tool(workflow_get_spec, meta={
+    "ui": {"resourceUri": "ui://apps/workflow"},
+    "openai/toolInvocation/invoking": "Loading spec…",
+    "openai/toolInvocation/invoked": "Done",
+})
+mcp.tool(workflow_start_run, meta={
+    "ui": {"resourceUri": "ui://apps/workflow"},
+    "openai/toolInvocation/invoking": "Starting run…",
+    "openai/toolInvocation/invoked": "Done",
+})
+mcp.tool(workflow_get_run, meta={
+    "ui": {"resourceUri": "ui://apps/workflow"},
+    "openai/toolInvocation/invoking": "Fetching status…",
+    "openai/toolInvocation/invoked": "Done",
+})
+mcp.tool(workflow_cancel_run, meta={
+    "ui": {"resourceUri": "ui://apps/workflow"},
+    "openai/toolInvocation/invoking": "Cancelling…",
+    "openai/toolInvocation/invoked": "Done",
+})
+mcp.tool(workflow_execute_step, meta={
+    "ui": {"resourceUri": "ui://apps/workflow"},
+    "openai/toolInvocation/invoking": "Executing step…",
+    "openai/toolInvocation/invoked": "Done",
+})
+mcp.tool(workflow_approve_step, meta={
+    "ui": {"resourceUri": "ui://apps/workflow"},
+    "openai/toolInvocation/invoking": "Approving…",
+    "openai/toolInvocation/invoked": "Done",
+})
+mcp.tool(workflow_rerun_step, meta={
+    "ui": {"resourceUri": "ui://apps/workflow"},
+    "openai/toolInvocation/invoking": "Rerunning step…",
+    "openai/toolInvocation/invoked": "Done",
+})
 
 
 # ========== ASGI APP (for uvicorn) ==========
@@ -184,6 +273,7 @@ app = Starlette(
         Route("/host", handle_app_host, methods=["POST"]),
         Mount("/", app=_base_app),
     ],
+    lifespan=_base_app.lifespan,
 )
 
 

@@ -1,7 +1,7 @@
 """Kimodo Viser demo — Forge service wrapping the interactive 3D motion authoring UI.
 
 Follows the ComfyUI subprocess pattern: start kimodo_demo as a subprocess,
-proxy HTTP + WebSocket requests to it. Runs on port 18470.
+proxy HTTP + WebSocket requests to it. Runs on port 18470 (matches Traefik ingress).
 """
 from __future__ import annotations
 
@@ -18,7 +18,7 @@ class KimodoDemoService(ForgeSubprocessMixin, ForgeService):
     service_name = "kimodo_demo"
     default_model = "kimodo-soma-rp"
 
-    PORT = 7860
+    PORT = 18470
 
     def load(self, model_name: str, quant: str | None = None) -> None:
         variant = model_name or self.default_model
@@ -31,7 +31,7 @@ class KimodoDemoService(ForgeSubprocessMixin, ForgeService):
             health_path="/",
             timeout=600,
             cwd="/opt/kimodo",
-            env={"SERVER_PORT": str(self.PORT)},
+            env={"SERVER_PORT": str(self.PORT), "SERVER_NAME": "0.0.0.0"},
         )
         self.model_name = model_name
         self._loaded = True

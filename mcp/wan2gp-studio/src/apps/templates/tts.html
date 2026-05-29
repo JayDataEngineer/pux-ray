@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: system-ui, sans-serif; padding: 16px; background: #0a0a0a; color: #e5e5e5; }
+  .field { margin-bottom: 12px; }
+  label { display: block; font-size: 12px; color: #a3a3a3; margin-bottom: 4px; }
+  select, input, textarea { width: 100%; padding: 8px; border-radius: 6px; border: 1px solid #333; background: #171717; color: #e5e5e5; font-size: 14px; }
+  textarea { min-height: 60px; resize: vertical; }
+  button { padding: 8px 20px; border-radius: 6px; border: none; background: #2563eb; color: #fff; font-size: 14px; cursor: pointer; }
+  button:hover { background: #1d4ed8; }
+  button:disabled { opacity: 0.5; cursor: not-allowed; }
+  .result { margin-top: 12px; display: none; }
+  audio { width: 100%; margin-top: 8px; }
+  .error { color: #ef4444; }
+</style>
+</head>
+<body>
+  <div class="field">
+    <label>Engine</label>
+    <select id="engine">
+      <option value="kokoro">Kokoro (CPU)</option>
+      <option value="qwen3_tts">Qwen3-TTS (GPU)</option>
+      <option value="moss_voicegenerator">MOSS Voice Design (GPU)</option>
+    </select>
+  </div>
+  <div class="field">
+    <label>Text</label>
+    <textarea id="text" placeholder="Enter text to speak..."></textarea>
+  </div>
+  <div class="field">
+    <label>Voice (for custom_voice mode)</label>
+    <select id="voice">
+      <option value="af_bella">Bella</option>
+      <option value="af_nicole">Nicole</option>
+      <option value="af_sarah">Sarah</option>
+      <option value="am_adam">Adam</option>
+      <option value="am_michael">Michael</option>
+    </select>
+  </div>
+  <button onclick="doSpeak()">Speak</button>
+  <div id="result" class="result"></div>
+  <script>
+  async function doSpeak() {
+    const result = document.getElementById('result');
+    result.style.display = 'block';
+    result.innerHTML = 'Synthesizing...';
+    try {
+      const args = { text: document.getElementById('text').value, engine: document.getElementById('engine').value, voice: document.getElementById('voice').value };
+      const resp = await window.__mcp.callTool('tts_speak', args);
+      if (resp.error) throw new Error(resp.error);
+      const audio = resp.audio_url || resp.url;
+      if (audio) {
+        result.innerHTML = '<audio controls src="' + audio + '"></audio>';
+      } else {
+        result.innerHTML = '<pre>' + JSON.stringify(resp, null, 2) + '</pre>';
+      }
+    } catch(e) {
+      result.innerHTML = '<span style="color:#ef4444">' + e.message + '</span>';
+    }
+  }
+  </script>
+</body>
+</html>
