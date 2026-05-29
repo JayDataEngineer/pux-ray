@@ -23,6 +23,11 @@ spec:
         port: 80
         nodePort: 30080
         http2: true
+        transport:
+          respondTimeouts:
+            readTimeout: "0"
+            writeTimeout: "0"
+            idleTimeout: "0"
       websecure:
         port: 443
         nodePort: 30443
