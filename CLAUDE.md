@@ -23,28 +23,59 @@ Reliable, tested, deployed by default. Registered in `infra/k8s/serve_config.py`
 
 **Forge services** (VRAM-aware GPU management via `/forge`):
 
-| Service | Type | Description |
-|---------|------|-------------|
-| trellis | GPU 3D | TRELLIS.2 image-to-3D mesh |
-| ace_step | GPU Music | ACE-Step 1.5 text-to-music |
-| comfyui | GPU Image | ComfyUI 0.20.1, subprocess proxy |
-| hy_motion | GPU Motion | HY-Motion 1.0 text-to-3D motion |
-| moss_soundeffect | GPU Audio | MOSS-SoundEffect 8B text-to-sound |
-| anigen | GPU 3D | AniGen image-to-rigged-3D |
-| see_through | GPU Image | See-Through anime layer decomposition |
-| llm | GPU LLM | llama.cpp server (GGUF models via subprocess) |
-| avatar | GPU Avatar | Kimodo + FluxRT text-to-avatar pipeline |
+| Service | Type | VRAM | Description |
+|---------|------|------|-------------|
+| wan2gp | GPU Unified | ~17GB | Wan2GP unified model pool — 12+ native & custom families (see below) |
+| lance | GPU Multi | ~17GB | ByteDance Lance — 6 multimodal tasks (t2i, t2v, image_edit, video_edit, x2t_image, x2t_video), AWQ INT4 |
+| kimodo_demo | GPU Motion | ~17GB | NVIDIA Kimodo Viser — interactive 3D motion authoring UI (subprocess on port 7860) |
+| comfyui | GPU Image | ~4GB | ComfyUI 0.20.1, subprocess proxy |
+| llm | GPU LLM | varies | llama.cpp server (GGUF models via subprocess) |
 
-The **Forge** (`services/forge.py`) is a VRAM-aware GPU manager that claims `num_gpus: 1.0`, tracks VRAM in MB per service, and allows concurrent GPU services when VRAM permits. Evicts only when needed. Services implement `ForgeService` (3 methods: `load()`, `unload()`, `infer(dict) -> dict`). Accessed via route `/forge` with `{"service": "trellis|ace_step|comfyui|hy_motion|moss_soundeffect|anigen|see_through|llm|avatar|wan2gp|vibevoice_microsoft|vibevoice_community_tts|phi4mm", ...}`.
+The **Forge** (`services/forge.py`) is a VRAM-aware GPU manager that claims `num_gpus: 1.0`, tracks VRAM in MB per service, and allows concurrent GPU services when VRAM permits. Evicts only when needed. Services implement `ForgeService` (3 methods: `load()`, `unload()`, `infer(dict) -> dict`). Accessed via route `/forge` with `{"service": "wan2gp|lance|kimodo_demo|comfyui|llm|trellis|ace_step|hy_motion|moss_soundeffect|anigen|see_through|avatar|vibevoice_microsoft|vibevoice_community_tts|phi4mm", ...}`.
 
-### Tier 2 — Available via Forge (not auto-deployed)
+### Wan2GP Model Families
+
+Wan2GP (`services/wan2gp/`) is the primary forge service — a unified model pool handling 12+ families through vendor-native and custom handlers. Native models use `_infer_native` with `_build_generate_kwargs`; custom handlers manage their own inference loop and return `{"status": "success"}`.
+
+**Native families** (Wan2GP built-in):
+| Family | Models | Output |
+|--------|--------|--------|
+| wan | wan2.1-i2v-14b-480p, wan2.1-t2v-14b, wan2.1-t2i-14b | video/image |
+| hunyuan | hunyuan-video | video |
+| flux | flux-dev, flux-schnell | image |
+
+**Custom families** (handlers in `services/wan2gp/custom_models/`):
+| Family | Models | Output |
+|--------|--------|--------|
+| trellis | trellis-v2-large | 3D GLB mesh |
+| ace_step | ace_step-v1-3-5b | audio (music) |
+| hy_motion | hy-motion-t2m-1-0 | NPZ motion + MP4 video |
+| moss | moss-soundeffect-8b | audio (sound effects) |
+| anigen | anigen | rigged 3D GLB |
+| see_through | see-through | layer-decomposed image |
+| kimodo | kimodo-soma-rp | NPZ motion + MP4 video |
+| ltx | ltx2 | video |
+| cogvideox | cogvideox-2b, cogvideox-5b | video |
+
+**Important**: `kimodo` exists in TWO forms — as a Wan2GP custom family handler (motion NPZ output) and as `kimodo_demo` (standalone Viser 3D UI subprocess). They are separate services.
+
+### Tier 2 — Available via Forge (on demand)
 Registered in `services/forge.py` SERVICE_MAP. Available on demand through `/forge`. Models present on PVC.
 
-| Service | Type | Description | Note |
-|---------|------|-------------|------|
-| vibevoice_microsoft | GPU ASR | VibeVoice Microsoft — microsoft/VibeVoice-ASR 7B with diarization (16GB) | Replaced by vibevoice.cpp for Tier 1 |
-| vibevoice_community_tts | GPU TTS | VibeVoice Community — vibevoice/VibeVoice-7B multi-speaker TTS (18.7GB) | Long-form synthesis |
-| phi4mm | GPU Multi | Phi-4-multimodal 5.6B (text+vision+speech) | Needs model download (24GB) |
+| Service | Type | VRAM | Description |
+|---------|------|------|-------------|
+| trellis | GPU 3D | ~17GB | TRELLIS.2 image-to-3D mesh (also available via wan2gp custom handler) |
+| ace_step | GPU Music | ~17GB | ACE-Step 1.5 text-to-music (also available via wan2gp custom handler) |
+| hy_motion | GPU Motion | ~17GB | HY-Motion 1.0 text-to-3D motion (also available via wan2gp custom handler) |
+| moss_soundeffect | GPU Audio | ~17GB | MOSS-SoundEffect 8B text-to-sound (also available via wan2gp custom handler) |
+| anigen | GPU 3D | ~17GB | AniGen image-to-rigged-3D (also available via wan2gp custom handler) |
+| see_through | GPU Image | ~17GB | See-Through anime layer decomposition (also available via wan2gp custom handler) |
+| avatar | GPU Avatar | ~17GB | Avatar Pipeline — Kimodo motion gen + FluxRT render |
+| vibevoice_microsoft | GPU ASR | ~16GB | VibeVoice Microsoft — microsoft/VibeVoice-ASR 7B with diarization |
+| vibevoice_community_tts | GPU TTS | ~18.7GB | VibeVoice Community — vibevoice/VibeVoice-7B multi-speaker TTS |
+| phi4mm | GPU Multi | ~24GB | Phi-4-multimodal 5.6B (text+vision+speech) |
+
+**Note**: Many Tier 2 services have corresponding Wan2GP custom handlers. The Wan2GP route is preferred because it manages the unified model pool with smart VRAM offloading via mmgp. The standalone forge entries exist for backward compatibility.
 
 ### Tier 3 — Blocked (needs Docker image changes)
 Not auto-deployed. Commented out in `serve_config.py`.
@@ -126,6 +157,18 @@ MCP servers run as standard K8s Deployments in the `mcp` namespace — completel
 | media-analysis-mcp | CPU Vision | YOLOv8, Florence-2, SAM2, InsightFace, transcription, OCR |
 | web-research-mcp | CPU Search | Web scraping, search, crawling, structured extraction |
 | equibles-mcp | CPU Finance | SEC filings, stock prices, insider trades, congressional trades, economic indicators, VIX (scale-to-zero via KEDA) |
+| wan2gp-studio | CPU API | MCP server wrapping Forge + Workflow Engine. Tools: `generate`, `status`, `tts_speak`, `tts_voices`, `workflow_*`, `admin_*`, `llm_*`. FastMCP with HTTP transport. |
+
+**Wan2GP Studio** (`mcp/wan2gp-studio/`) is the primary MCP server — a thin httpx client that calls Ray Serve HTTP endpoints. It wraps the Forge (model inference) and Workflow Engine (multi-step pipelines). The Studio web UI (`mcp/wan2gp-studio-web/`) is a Next.js frontend that calls these MCP tools.
+
+**Wan2GP Studio tools** (`mcp/wan2gp-studio/src/tools/`):
+- `generate.py` — `run()` tool: load model → infer → return result
+- `status.py` — `forge_status()`, `models_available()` tools
+- `tts.py` — `tts_speak()`, `tts_voices()` tools (Forge TTS services)
+- `llm.py` — `llm_chat()` tool (Forge LLM service)
+- `audio.py` — Audio generation tools
+- `workflow.py` — `workflow_list_specs()`, `workflow_start_run()`, `workflow_execute_step()`, etc.
+- `admin.py` — Service management tools
 
 **Web Research dependencies** (all in `mcp` namespace):
 - Redis 7 (Celery broker/cache)
@@ -236,6 +279,7 @@ ssh root@192.168.1.184   # passphrase prompt → cryptroot-unlock
 | Dashboard | `http://100.86.69.57:30080/dashboard` |
 | Studio Switcher | `http://100.86.69.57:30080/studio` |
 | Wan2GP Studio (MCP UI) | `http://100.86.69.57:30080/studio/` |
+| Video Editor | `http://100.86.69.57:30080/editor/` |
 | Ray Dashboard | `http://100.86.69.57:30080/ray-dashboard/` |
 | Ray Client | `ray://100.86.69.57:10001` |
 | ComfyUI | `http://100.86.69.57:30080/comfyui/` |
@@ -296,20 +340,73 @@ python scripts/test_services_v2.py  # Integration tests against live cluster
 ## Architecture
 
 ```
-gateway/        → API ingress (Starlette, routed via Traefik :30080), ComfyUI manager
-services/       → AI service implementations (Ray Serve deployments)
-  base.py       → BaseGPUDeployment, SubprocessMixin
-  tts/          → Kokoro, eSpeak, IndexTTS, FasterQwen3TTS, VibeVoiceCpp
-  asr/          → Faster-Whisper
-  image/        → ComfyUI (subprocess proxy)
-  creative/     → TRELLIS, ACE-Step, HY-Motion, AniGen, SeeThrough
-  forge.py      → VRAM-aware GPU manager (replaces MasterRouter + GPUGovernor)
-  forge_base.py → ForgeService base class (load/unload/infer)
-  model_engine/ → Universal GPU model execution with shared mmgp pool
+gateway/            → API ingress (Starlette, routed via Traefik :30080), ComfyUI manager
+  routes/editor.py  → Video editor SPA static file serving
+services/           → AI service implementations (Ray Serve deployments)
+  base.py           → BaseGPUDeployment, SubprocessMixin
+  tts/              → Kokoro, eSpeak, IndexTTS, FasterQwen3TTS, VibeVoiceCpp
+  asr/              → Faster-Whisper
+  wan2gp/           → Wan2GP unified model pool (12+ families, native + custom handlers)
+  lance/            → ByteDance Lance unified multimodal (6 tasks, AWQ INT4)
+  motion/           → kimodo_demo (Viser 3D UI), preview
+  llm/              → llama.cpp GGUF inference
+  image/            → ComfyUI (subprocess proxy)
+  avatar/           → Avatar pipeline (Kimodo + FluxRT)
+  workflows/        → Workflow Engine — YAML-driven multi-step AI pipelines
+    engine.py       → Orchestration: step execution, artifact persistence, state management
+    spec.py         → YAML workflow spec parser
+    state.py        → Run state machine (pending/running/done/failed/waiting)
+    artifacts.py    → Artifact storage on shared NVMe PVC
+    steps/          → Step type executors: forge, transform, compose, python, external, serve, mock
+  forge.py          → VRAM-aware GPU manager
+  forge_base.py     → ForgeService base class (load/unload/infer)
+  forge_subprocess.py → ForgeSubprocessMixin (ComfyUI, Kimodo, LANCE)
+  forge_persistence.py → Artifact persistence helpers
+  model_engine/     → Universal GPU model execution with shared mmgp pool
+mcp/
+  wan2gp-studio/        → MCP server (FastMCP, HTTP transport) — Forge + Workflow Engine client
+    src/forge_client.py  → httpx client for Forge /v1/run
+    src/workflow_client.py → httpx client for Workflow Engine /v1/wf/*
+    src/tools/           → MCP tool definitions (generate, status, tts, llm, audio, workflow, admin)
+  wan2gp-studio-web/    → Studio web UI (Next.js) — MCP tool consumer
+  media-analysis/       → Vision MCP (YOLOv8, Florence-2, SAM2, etc.)
+  web-research/         → Web scraping MCP
+web/
+  editor/           → Video editor frontend (React + Vite + TypeScript) — workflow pipeline UI
+config/workflows/   → YAML workflow specs (15+ pipelines)
+```
 
 ### GPU Scheduling
 
 Only one heavy GPU model runs at a time (24GB VRAM), but lightweight services can coexist. The **Forge** (`services/forge.py`) claims `num_gpus: 1.0` and tracks VRAM per service in MB. It allows concurrent GPU services when their combined VRAM fits, and evicts the largest loaded service only when a new service needs more VRAM than free. Services implement `ForgeService` with `load()`, `unload()`, `infer(dict) -> dict`. Self-managed services (vram_mb=0, like Wan2GP) always fit alongside other services.
+
+### Wan2GP Service
+
+`services/wan2gp/deployment.py` — The primary forge service. A unified model pool wrapping Wan2GP with 12+ model families. Uses mmgp for VRAM/CPU/RAM placement with smart offloading. Native models (wan, hunyuan, flux) use `_infer_native` with `_build_generate_kwargs`. Custom handlers (trellis, ace_step, hy_motion, etc.) manage their own inference loop.
+
+Key internals:
+- `_SAFE_DEFAULTS` — Default values for params that come as `None` from API (e.g. `input_video_strength: 1.0`)
+- `_encode_output` — Detects audio vs video output, encodes to base64 or bytes
+- `_infer_native` — 5-step parameter matching: exact, fuzzy, hyphen→underscore, lower, skip
+- `files_locator.py` — Wan2GP's file resolution using `_checkpoints_paths = ["ckpts", "."]`
+- `ckpts` symlink → `/models/wan2gp_ckpts` on PVC for model downloads
+
+### Workflow Engine
+
+`services/workflows/engine.py` — YAML-driven multi-step AI pipelines. Each workflow spec defines steps (forge, transform, compose, python, external, serve types) with input/output wiring. Supports manual (step-by-step with approval) and automatic execution modes.
+
+**Step types** (`services/workflows/steps/`):
+- `forge.py` — Execute forge service inference. Handles model injection, param preparation (file paths vs base64), artifact persistence
+- `transform.py` — Data transformations (resize, convert, etc.)
+- `compose.py` — Combine multiple step outputs
+- `python.py` — Run arbitrary Python functions
+- `external.py` — Call external HTTP APIs
+- `serve.py` — Ray Serve deployment calls
+- `mock.py` — Testing mock step
+
+**Workflow specs** (`config/workflows/`): 15+ pipelines including `tech_noir_generate.yaml` (full character→video pipeline), `tech_noir_video.yaml` (LTX-2 video gen), `tech_noir_trellis.yaml` (image→3D), `tech_noir_motion_npz.yaml` (motion generation), `video_editor.yaml` (editor integration).
+
+**Artifact persistence**: Output files stored on shared NVMe PVC at `/models/`, referenced by `{run_id}/{step_id}/{artifact_name}`. SSE event stream for real-time progress updates.
 
 ### Model Engine
 
@@ -333,7 +430,7 @@ handlers/<family>/
 - `ace_step/` — ACE-Step v1.5 text-to-music (proven, 8-phase generation)
 - `wan2gp/` — Wraps Wan2GP vendor handlers (wan, hunyuan, flux — 4 model families)
 
-**Migration targets** (by priority): Wan2GP (done), TRELLIS, MOSS-SoundEffect, HY-Motion, AniGen, See-Through.
+**Note**: Most model families now go through Wan2GP's own handler system (`services/wan2gp/custom_models/`) rather than the Model Engine. The Model Engine pattern is available for models that need module-level GPU sharing. Wan2GP uses mmgp for this internally.
 
 ## Service Development
 
@@ -385,20 +482,36 @@ All proxied through Traefik at port 30080:
 | `/tts/vibevoice-cpp-gpu/*` | vibevoice.cpp TTS+ASR (GGML quantized, CUDA backend) |
 | `/tts/vibevoice-cpp-cpu/*` | vibevoice.cpp TTS+ASR (GGML quantized, CPU backend) |
 | `/asr/whisper/*` | Faster-Whisper (CPU) |
+
 ### Forge (VRAM-aware GPU, route `/forge`)
 Heavy GPU services share a single RTX 4090 with VRAM-aware scheduling. Send `{"service": "<name>", ...}` to `/forge`.
 
 | Service key | Description |
 |---|---|---|
+| `wan2gp` | Wan2GP unified model pool — 12+ families (primary, recommended) |
+| `lance` | ByteDance Lance — 6 multimodal tasks (t2i, t2v, edit, x2t) |
+| `kimodo_demo` | NVIDIA Kimodo Viser — 3D motion authoring UI |
+| `comfyui` | ComfyUI 0.20.1 image generation (workflow adapter + raw API proxy) |
+| `llm` | llama.cpp GGUF inference |
 | `trellis` | TRELLIS.2 image-to-3D mesh |
 | `ace_step` | ACE-Step 1.5 text-to-music |
-| `comfyui` | ComfyUI 0.20.1 image generation (workflow adapter + raw API proxy) |
 | `hy_motion` | HY-Motion 1.0 text-to-3D motion |
 | `moss_soundeffect` | MOSS-SoundEffect 8B text-to-sound |
 | `anigen` | AniGen image-to-rigged-3D |
 | `see_through` | See-Through — anime layer decomposition |
-| `llm` | llama.cpp GGUF inference |
 | `avatar` | Avatar Pipeline — Kimodo motion gen + FluxRT render |
+
+### Workflow Engine (route `/wf-internal`)
+Internal Ray Serve deployment for multi-step AI pipelines. Called via MCP tools or directly.
+
+| Endpoint | Method | Description |
+|---|---|---|
+| `/wf-internal/wf/specs` | GET | List available workflow specs |
+| `/wf-internal/wf/{spec}/spec` | GET | Get spec details + input schema |
+| `/wf-internal/wf/{spec}/runs` | POST | Start new run (manual or auto) |
+| `/wf-internal/wf/{spec}/runs/{id}` | GET | Get run status + step states |
+| `/wf-internal/wf/{spec}/runs/{id}/steps/{step}` | POST | Execute/approve/rerun a step |
+| `/wf-internal/wf/{spec}/runs/{id}/events` | GET (SSE) | Real-time run event stream |
 
 ### MCP Services (standalone K8s, `mcp` namespace)
 | Route | Service |
@@ -406,6 +519,7 @@ Heavy GPU services share a single RTX 4090 with VRAM-aware scheduling. Send `{"s
 | `/mcp/media/*` | Media Analysis MCP (CPU, YOLOv8/Florence-2/SAM2) |
 | `/mcp/web/*` | Web Research MCP (CPU, search/scrape/extract) |
 | `/mcp/equibles/*` | Equibles Financial MCP (CPU, SEC/stock/insider/economic data, scale-to-zero) |
+| `/mcp/wan2gp-studio/*` | Wan2GP Studio MCP (CPU, Forge + Workflow Engine tools) |
 
 ### Cloud Burst (SkyPilot/SkyServe)
 | Route | Service |
@@ -507,6 +621,12 @@ to see cloud fallback rate over time.
 - `vendor/` = upstream git clones (NEVER EDIT) — all adaptation in `services/`
 - Source mount (`hostPath`) makes code changes instant on pods, but requires pod restart for Python to pick up changes
 - All setup is idempotent — safe to re-run
+- Wan2GP model families: use `wan2gp` forge service for all native + custom models. Don't create separate forge services for models already in Wan2GP's pool
+- Kimodo: exists as both a Wan2GP custom handler (`kimodo` family → NPZ motion output) AND a standalone Viser subprocess (`kimodo_demo` forge service → 3D UI). Different use cases, different services
+- ForgeSubprocessMixin: for services wrapping external processes (ComfyUI, Kimodo, LANCE). Uses `start_subprocess()` with health check polling
+- Custom forge handlers return `{"status": "success"}`, native Wan2GP returns `{"status": "ok"}` — both are valid success states
+- Artifact storage: `/models/` on shared NVMe PVC. Symlink `opt/wan2gp/ckpts` → `/models/wan2gp_ckpts` for Wan2GP model downloads
+- `soundfile` is NOT available in container — use stdlib `wave` module for WAV encoding
 
 ## Flux Tooling
 
