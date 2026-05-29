@@ -118,7 +118,7 @@ async def generate_music(
 
     payload: dict[str, Any] = {
         "service": "wan2gp",
-        "model": "ace_step/v1_5",
+        "model": "tts/ace_step_v1_5",
         "prompt": prompt,
         "duration": duration_seconds,
     }

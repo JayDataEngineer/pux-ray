@@ -10,6 +10,7 @@ Multi-node: GPUNode registry for Tailscale workers (Phase 4).
 from __future__ import annotations
 
 import asyncio
+import time
 import gc
 import importlib
 import logging
@@ -284,14 +285,28 @@ class ForgeCore:
 
         # Reconcile with real GPU memory — subprocess services (LLM, ComfyUI)
         # allocate outside PyTorch so our ledger underestimates their usage.
-        after_gpu = _real_gpu_free_mb()
-        if before_gpu is not None and after_gpu is not None:
-            real_freed = after_gpu - before_gpu
-            if real_freed > ledger_freed:
-                diff = real_freed - ledger_freed
-                self._vram_free_mb += diff
-                logger.info("Forge: %s real GPU freed %dMB (ledger had %dMB, corrected +%dMB)",
-                            name, real_freed, ledger_freed, diff)
+        # Wait up to 10s for real GPU memory to be released after killing subprocesses.
+        for _ in range(10):
+            after_gpu = _real_gpu_free_mb()
+            if after_gpu is not None and before_gpu is not None:
+                real_freed = after_gpu - before_gpu
+                if real_freed > ledger_freed:
+                    diff = real_freed - ledger_freed
+                    self._vram_free_mb += diff
+                    logger.info("Forge: %s real GPU freed %dMB (ledger had %dMB, corrected +%dMB)",
+                                name, real_freed, ledger_freed, diff)
+                # Check if we actually freed the expected amount
+                if after_gpu >= before_gpu + ledger_freed - 1024:  # tolerate 1GB slack
+                    break
+            time.sleep(1)
+        else:
+            after_gpu = _real_gpu_free_mb()
+            if before_gpu is not None and after_gpu is not None:
+                real_freed = after_gpu - before_gpu
+                if real_freed > ledger_freed:
+                    diff = real_freed - ledger_freed
+                    self._vram_free_mb += diff
+            logger.warning("Forge: %s GPU memory may not be fully released after 10s", name)
 
         logger.info("Forge: unloaded %s (freed %dMB, free=%dMB)", name, ledger_freed, self._vram_free_mb)
 
@@ -324,7 +339,7 @@ class ForgeCore:
 
         self._cleanup_stale_allocations()
         if not self._can_fit(service):
-            self._evict_for(service)
+            self._evict_for(service, force=True)
 
         await self._load_with_cleanup(service, model, quant, payload)
 
