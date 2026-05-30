@@ -84,10 +84,15 @@ export function VisualWorkspace({ spec: _spec, run, allSpecs: _allSpecs, onSpecC
     if (!scenePrompt) { toast('error', 'Enter a scene description'); return }
     setGenerating(true)
     try {
+      // Strip data URL prefix — Wan2GP expects raw base64
+      const strip = (url: string): string => {
+        const idx = url.indexOf(',')
+        return idx > 0 ? url.slice(idx + 1) : url
+      }
       const result = await executeStep(run.spec_name, run.run_id, 'scene_compose', {
         input_prompt: scenePrompt,
-        image_b64: charImage,
-        reference_images: [poseImage],
+        image_b64: strip(charImage),
+        reference_images: [strip(poseImage)],
       }) as Record<string, unknown>
       if (result.status === 'error') {
         toast('error', String(result.error || 'Failed'))
