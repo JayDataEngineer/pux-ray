@@ -161,8 +161,7 @@ export function AssetSidebar({ run: _run, onNavigateHistory }: Props) {
             <div className="sidebar-empty">No run history</div>
           ) : (
             pastRuns.slice(0, 20).map((pr) => (
-              <div key={pr.run_id} className="sidebar-clip"
-                onClick={() => onNavigateHistory?.(pr.spec_name, pr.run_id)}>
+              <div key={pr.run_id} className="sidebar-clip">
                 <span className="sidebar-clip-label">{pr.run_id.slice(0, 8)}</span>
                 <span className={`seg-status seg-status--${pr.status === 'completed' ? 'ready' : 'failed'}`}>{pr.status}</span>
               </div>

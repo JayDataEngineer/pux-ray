@@ -1,52 +1,17 @@
 import { useEffect, useState, useCallback } from 'react'
 import { useWorkflowStore } from './stores/workflow'
 import { useToastStore } from './stores/toast'
-import { listSpecs, getSpec, startRun, getRun } from './api'
-import { useSSE } from './hooks/useSSE'
-import { Layout } from './components/Layout'
+import { listSpecs, getSpec } from './api'
 import { WorkspaceLayout } from './components/workspaces/WorkspaceLayout'
 import { ErrorBoundary } from './components/ErrorBoundary'
 import { Toaster } from './components/Toaster'
-import type { SSEEvent } from './types'
 
 export function App() {
-  const { spec, run, setSpec, setRun, loading, updateStepState, reset, viewMode } = useWorkflowStore()
+  const { spec, setSpec, loading } = useWorkflowStore()
   const toast = useToastStore((s) => s.addToast)
-  const specName = run?.spec_name ?? null
-  const runId = run?.run_id ?? null
-
   const [allSpecs, setAllSpecs] = useState<{ name: string; description: string; steps: number }[]>([])
   const [error, setError] = useState<string | null>(null)
 
-  const onSSEEvent = useCallback((event: SSEEvent) => {
-    if (event.step_id) {
-      if (event.event === 'step_started') {
-        updateStepState(event.step_id, { status: 'running' })
-      } else if (event.event === 'step_completed') {
-        updateStepState(event.step_id, {
-          status: 'completed',
-          duration_ms: event.duration_ms,
-          outputs: event.outputs,
-        })
-      } else if (event.event === 'step_failed') {
-        updateStepState(event.step_id, { status: 'failed', error: event.error })
-        toast('error', event.error || 'Step failed')
-      } else if (event.event === 'step_waiting') {
-        updateStepState(event.step_id, { status: 'waiting_input' })
-      }
-    }
-    if (event.event === 'workflow_completed') {
-      toast('success', 'Pipeline completed')
-      if (specName && runId) getRun(specName, runId).then(setRun).catch(() => {})
-    } else if (event.event === 'workflow_failed') {
-      toast('error', event.error || 'Pipeline failed')
-      if (specName && runId) getRun(specName, runId).then(setRun).catch(() => {})
-    }
-  }, [specName, runId, updateStepState, setRun, toast])
-
-  useSSE(specName, runId, onSSEEvent)
-
-  // Load specs and auto-create a run for the workspace
   useEffect(() => {
     listSpecs()
       .then(async (specs) => {
@@ -56,16 +21,6 @@ export function App() {
           const defaultSpec = filtered.find((s) => s.name === 'video_editor') || filtered[0]
           const s = await getSpec(defaultSpec.name)
           setSpec(s)
-          // Auto-create a run so workspace has context
-          const result = await startRun(s.name, {}, true)
-          const fullRun = await getRun(s.name, result.run_id)
-          setRun(fullRun)
-          // Save to history
-          try {
-            const history = JSON.parse(localStorage.getItem('past_runs') || '[]')
-            history.unshift({ run_id: result.run_id, spec_name: s.name, status: 'running', created_at: new Date().toISOString() })
-            localStorage.setItem('past_runs', JSON.stringify(history.slice(0, 50)))
-          } catch {}
         }
       })
       .catch((e) => {
@@ -75,51 +30,29 @@ export function App() {
   }, [])
 
   const handleSpecChange = useCallback(async (name: string) => {
-    reset()
     try {
       const s = await getSpec(name)
       setSpec(s)
-      const result = await startRun(s.name, {}, true)
-      const fullRun = await getRun(s.name, result.run_id)
-      setRun(fullRun)
     } catch (e) {
       toast('error', e instanceof Error ? e.message : 'Could not load spec')
     }
-  }, [reset, setSpec, setRun, toast])
+  }, [setSpec, toast])
 
-  if (!spec || !run) {
-    if (error) {
-      return (
-        <div className="loading-screen">
-          <p>Failed to load pipeline specs</p>
-          <p className="error-detail">{error}</p>
-          <button onClick={() => window.location.reload()}>Retry</button>
-        </div>
-      )
-    }
-    return <div className="loading-screen">Loading workspace...</div>
-  }
-
-  // Use workspace layout for timeline/workspace modes, pipeline layout for pipeline mode
-  if (viewMode === 'timeline' || viewMode === 'kimodo') {
-    return (
-      <ErrorBoundary>
-        {loading && <div className="loading-overlay"><div className="spinner" /></div>}
-        <WorkspaceLayout spec={spec} run={run} allSpecs={allSpecs} onSpecChange={handleSpecChange} />
-        <Toaster />
-      </ErrorBoundary>
+  if (!spec) {
+    if (error) return (
+      <div className="loading-screen">
+        <p>Failed to load pipeline specs</p>
+        <p className="error-detail">{error}</p>
+        <button onClick={() => window.location.reload()}>Retry</button>
+      </div>
     )
+    return <div className="loading-screen">Loading workspace...</div>
   }
 
   return (
     <ErrorBoundary>
       {loading && <div className="loading-overlay"><div className="spinner" /></div>}
-      <Layout spec={spec} allSpecs={allSpecs} run={run}
-        onStart={async () => {}} onNewRun={() => reset()} onSpecChange={handleSpecChange}
-        onLoadRun={async (sn, rid) => {
-          const s = await getSpec(sn); setSpec(s)
-          const fr = await getRun(sn, rid); setRun(fr)
-        }} />
+      <WorkspaceLayout spec={spec} run={null} allSpecs={allSpecs} onSpecChange={handleSpecChange} />
       <Toaster />
     </ErrorBoundary>
   )
