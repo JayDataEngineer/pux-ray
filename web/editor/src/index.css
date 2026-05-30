@@ -1726,3 +1726,26 @@ body {
   padding: 1px; display: none; border-radius: 2px;
 }
 .sidebar-thumb:hover .sidebar-thumb-delete { display: block; }
+.sidebar-header-row { display: flex; align-items: center; justify-content: space-between; }
+.btn-icon {
+  background: var(--bg-hover); border: 1px solid var(--border); color: var(--text-tertiary);
+  width: 28px; height: 28px; display: flex; align-items: center; justify-content: center;
+  cursor: pointer; transition: color .15s, border-color .15s; flex-shrink: 0;
+  padding: 0;
+}
+.btn-icon:hover { color: var(--color-accent); border-color: var(--color-accent); }
+.mode-toggle { display: flex; gap: 4px; margin-bottom: 12px; }
+.mode-toggle .btn { flex: 1; display: flex; align-items: center; gap: 6px; justify-content: center; }
+.asset-picker-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px; }
+.asset-picker-thumb {
+  cursor: pointer; border: 2px solid var(--border); transition: border-color .15s;
+  position: relative; overflow: hidden;
+}
+.asset-picker-thumb:hover { border-color: var(--border-focus); }
+.asset-picker-thumb--active { border-color: var(--color-accent); }
+.asset-picker-thumb img { width: 100%; aspect-ratio: 4/5; object-fit: cover; display: block; }
+.asset-picker-thumb span {
+  position: absolute; bottom: 0; left: 0; right: 0;
+  background: rgba(0,0,0,.7); padding: 2px 4px;
+  font-size: 9px; color: var(--text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}

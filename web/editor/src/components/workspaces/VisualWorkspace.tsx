@@ -1,6 +1,8 @@
 import { useState, useCallback } from 'react'
+import { Image, Wand2 } from 'lucide-react'
 import { executeStep, getRun } from '../../api'
 import { useWorkflowStore } from '../../stores/workflow'
+import { useAssetStore } from '../../stores/assets'
 import { useToastStore } from '../../stores/toast'
 import type { WorkflowSpec, WorkflowRun } from '../../types'
 
@@ -12,11 +14,14 @@ interface Props {
 }
 
 type PipelineStep = 'character' | 'mesh' | 'compose'
+type CharMode = 'generate' | 'existing'
 
 export function VisualWorkspace({ spec: _spec, run, allSpecs: _allSpecs, onSpecChange: _onSpecChange }: Props) {
   const setRun = useWorkflowStore((s) => s.setRun)
   const toast = useToastStore((s) => s.addToast)
+  const assetImages = useAssetStore((s) => s.assets.filter((a) => a.type === 'image'))
   const [activeStep, setActiveStep] = useState<PipelineStep>('character')
+  const [charMode, setCharMode] = useState<CharMode>('generate')
   const [charPrompt, setCharPrompt] = useState('')
   const [charModel, setCharModel] = useState('z_image')
   const [scenePrompt, setScenePrompt] = useState('')
@@ -166,20 +171,56 @@ export function VisualWorkspace({ spec: _spec, run, allSpecs: _allSpecs, onSpecC
         <div className="pipeline-controls">
           {activeStep === 'character' && (
             <>
-              <div className="form-group">
-                <label className="form-label">Character Prompt</label>
-                <textarea className="form-input form-textarea" value={charPrompt} onChange={(e) => setCharPrompt(e.target.value)} rows={4} placeholder="Describe the character..." />
+              <div className="mode-toggle">
+                <button className={`btn btn-sm ${charMode === 'generate' ? 'btn-primary' : 'btn-ghost'}`} onClick={() => setCharMode('generate')}>
+                  <Wand2 size={14} /> Generate
+                </button>
+                <button className={`btn btn-sm ${charMode === 'existing' ? 'btn-primary' : 'btn-ghost'}`} onClick={() => setCharMode('existing')}>
+                  <Image size={14} /> Use Existing
+                </button>
               </div>
-              <div className="form-group">
-                <label className="form-label">Model</label>
-                <select className="form-input" value={charModel} onChange={(e) => setCharModel(e.target.value)}>
-                  <option value="z_image">Z-Image (Turbo)</option>
-                  <option value="z_image_base">Z-Image (Base)</option>
-                </select>
-              </div>
-              <button className="btn btn-primary btn-block" disabled={generating || !charPrompt} onClick={handleGenerateChar}>
-                {generating ? 'GENERATING...' : 'GENERATE CHARACTER'}
-              </button>
+
+              {charMode === 'generate' ? (
+                <>
+                  <div className="form-group">
+                    <label className="form-label">Character Prompt</label>
+                    <textarea className="form-input form-textarea" value={charPrompt} onChange={(e) => setCharPrompt(e.target.value)} rows={4} placeholder="Describe the character..." />
+                  </div>
+                  <div className="form-group">
+                    <label className="form-label">Model</label>
+                    <select className="form-input" value={charModel} onChange={(e) => setCharModel(e.target.value)}>
+                      <option value="z_image">Z-Image (Turbo)</option>
+                      <option value="z_image_base">Z-Image (Base)</option>
+                    </select>
+                  </div>
+                  <button className="btn btn-primary btn-block" disabled={generating || !charPrompt} onClick={handleGenerateChar}>
+                    {generating ? 'GENERATING...' : 'GENERATE CHARACTER'}
+                  </button>
+                </>
+              ) : (
+                <>
+                  <div className="form-group">
+                    <label className="form-label">Pick from Assets</label>
+                    {assetImages.length === 0 ? (
+                      <div className="sidebar-empty">No images in asset folder — generate or import first</div>
+                    ) : (
+                      <div className="asset-picker-grid">
+                        {assetImages.slice(0, 12).map((a) => (
+                          <div key={a.id}
+                            className={`asset-picker-thumb ${charImage === a.url ? 'asset-picker-thumb--active' : ''}`}
+                            onClick={() => { setCharImage(a.url); setActiveStep('mesh'); toast('info', `Using "${a.name}" as character`) }}>
+                            <img src={a.url} alt={a.name} />
+                            <span>{a.name.slice(0, 14)}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                  <button className="btn btn-secondary btn-block" onClick={() => setCharMode('generate')}>
+                    Or generate new
+                  </button>
+                </>
+              )}
             </>
           )}
 
