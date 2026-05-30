@@ -34,8 +34,6 @@ export function VisualWorkspace({ spec: _spec, run, allSpecs: _allSpecs, onSpecC
   const [charMode, setCharMode] = useState<CharMode>('generate')
   const [charPrompt, setCharPrompt] = useState('')
   const [charModel, setCharModel] = useState('z_image')
-  const [scenePrompt, setScenePrompt] = useState('')
-  const [refineStrength, setRefineStrength] = useState(0.85)
   const [generating, setGenerating] = useState(false)
   const [charImage, setCharImage] = useState<string | null>(null)
   const [poseImage, setPoseImage] = useState<string | null>(null)
@@ -291,7 +289,6 @@ export function VisualWorkspace({ spec: _spec, run, allSpecs: _allSpecs, onSpecC
           )}
 
           {activeStep === 'compose' && (
-          {activeStep === 'compose' && (
             <>
               <div className="form-group">
                 <label className="form-label">Source Character</label>
@@ -313,11 +310,7 @@ export function VisualWorkspace({ spec: _spec, run, allSpecs: _allSpecs, onSpecC
                 )}
                 <label className="btn btn-ghost btn-sm" style={{ cursor: 'pointer', marginTop: 4 }}>
                   Upload Character
-                  <input type="file" accept="image/*" style={{ display: 'none' }} onChange={(e) => {
-                    const f = e.target.files?.[0]; if (!f) return
-                    const r = new FileReader(); r.onload = () => setCharImage(r.result as string)
-                    r.readAsDataURL(f)
-                  }} />
+                  <input type="file" accept="image/*" style={{ display: 'none' }} onChange={(e) => { const f=e.target.files?.[0]; if(!f)return; const r=new FileReader(); r.onload=()=>setCharImage(r.result as string); r.readAsDataURL(f) }} />
                 </label>
               </div>
               <div className="form-group">
@@ -340,11 +333,7 @@ export function VisualWorkspace({ spec: _spec, run, allSpecs: _allSpecs, onSpecC
                 )}
                 <label className="btn btn-ghost btn-sm" style={{ cursor: 'pointer', marginTop: 4 }}>
                   Upload Pose
-                  <input type="file" accept="image/*" style={{ display: 'none' }} onChange={(e) => {
-                    const f = e.target.files?.[0]; if (!f) return
-                    const r = new FileReader(); r.onload = () => setPoseImage(r.result as string)
-                    r.readAsDataURL(f)
-                  }} />
+                  <input type="file" accept="image/*" style={{ display: 'none' }} onChange={(e) => { const f=e.target.files?.[0]; if(!f)return; const r=new FileReader(); r.onload=()=>setPoseImage(r.result as string); r.readAsDataURL(f) }} />
                 </label>
               </div>
               <button className="btn btn-primary btn-block" disabled={generating || !charImage || !poseImage} onClick={handleCompose}>
