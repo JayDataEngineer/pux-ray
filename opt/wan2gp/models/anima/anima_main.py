@@ -29,18 +29,106 @@ from autoencoder_kl import AutoencoderKL
 logger = logging.get_logger(__name__)
 
 
-def _strip_net_prefix(sd: dict) -> dict:
-    """Strip 'net.' prefix from ComfyUI-serialized Cosmos state dict keys.
+def _convert_cosmos_state_dict(sd: dict) -> dict:
+    """Remap ComfyUI Cosmos state dict keys to diffusers CosmosTransformer3DModel format.
 
-    ComfyUI wraps the transformer in a 'net' module during save.
-    diffusers' CosmosTransformer3DModel expects keys without the prefix.
+    ComfyUI serializes under 'net.' prefix with different internal naming.
+    Key mapping (ComfyUI → diffusers):
+      blocks.N.self_attn.*       → transformer_blocks.N.attn1.*
+      blocks.N.cross_attn.*      → transformer_blocks.N.attn2.*
+      blocks.N.adaln_modulation_self_attn.{1,2}.weight  → norm{1,2}.linear_{1,2}.weight
+      blocks.N.mlp.layer{1,2}    → ff.net.{0.proj,2}
+      x_embedder.proj.1.*        → patch_embed.proj.*
+      final_layer.adaln_modulation.* → norm_out.linear_*.weight
+      final_layer.linear.*       → proj_out.*
     """
+    import re
     out = {}
+    block_re = re.compile(r'^blocks\.(\d+)\.(.+)$')
+    ADALN_RE = re.compile(r'adaln_modulation_(self_attn|cross_attn|mlp)\.(\d)\.(weight|bias)')
+    NORMS = {'self_attn': 'norm1', 'cross_attn': 'norm2', 'mlp': 'norm3'}
+
     for key, tensor in sd.items():
-        if key.startswith("net."):
-            out[key[4:]] = tensor
+        # Strip net. prefix (ComfyUI wrapper)
+        k = key[4:] if key.startswith('net.') else key
+
+        # === Global keys ===
+        if k == 'x_embedder.proj.1.weight':
+            out['patch_embed.proj.weight'] = tensor[:, :64]
+        elif k == 'x_embedder.proj.1.bias':
+            out['patch_embed.proj.bias'] = tensor[:64]
+        elif k == 't_embedder.1.linear_1.weight':
+            out['time_embed.t_embedder.linear_1.weight'] = tensor
+        elif k == 't_embedder.1.linear_2.weight':
+            out['time_embed.t_embedder.linear_2.weight'] = tensor
+        elif k == 't_embedding_norm.weight':
+            out['time_embed.norm.weight'] = tensor
+        elif k == 'final_layer.linear.weight':
+            out['proj_out.weight'] = tensor
+        elif k == 'final_layer.linear.bias':
+            out['proj_out.bias'] = tensor
+        elif k == 'final_layer.adaln_modulation.1.weight':
+            out['norm_out.linear_1.weight'] = tensor
+        elif k == 'final_layer.adaln_modulation.1.bias':
+            out['norm_out.linear_1.bias'] = tensor
+        elif k == 'final_layer.adaln_modulation.2.weight':
+            out['norm_out.linear_2.weight'] = tensor
+        elif k == 'final_layer.adaln_modulation.2.bias':
+            out['norm_out.linear_2.bias'] = tensor
+        elif k.startswith('llm_adapter.'):
+            out[k] = tensor
+        # === Block-level keys ===
         else:
-            out[key] = tensor
+            m = block_re.match(k)
+            if not m:
+                continue  # skip unknown
+            blk = m.group(1)
+            rest = m.group(2)
+
+            # AdaLN modulation
+            am = ADALN_RE.match(rest)
+            if am:
+                norm_name = NORMS[am.group(1)]  # norm1/norm2/norm3
+                idx = am.group(2)  # 1 or 2
+                wb = am.group(3)   # weight or bias
+                out[f'transformer_blocks.{blk}.{norm_name}.linear_{idx}.{wb}'] = tensor
+                continue
+
+            # Self-attention → attn1
+            if rest.startswith('self_attn.'):
+                sub = rest[len('self_attn.'):]
+                sub = sub.replace('q_proj', 'to_q').replace('k_proj', 'to_k').replace('v_proj', 'to_v')
+                sub = sub.replace('output_proj', 'to_out.0').replace('q_norm', 'norm_q').replace('k_norm', 'norm_k')
+                out[f'transformer_blocks.{blk}.attn1.{sub}'] = tensor
+                continue
+
+            # Cross-attention → attn2
+            if rest.startswith('cross_attn.'):
+                sub = rest[len('cross_attn.'):]
+                sub = sub.replace('q_proj', 'to_q').replace('k_proj', 'to_k').replace('v_proj', 'to_v')
+                sub = sub.replace('output_proj', 'to_out.0').replace('q_norm', 'norm_q').replace('k_norm', 'norm_k')
+                out[f'transformer_blocks.{blk}.attn2.{sub}'] = tensor
+                continue
+
+            # MLP → ff
+            if rest.startswith('mlp.'):
+                sub = rest[len('mlp.'):]
+                if sub == 'layer1.weight':
+                    out[f'transformer_blocks.{blk}.ff.net.0.proj.weight'] = tensor
+                elif sub == 'layer1.bias':
+                    out[f'transformer_blocks.{blk}.ff.net.0.proj.bias'] = tensor
+                elif sub == 'layer2.weight':
+                    out[f'transformer_blocks.{blk}.ff.net.2.weight'] = tensor
+                elif sub == 'layer2.bias':
+                    out[f'transformer_blocks.{blk}.ff.net.2.bias'] = tensor
+                continue
+
+    # Add learned positional embeddings (not stored in ComfyUI state dict,
+    # initialized randomly in the model __init__). Use zero init — fine for T2I.
+    out['learnable_pos_embed.pos_emb_t'] = torch.zeros(128, 2048)   # max_t/patch_t=128, hidden=16×128
+    out['learnable_pos_embed.pos_emb_h'] = torch.zeros(120, 2048)   # max_h/patch_h=240/2=120
+    out['learnable_pos_embed.pos_emb_w'] = torch.zeros(120, 2048)   # max_w/patch_w=240/2=120
+
     return out
 
 
@@ -90,7 +178,7 @@ class model_factory:
             transformer,
             model_filename,
             writable_tensors=False,
-            preprocess_sd=_strip_net_prefix,
+            preprocess_sd=_convert_cosmos_state_dict,
         )
         transformer.to(dtype)
 
@@ -100,12 +188,32 @@ class model_factory:
                 transformer, model_type, transformer_filename, dtype, config_path
             )
 
-        # --- Text encoder ---
-        text_encoder = offload.fast_load_transformers_model(
-            text_encoder_filename,
-            writable_tensors=True,
-            modelClass=Qwen3ForCausalLM,
+        # --- Text encoder (Qwen3 0.6B, only 1.2GB, no lm_head) ---
+        # Load directly with PyTorch — small enough to not need mmgp offloading.
+        from transformers import AutoConfig
+        te_config_dir = os.path.join("ckpts", "Qwen3-0.6B")
+        te_config = AutoConfig.from_pretrained(te_config_dir, trust_remote_code=True)
+        import safetensors.torch
+        te_sd = safetensors.torch.load_file(text_encoder_filename)
+        te_sd["lm_head.weight"] = torch.zeros(
+            te_config.vocab_size, te_config.hidden_size
         )
+        with init_empty_weights():
+            text_encoder = Qwen3ForCausalLM(te_config)
+        text_encoder.load_state_dict(te_sd, strict=False, assign=True)
+        text_encoder.to(dtype)
+        text_encoder.eval()
+        # Pipeline expects .last_hidden_state like T5, but Qwen3 returns
+        # CausalLMOutputWithPast. Wrap forward to return compatible output.
+        _orig_forward = text_encoder.forward
+        def _te_forward(*a, **kw):
+            kw.setdefault("output_hidden_states", True)
+            out = _orig_forward(*a, **kw)
+            # Return hidden states as last_hidden_state
+            if hasattr(out, "hidden_states") and out.hidden_states:
+                out.last_hidden_state = out.hidden_states[-1]
+            return out
+        text_encoder.forward = _te_forward
 
         # --- Tokenizer ---
         text_encoder_folder = model_def.get("text_encoder_folder")
@@ -128,6 +236,11 @@ class model_factory:
             defaultConfigPath=vae_config_path,
             default_dtype=VAE_dtype,
         )
+        # Cosmos pipeline expects temporal downsampling attrs (2D VAE has none)
+        if not hasattr(vae, 'temperal_downsample'):
+            vae.temperal_downsample = []
+        if not hasattr(vae, 'temporal_downsample'):
+            vae.temporal_downsample = []
 
         # --- Scheduler ---
         with open(fl.locate_file("ZImageTurbo_scheduler_config.json"), "r") as f:
@@ -135,12 +248,19 @@ class model_factory:
         scheduler = FlowMatchEulerDiscreteScheduler(**scheduler_config)
 
         # --- Pipeline ---
+        # Dummy safety checker to avoid cosmos_guardrail dependency
+        class _NoopSafetyChecker:
+            def to(self, *a, **kw): return self
+            def check_text_safety(self, *a, **kw): return True
+            def check_image_safety(self, *a, **kw): return True
+            def __call__(self, image, *a, **kw): return image, [False]
         self.pipeline = Cosmos2TextToImagePipeline(
             scheduler=scheduler,
             vae=vae,
             text_encoder=text_encoder,
             tokenizer=tokenizer,
             transformer=transformer,
+            safety_checker=_NoopSafetyChecker(),
         )
         self.transformer = transformer
         self.text_encoder = text_encoder
@@ -164,14 +284,6 @@ class model_factory:
         loras_slists=None,
         **kwargs,
     ):
-        generator = torch.Generator(
-            device="cuda" if torch.cuda.is_available() else "cpu"
-        )
-        if seed is None or seed < 0:
-            generator.seed()
-        else:
-            generator.manual_seed(int(seed))
-
         if VAE_tile_size is not None and hasattr(self.vae, "use_tiling"):
             if isinstance(VAE_tile_size, int):
                 tiling = VAE_tile_size > 0
@@ -183,6 +295,10 @@ class model_factory:
             self.vae.tile_latent_min_height = tile_size
             self.vae.tile_latent_min_width = tile_size
 
+        # Use CPU generator — pipeline moves latents to GPU during denoising
+        generator = torch.Generator(device="cpu")
+        if seed is not None and seed >= 0:
+            generator.manual_seed(int(seed))
         images = self.pipeline(
             prompt=input_prompt,
             negative_prompt=n_prompt or "worst quality, low quality",
