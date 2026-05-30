@@ -306,7 +306,7 @@ class model_factory:
             self.vae.tile_latent_min_width = tile_size
 
         # Seed
-        generator = torch.Generator(device="cpu")
+        generator = torch.Generator(device=device)
         if seed is not None and seed >= 0:
             generator.manual_seed(int(seed))
 
@@ -373,7 +373,8 @@ class model_factory:
         if not torch.is_tensor(image):
             image = torch.tensor(image)
 
-        return image.unsqueeze(0)  # add batch dim for compatibility
+        # image is already [B, C, H, W] from VAE decode
+        return image
 
     def get_loras_transformer(self, *args, **kwargs):
         return [], []
