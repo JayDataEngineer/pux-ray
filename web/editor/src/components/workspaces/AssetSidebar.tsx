@@ -28,16 +28,20 @@ export function AssetSidebar({ run: _run, onNavigateHistory }: Props) {
   const handleImport = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (!file) return
-    const url = URL.createObjectURL(file)
-    const type = file.type.startsWith('image/') ? 'image' as const
-      : file.type.startsWith('audio/') ? 'audio' as const
-      : file.type.startsWith('video/') ? 'video' as const
-      : 'other' as const
-    addAsset({ name: file.name, type, mediaType: file.type, url, sizeBytes: file.size, source: 'uploaded' })
-    if (type === 'audio') {
-      addAudioCue({ track: 'sfx', start: 0, duration: 5, label: file.name.replace(/\.[^.]+$/, ''), audioUrl: url, volume: 0.8, waveformPeaks: null, sourceStepId: null })
+    const reader = new FileReader()
+    reader.onload = () => {
+      const dataUrl = reader.result as string
+      const type = file.type.startsWith('image/') ? 'image' as const
+        : file.type.startsWith('audio/') ? 'audio' as const
+        : file.type.startsWith('video/') ? 'video' as const
+        : 'other' as const
+      addAsset({ name: file.name, type, mediaType: file.type, url: dataUrl, sizeBytes: file.size, source: 'uploaded' })
+      if (type === 'audio') {
+        addAudioCue({ track: 'sfx', start: 0, duration: 5, label: file.name.replace(/\.[^.]+$/, ''), audioUrl: dataUrl, volume: 0.8, waveformPeaks: null, sourceStepId: null })
+      }
+      toast('info', `"${file.name}" added to Assets`)
     }
-    toast('info', `"${file.name}" added to Assets`)
+    reader.readAsDataURL(file)
     if (fileRef.current) fileRef.current.value = ''
   }, [addAsset, addAudioCue, toast])
 
