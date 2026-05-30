@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback } from 'react'
-import { FolderOpen, History, Plus, Music, Trash2, Play, ChevronDown, ChevronRight, Image, Video, Mic, Volume2 } from 'lucide-react'
+import { FolderOpen, History, Plus, Music, Trash2, Play, ChevronDown, ChevronRight, Image, Video, Mic, Volume2, PanelLeftClose, PanelLeft } from 'lucide-react'
 import { useAssetStore, CATEGORY_LABEL, CATEGORY_ORDER, type AssetCategory } from '../../stores/assets'
 import { useTimelineStore } from '../../stores/timeline'
 import { useToastStore } from '../../stores/toast'
@@ -19,6 +19,7 @@ export function AssetSidebar({ run: _run }: Props) {
   const [activeTab, setActiveTab] = useState<SidebarTab>('assets')
   const [playingId, setPlayingId] = useState<string | null>(null)
   const [expandedCategories, setExpandedCategories] = useState<Set<AssetCategory>>(new Set(['image']))
+  const [sidebarFolded, setSidebarFolded] = useState(false)
   const assets = useAssetStore((s) => s.assets)
 
   const toggleCategory = (cat: AssetCategory) => {
@@ -80,10 +81,13 @@ export function AssetSidebar({ run: _run }: Props) {
   }
 
   return (
-    <aside className="workspace-sidebar">
+    <aside className={`workspace-sidebar ${sidebarFolded ? 'workspace-sidebar--folded' : ''}`}>
       <div className="sidebar-section sidebar-header-row">
         <div className="sidebar-title">ASSETS</div>
         <input ref={fileRef} type="file" style={{ display: 'none' }} accept="image/*,audio/*,video/*" onChange={handleImport} />
+        <button className="btn-icon" onClick={() => setSidebarFolded(!sidebarFolded)} title={sidebarFolded ? "Expand" : "Collapse"}>
+          {sidebarFolded ? <PanelLeft size={16} /> : <PanelLeftClose size={16} />}
+        </button>
         <button className="btn-icon" onClick={() => fileRef.current?.click()} title="Import file">
           <Plus size={16} />
         </button>

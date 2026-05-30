@@ -1763,3 +1763,18 @@ body {
   margin-left: auto; font-size: 10px; color: var(--text-tertiary);
   background: var(--bg-card-alt); padding: 1px 6px; border-radius: 3px;
 }
+.workspace-sidebar--folded { width: 48px !important; }
+.workspace-sidebar--folded .sidebar-title,
+.workspace-sidebar--folded .sidebar-subtitle,
+.workspace-sidebar--folded .sidebar-thumb-grid,
+.workspace-sidebar--folded .sidebar-clip-label,
+.workspace-sidebar--folded .sidebar-count,
+.workspace-sidebar--folded .sidebar-empty,
+.workspace-sidebar--folded .sidebar-category-header span,
+.workspace-sidebar--folded .sidebar-thumb span,
+.workspace-sidebar--folded .sidebar-clip span,
+.workspace-sidebar--folded .btn:not(.btn-icon),
+.workspace-sidebar--folded .btn-icon:not(:first-child) { display: none; }
+.workspace-sidebar--folded .sidebar-link { justify-content: center; padding: 8px 0; }
+.workspace-sidebar--folded .sidebar-section { padding: 4px; }
+.workspace-sidebar--folded .sidebar-nav { padding: 0; }
