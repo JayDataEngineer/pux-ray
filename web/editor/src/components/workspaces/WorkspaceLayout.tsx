@@ -25,7 +25,7 @@ export function WorkspaceLayout(_props: any = {}) {
   return (
     <SidebarProvider>
       <AppSidebar />
-      <SidebarInset className="flex flex-col">
+      <SidebarInset className="flex flex-col min-w-0">
         <header className="flex items-center h-11 px-4 border-b gap-4 shrink-0">
           <SidebarTrigger />
           <span className="font-bold text-sm tracking-tight">TECH NOIR</span>
