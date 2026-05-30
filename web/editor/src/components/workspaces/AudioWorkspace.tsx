@@ -1,25 +1,86 @@
 import { useState, useCallback, useRef } from 'react'
+import { Music, Volume2, Mic, Wand2, Play, Trash2 } from 'lucide-react'
 import { callTool } from '../../mcp'
 import { useTimelineStore } from '../../stores/timeline'
 import { useToastStore } from '../../stores/toast'
 
-type ModelTarget = 'ace_step' | 'moss_sfx' | 'moss_voice'
+// Audio task definitions — each is either a DAG pipeline or a direct service call.
+// Parameters are discovered dynamically from the API, these are just defaults.
+interface AudioTask {
+  id: string
+  label: string
+  icon: typeof Music
+  pipeline?: string        // DAG pipeline ID (preferred)
+  service?: string          // Direct service call (fallback)
+  model?: string            // Model ID for direct call
+  params: AudioParam[]      // Parameter definitions
+}
+
+interface AudioParam {
+  name: string
+  type: 'string' | 'integer' | 'number'
+  label: string
+  placeholder: string
+  default?: string | number
+}
+
+const AUDIO_TASKS: AudioTask[] = [
+  {
+    id: 'ace_step', label: 'ACE-Step (Music)', icon: Music,
+    service: 'wan2gp', model: 'tts/ace_step_v1_5',
+    params: [
+      { name: 'input_prompt', type: 'string', label: 'Music Prompt', placeholder: 'epic cinematic orchestral, 120bpm, dark synthwave...' },
+      { name: 'duration_seconds', type: 'integer', label: 'Duration (s)', placeholder: '30', default: 30 },
+    ],
+  },
+  {
+    id: 'moss_sfx', label: 'MOSS Sound Effect', icon: Volume2,
+    service: 'wan2gp', model: 'moss/moss-soundeffect',
+    params: [
+      { name: 'input_prompt', type: 'string', label: 'Sound Description', placeholder: 'rain and thunder, distant explosions...' },
+      { name: 'duration_seconds', type: 'integer', label: 'Duration (s)', placeholder: '5', default: 5 },
+    ],
+  },
+  {
+    id: 'moss_voice_clone', label: 'MOSS Voice Clone', icon: Mic,
+    service: 'wan2gp', model: 'moss/moss-tts',
+    params: [
+      { name: 'text', type: 'string', label: 'Text to Speak', placeholder: 'Hello, my name is...' },
+      { name: 'reference_audio_b64', type: 'string', label: 'Reference Audio (base64)', placeholder: 'Upload a reference voice sample' },
+    ],
+  },
+  {
+    id: 'moss_voice_gen', label: 'MOSS Voice Generator', icon: Wand2,
+    service: 'wan2gp', model: 'moss/moss-voicegenerator',
+    params: [
+      { name: 'text', type: 'string', label: 'Voice Description', placeholder: 'Deep male voice, British accent, authoritative...' },
+      { name: 'input_prompt', type: 'string', label: 'Text to Speak', placeholder: 'The text to synthesize with the generated voice' },
+    ],
+  },
+  {
+    id: 'kokoro', label: 'Kokoro TTS', icon: Mic,
+    service: 'wan2gp', model: 'kokoro',
+    params: [
+      { name: 'text', type: 'string', label: 'Text', placeholder: 'Hello world' },
+      { name: 'voice', type: 'string', label: 'Voice', placeholder: 'af_bella', default: 'af_bella' },
+      { name: 'speed', type: 'number', label: 'Speed', placeholder: '1.0', default: 1.0 },
+    ],
+  },
+]
 
 interface GeneratedClip {
   id: string
-  model: ModelTarget
-  prompt: string
+  taskId: string
+  label: string
   duration: number
   audioUrl: string | null
-  status: 'idle' | 'generating' | 'ready' | 'error'
+  status: 'generating' | 'ready' | 'error'
   error?: string
 }
 
 export function AudioWorkspace({ run: _run }: { run: import('../../types').WorkflowRun | null }) {
-  const [model, setModel] = useState<ModelTarget>('ace_step')
-  const [prompt, setPrompt] = useState('')
-  const [duration, setDuration] = useState(30)
-  const [bpm, setBpm] = useState(128)
+  const [selectedTask, setSelectedTask] = useState(AUDIO_TASKS[0])
+  const [paramValues, setParamValues] = useState<Record<string, string | number>>({})
   const [generating, setGenerating] = useState(false)
   const [clips, setClips] = useState<GeneratedClip[]>([])
   const [playingId, setPlayingId] = useState<string | null>(null)
@@ -27,83 +88,66 @@ export function AudioWorkspace({ run: _run }: { run: import('../../types').Workf
   const addAudioCue = useTimelineStore((s) => s.addAudioCue)
   const toast = useToastStore((s) => s.addToast)
 
-  const modelConfig: Record<ModelTarget, { label: string; service: string; modelId: string; paramKey: string; track: string }> = {
-    ace_step: { label: 'ACE-Step (Music)', service: 'wan2gp', modelId: 'tts/ace_step_v1_5', paramKey: 'input_prompt', track: 'music' },
-    moss_sfx: { label: 'MOSS-SFX (Sound Effects)', service: 'wan2gp', modelId: 'moss/moss-soundeffect', paramKey: 'input_prompt', track: 'sfx' },
-    moss_voice: { label: 'MOSS-Voice (Clone/Creation)', service: 'wan2gp', modelId: 'kokoro', paramKey: 'text', track: 'voice' },
-  }
-
   const handleGenerate = useCallback(async () => {
-    if (!prompt) return
     setGenerating(true)
-    const cfg = modelConfig[model]
-    const clip: GeneratedClip = { id: `clip_${Date.now()}`, model, prompt, duration, audioUrl: null, status: 'generating' }
+    const task = selectedTask
+    const clip: GeneratedClip = {
+      id: `clip_${Date.now()}`, taskId: task.id,
+      label: task.label, duration: Number(paramValues.duration_seconds || paramValues.duration || 5) || 5,
+      audioUrl: null, status: 'generating',
+    }
     setClips((prev) => [clip, ...prev])
 
     try {
-      const params: Record<string, unknown> = {
-        [cfg.paramKey]: prompt,
-        duration_seconds: duration,
-      }
-      if (model === 'moss_voice') {
-        params.voice = 'af_bella'
-        params.text = prompt
-      }
-      const result = await callTool<Record<string, unknown>>('run', {
-        service: cfg.service,
-        params: { model: cfg.modelId, ...params },
-      })
+      const result = task.pipeline
+        ? await callTool<Record<string, unknown>>('run', { pipeline: task.pipeline, params: paramValues })
+        : await callTool<Record<string, unknown>>('run', { service: task.service!, params: { model: task.model!, ...paramValues } })
 
       if (result.status === 'ok' || result.status === 'success') {
         const data = result.data as string | undefined
         const audioUrl = data ? `data:audio/wav;base64,${data}` : null
         setClips((prev) => prev.map((c) => c.id === clip.id ? { ...c, audioUrl, status: 'ready' as const } : c))
         if (audioUrl) {
+          const track = task.id === 'ace_step' ? 'music' : task.id.includes('sfx') ? 'sfx' : 'voice'
           addAudioCue({
-            track: cfg.track,
-            start: 0,
-            duration,
-            label: `${cfg.label.split(' ')[0]}: ${prompt.slice(0, 30)}`,
-            audioUrl,
-            volume: model === 'ace_step' ? 0.4 : 0.8,
-            waveformPeaks: null,
-            sourceStepId: null,
+            track, start: 0, duration: clip.duration,
+            label: `${task.label.split('(')[0].trim()}: ${String(paramValues.input_prompt || paramValues.text || '').slice(0, 25)}`,
+            audioUrl, volume: task.id === 'ace_step' ? 0.4 : 0.8,
+            waveformPeaks: null, sourceStepId: null,
           })
         }
-        toast('success', `${cfg.label} generated`)
+        toast('success', `${task.label.split('(')[0].trim()} generated`)
       } else {
-        const err = String(result.error || 'Unknown error')
-        setClips((prev) => prev.map((c) => c.id === clip.id ? { ...c, status: 'error', error: err } : c))
-        toast('error', err)
+        const err = String(result.error || result.message || 'Unknown error')
+        setClips((prev) => prev.map((c) => c.id === clip.id ? { ...c, status: 'error' as const, error: err } : c))
+        toast('error', `${task.label}: ${err}`)
       }
     } catch (e) {
-      setClips((prev) => prev.map((c) => c.id === clip.id ? { ...c, status: 'error', error: String(e) } : c))
-      toast('error', e instanceof Error ? e.message : 'Generation failed')
+      setClips((prev) => prev.map((c) => c.id === clip.id ? { ...c, status: 'error' as const, error: String(e) } : c))
+      toast('error', `Failed: ${e instanceof Error ? e.message : String(e)}`)
     } finally {
       setGenerating(false)
     }
-  }, [prompt, model, duration, addAudioCue, toast])
+  }, [selectedTask, paramValues, addAudioCue, toast])
 
   const handlePlay = (clip: GeneratedClip) => {
     if (!clip.audioUrl) return
-    if (playingId === clip.id) {
-      audioRef.current?.pause()
-      setPlayingId(null)
-    } else {
-      if (audioRef.current) {
-        audioRef.current.src = clip.audioUrl
-        audioRef.current.play()
-        setPlayingId(clip.id)
-      }
-    }
+    if (playingId === clip.id) { audioRef.current?.pause(); setPlayingId(null) }
+    else { if (audioRef.current) { audioRef.current.src = clip.audioUrl; audioRef.current.play(); setPlayingId(clip.id) } }
   }
 
-  const cfg = modelConfig[model]
+  const handleTaskChange = (task: AudioTask) => {
+    setSelectedTask(task)
+    // Reset params to defaults
+    const defaults: Record<string, string | number> = {}
+    task.params.forEach((p) => { if (p.default !== undefined) defaults[p.name] = p.default })
+    setParamValues(defaults)
+  }
 
   return (
     <div className="audio-workspace">
       <audio ref={audioRef} onEnded={() => setPlayingId(null)} style={{ display: 'none' }} />
-      {/* Main Content */}
+
       <main className="audio-main">
         <div className="audio-main-header">
           <h1 className="audio-title">AUDIO SUITE</h1>
@@ -111,99 +155,102 @@ export function AudioWorkspace({ run: _run }: { run: import('../../types').Workf
 
         {/* Model Selector */}
         <div className="audio-section">
-          <label className="audio-section-label">MODEL_TARGET</label>
+          <label className="audio-section-label">MODEL</label>
           <div className="model-selector">
-            {Object.entries(modelConfig).map(([key, cfg]) => (
-              <label key={key} className={`model-option ${model === key ? 'model-option--active' : ''}`}>
-                <input type="radio" name="model" checked={model === key} onChange={() => setModel(key as ModelTarget)} />
-                <span className="model-option-label">{cfg.label}</span>
-              </label>
-            ))}
+            {AUDIO_TASKS.map((task) => {
+              const Icon = task.icon
+              return (
+                <label key={task.id} className={`model-option ${selectedTask.id === task.id ? 'model-option--active' : ''}`}>
+                  <input type="radio" name="audioModel" checked={selectedTask.id === task.id} onChange={() => handleTaskChange(task)} />
+                  <Icon size={16} />
+                  <span className="model-option-label">{task.label}</span>
+                </label>
+              )
+            })}
           </div>
         </div>
 
-        {/* Composition Prompt */}
-        <div className="audio-section">
-          <label className="audio-section-label">
-            COMPOSITION_PROMPT
-            <span className="audio-char-count">{prompt.length}/500</span>
-          </label>
-          <textarea
-            className="audio-textarea"
-            placeholder={model === 'ace_step' ? 'Describe the sonic architecture... e.g. 120bpm cyberpunk synthwave with heavy distorted bassline' :
-                        model === 'moss_sfx' ? 'e.g. rain and thunder, distant explosions, enemy footsteps' :
-                        'e.g. Hello world, my name is...'}
-            value={prompt}
-            onChange={(e) => setPrompt(e.target.value.slice(0, 500))}
-            rows={6}
-          />
-        </div>
-
-        {/* Parameters */}
+        {/* Dynamic Parameters — rendered from task definition, not hardcoded */}
         <div className="audio-section">
           <label className="audio-section-label">PARAMETERS</label>
-          <div className="audio-params">
-            <div className="param-row">
-              <span className="param-label">Duration (s)</span>
-              <span className="param-value">{duration}</span>
-              <input type="range" min={1} max={120} value={duration} onChange={(e) => setDuration(parseInt(e.target.value))} />
+          {selectedTask.params.map((param) => (
+            <div key={param.name} className="form-group">
+              <label className="form-label">{param.label}</label>
+              {param.type === 'integer' || param.type === 'number' ? (
+                <input
+                  className="form-input"
+                  type="number"
+                  value={paramValues[param.name] ?? param.default ?? ''}
+                  onChange={(e) => setParamValues((prev) => ({ ...prev, [param.name]: param.type === 'integer' ? parseInt(e.target.value) || 0 : parseFloat(e.target.value) || 0 }))}
+                  placeholder={param.placeholder}
+                />
+              ) : param.name.includes('b64') || param.name.includes('reference') ? (
+                <label className="btn btn-ghost btn-block" style={{ cursor: 'pointer' }}>
+                  {paramValues[param.name] ? 'Audio loaded' : param.placeholder}
+                  <input type="file" accept="audio/*" style={{ display: 'none' }} onChange={(e) => {
+                    const f = e.target.files?.[0]; if (!f) return
+                    const r = new FileReader(); r.onload = () => setParamValues((prev) => ({ ...prev, [param.name]: (r.result as string).split(',')[1] || r.result as string }))
+                    r.readAsDataURL(f)
+                  }} />
+                </label>
+              ) : param.name === 'text' || param.name === 'input_prompt' ? (
+                <textarea
+                  className="form-input form-textarea"
+                  value={paramValues[param.name] ?? ''}
+                  onChange={(e) => setParamValues((prev) => ({ ...prev, [param.name]: e.target.value }))}
+                  rows={3} placeholder={param.placeholder}
+                />
+              ) : (
+                <input
+                  className="form-input"
+                  type="text"
+                  value={paramValues[param.name] ?? param.default ?? ''}
+                  onChange={(e) => setParamValues((prev) => ({ ...prev, [param.name]: e.target.value }))}
+                  placeholder={param.placeholder}
+                />
+              )}
             </div>
-            {model === 'ace_step' && (
-              <div className="param-row">
-                <span className="param-label">BPM</span>
-                <span className="param-value">{bpm}</span>
-                <input type="range" min={60} max={200} value={bpm} onChange={(e) => setBpm(parseInt(e.target.value))} />
-              </div>
-            )}
-          </div>
+          ))}
         </div>
 
-        {/* Generate */}
-        <button className="btn btn-primary btn-block" disabled={generating || !prompt} onClick={handleGenerate}>
-          {generating ? 'GENERATING...' : 'INITIALIZE RENDER'}
+        <button className="btn btn-primary btn-block" disabled={generating} onClick={handleGenerate}>
+          {generating ? 'GENERATING...' : `Generate ${selectedTask.label.split('(')[0].trim()}`}
         </button>
 
         {/* Master Track Preview */}
-        {clips.length > 0 && (
-          <div className="audio-section">
-            <label className="audio-section-label">MASTER TRACK</label>
-            <div className="master-track">
-              <div className="master-track-header">
-                <span>{cfg.label}</span>
-                <span>{clips.filter((c) => c.status === 'ready').length} clips</span>
-              </div>
-              <div className="master-waveform">
-                {Array.from({ length: 80 }).map((_, i) => (
-                  <div key={i} className="waveform-bar" style={{
-                    height: `${Math.random() * 60 + 20}%`,
-                    animationDelay: `${Math.random()}s`,
-                  }} />
-                ))}
-              </div>
-              <div className="master-controls">
-                <button className="btn btn-ghost btn-sm" onClick={() => clips[0] && handlePlay(clips[0])}>
-                  {playingId ? '⏸' : '▶'} Play
-                </button>
-                <span className="master-time">00:00:00</span>
-              </div>
+        <div className="audio-section">
+          <label className="audio-section-label">MASTER TRACK — {clips.filter((c) => c.status === 'ready').length} clips</label>
+          <div className="master-track">
+            <div className="master-waveform">
+              {Array.from({ length: 60 }).map((_, i) => (
+                <div key={i} className="waveform-bar" style={{ height: `${Math.random() * 50 + 20}%`, animationDelay: `${Math.random()}s` }} />
+              ))}
+            </div>
+            <div className="master-controls">
+              <button className="btn btn-ghost btn-sm" onClick={() => { const r = clips.find((c) => c.status === 'ready' && c.audioUrl); if (r) handlePlay(r) }}>
+                {playingId ? '⏸' : <Play size={14} />} Play Latest
+              </button>
+              <span className="master-time">{clips.filter((c) => c.status === 'ready').length} ready</span>
             </div>
           </div>
-        )}
+        </div>
 
-        {/* Clip List */}
+        {/* Generated Clips */}
         {clips.length > 0 && (
           <div className="audio-section">
-            <label className="audio-section-label">GENERATED CLIPS</label>
+            <label className="audio-section-label">GENERATED</label>
             {clips.map((clip) => (
               <div key={clip.id} className={`clip-item clip-item--${clip.status}`}>
                 <button className="btn btn-ghost btn-sm" onClick={() => handlePlay(clip)}>
-                  {playingId === clip.id ? '⏸' : '▶'}
+                  {playingId === clip.id ? '⏸' : <Play size={12} />}
                 </button>
-                <span className="clip-label">{clip.prompt.slice(0, 40)}</span>
-                <span className="clip-model">{modelConfig[clip.model].label}</span>
+                <span className="clip-label">{clip.label.split('(')[0].trim()}</span>
                 <span className="clip-dur">{clip.duration}s</span>
                 {clip.status === 'generating' && <span className="clip-status">Generating...</span>}
                 {clip.status === 'error' && <span className="clip-status clip-status--error">{clip.error}</span>}
+                <button className="btn btn-ghost btn-sm" onClick={() => setClips((prev) => prev.filter((c) => c.id !== clip.id))}>
+                  <Trash2 size={12} />
+                </button>
               </div>
             ))}
           </div>
