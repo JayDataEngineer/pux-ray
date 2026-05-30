@@ -201,20 +201,21 @@ export function VisualWorkspace({ spec: _spec, run, allSpecs: _allSpecs, onSpecC
                 <>
                   <div className="form-group">
                     <label className="form-label">Pick from Assets</label>
-                    {(() => { const imgs = allAssets.filter((a) => a.type === 'image'); return imgs.length === 0 ? (
-                      <div className="sidebar-empty">No images in asset folder — generate or import first</div>
-                    ) : (
-                      <div className="asset-picker-grid">
-                        {imgs.slice(0, 12).map((a) => (
-                          <div key={a.id}
-                            className={`asset-picker-thumb ${charImage === a.url ? 'asset-picker-thumb--active' : ''}`}
-                            onClick={() => { setCharImage(a.url); setActiveStep('mesh'); toast('info', `Using "${a.name}" as character`) }}>
-                            <img src={a.url} alt={a.name} />
-                            <span>{a.name.slice(0, 14)}</span>
-                          </div>
-                        ))}
-                      </div>
-                    )))()}
+                    {(() => {
+                      const imgs = allAssets.filter((a) => a.type === 'image')
+                      if (imgs.length === 0) return <div className="sidebar-empty">No images in asset folder — generate or import first</div>
+                      return (
+                        <div className="asset-picker-grid">
+                          {imgs.slice(0, 12).map((a) => (
+                            <div key={a.id}
+                              className={`asset-picker-thumb ${charImage === a.url ? 'asset-picker-thumb--active' : ''}`}
+                              onClick={() => { setCharImage(a.url); setActiveStep('mesh'); toast('info', `Using "${a.name}" as character`) }}>
+                              <img src={a.url} alt={a.name} />
+                              <span>{a.name.slice(0, 14)}</span>
+                            </div>
+                          ))}
+                        </div>
+                      )})()}
                   </div>
                   <button className="btn btn-secondary btn-block" onClick={() => setCharMode('generate')}>
                     Or generate new
