@@ -47,9 +47,13 @@ export function WorkspaceLayout({ spec, run, onSpecChange, allSpecs }: Props) {
         : art.media_type.startsWith('audio/') ? 'audio' as const
         : art.media_type.startsWith('video/') ? 'video' as const
         : 'other' as const
+      const category = art.step_id === 'music' ? 'music' as const
+        : art.step_id === 'voice' ? 'voice' as const
+        : art.step_id === 'sound_fx' ? 'sfx' as const
+        : type
       addAsset({
         name: `${art.step_id.replace(/_/g, ' ')} (${run.run_id.slice(0, 6)})`,
-        type, mediaType: art.media_type, url,
+        type, category, mediaType: art.media_type, url,
         sizeBytes: art.size_bytes, source: 'generated',
         sourceRunId: run.run_id, sourceStepId: art.step_id,
       })

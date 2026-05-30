@@ -3,6 +3,7 @@ import { Music, Volume2, Mic, Wand2, Play, Trash2, Save } from 'lucide-react'
 import { callTool } from '../../mcp'
 import { useTimelineStore } from '../../stores/timeline'
 import { useVoiceStore } from '../../stores/voices'
+import { useAssetStore } from '../../stores/assets'
 import { useToastStore } from '../../stores/toast'
 
 // Audio task definitions — each is either a DAG pipeline or a direct service call.
@@ -90,6 +91,7 @@ export function AudioWorkspace({ run: _run }: { run: import('../../types').Workf
   const savedVoices = useVoiceStore((s) => s.voices)
   const addVoice = useVoiceStore((s) => s.addVoice)
   const removeVoice = useVoiceStore((s) => s.removeVoice)
+  const addAsset = useAssetStore((s) => s.addAsset)
   const toast = useToastStore((s) => s.addToast)
 
   const handleSaveVoice = (clip: GeneratedClip) => {
@@ -97,8 +99,10 @@ export function AudioWorkspace({ run: _run }: { run: import('../../types').Workf
     const name = prompt('Voice name:') || `Voice ${savedVoices.length + 1}`
     if (!name) return
     const b64 = clip.audioUrl.includes(',') ? clip.audioUrl.split(',')[1] : clip.audioUrl
+    const dataUrl = `data:audio/wav;base64,${b64}`
     addVoice({ name, audioB64: b64, modelId: clip.taskId })
-    toast('success', `Voice "${name}" saved`)
+    addAsset({ name, type: 'audio' as const, category: 'voice' as const, mediaType: 'audio/wav', url: dataUrl, sizeBytes: Math.round(b64.length * 0.75), source: 'generated' as const })
+    toast('success', `Voice "${name}" saved to Assets`)
   }
 
   const handleUseSavedVoice = (voiceId: string) => {

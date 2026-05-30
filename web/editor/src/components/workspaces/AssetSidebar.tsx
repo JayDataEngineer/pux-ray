@@ -1,9 +1,13 @@
 import { useState, useRef, useCallback } from 'react'
-import { FolderOpen, History, Plus, Music, Trash2, Play } from 'lucide-react'
-import { useAssetStore } from '../../stores/assets'
+import { FolderOpen, History, Plus, Music, Trash2, Play, ChevronDown, ChevronRight, Image, Video, Mic, Volume2 } from 'lucide-react'
+import { useAssetStore, CATEGORY_LABEL, CATEGORY_ORDER, type AssetCategory } from '../../stores/assets'
 import { useTimelineStore } from '../../stores/timeline'
 import { useToastStore } from '../../stores/toast'
 import type { WorkflowRun } from '../../types'
+
+const CATEGORY_ICONS: Record<AssetCategory, typeof Image> = {
+  image: Image, music: Music, voice: Mic, sfx: Volume2, video: Video, other: FolderOpen,
+}
 
 type SidebarTab = 'assets' | 'history'
 
@@ -15,7 +19,16 @@ interface Props {
 export function AssetSidebar({ run: _run, onNavigateHistory }: Props) {
   const [activeTab, setActiveTab] = useState<SidebarTab>('assets')
   const [playingId, setPlayingId] = useState<string | null>(null)
+  const [expandedCategories, setExpandedCategories] = useState<Set<AssetCategory>>(new Set(['image']))
   const assets = useAssetStore((s) => s.assets)
+
+  const toggleCategory = (cat: AssetCategory) => {
+    setExpandedCategories((prev) => {
+      const next = new Set(prev)
+      if (next.has(cat)) next.delete(cat); else next.add(cat)
+      return next
+    })
+  }
   const addAsset = useAssetStore((s) => s.addAsset)
   const removeAsset = useAssetStore((s) => s.removeAsset)
   const [pastRuns] = useState<{ run_id: string; spec_name: string; status: string }[]>(() => {
@@ -35,7 +48,7 @@ export function AssetSidebar({ run: _run, onNavigateHistory }: Props) {
         : file.type.startsWith('audio/') ? 'audio' as const
         : file.type.startsWith('video/') ? 'video' as const
         : 'other' as const
-      addAsset({ name: file.name, type, mediaType: file.type, url: dataUrl, sizeBytes: file.size, source: 'uploaded' })
+      addAsset({ name: file.name, type, category: type === 'audio' ? 'other' : type, mediaType: file.type, url: dataUrl, sizeBytes: file.size, source: 'uploaded' })
       if (type === 'audio') {
         addAudioCue({ track: 'sfx', start: 0, duration: 5, label: file.name.replace(/\.[^.]+$/, ''), audioUrl: dataUrl, volume: 0.8, waveformPeaks: null, sourceStepId: null })
       }
@@ -93,41 +106,52 @@ export function AssetSidebar({ run: _run, onNavigateHistory }: Props) {
               <div className="sidebar-empty">No assets yet<br />Generate or Import</div>
             </div>
           )}
-          {assets.filter(a => a.type === 'image').length > 0 && (
-            <div className="sidebar-section">
-              <div className="sidebar-subtitle">Images ({assets.filter(a => a.type === 'image').length})</div>
-              <div className="sidebar-thumb-grid">
-                {assets.filter(a => a.type === 'image').map((a) => (
-                  <div key={a.id} className="sidebar-thumb" draggable
-                    onDragStart={(e) => onDragStart(e, a)}
-                    onDoubleClick={() => onDoubleClick(a.url)}>
-                    <img src={a.url} alt={a.name} draggable={false} />
-                    <span>{a.name.slice(0, 16)}</span>
-                    <button className="sidebar-thumb-delete" onClick={(e) => { e.stopPropagation(); removeAsset(a.id) }} title="Remove">
-                      <Trash2 size={10} />
-                    </button>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-          {assets.filter(a => a.type === 'audio').length > 0 && (
-            <div className="sidebar-section">
-              <div className="sidebar-subtitle">Audio ({assets.filter(a => a.type === 'audio').length})</div>
-              {assets.filter(a => a.type === 'audio').map((a) => (
-                <div key={a.id} className={`sidebar-clip ${playingId === a.id ? 'sidebar-clip--active' : ''}`}>
-                  <button className="btn btn-ghost btn-sm" onClick={() => handlePlay(a)}>
-                    {playingId === a.id ? '⏸' : <Play size={12} />}
-                  </button>
-                  <Music size={14} className="sidebar-icon" />
-                  <span className="sidebar-clip-label">{a.name}</span>
-                  <button className="btn btn-ghost btn-sm" onClick={() => removeAsset(a.id)} title="Remove">
-                    <Trash2 size={10} />
-                  </button>
+          {CATEGORY_ORDER.map((cat) => {
+            const items = assets.filter((a) => a.category === cat)
+            if (items.length === 0) return null
+            const isExpanded = expandedCategories.has(cat)
+            const CatIcon = CATEGORY_ICONS[cat]
+            return (
+              <div key={cat} className="sidebar-section">
+                <div className="sidebar-category-header" onClick={() => toggleCategory(cat)}>
+                  {isExpanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+                  <CatIcon size={14} />
+                  <span className="sidebar-subtitle">{CATEGORY_LABEL[cat]}</span>
+                  <span className="sidebar-count">{items.length}</span>
                 </div>
-              ))}
-            </div>
-          )}
+                {isExpanded && (
+                  cat === 'image' ? (
+                    <div className="sidebar-thumb-grid">
+                      {items.map((a) => (
+                        <div key={a.id} className="sidebar-thumb" draggable
+                          onDragStart={(e) => onDragStart(e, a)}
+                          onDoubleClick={() => onDoubleClick(a.url)}>
+                          <img src={a.url} alt={a.name} draggable={false} />
+                          <span>{a.name.slice(0, 16)}</span>
+                          <button className="sidebar-thumb-delete" onClick={(e) => { e.stopPropagation(); removeAsset(a.id) }} title="Remove">
+                            <Trash2 size={10} />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    items.map((a) => (
+                      <div key={a.id} className={`sidebar-clip ${playingId === a.id ? 'sidebar-clip--active' : ''}`}>
+                        <button className="btn btn-ghost btn-sm" onClick={() => handlePlay(a)}>
+                          {playingId === a.id ? '⏸' : <Play size={12} />}
+                        </button>
+                        <CatIcon size={14} className="sidebar-icon" />
+                        <span className="sidebar-clip-label">{a.name}</span>
+                        <button className="btn btn-ghost btn-sm" onClick={() => removeAsset(a.id)} title="Remove">
+                          <Trash2 size={10} />
+                        </button>
+                      </div>
+                    ))
+                  )
+                )}
+              </div>
+            )
+          })}
         </>
       )}
 

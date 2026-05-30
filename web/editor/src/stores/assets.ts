@@ -1,9 +1,12 @@
 import { create } from 'zustand'
 
+export type AssetCategory = 'image' | 'music' | 'voice' | 'sfx' | 'video' | 'other'
+
 export interface Asset {
   id: string
   name: string
   type: 'image' | 'audio' | 'video' | 'other'
+  category: AssetCategory
   mediaType: string
   url: string
   thumbnailUrl?: string
@@ -14,6 +17,12 @@ export interface Asset {
   createdAt: string
   prompt?: string
 }
+
+export const CATEGORY_LABEL: Record<AssetCategory, string> = {
+  image: 'Images', music: 'Music', voice: 'Voices', sfx: 'SFX', video: 'Video', other: 'Other',
+}
+
+export const CATEGORY_ORDER: AssetCategory[] = ['image', 'music', 'voice', 'sfx', 'video', 'other']
 
 interface AssetStore {
   assets: Asset[]
