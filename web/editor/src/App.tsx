@@ -1,14 +1,15 @@
 import { useEffect, useState, useCallback } from 'react'
 import { useWorkflowStore } from './stores/workflow'
 import { useToastStore } from './stores/toast'
-import { listSpecs, getSpec, startRun, getRun, executeStep } from './api'
+import { listSpecs, getSpec, startRun, getRun } from './api'
 import { useSSE } from './hooks/useSSE'
 import { Layout } from './components/Layout'
+import { WorkspaceLayout } from './components/workspaces/WorkspaceLayout'
 import { Toaster } from './components/Toaster'
 import type { SSEEvent } from './types'
 
 export function App() {
-  const { spec, run, setSpec, setRun, setLoading, loading, updateStepState, reset } = useWorkflowStore()
+  const { spec, run, setSpec, setRun, loading, updateStepState, reset, viewMode } = useWorkflowStore()
   const toast = useToastStore((s) => s.addToast)
   const specName = run?.spec_name ?? null
   const runId = run?.run_id ?? null
@@ -35,95 +36,51 @@ export function App() {
     }
     if (event.event === 'workflow_completed') {
       toast('success', 'Pipeline completed')
-      if (specName && runId) {
-        getRun(specName, runId).then(setRun).catch(() => {})
-      }
+      if (specName && runId) getRun(specName, runId).then(setRun).catch(() => {})
     } else if (event.event === 'workflow_failed') {
       toast('error', event.error || 'Pipeline failed')
-      if (specName && runId) {
-        getRun(specName, runId).then(setRun).catch(() => {})
-      }
+      if (specName && runId) getRun(specName, runId).then(setRun).catch(() => {})
     }
   }, [specName, runId, updateStepState, setRun, toast])
 
   useSSE(specName, runId, onSSEEvent)
 
+  // Load specs and auto-create a run for the workspace
   useEffect(() => {
     listSpecs()
-      .then((specs) => {
-        setAllSpecs(specs.filter((s) => !s.name.startsWith('_')))
-        if (specs.length > 0) {
-          const defaultSpec = specs.find((s) => s.name === 'video_editor') || specs[0]
-          return getSpec(defaultSpec.name)
+      .then(async (specs) => {
+        const filtered = specs.filter((s) => !s.name.startsWith('_'))
+        setAllSpecs(filtered)
+        if (filtered.length > 0) {
+          const defaultSpec = filtered.find((s) => s.name === 'video_editor') || filtered[0]
+          const s = await getSpec(defaultSpec.name)
+          setSpec(s)
+          // Auto-create a run so workspace has context
+          const result = await startRun(s.name, {}, true)
+          const fullRun = await getRun(s.name, result.run_id)
+          setRun(fullRun)
         }
-        return null
       })
-      .then((s) => { if (s) setSpec(s) })
       .catch((e) => {
-        const msg = e instanceof Error ? e.message : 'Could not load pipeline specs'
-        setError(msg)
-        toast('error', msg)
+        setError(e instanceof Error ? e.message : 'Could not load pipeline specs')
+        toast('error', e instanceof Error ? e.message : 'Failed to load')
       })
-  }, [setSpec, toast])
+  }, [])
 
   const handleSpecChange = useCallback(async (name: string) => {
     reset()
     try {
       const s = await getSpec(name)
       setSpec(s)
+      const result = await startRun(s.name, {}, true)
+      const fullRun = await getRun(s.name, result.run_id)
+      setRun(fullRun)
     } catch (e) {
       toast('error', e instanceof Error ? e.message : 'Could not load spec')
     }
-  }, [reset, setSpec, toast])
+  }, [reset, setSpec, setRun, toast])
 
-  const handleStart = useCallback(async (inputs: Record<string, unknown>) => {
-    if (!spec) return
-    setLoading(true)
-    try {
-      const result = await startRun(spec.name, inputs, true)
-      let fullRun = await getRun(spec.name, result.run_id)
-      setRun(fullRun)
-      // Auto-execute the first step so the user sees output immediately
-      const firstStep = spec.steps[0]
-      if (firstStep) {
-        try {
-          const stepResult = await executeStep(spec.name, result.run_id, firstStep.id) as Record<string, unknown>
-          if (stepResult.status === 'error') {
-            toast('error', String(stepResult.error || 'Generation failed'))
-          }
-          fullRun = await getRun(spec.name, result.run_id)
-          setRun(fullRun)
-        } catch (e) {
-          toast('error', e instanceof Error ? e.message : 'Generation failed')
-        }
-      }
-    } catch (e) {
-      toast('error', e instanceof Error ? e.message : 'Could not start pipeline')
-    } finally {
-      setLoading(false)
-    }
-  }, [spec, setRun, setLoading, toast])
-
-  const handleLoadRun = useCallback(async (specName: string, existingRunId: string) => {
-    setLoading(true)
-    try {
-      const s = await getSpec(specName)
-      setSpec(s)
-      const fullRun = await getRun(specName, existingRunId)
-      setRun(fullRun)
-    } catch (e) {
-      toast('error', e instanceof Error ? e.message : 'Could not load run')
-    } finally {
-      setLoading(false)
-    }
-  }, [setSpec, setRun, setLoading, toast])
-
-  const handleNewRun = useCallback(() => {
-    reset()
-    if (spec) getSpec(spec.name).then(setSpec).catch(() => {})
-  }, [reset, spec, setSpec])
-
-  if (!spec) {
+  if (!spec || !run) {
     if (error) {
       return (
         <div className="loading-screen">
@@ -133,21 +90,29 @@ export function App() {
         </div>
       )
     }
-    return <div className="loading-screen">Loading workflow specs...</div>
+    return <div className="loading-screen">Loading workspace...</div>
+  }
+
+  // Use workspace layout for timeline/workspace modes, pipeline layout for pipeline mode
+  if (viewMode === 'timeline' || viewMode === 'kimodo') {
+    return (
+      <>
+        {loading && <div className="loading-overlay"><div className="spinner" /></div>}
+        <WorkspaceLayout spec={spec} run={run} allSpecs={allSpecs} onSpecChange={handleSpecChange} />
+        <Toaster />
+      </>
+    )
   }
 
   return (
     <>
       {loading && <div className="loading-overlay"><div className="spinner" /></div>}
-      <Layout
-        spec={spec}
-        allSpecs={allSpecs}
-        run={run}
-        onStart={handleStart}
-        onNewRun={handleNewRun}
-        onSpecChange={handleSpecChange}
-        onLoadRun={handleLoadRun}
-      />
+      <Layout spec={spec} allSpecs={allSpecs} run={run}
+        onStart={async () => {}} onNewRun={() => reset()} onSpecChange={handleSpecChange}
+        onLoadRun={async (sn, rid) => {
+          const s = await getSpec(sn); setSpec(s)
+          const fr = await getRun(sn, rid); setRun(fr)
+        }} />
       <Toaster />
     </>
   )
