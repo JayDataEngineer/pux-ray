@@ -6,7 +6,7 @@ of truth.
 """
 from __future__ import annotations
 
-from typing import Annotated
+from typing import Annotated, Any
 
 from fastmcp import Context
 from pydantic import Field

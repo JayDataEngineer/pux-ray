@@ -3,8 +3,6 @@
 Provides sensible defaults per model with an "advanced" mode for full control.
 All models route through the Wan2GP forge adapter via /v1/run.
 """
-from __future__ import annotations
-
 from typing import Annotated, Any
 
 from fastmcp import Context
@@ -140,7 +138,7 @@ async def generate_image(
         preset["sampling_steps"] = 4
 
     # Build params: start with preset defaults, override with explicit args
-    params: dict[str, Any] = {
+    params = {
         "input_prompt": prompt,
         "seed": seed,
     }
