@@ -90,40 +90,6 @@ export function VideoWorkspace({ run }: { run: WorkflowRun | null }) {
 
   return (
     <div className="video-workspace">
-      {/* Asset Explorer Sidebar */}
-      <aside className="workspace-sidebar">
-        <div className="sidebar-section">
-          <div className="sidebar-title">ASSET EXPLORER</div>
-          <button className="btn btn-primary btn-block" onClick={handleAddKeyframe}>NEW KEYFRAME</button>
-        </div>
-        <div className="sidebar-nav">
-          <a className="sidebar-link"><span className="icon">folder_open</span>Assets</a>
-          <a className="sidebar-link"><span className="icon">upload_file</span>Uploads</a>
-          <a className="sidebar-link"><span className="icon">history</span>History</a>
-          <a className="sidebar-link"><span className="icon">library_music</span>Library</a>
-        </div>
-        <div className="sidebar-section">
-          <div className="sidebar-subtitle">KEY FRAMES</div>
-          {segments.map((seg) => (
-            <div key={seg.id} className={`sidebar-clip ${seg.id === selectedSegmentId ? 'sidebar-clip--active' : ''}`} onClick={() => setSelectedSegment(seg.id)}>
-              {seg.thumbnailUrl ? <img src={seg.thumbnailUrl} alt="" className="sidebar-thumb-img" /> : <div className="sidebar-thumb-placeholder" />}
-              <span>K_{String(seg.order + 1).padStart(2, '0')}</span>
-              <span className={`seg-status seg-status--${seg.status}`}>{seg.status}</span>
-            </div>
-          ))}
-        </div>
-        <div className="sidebar-section">
-          <div className="sidebar-subtitle">AUDIO TRACKS</div>
-          {audioCues.map((cue) => (
-            <div key={cue.id} className="sidebar-clip">
-              <span className={`track-dot track-dot--${cue.track}`} />
-              <span>{cue.label.slice(0, 20)}</span>
-              <span>{cue.duration}s</span>
-            </div>
-          ))}
-        </div>
-      </aside>
-
       {/* Preview + Timeline */}
       <main className="video-main">
         <div className="video-preview">

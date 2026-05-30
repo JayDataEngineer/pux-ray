@@ -13,7 +13,7 @@ interface Props {
 
 type PipelineStep = 'character' | 'mesh' | 'compose'
 
-export function VisualWorkspace({ spec, run, allSpecs, onSpecChange }: Props) {
+export function VisualWorkspace({ spec: _spec, run, allSpecs: _allSpecs, onSpecChange: _onSpecChange }: Props) {
   const setRun = useWorkflowStore((s) => s.setRun)
   const toast = useToastStore((s) => s.addToast)
   const [activeStep, setActiveStep] = useState<PipelineStep>('character')
@@ -108,40 +108,6 @@ export function VisualWorkspace({ spec, run, allSpecs, onSpecChange }: Props) {
 
   return (
     <div className="visuals-workspace">
-      {/* Asset Explorer Sidebar */}
-      <aside className="workspace-sidebar">
-        <div className="sidebar-section">
-          <div className="sidebar-title">ASSET EXPLORER</div>
-          <select className="form-input" value={spec.name} onChange={(e) => onSpecChange(e.target.value)}>
-            {allSpecs.map((s) => <option key={s.name} value={s.name}>{s.name.replace(/_/g, ' ')}</option>)}
-          </select>
-        </div>
-        <div className="sidebar-nav">
-          <a className="sidebar-link"><span className="icon">folder_open</span>Assets</a>
-          <a className="sidebar-link"><span className="icon">upload_file</span>Uploads</a>
-          <a className="sidebar-link"><span className="icon">history</span>History</a>
-          <a className="sidebar-link"><span className="icon">library_music</span>Library</a>
-        </div>
-        <div className="sidebar-section">
-          <div className="sidebar-subtitle">RECENT PORTRAITS</div>
-          {charImage && (
-            <div className="sidebar-thumb" onClick={() => setActiveStep('character')}>
-              <img src={charImage} alt="Character" />
-              <span>CHAR_01</span>
-            </div>
-          )}
-        </div>
-        {composedImage && (
-          <div className="sidebar-section">
-            <div className="sidebar-subtitle">KEY FRAMES</div>
-            <div className="sidebar-thumb" onClick={() => setActiveStep('compose')}>
-              <img src={composedImage} alt="Key frame" />
-              <span>KF_01</span>
-            </div>
-          </div>
-        )}
-      </aside>
-
       {/* Keyframe Canvas */}
       <main className="visuals-main">
         <div className="visuals-canvas-header">

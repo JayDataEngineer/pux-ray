@@ -1714,3 +1714,9 @@ body {
 .track-segment--music { background: rgba(251,146,60,.1); }
 .track-segment--voice { background: rgba(74,222,128,.1); }
 .seg-label { position: relative; z-index: 1; background: rgba(0,0,0,.6); padding: 1px 4px; color: var(--color-accent); }
+
+.sidebar-icon { width: 20px; text-align: center; flex-shrink: 0; }
+.sidebar-link--active { color: var(--color-accent); background: var(--bg-active); }
+.sidebar-empty { color: var(--text-tertiary); font-size: 11px; padding: 8px 12px; }
+.sidebar-thumb-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; }
+.sidebar-audio { width: 60px; height: 20px; }

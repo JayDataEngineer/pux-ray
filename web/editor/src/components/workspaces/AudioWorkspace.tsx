@@ -103,29 +103,6 @@ export function AudioWorkspace({ run: _run }: { run: import('../../types').Workf
   return (
     <div className="audio-workspace">
       <audio ref={audioRef} onEnded={() => setPlayingId(null)} style={{ display: 'none' }} />
-      {/* Asset Explorer Sidebar */}
-      <aside className="workspace-sidebar">
-        <div className="sidebar-section">
-          <div className="sidebar-title">ASSET EXPLORER</div>
-          <button className="btn btn-primary btn-block">NEW GEN</button>
-        </div>
-        <div className="sidebar-nav">
-          <a className="sidebar-link"><span className="icon">folder_open</span>Assets</a>
-          <a className="sidebar-link"><span className="icon">upload_file</span>Uploads</a>
-          <a className="sidebar-link"><span className="icon">history</span>History</a>
-          <a className="sidebar-link"><span className="icon">library_music</span>Library</a>
-        </div>
-        <div className="sidebar-section">
-          <div className="sidebar-subtitle">CLIPS</div>
-          {clips.filter((c) => c.status === 'ready').map((c) => (
-            <div key={c.id} className={`sidebar-clip ${playingId === c.id ? 'sidebar-clip--active' : ''}`} onClick={() => handlePlay(c)}>
-              <span className="sidebar-clip-label">{c.prompt.slice(0, 25)}</span>
-              <span className="sidebar-clip-dur">{c.duration}s</span>
-            </div>
-          ))}
-        </div>
-      </aside>
-
       {/* Main Content */}
       <main className="audio-main">
         <div className="audio-main-header">
