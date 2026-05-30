@@ -92,6 +92,18 @@ function InputField({ inputKey, spec, value, onChange }: {
     reader.readAsDataURL(file)
   }
 
+  if (spec.enum) {
+    return (
+      <select
+        className="form-input"
+        value={(value as string) ?? (spec.default as string) ?? ''}
+        onChange={(e) => onChange(inputKey, e.target.value)}
+      >
+        {spec.enum.map((opt) => <option key={opt} value={opt}>{opt}</option>)}
+      </select>
+    )
+  }
+
   if (isFileInput(inputKey, spec)) {
     return (
       <div className="upload-zone" onClick={() => fileRef.current?.click()}>
@@ -105,18 +117,6 @@ function InputField({ inputKey, spec, value, onChange }: {
           </div>
         )}
       </div>
-    )
-  }
-
-  if (spec.enum) {
-    return (
-      <select
-        className="form-input"
-        value={(value as string) ?? (spec.default as string) ?? ''}
-        onChange={(e) => onChange(inputKey, e.target.value)}
-      >
-        {spec.enum.map((opt) => <option key={opt} value={opt}>{opt}</option>)}
-      </select>
     )
   }
 
