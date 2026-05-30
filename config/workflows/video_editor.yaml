@@ -146,7 +146,7 @@ steps:
   music:
     type: forge
     service: wan2gp
-    model: ace_step/v1_5
+    model: tts/ace_step_v1_5
     params:
       prompt: "{{ inputs.music_prompt }}"
       duration: 5
