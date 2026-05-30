@@ -443,6 +443,42 @@ def main():
             print(f"ERR: {e}")
             failed += 1
 
+    # ── Step 10: Anima (Cosmos-Predict2-2B anime T2I) ──
+    print(f"\n── Anima (Cosmos-Predict2-2B by CircleStone Labs) ──")
+    anima_dest = Path(os.environ.get("WAN2GP_ROOT", "/opt/wan2gp"))
+    anima_files = [
+        ("anima-base-v1.0.safetensors", "circlestone-labs/Anima",
+         "split_files/diffusion_models/anima-base-v1.0.safetensors", 4.0),
+        ("qwen_3_06b_base.safetensors", "circlestone-labs/Anima",
+         "split_files/text_encoders/qwen_3_06b_base.safetensors", 1.2),
+    ]
+    for dest_name, repo_id, src_path, size_gb in anima_files:
+        target = PVC_WAN2GP / dest_name
+        print(f"  {dest_name:45s} ({size_gb}GB) ... ", end="", flush=True)
+        if target.exists() and target.stat().st_size > 100_000:
+            print("EXISTS")
+            continue
+        t0 = time.time()
+        try:
+            from huggingface_hub import hf_hub_download
+            hf_hub_download(
+                repo_id=repo_id,
+                filename=src_path,
+                local_dir=str(PVC_WAN2GP),
+                local_dir_use_symlinks=False,
+                cache_dir=os.environ.get("HF_HUB_CACHE"),
+            )
+            # hf_hub_download with local_dir puts file at local_dir/split_files/...
+            # Rename to flat wan2gp/ layout
+            nested = PVC_WAN2GP / src_path
+            if nested.exists() and nested != target:
+                nested.rename(target)
+            dt = time.time() - t0
+            print(f"DOWNLOADED ({dt:.0f}s)")
+        except Exception as e:
+            print(f"ERR: {e}")
+            failed += 1
+
     if failed:
         print(f"\n  FAILED MODELS:")
         for mt, r in results.items():

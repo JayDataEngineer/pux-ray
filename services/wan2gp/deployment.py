@@ -538,6 +538,7 @@ _WEIGHT_SEARCH = {
     # Other Wan2GP vendor models
     "magi_human":      [("wan2gp", "magi-human")],
     "longcat_video":   [("wan2gp", "longcat-video")],
+    "anima_base":      [("wan2gp", "anima-base")],
     "z_image_turbo":   [("wan2gp", "z-image-turbo")],
     # Lance models
     "lance-image":     [("lance", "lance-image")],

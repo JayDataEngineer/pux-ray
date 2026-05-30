@@ -1670,6 +1670,24 @@ wan2gp:
     vram_estimate_gb: 40.0
     device: gpu
     description: Qwen-Image-Edit 20B bf16. Full precision image editing. Downloaded by Wan2GP job.
+  anima-base:
+    path: wan2gp/anima-base-v1.0.safetensors
+    source: hf://circlestone-labs/Anima/split_files/diffusion_models/anima-base-v1.0.safetensors
+    download: file
+    sha256: null
+    size_gb: 4.0
+    vram_estimate_gb: 6.0
+    device: gpu
+    description: Anima Base 2B — Cosmos-Predict2 anime/illustration T2I by CircleStone Labs + Comfy Org. 30 steps, CFG 4-5, 512-1536px. Danbooru tags.
+  anima-text-encoder:
+    path: wan2gp/qwen_3_06b_base.safetensors
+    source: hf://circlestone-labs/Anima/split_files/text_encoders/qwen_3_06b_base.safetensors
+    download: file
+    sha256: null
+    size_gb: 1.2
+    vram_estimate_gb: 1.5
+    device: gpu
+    description: Qwen3 0.6B text encoder for Anima. Downloaded by Wan2GP job.
   moss-soundeffect-v2:
     path: wan2gp/moss_soundeffect_v2
     source: hf://OpenMOSS-Team/MOSS-SoundEffect-v2.0
