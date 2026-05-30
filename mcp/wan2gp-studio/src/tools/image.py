@@ -1,0 +1,156 @@
+"""Image generation MCP tool — unified interface for z-image, anigen, flux, etc.
+
+Provides sensible defaults per model with an "advanced" mode for full control.
+All models route through the Wan2GP forge adapter via /v1/run.
+"""
+from __future__ import annotations
+
+from typing import Annotated, Any
+
+from fastmcp import Context
+from pydantic import Field
+
+# ── Model presets ──────────────────────────────────────────────────────────────
+
+_MODEL_PRESETS: dict[str, dict] = {
+    "z_image": {
+        "label": "Z-Image Turbo",
+        "quality": "turbo",
+        "width": 1024, "height": 1024,
+        "sampling_steps": 8, "guide_scale": 0.0,
+        "description": "Fast distilled model, 8 steps, no CFG. Best for photorealism.",
+    },
+    "z_image_base": {
+        "label": "Z-Image Base",
+        "quality": "standard",
+        "width": 1024, "height": 1024,
+        "sampling_steps": 50, "guide_scale": 4.0,
+        "negative_prompt": "blurry, low quality, deformed, bad anatomy, extra fingers, watermark, cropped",
+        "description": "Full model, 50 steps, CFG 4.0. Best for creative work and fine-tuning.",
+    },
+    "flux_schnell": {
+        "label": "Flux Schnell",
+        "width": 1024, "height": 1024,
+        "sampling_steps": 4, "guide_scale": 1.0,
+        "description": "Fast Flux variant, 4 steps.",
+    },
+    "flux_dev": {
+        "label": "Flux Dev",
+        "width": 1024, "height": 1024,
+        "sampling_steps": 28, "guide_scale": 3.5,
+        "description": "Full Flux model, 28 steps.",
+    },
+    "trellis": {
+        "label": "TRELLIS 3D",
+        "steps": 12, "guidance": 7.5,
+        "resolution": "1024_cascade",
+        "description": "Image-to-3D mesh generation.",
+    },
+    "anigen": {
+        "label": "AniGen 3D",
+        "description": "Anime image-to-rigged-3D generation.",
+    },
+    "qwen_image_edit": {
+        "label": "Qwen Image Edit",
+        "sampling_steps": 4, "guide_scale": 1.0,
+        "description": "Image-to-image editing via Qwen.",
+    },
+}
+
+_MODEL_CHOICES = list(_MODEL_PRESETS.keys())
+
+
+async def generate_image(
+    model: Annotated[str, Field(
+        description=f"Model to use. One of: {', '.join(_MODEL_CHOICES)}",
+    )],
+    prompt: Annotated[str, Field(
+        description="Text prompt describing the image to generate. 60-200 words for best results.",
+    )],
+    negative_prompt: Annotated[str | None, Field(
+        description="Negative prompt for base models. Ignored by turbo/distilled models.",
+    )] = None,
+    seed: Annotated[int, Field(
+        description="Random seed for reproducibility. -1 for random.",
+    )] = -1,
+    width: Annotated[int, Field(
+        description="Image width in pixels. Must be divisible by 16.",
+    )] = 1024,
+    height: Annotated[int, Field(
+        description="Image height in pixels. Must be divisible by 16.",
+    )] = 1024,
+    image_b64: Annotated[str | None, Field(
+        description="Base64-encoded source image for i2v/image-edit models.",
+    )] = None,
+    advanced: Annotated[bool, Field(
+        description="Enable advanced mode to override all parameters manually.",
+    )] = False,
+    sampling_steps: Annotated[int | None, Field(
+        description="[Advanced] Number of denoising steps. Overrides model preset.",
+    )] = None,
+    guide_scale: Annotated[float | None, Field(
+        description="[Advanced] CFG guidance scale. Overrides model preset.",
+    )] = None,
+    quality: Annotated[str | None, Field(
+        description="[Advanced] Quality mode: 'turbo' or 'standard'. Overrides model preset.",
+    )] = None,
+    ctx: Context | None = None,
+) -> dict:
+    """Generate an image using Z-Image, Flux, AniGen, or TRELLIS.
+
+    Sensible defaults are applied per model. Use advanced=True to override
+    individual parameters like sampling_steps, guide_scale, or quality.
+
+    Returns base64-encoded image data and metadata.
+    """
+    if ctx is None:
+        raise RuntimeError("No MCP context available")
+    client = ctx.lifespan_context.get("forge_client")
+    if client is None:
+        raise RuntimeError("API client not initialized")
+
+    preset = _MODEL_PRESETS.get(model, {})
+
+    # Build params: start with preset defaults, override with explicit args
+    params: dict[str, Any] = {
+        "input_prompt": prompt,
+        "seed": seed,
+    }
+
+    # Apply preset defaults (overridden by explicit args when not in advanced mode)
+    if not advanced:
+        params["quality"] = quality or preset.get("quality", "turbo")
+        params["width"] = width if width != 1024 else preset.get("width", 1024)
+        params["height"] = height if height != 1024 else preset.get("height", 1024)
+        if negative_prompt is not None:
+            params["n_prompt"] = negative_prompt
+        elif "negative_prompt" in preset:
+            params["n_prompt"] = preset["negative_prompt"]
+        # Only set steps/CFG if model preset has them (not all models do)
+        if "sampling_steps" in preset and sampling_steps is None:
+            params["sampling_steps"] = preset["sampling_steps"]
+        if "guide_scale" in preset and guide_scale is None:
+            params["guide_scale"] = preset["guide_scale"]
+        # Pass through model-specific extra params
+        for extra_key in ("steps", "guidance", "resolution"):
+            if extra_key in preset:
+                params[extra_key] = preset[extra_key]
+    else:
+        # Advanced mode: only explicit args, no preset defaults
+        if quality:
+            params["quality"] = quality
+        params["width"] = width
+        params["height"] = height
+        if negative_prompt is not None:
+            params["n_prompt"] = negative_prompt
+        if sampling_steps is not None:
+            params["sampling_steps"] = sampling_steps
+        if guide_scale is not None:
+            params["guide_scale"] = guide_scale
+
+    if image_b64:
+        params["image_b64"] = image_b64
+
+    # Route through wan2gp forge adapter
+    payload = {"service": "wan2gp", "model": model, **params}
+    return await client.invoke(payload)

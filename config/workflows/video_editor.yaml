@@ -66,10 +66,9 @@ steps:
     model: z_image
     params:
       input_prompt: "{{ inputs.character_prompt }}"
+      quality: "{{ inputs.quality }}"
       n_prompt: "bad quality,worst quality"
       seed: "{{ inputs.seed }}"
-      sampling_steps: 8
-      guide_scale: 1.0
       width: 1024
       height: 1024
     outputs:

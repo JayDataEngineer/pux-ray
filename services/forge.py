@@ -434,24 +434,31 @@ class ForgeCore:
             # Service is loaded — but if OTHER services are also loaded, the
             # GPU might be overcommitted. Self-managed services (vram_mb=0)
             # need exclusive GPU access for model switching. Evict others.
-            # PIPELINE_LOCKED services are never evicted — they take priority.
+            # invoke() is an explicit user action — override all locks.
             others_loaded = [n for n, l in self._loaded.items()
                             if l and n != service]
+            for other in others_loaded:
+                logger.info("Forge: evicting co-loaded %s (service %s is handling invoke)",
+                            other, service)
+                await asyncio.to_thread(self._do_unload, other)
             if others_loaded:
-                locked = [n for n in others_loaded
-                          if self._get_persistence(n) >= Persistence.PIPELINE_LOCKED]
-                if locked:
-                    return {"status": "error",
-                            "error": (f"Cannot load {service}: "
-                                      f"{locked[0]} is locked (pipeline-locked service running). "
-                                      f"Release it first.")}
-                for other in others_loaded:
-                    logger.info("Forge: evicting co-loaded %s (service %s is handling invoke)",
-                                other, service)
-                    await asyncio.to_thread(self._do_unload, other)
                 await self._wait_gpu_ready(service)
             svc = self._services[service]
             return await asyncio.to_thread(svc.infer, payload)
+
+        # Service is not loaded — evict anything else holding GPU before loading.
+        # Self-managed services (wan2gp vram_mb=0) bypass _can_fit() so
+        # _evict_for is never called for them. Co-loaded subprocess services
+        # (LLM, kimodo) hold real GPU memory outside the ledger. Boot them.
+        # invoke() is an explicit user action — override all locks.
+        others_loaded = [n for n, l in self._loaded.items()
+                         if l and n != service]
+        for other in others_loaded:
+            logger.info("Forge: evicting co-loaded %s before loading %s (invoke)",
+                        other, service)
+            await asyncio.to_thread(self._do_unload, other)
+        if others_loaded:
+            await self._wait_gpu_ready(service)
 
         self._cleanup_stale_allocations()
         if not self._can_fit(service):

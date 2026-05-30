@@ -31,10 +31,9 @@ steps:
     model: z_image
     params:
       input_prompt: "{{ inputs.prompt }}"
+      quality: "{{ inputs.quality }}"
       n_prompt: "{{ inputs.negative_prompt }}"
       seed: "{{ inputs.seed }}"
-      sampling_steps: 8
-      guide_scale: 1.0
       width: "{{ inputs.width }}"
       height: "{{ inputs.height }}"
     outputs:

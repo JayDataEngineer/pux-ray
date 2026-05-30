@@ -101,6 +101,7 @@ mcp = FastMCP(
 # ========== TOOL REGISTRATION ==========
 
 from .tools.generate import run
+from .tools.image import generate_image
 from .tools.status import list_models, list_services, get_service, forge_status
 from .tools.tts import tts_speak, tts_voices
 from .tools.audio import transcribe, generate_sound, generate_music
@@ -164,6 +165,11 @@ _register_app_resources()
 mcp.tool(run, meta={
     "ui": {"resourceUri": "ui://apps/generate"},
     "openai/toolInvocation/invoking": "Generating…",
+    "openai/toolInvocation/invoked": "Done",
+})
+mcp.tool(generate_image, meta={
+    "ui": {"resourceUri": "ui://apps/image"},
+    "openai/toolInvocation/invoking": "Generating image…",
     "openai/toolInvocation/invoked": "Done",
 })
 mcp.tool(list_models)

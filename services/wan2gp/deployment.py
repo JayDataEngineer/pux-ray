@@ -1195,8 +1195,38 @@ class Wan2GPService:
 
     # ── Inference ─────────────────────────────────────────────────────────
 
+    # Quality-mode presets for Z-Image — mapped by base_model_type
+    _Z_IMAGE_QUALITY = {
+        "turbo": {
+            "sampling_steps": 8, "guide_scale": 0.0, "n_prompt": "",
+            "cfg_normalization": None,
+        },
+        "standard": {
+            "sampling_steps": 50, "guide_scale": 4.0,
+            "cfg_normalization": False,
+        },
+    }
+
     def infer(self, payload: dict) -> dict:
         model_key = payload.get("model") or payload.get("model_type") or self._loaded_model or self.default_model
+
+        # Z-Image quality mode: "standard" → z_image_base, "turbo" → z_image
+        _quality = payload.get("quality", "") or payload.get("input_quality", "")
+        if _quality and model_key in ("z_image", "z_image/z_image", "z_image_base", "z_image/z_image_base"):
+            preset = self._Z_IMAGE_QUALITY.get(_quality, {})
+            if _quality == "standard" and "z_image_base" not in model_key:
+                model_key = "z_image_base"
+            elif _quality == "turbo" and "z_image_base" in model_key:
+                model_key = "z_image"
+            # Apply preset defaults (only if caller didn't explicitly set them)
+            for k, v in preset.items():
+                if v is not None and k not in payload:
+                    payload[k] = v
+            if _quality == "turbo":
+                payload["n_prompt"] = ""  # Turbo ignores negative prompts
+            logger.info("Z-Image quality=%s model=%s steps=%s cfg=%s",
+                        _quality, model_key, payload.get("sampling_steps"),
+                        payload.get("guide_scale"))
 
         if model_key != self._loaded_model:
             try:
