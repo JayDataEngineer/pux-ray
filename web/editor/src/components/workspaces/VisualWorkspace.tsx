@@ -1,7 +1,5 @@
 import { useState, useCallback } from 'react'
 import { Image, Wand2 } from 'lucide-react'
-import { executeStep, getRun } from '../../api'
-import { useWorkflowStore } from '../../stores/workflow'
 import { useAssetStore } from '../../stores/assets'
 import { useToastStore } from '../../stores/toast'
 import type { WorkflowSpec, WorkflowRun } from '../../types'
@@ -26,8 +24,7 @@ interface Props {
 type PipelineStep = 'character' | 'mesh' | 'compose'
 type CharMode = 'generate' | 'existing'
 
-export function VisualWorkspace({ spec: _spec, run, allSpecs: _allSpecs, onSpecChange: _onSpecChange }: Props) {
-  const setRun = useWorkflowStore((s) => s.setRun)
+export function VisualWorkspace({ spec: _spec, run: _run, allSpecs: _allSpecs, onSpecChange: _onSpecChange }: Props) {
   const toast = useToastStore((s) => s.addToast)
   const allAssets = useAssetStore((s) => s.assets)
   const [activeStep, setActiveStep] = useState<PipelineStep>('character')
@@ -46,32 +43,36 @@ export function VisualWorkspace({ spec: _spec, run, allSpecs: _allSpecs, onSpecC
   ]
 
   const handleGenerateChar = useCallback(async () => {
-    if (!run || !charPrompt) return
+    if (!charPrompt) { toast('error', 'Enter a character prompt'); return }
     setGenerating(true)
     try {
-      const result = await executeStep(run.spec_name, run.run_id, 'generate_character', {
-        input_prompt: charPrompt,
-        model: charModel,
-      }) as Record<string, unknown>
-      if (result.status === 'error') {
-        toast('error', String(result.error || 'Failed'))
+      const quality = charModel === 'z_image_base' ? 'standard' : 'turbo'
+      const result = await runPipeline('tech-noir/generate', {
+        prompt: charPrompt,
+        quality,
+        seed: 42,
+        width: 1024,
+        height: 1024,
+      })
+      if (result.status === 'error' || result.status === 'failed') {
+        toast('error', `Generate: ${String(result.error || result.message || 'Failed')}`)
+        setGenerating(false)
         return
       }
-      const updated = await getRun(run.spec_name, run.run_id)
-      setRun(updated)
-      const art = Object.values(updated.artifacts).find((a) => a.step_id === 'generate_character' && a.media_type.startsWith('image/'))
-      if (art) {
-        const url = `/v1/wf/${updated.spec_name}/runs/${updated.run_id}/artifacts/${art.step_id}/${art.name}.png`
+      if (result.data) {
+        const url = `data:image/png;base64,${result.data}`
         setCharImage(url)
+        setActiveStep('mesh')
+        toast('success', 'Character generated')
+      } else {
+        toast('error', `Generate returned no image: ${JSON.stringify(result).slice(0, 200)}`)
       }
-      setActiveStep('mesh')
-      toast('success', 'Character generated')
     } catch (e) {
-      toast('error', e instanceof Error ? e.message : 'Generation failed')
+      toast('error', `Generate failed: ${e instanceof Error ? e.message : String(e)}`)
     } finally {
       setGenerating(false)
     }
-  }, [run, charPrompt, charModel, setRun, toast])
+  }, [charPrompt, charModel, toast])
 
   const handleLaunchKimodo = useCallback(() => {
     window.open('/kimodo/', '_blank')
@@ -147,13 +148,7 @@ export function VisualWorkspace({ spec: _spec, run, allSpecs: _allSpecs, onSpecC
         <div className="visuals-canvas-footer">
           <span>RENDER: <span className="text-primary">{generating ? 'PROCESSING' : 'READY'}</span></span>
           {composedImage && (
-            <button className="btn btn-primary" onClick={() => {
-              if (run) {
-                import('../../api').then(({ getRun }) => getRun(run.spec_name, run.run_id).then(setRun))
-              }
-            }}>
-              Export to Video
-            </button>
+            <span className="text-primary" style={{fontSize:11}}>Ready — switch to Video tab to use this keyframe</span>
           )}
         </div>
       </main>
