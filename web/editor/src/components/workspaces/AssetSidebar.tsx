@@ -5,7 +5,7 @@ import { useTimelineStore } from '../../stores/timeline'
 import { useToastStore } from '../../stores/toast'
 import type { WorkflowRun } from '../../types'
 
-type SidebarTab = 'assets' | 'history'
+type SidebarTab = 'assets' | 'uploads' | 'history'
 
 interface Props {
   run: WorkflowRun | null
@@ -20,6 +20,9 @@ export function AssetSidebar({ run: _run, onNavigateHistory }: Props) {
   const removeAsset = useAssetStore((s) => s.removeAsset)
   const images = assets.filter((a) => a.type === 'image')
   const audio = assets.filter((a) => a.type === 'audio')
+  const uploaded = assets.filter((a) => a.source === 'uploaded')
+  const uploadedImages = uploaded.filter((a) => a.type === 'image')
+  const uploadedAudio = uploaded.filter((a) => a.type === 'audio')
   const [pastRuns] = useState<{ run_id: string; spec_name: string; status: string }[]>(() => {
     try { return JSON.parse(localStorage.getItem('past_runs') || '[]') } catch { return [] }
   })
@@ -60,6 +63,9 @@ export function AssetSidebar({ run: _run, onNavigateHistory }: Props) {
       <nav className="sidebar-nav">
         <a className={`sidebar-link ${activeTab === 'assets' ? 'sidebar-link--active' : ''}`} onClick={() => setActiveTab('assets')}>
           <FolderOpen size={14} className="sidebar-icon" />{assets.length > 0 ? `Assets (${assets.length})` : 'Assets'}
+        </a>
+        <a className={`sidebar-link ${activeTab === 'uploads' ? 'sidebar-link--active' : ''}`} onClick={() => setActiveTab('uploads')}>
+          <Upload size={14} className="sidebar-icon" />{uploaded.length > 0 ? `Uploads (${uploaded.length})` : 'Uploads'}
         </a>
         <a className={`sidebar-link ${activeTab === 'history' ? 'sidebar-link--active' : ''}`} onClick={() => setActiveTab('history')}>
           <History size={14} className="sidebar-icon" />History
@@ -105,6 +111,52 @@ export function AssetSidebar({ run: _run, onNavigateHistory }: Props) {
                 </div>
               ))}
             </div>
+          )}
+        </>
+      )}
+
+      {activeTab === 'uploads' && (
+        <>
+          {uploaded.length === 0 ? (
+            <div className="sidebar-section">
+              <div className="sidebar-empty">Nothing uploaded yet<br />Use IMPORT to add files</div>
+            </div>
+          ) : (
+            <>
+              {uploadedImages.length > 0 && (
+                <div className="sidebar-section">
+                  <div className="sidebar-subtitle">Images ({uploadedImages.length})</div>
+                  <div className="sidebar-thumb-grid">
+                    {uploadedImages.map((a) => (
+                      <div key={a.id} className="sidebar-thumb">
+                        <img src={a.url} alt={a.name} />
+                        <span>{a.name.slice(0, 16)}</span>
+                        <button className="sidebar-thumb-delete" onClick={(e) => { e.stopPropagation(); removeAsset(a.id) }}>
+                          <Trash2 size={10} />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {uploadedAudio.length > 0 && (
+                <div className="sidebar-section">
+                  <div className="sidebar-subtitle">Audio ({uploadedAudio.length})</div>
+                  {uploadedAudio.map((a) => (
+                    <div key={a.id} className={`sidebar-clip ${playingId === a.id ? 'sidebar-clip--active' : ''}`}>
+                      <button className="btn btn-ghost btn-sm" onClick={() => handlePlay(a)}>
+                        {playingId === a.id ? '⏸' : <Play size={12} />}
+                      </button>
+                      <Music size={14} className="sidebar-icon" />
+                      <span className="sidebar-clip-label">{a.name}</span>
+                      <button className="btn btn-ghost btn-sm" onClick={() => removeAsset(a.id)}>
+                        <Trash2 size={10} />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </>
           )}
         </>
       )}
