@@ -197,26 +197,58 @@ function VideoTab() {
   const segments = useTimelineStore((s) => s.segments)
   const audioCues = useTimelineStore((s) => s.audioCues)
   const addSegment = useTimelineStore((s) => s.addSegment)
+  const updateSegment = useTimelineStore((s) => s.updateSegment)
   const selectedSegmentId = useTimelineStore((s) => s.selectedSegmentId)
   const setSelectedSegment = useTimelineStore((s) => s.setSelectedSegment)
   const toast = useToastStore((s) => s.addToast)
+  const addAsset = useAssetStore((s) => s.addAsset)
+  const [generating, setGenerating] = useState(false)
+  const selectedSegment = segments.find((s) => s.id === selectedSegmentId)
 
   const onDrop = (e: React.DragEvent) => {
     e.preventDefault()
     try { const d = JSON.parse(e.dataTransfer.getData('application/tech-noir-asset'))
-      if (d.type === 'image') { const s = addSegment({ prompt: d.name, firstFrameB64: d.url, thumbnailUrl: d.url, status:'empty' }); setSelectedSegment(s.id); toast('info', `Added keyframe: ${d.name}`) }
+      if (d.type === 'image') { const s = addSegment({ prompt: d.name, firstFrameB64: d.url, thumbnailUrl: d.url, status: 'empty' }); setSelectedSegment(s.id); toast('info', `Added keyframe: ${d.name}`) }
     } catch {}
+  }
+
+  const handleGenerateVideo = async () => {
+    if (!selectedSegment?.firstFrameB64) { toast('error', 'Select a keyframe with an image first'); return }
+    setGenerating(true)
+    const seg = selectedSegment
+    try {
+      const b64 = seg.firstFrameB64!.includes(',') ? seg.firstFrameB64!.split(',')[1] : seg.firstFrameB64!
+      const res = await fetch('/v1/run', { method: 'POST', headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({ service: 'wan2gp', model: 'ltx2', input_prompt: seg.prompt || 'cinematic motion', image_b64: b64, seed: 42, fps: 24, frame_num: Math.round(seg.duration * 24), guide_scale: 3.0, width: 768, height: 512, sample_solver: 'euler' }) })
+      const text = await res.text()
+      let result: Record<string,unknown> = {}
+      try { result = JSON.parse(text) } catch { toast('error', text.slice(0,200)); setGenerating(false); return }
+      if (result.status === 'ok' && result.data) {
+        const videoUrl = `data:video/mp4;base64,${result.data}`
+        updateSegment(seg.id, { videoUrl, status: 'ready' })
+        addAsset({ name: `LTX Video ${seg.order+1}`, type: 'video', category: 'video', mediaType: 'video/mp4', url: videoUrl, sizeBytes: Math.round((result.data as string).length*0.75), source: 'generated' })
+        toast('success', `Video K_${String(seg.order+1).padStart(2,'0')} generated`)
+      } else {
+        toast('error', `Video failed: ${result.error || 'Unknown'}`)
+      }
+    } catch (e) { toast('error', `Error: ${e instanceof Error ? e.message : String(e)}`) }
+    finally { setGenerating(false) }
   }
 
   return (
     <div className="flex-1 flex flex-col p-4 overflow-hidden bg-zinc-950">
-      <div className="flex-1 flex items-center justify-center border border-zinc-800 rounded bg-zinc-900 mb-3" onDragOver={e=>e.preventDefault()} onDrop={onDrop}>
-        {segments.length === 0 && <p className="text-zinc-500 text-sm">Drag images from Assets sidebar to add keyframes</p>}
-        {segments.length > 0 && <p className="text-zinc-400 text-sm">{segments.length} keyframe(s) — timeline below</p>}
+      <div className="flex-1 flex flex-col items-center justify-center border border-zinc-800 rounded bg-zinc-900 mb-3" onDragOver={e=>e.preventDefault()} onDrop={onDrop}>
+        {selectedSegment?.videoUrl ? (
+          <video src={selectedSegment.videoUrl} controls className="max-w-full max-h-full" />
+        ) : segments.length === 0 ? (
+          <p className="text-zinc-500 text-sm">Drag images from Assets sidebar to add keyframes</p>
+        ) : (
+          <p className="text-zinc-400 text-sm">{segments.length} keyframe(s) — select one and generate video</p>
+        )}
       </div>
       <div className="h-32 border border-zinc-800 rounded bg-zinc-900 p-2 flex items-center gap-1 overflow-x-auto">
         {segments.map((seg) => (
-          <div key={seg.id} className={`h-full min-w-[60px] flex items-center justify-center bg-zinc-800 border rounded text-[10px] cursor-pointer ${seg.id===selectedSegmentId?'border-accent':'border-zinc-700'}`}
+          <div key={seg.id} className={`h-full min-w-[60px] flex items-center justify-center bg-zinc-800 border rounded text-[10px] cursor-pointer relative overflow-hidden ${seg.id===selectedSegmentId?'border-accent':'border-zinc-700'}`}
             style={{width:`${seg.duration*40}px`}} onClick={()=>setSelectedSegment(seg.id)}>
             {seg.thumbnailUrl && <img src={seg.thumbnailUrl} alt="" className="absolute inset-0 w-full h-full object-cover opacity-40" />}
             <span className="relative z-10 text-zinc-300">K_{String(seg.order+1).padStart(2,'0')}</span>
@@ -224,6 +256,19 @@ function VideoTab() {
         ))}
         <button className="h-full min-w-[30px] flex items-center justify-center border border-dashed border-zinc-700 rounded text-zinc-500 hover:border-accent/50" onClick={()=>{const s=addSegment({duration:5,status:'empty'});setSelectedSegment(s.id)}}>+</button>
       </div>
+      {selectedSegment && (
+        <div className="mt-3 flex flex-col gap-2">
+          <input className="bg-zinc-900 border border-zinc-800 rounded px-2 py-1 text-sm text-zinc-200" placeholder="Video prompt (e.g. walking forward, cinematic)" value={selectedSegment.prompt}
+            onChange={(e) => updateSegment(selectedSegment.id, { prompt: e.target.value })} />
+          <div className="flex gap-2">
+            <input type="number" className="bg-zinc-900 border border-zinc-800 rounded px-2 py-1 w-20 text-sm text-zinc-200" placeholder="Duration" value={selectedSegment.duration}
+              onChange={(e) => updateSegment(selectedSegment.id, { duration: parseFloat(e.target.value) || 5 })} />
+            <button className="flex-1 bg-accent text-zinc-950 font-semibold py-1 rounded text-sm hover:bg-accent/80 disabled:opacity-50" disabled={generating || !selectedSegment.firstFrameB64} onClick={handleGenerateVideo}>
+              {generating ? 'Generating...' : 'Generate LTX Video'}
+            </button>
+          </div>
+        </div>
+      )}
       {audioCues.length > 0 && <div className="mt-1 text-[10px] text-zinc-500">{audioCues.length} audio cue(s) from generated assets</div>}
     </div>
   )
