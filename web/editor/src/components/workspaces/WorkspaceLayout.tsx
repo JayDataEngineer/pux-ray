@@ -1,12 +1,18 @@
-import { useState } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { AudioWorkspace } from './AudioWorkspace'
 import { VisualWorkspace } from './VisualWorkspace'
 import { VideoWorkspace } from './VideoWorkspace'
 import { AssetSidebar } from './AssetSidebar'
+import { useAssetStore } from '../../stores/assets'
 import { useWorkflowStore } from '../../stores/workflow'
 import { useToastStore } from '../../stores/toast'
 import { getSpec, getRun } from '../../api'
 import type { WorkflowRun, WorkflowSpec } from '../../types'
+
+function extForMedia(mediaType: string): string {
+  const m: Record<string, string> = { 'image/png': 'png', 'image/jpeg': 'jpg', 'image/webp': 'webp', 'video/mp4': 'mp4', 'audio/wav': 'wav', 'audio/mp3': 'mp3' }
+  return m[mediaType] || 'bin'
+}
 
 type WorkspaceTab = 'audio' | 'visuals' | 'video'
 
@@ -22,6 +28,31 @@ export function WorkspaceLayout({ spec, run, onSpecChange, allSpecs }: Props) {
   const setSpec = useWorkflowStore((s) => s.setSpec)
   const setRun = useWorkflowStore((s) => s.setRun)
   const toast = useToastStore((s) => s.addToast)
+  const addAsset = useAssetStore((s) => s.addAsset)
+  const existingAssetIds = useRef(new Set<string>())
+
+  // Sync generated artifacts into the persistent asset store
+  useEffect(() => {
+    if (!run) return
+    for (const [, art] of Object.entries(run.artifacts)) {
+      const assetId = `${run.run_id}:${art.step_id}:${art.name}`
+      if (existingAssetIds.current.has(assetId)) continue
+      existingAssetIds.current.add(assetId)
+      const ext = extForMedia(art.media_type)
+      const filename = art.name.includes('.') ? art.name : `${art.name}.${ext}`
+      const url = `/v1/wf/${run.spec_name}/runs/${run.run_id}/artifacts/${art.step_id}/${filename}`
+      const type = art.media_type.startsWith('image/') ? 'image' as const
+        : art.media_type.startsWith('audio/') ? 'audio' as const
+        : art.media_type.startsWith('video/') ? 'video' as const
+        : 'other' as const
+      addAsset({
+        name: `${art.step_id.replace(/_/g, ' ')} (${run.run_id.slice(0, 6)})`,
+        type, mediaType: art.media_type, url,
+        sizeBytes: art.size_bytes, source: 'generated',
+        sourceRunId: run.run_id, sourceStepId: art.step_id,
+      })
+    }
+  }, [run?.run_id, run?.artifacts])
 
   const handleNavigateHistory = async (specName: string, runId: string) => {
     try {

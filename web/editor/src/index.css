@@ -1720,3 +1720,9 @@ body {
 .sidebar-empty { color: var(--text-tertiary); font-size: 11px; padding: 8px 12px; }
 .sidebar-thumb-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; }
 .sidebar-audio { width: 60px; height: 20px; }
+.sidebar-thumb-delete {
+  position: absolute; top: 2px; right: 2px; background: rgba(0,0,0,.7);
+  border: none; color: var(--color-error); cursor: pointer;
+  padding: 1px; display: none; border-radius: 2px;
+}
+.sidebar-thumb:hover .sidebar-thumb-delete { display: block; }
