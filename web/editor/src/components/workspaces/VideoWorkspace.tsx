@@ -5,6 +5,17 @@ import { useToastStore } from '../../stores/toast'
 import { executeStep, getRun } from '../../api'
 import type { WorkflowRun } from '../../types'
 
+function parseDropAsset(e: React.DragEvent): { url: string; type: string; name: string } | null {
+  try {
+    const raw = e.dataTransfer.getData('application/tech-noir-asset')
+    if (raw) return JSON.parse(raw)
+  } catch {}
+  // Fallback: plain text URL from external sources
+  const text = e.dataTransfer.getData('text/plain')
+  if (text) return { url: text, type: 'image', name: 'Dropped' }
+  return null
+}
+
 export function VideoWorkspace({ run }: { run: WorkflowRun | null }) {
   const segments = useTimelineStore((s) => s.segments)
   const audioCues = useTimelineStore((s) => s.audioCues)
@@ -24,6 +35,26 @@ export function VideoWorkspace({ run }: { run: WorkflowRun | null }) {
   const [showBlendEditor, setShowBlendEditor] = useState(false)
 
   const selectedSegment = segments.find((s) => s.id === selectedSegmentId)
+
+  // Drop handlers — image from asset sidebar → keyframe
+  const onDragOver = (e: React.DragEvent) => { e.preventDefault(); e.dataTransfer.dropEffect = 'copy' }
+
+  const onDropNewSegment = useCallback((e: React.DragEvent) => {
+    e.preventDefault()
+    const asset = parseDropAsset(e)
+    if (!asset) return
+    const seg = addSegment({ prompt: asset.name, firstFrameB64: asset.url, thumbnailUrl: asset.url, status: 'empty' })
+    setSelectedSegment(seg.id)
+    toast('info', `"${asset.name}" added as keyframe K_${String(seg.order + 1).padStart(2, '0')}`)
+  }, [addSegment, setSelectedSegment, toast])
+
+  const onDropExistingSegment = useCallback((segId: string) => (e: React.DragEvent) => {
+    e.preventDefault(); e.stopPropagation()
+    const asset = parseDropAsset(e)
+    if (!asset) return
+    updateSegment(segId, { firstFrameB64: asset.url, thumbnailUrl: asset.url, prompt: asset.name })
+    toast('info', `Image set as keyframe for segment`)
+  }, [updateSegment, toast])
 
   const handleAddKeyframe = useCallback(() => {
     const seg = addSegment({ duration: 5, prompt: '', status: 'empty' })
@@ -92,13 +123,13 @@ export function VideoWorkspace({ run }: { run: WorkflowRun | null }) {
     <div className="video-workspace">
       {/* Preview + Timeline */}
       <main className="video-main">
-        <div className="video-preview">
+        <div className="video-preview" onDragOver={onDragOver} onDrop={onDropNewSegment}>
           {selectedSegment?.videoUrl ? (
             <video src={selectedSegment.videoUrl} controls className="video-player" />
           ) : selectedSegment?.thumbnailUrl ? (
             <img src={selectedSegment.thumbnailUrl} alt="Preview" className="video-preview-img" />
           ) : (
-            <div className="video-preview-empty">Add key frames and generate to preview video</div>
+            <div className="video-preview-empty">Drag images here or add key frames below</div>
           )}
         </div>
 
@@ -117,14 +148,18 @@ export function VideoWorkspace({ run }: { run: WorkflowRun | null }) {
               <span className="track-label">V1_MASTER</span>
               <div className="track-segments">
                 {segments.map((seg) => (
-                  <div key={seg.id} className={`track-segment ${seg.id === selectedSegmentId ? 'track-segment--active' : ''} track-segment--${seg.status}`}
+                  <div key={seg.id}
+                    className={`track-segment ${seg.id === selectedSegmentId ? 'track-segment--active' : ''} track-segment--${seg.status}`}
                     style={{ width: `${seg.duration * 60}px` }}
-                    onClick={() => setSelectedSegment(seg.id)}>
+                    onClick={() => setSelectedSegment(seg.id)}
+                    onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); e.dataTransfer.dropEffect = 'copy' }}
+                    onDrop={onDropExistingSegment(seg.id)}>
                     {seg.thumbnailUrl && <img src={seg.thumbnailUrl} alt="" />}
                     <span className="seg-label">K_{String(seg.order + 1).padStart(2, '0')}</span>
                   </div>
                 ))}
-                <div className="track-segment track-segment--add" onClick={handleAddKeyframe}>+</div>
+                <div className="track-segment track-segment--add" onClick={handleAddKeyframe}
+                  onDragOver={onDragOver} onDrop={onDropNewSegment}>+</div>
               </div>
             </div>
             {/* Audio track */}

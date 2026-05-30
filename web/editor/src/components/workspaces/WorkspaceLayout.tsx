@@ -30,6 +30,8 @@ export function WorkspaceLayout({ spec, run, onSpecChange, allSpecs }: Props) {
   const toast = useToastStore((s) => s.addToast)
   const addAsset = useAssetStore((s) => s.addAsset)
   const existingAssetIds = useRef(new Set<string>())
+  // Stable artifact key so the effect doesn't loop
+  const artifactKeys = run ? Object.keys(run.artifacts).join(',') : ''
 
   // Sync generated artifacts into the persistent asset store
   useEffect(() => {
@@ -52,7 +54,7 @@ export function WorkspaceLayout({ spec, run, onSpecChange, allSpecs }: Props) {
         sourceRunId: run.run_id, sourceStepId: art.step_id,
       })
     }
-  }, [run?.run_id, run?.artifacts])
+  }, [artifactKeys])
 
   const handleNavigateHistory = async (specName: string, runId: string) => {
     try {
