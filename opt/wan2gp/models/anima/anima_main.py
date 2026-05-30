@@ -201,7 +201,7 @@ class model_factory:
         with init_empty_weights():
             text_encoder = Qwen3ForCausalLM(te_config)
         text_encoder.load_state_dict(te_sd, strict=False, assign=True)
-        text_encoder.to(dtype)
+        text_encoder.to(dtype).to("cuda" if torch.cuda.is_available() else "cpu")
         text_encoder.eval()
         # Pipeline expects .last_hidden_state like T5, but Qwen3 returns
         # CausalLMOutputWithPast. Wrap forward to return compatible output.
@@ -274,8 +274,8 @@ class model_factory:
         input_prompt: str = "",
         n_prompt: str | None = None,
         sampling_steps: int = 30,
-        width: int = 1024,
-        height: int = 1024,
+        width: int = 512,
+        height: int = 512,
         guide_scale: float = 4.0,
         batch_size: int = 1,
         callback=None,
@@ -284,6 +284,16 @@ class model_factory:
         loras_slists=None,
         **kwargs,
     ):
+        """Minimal T2I generation using raw components.
+
+        Bypasses Cosmos2TextToImagePipeline (RoPE shape issues, VRAM overhead).
+        Directly calls transformer, scheduler, and VAE with cache clearing
+        between steps to keep VRAM usage stable.
+        """
+        import gc
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        dtype = self.transformer.dtype
+
         if VAE_tile_size is not None and hasattr(self.vae, "use_tiling"):
             if isinstance(VAE_tile_size, int):
                 tiling = VAE_tile_size > 0
@@ -295,32 +305,75 @@ class model_factory:
             self.vae.tile_latent_min_height = tile_size
             self.vae.tile_latent_min_width = tile_size
 
-        # Use CPU generator — pipeline moves latents to GPU during denoising
+        # Seed
         generator = torch.Generator(device="cpu")
         if seed is not None and seed >= 0:
             generator.manual_seed(int(seed))
-        images = self.pipeline(
-            prompt=input_prompt,
-            negative_prompt=n_prompt or "worst quality, low quality",
-            num_inference_steps=sampling_steps,
-            guidance_scale=guide_scale,
-            num_images_per_prompt=batch_size,
-            generator=generator,
-            height=height,
-            width=width,
-            max_sequence_length=max_sequence_length,
-            callback_on_step_end=None,
-            output_type="pt",
-            return_dict=True,
+
+        # Move components to GPU for inference
+        self.transformer.to(device).to(dtype)
+        self.vae.to(device).to(torch.float32)
+        self.text_encoder.to("cpu")  # keep TE on CPU, encode once
+        torch.cuda.empty_cache()
+        gc.collect()
+
+        # Encode text (CPU, then move to GPU)
+        neg = n_prompt or "worst quality, low quality"
+        def _encode(text):
+            ids = self.tokenizer(
+                text, return_tensors="pt", padding="max_length",
+                max_length=256, truncation=True,
+            ).input_ids
+            with torch.no_grad():
+                out = self.text_encoder(
+                    input_ids=ids, output_hidden_states=True
+                )
+            return out.hidden_states[-1].to(device)
+
+        neg_embeds = _encode(neg)
+        pos_embeds = _encode(input_prompt)
+
+        # Create latents
+        vae_scale = 8  # Qwen VAE spatial compression
+        latent_h, latent_w = height // vae_scale, width // vae_scale
+        latents = torch.randn(
+            1, 16, latent_h, latent_w, generator=generator,
+            device=device, dtype=dtype,
         )
+        self.scheduler.set_timesteps(sampling_steps, device=device)
 
-        if images is None:
-            return None
+        # Denoising loop
+        for t in self.scheduler.timesteps:
+            with torch.no_grad():
+                # CFG: duplicate latents and embeds for conditional/unconditional
+                latent_in = torch.cat([latents] * 2).unsqueeze(2)  # [2B, C, 1, H, W]
+                embeds = torch.cat([neg_embeds, pos_embeds])
+                noise_pred = self.transformer(
+                    hidden_states=latent_in,
+                    encoder_hidden_states=embeds,
+                    timestep=t.expand(2),
+                    return_dict=False,
+                )[0]
+            # CFG split
+            np_u, np_t = noise_pred.chunk(2)
+            del noise_pred, latent_in, embeds
+            noise_pred = np_u + guide_scale * (np_t - np_u)
+            del np_u, np_t
+            latents = self.scheduler.step(
+                noise_pred.squeeze(2), t, latents, return_dict=False
+            )[0]
+            del noise_pred
+            torch.cuda.empty_cache()
 
-        if not torch.is_tensor(images):
-            images = torch.tensor(images)
+        # Decode latents → image
+        with torch.no_grad():
+            image = self.vae.decode(latents.float(), return_dict=False)[0]
+        image = image.clamp(0, 1)
 
-        return images.transpose(0, 1)
+        if not torch.is_tensor(image):
+            image = torch.tensor(image)
+
+        return image.unsqueeze(0)  # add batch dim for compatibility
 
     def get_loras_transformer(self, *args, **kwargs):
         return [], []
