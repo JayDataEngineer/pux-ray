@@ -149,15 +149,11 @@ export function VisualWorkspace({ spec: _spec, run, allSpecs: _allSpecs, onSpecC
       <aside className="workspace-panel">
         <div className="panel-title">VISUAL PIPELINE</div>
 
-        {/* Pipeline Steps */}
+        {/* Pipeline Steps — all clickable, no gates */}
         <div className="pipeline-steps-visual">
           {pipelineSteps.map((step) => (
-            <div key={step.id} className={`pipeline-step ${activeStep === step.id ? 'pipeline-step--active' : ''} ${(step.id === 'mesh' && !charImage) || (step.id === 'compose' && !poseImage) ? 'pipeline-step--disabled' : ''}`}
-              onClick={() => {
-                if (step.id === 'character' || (step.id === 'mesh' && charImage) || (step.id === 'compose' && poseImage)) {
-                  setActiveStep(step.id)
-                }
-              }}>
+            <div key={step.id} className={`pipeline-step ${activeStep === step.id ? 'pipeline-step--active' : ''}`}
+              onClick={() => setActiveStep(step.id)}>
               <div className="pipeline-step-num">{step.num}</div>
               <div className="pipeline-step-label">
                 {step.label}
@@ -229,10 +225,31 @@ export function VisualWorkspace({ spec: _spec, run, allSpecs: _allSpecs, onSpecC
             <>
               <div className="form-group">
                 <label className="form-label">Source Character</label>
-                <div className="asset-input">
-                  {charImage && <img src={charImage} alt="Source" className="asset-thumb" />}
-                  <span>{charImage ? 'CHAR_01' : 'No character generated'}</span>
+                {!charImage && allAssets.filter(a => a.type === 'image').length > 0 && (
+                  <div className="asset-picker-grid">
+                    {allAssets.filter(a => a.type === 'image').slice(0, 6).map((a) => (
+                      <div key={a.id}
+                        className={`asset-picker-thumb ${charImage === a.url ? 'asset-picker-thumb--active' : ''}`}
+                        onClick={() => setCharImage(a.url)}>
+                        <img src={a.url} alt={a.name} />
+                        <span>{a.name.slice(0, 12)}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                <div className="asset-input" style={{ marginTop: 8 }}>
+                  {charImage ? <img src={charImage} alt="Source" className="asset-thumb" /> : <span className="sidebar-empty">Pick from above or upload below</span>}
+                  <span>{charImage ? 'Selected' : 'No character selected'}</span>
                 </div>
+                <label className="btn btn-ghost btn-sm" style={{ cursor: 'pointer', marginTop: 4 }}>
+                  Upload Character
+                  <input type="file" accept="image/*" style={{ display: 'none' }} onChange={(e) => {
+                    const file = e.target.files?.[0]; if (!file) return
+                    const reader = new FileReader()
+                    reader.onload = () => setCharImage(reader.result as string)
+                    reader.readAsDataURL(file)
+                  }} />
+                </label>
               </div>
               <div className="form-group">
                 <label className="form-label">Pose Reference (Mesh)</label>
@@ -240,9 +257,9 @@ export function VisualWorkspace({ spec: _spec, run, allSpecs: _allSpecs, onSpecC
                   {poseImage ? (
                     <img src={poseImage} alt="Pose" className="asset-thumb" />
                   ) : (
-                    <span className="material-symbols-outlined">accessibility_new</span>
+                    <span>No pose uploaded</span>
                   )}
-                  <span>{poseImage ? 'Pose_Uploaded' : 'No pose uploaded'}</span>
+                  <span>{poseImage ? 'Pose Ready' : 'Launch Kimodo or upload'}</span>
                 </div>
               </div>
               <button className="btn btn-primary btn-block" onClick={handleLaunchKimodo}>
@@ -252,7 +269,7 @@ export function VisualWorkspace({ spec: _spec, run, allSpecs: _allSpecs, onSpecC
                 Upload Pose Image
                 <input type="file" accept="image/*" style={{ display: 'none' }} onChange={handleUploadPose} />
               </label>
-              <button className="btn btn-secondary btn-block" disabled={!poseImage} onClick={() => setActiveStep('compose')}>
+              <button className="btn btn-secondary btn-block" onClick={() => setActiveStep('compose')}>
                 Continue to Composition
               </button>
             </>
