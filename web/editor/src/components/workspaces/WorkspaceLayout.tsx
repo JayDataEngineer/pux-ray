@@ -5,8 +5,7 @@ import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { Label } from '@/components/ui/label'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs' // still used in AssetsTab model switcher
-import { NavigationMenu, NavigationMenuItem, NavigationMenuLink, NavigationMenuList, navigationMenuTriggerStyle } from '@/components/ui/navigation-menu'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Badge } from '@/components/ui/badge'
 import { Separator } from '@/components/ui/separator'
@@ -319,37 +318,25 @@ function VideoTab() {
 }
 
 // ─── Root Layout ──────────────────────────────────────────────────────────
-type TabId = 'assets' | 'video'
-
 export function WorkspaceLayout(_props: any = {}) {
-  const [tab, setTab] = useState<TabId>('assets')
   return (
     <SidebarProvider defaultOpen={true}>
       <div className="flex h-screen w-full">
         <Sidebar><AppSidebar /></Sidebar>
         <div className="flex-1 flex flex-col min-w-0">
-          <header className="flex items-center h-11 px-4 border-b shrink-0 gap-4">
-            <span className="font-bold text-sm tracking-tight mr-2">TECH NOIR</span>
-            <NavigationMenu>
-              <NavigationMenuList>
-                <NavigationMenuItem>
-                  <NavigationMenuLink
-                    className={navigationMenuTriggerStyle()}
-                    active={tab === 'assets'}
-                    onClick={() => setTab('assets')}
-                  >Assets</NavigationMenuLink>
-                </NavigationMenuItem>
-                <NavigationMenuItem>
-                  <NavigationMenuLink
-                    className={navigationMenuTriggerStyle()}
-                    active={tab === 'video'}
-                    onClick={() => setTab('video')}
-                  >Video</NavigationMenuLink>
-                </NavigationMenuItem>
-              </NavigationMenuList>
-            </NavigationMenu>
+          <header className="flex items-center h-11 px-4 border-b shrink-0 gap-6">
+            <span className="font-bold text-sm tracking-tight">TECH NOIR</span>
+            <Tabs defaultValue="assets" className="h-full -mb-px">
+              <TabsList className="h-full bg-transparent gap-0">
+                <TabsTrigger value="assets" className="h-full rounded-none data-[state=active]:border-b-2 data-[state=active]:border-primary data-[state=active]:shadow-none">Assets</TabsTrigger>
+                <TabsTrigger value="video" className="h-full rounded-none data-[state=active]:border-b-2 data-[state=active]:border-primary data-[state=active]:shadow-none">Video</TabsTrigger>
+              </TabsList>
+            </Tabs>
           </header>
-          {tab === 'assets' ? <AssetsTab /> : <VideoTab />}
+          <Tabs defaultValue="assets" className="flex-1 flex flex-col min-h-0">
+            <TabsContent value="assets" className="flex-1 overflow-hidden m-0 data-[state=active]:flex"><AssetsTab /></TabsContent>
+            <TabsContent value="video" className="flex-1 overflow-hidden m-0 data-[state=active]:flex"><VideoTab /></TabsContent>
+          </Tabs>
         </div>
       </div>
     </SidebarProvider>
