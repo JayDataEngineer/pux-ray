@@ -47,6 +47,24 @@ export function AssetSidebar({ run: _run, onNavigateHistory }: Props) {
     setPlayingId((prev) => prev === asset.id ? null : asset.id)
   }
 
+  const onDragStart = (e: React.DragEvent, asset: { url: string; id: string; type: string; name: string }) => {
+    e.dataTransfer.setData('application/tech-noir-asset', JSON.stringify({ url: asset.url, type: asset.type, name: asset.name, id: asset.id }))
+    e.dataTransfer.setData('text/plain', asset.url)
+    e.dataTransfer.effectAllowed = 'copy'
+  }
+
+  const onDoubleClick = (url: string) => {
+    // Open full-size in a module-style overlay
+    const overlay = document.createElement('div')
+    overlay.className = 'asset-focus-overlay'
+    overlay.onclick = () => overlay.remove()
+    const img = document.createElement('img')
+    img.src = url
+    img.className = 'asset-focus-img'
+    overlay.appendChild(img)
+    document.body.appendChild(overlay)
+  }
+
   return (
     <aside className="workspace-sidebar">
       <div className="sidebar-section sidebar-header-row">
@@ -78,8 +96,10 @@ export function AssetSidebar({ run: _run, onNavigateHistory }: Props) {
               <div className="sidebar-subtitle">Images ({images.length})</div>
               <div className="sidebar-thumb-grid">
                 {images.map((a) => (
-                  <div key={a.id} className="sidebar-thumb">
-                    <img src={a.url} alt={a.name} />
+                  <div key={a.id} className="sidebar-thumb" draggable
+                    onDragStart={(e) => onDragStart(e, a)}
+                    onDoubleClick={() => onDoubleClick(a.url)}>
+                    <img src={a.url} alt={a.name} draggable={false} />
                     <span>{a.name.slice(0, 16)}</span>
                     <button className="sidebar-thumb-delete" onClick={(e) => { e.stopPropagation(); removeAsset(a.id) }} title="Remove">
                       <Trash2 size={10} />

@@ -1749,3 +1749,8 @@ body {
   background: rgba(0,0,0,.7); padding: 2px 4px;
   font-size: 9px; color: var(--text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
+.asset-focus-overlay {
+  position: fixed; inset: 0; z-index: 9999; background: rgba(0,0,0,.85);
+  display: flex; align-items: center; justify-content: center; cursor: pointer;
+}
+.asset-focus-img { max-width: 90vw; max-height: 90vh; object-fit: contain; }
