@@ -16,8 +16,8 @@ export function KimodoEmbed() {
       await new Promise((r) => setTimeout(r, 3000))
       // Verify it's reachable
       await fetch(kimodoUrl(), { method: 'HEAD', mode: 'no-cors' })
-      // no-cors means we can't read status, but if it doesn't throw, the server is up
-      setStatus('ready')
+      // Full-page redirect to Viser
+      window.location.href = kimodoUrl()
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to load Kimodo')
       setStatus('error')
@@ -34,8 +34,8 @@ export function KimodoEmbed() {
     return (
       <div className="kimodo-loading">
         <div className="spinner" />
-        <p>Starting Kimodo Viser server...</p>
-        <span className="kimodo-hint">This loads the 3D posing tool on the GPU (may take ~30s)</span>
+        <p>Starting Kimodo 3D Posing...</p>
+        <span className="kimodo-hint">Loading on GPU — you'll be redirected automatically</span>
       </div>
     )
   }
@@ -52,14 +52,5 @@ export function KimodoEmbed() {
     )
   }
 
-  return (
-    <div className="kimodo-container">
-      <iframe
-        src={kimodoUrl()}
-        className="kimodo-iframe"
-        title="Kimodo Director"
-        allow="clipboard-write"
-      />
-    </div>
-  )
+  return null
 }

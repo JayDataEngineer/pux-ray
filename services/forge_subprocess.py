@@ -93,9 +93,14 @@ class ForgeSubprocessMixin:
         if self._process.poll() is None:
             kill_process_tree(pid)
             try:
-                self._process.wait(timeout=5)
+                self._process.wait(timeout=10)
             except subprocess.TimeoutExpired:
                 logger.warning("Process %d didn't die after SIGKILL", pid)
+                # Force reap zombie
+                try:
+                    os.waitpid(pid, os.WNOHANG)
+                except (ChildProcessError, OSError):
+                    pass
 
         self._process = None
         self._base_url = ""

@@ -10,6 +10,7 @@ Multi-node: GPUNode registry for Tailscale workers (Phase 4).
 from __future__ import annotations
 
 import asyncio
+import os
 import time
 import gc
 import importlib
@@ -159,7 +160,19 @@ class ForgeCore:
             if self._vram_allocations:
                 return self._vram_free_mb >= MIN_COFREE_MB
             return True
-        return estimate <= self._vram_free_mb
+        # Ledger-managed service — also check real GPU memory when self-managed
+        # services (vram_mb=0) are loaded, since they don't appear in the ledger.
+        if estimate <= self._vram_free_mb:
+            has_self_managed = any(
+                self._loaded.get(n) and self._services.get(n) and self._services[n].vram_mb == 0
+                for n in self._loaded
+            )
+            if has_self_managed:
+                real_free = _real_gpu_free_mb()
+                if real_free is not None and real_free < estimate + MIN_COFREE_MB:
+                    return False
+            return True
+        return False
 
     def _evict_for(self, name: str, *, force: bool = False) -> list[str]:
         needed = self._estimate_vram(name)
@@ -172,8 +185,22 @@ class ForgeCore:
             needed = MIN_COFREE_MB
 
         evicted = []
+
+        # Build eviction candidates from BOTH ledger-tracked AND self-managed
+        # (vram_mb=0) services. Self-managed services like wan2gp (mmgp) don't
+        # appear in _vram_allocations but hold real GPU memory that must be freed.
+        candidates: dict[str, int] = {}
+        for n in self._loaded:
+            if not self._loaded[n]:
+                continue
+            mb = self._vram_allocations.get(n, 0)
+            svc = self._services.get(n)
+            if svc and svc.vram_mb == 0:
+                mb = 0  # self-managed: real usage unknown, mark as 0 for sorting
+            candidates[n] = mb
+
         loaded_by_priority = sorted(
-            [(n, mb) for n, mb in self._vram_allocations.items() if self._loaded.get(n)],
+            candidates.items(),
             key=lambda x: (self._get_persistence(x[0]).value, -x[1]),
         )
 
@@ -185,18 +212,33 @@ class ForgeCore:
             gpu_ok = real_free is None or real_free >= MIN_COFREE_MB
             if ledger_ok and gpu_ok:
                 break
-            # Force mode: evict even pipeline-locked services (explicit user action)
-            if not force and self._get_persistence(svc_name) >= Persistence.PIPELINE_LOCKED:
+            # PIPELINE_LOCKED services are never evicted — only explicit release() unloads them.
+            if self._get_persistence(svc_name) >= Persistence.PIPELINE_LOCKED:
                 continue
             logger.info("Forge: evicting %s (%dMB, persistence=%s, force=%s) for %s (%dMB)",
                         svc_name, svc_mb, self._get_persistence(svc_name).name, force, name, needed)
             self._do_unload(svc_name)
             evicted.append(svc_name)
 
-        if self._vram_free_mb < needed:
+        # Final check: if real GPU memory is still too low, we couldn't evict enough
+        real_free = _real_gpu_free_mb()
+        if real_free is not None and real_free < MIN_COFREE_MB and not evicted:
+            locked = [n for n in self._loaded if self._loaded[n]
+                      and self._get_persistence(n) >= Persistence.PIPELINE_LOCKED]
+            hint = (f" Pipeline-locked services are holding GPU: {locked}. "
+                    f"Release them first.") if locked else ""
             raise RuntimeError(
                 f"Cannot free enough VRAM for {name}: need {needed}MB, "
-                f"free {self._vram_free_mb}MB (remaining services are pipeline-locked)"
+                f"GPU free {real_free}MB.{hint}"
+            )
+        if self._vram_free_mb < needed and needed > 0:
+            locked = [n for n in self._loaded if self._loaded[n]
+                      and self._get_persistence(n) >= Persistence.PIPELINE_LOCKED]
+            hint = (f" Pipeline-locked services are holding GPU: {locked}. "
+                    f"Release them first.") if locked else ""
+            raise RuntimeError(
+                f"Cannot free enough VRAM for {name}: need {needed}MB, "
+                f"ledger free {self._vram_free_mb}MB.{hint}"
             )
 
         return evicted
@@ -257,6 +299,40 @@ class ForgeCore:
             self._vram_free_mb -= estimate
 
     def _reconcile_vram(self, name: str, estimate: int) -> None:
+        """Reconcile ledger with real GPU memory after loading a service.
+
+        Uses real GPU memory (torch.cuda.mem_get_info) as ground truth
+        instead of torch.cuda.memory_allocated, which doesn't see
+        subprocess (llama.cpp) or mmgp allocations.
+        """
+        real_free = _real_gpu_free_mb()
+        if real_free is not None:
+            # Real GPU memory is the ground truth. Calculate actual usage
+            # as the delta between what the ledger thinks is free and what
+            # the GPU driver reports.
+            total_real = 0
+            try:
+                import torch
+                if torch.cuda.is_available():
+                    _, total_real = torch.cuda.mem_get_info(0)
+                    total_real = int(total_real / (1024 * 1024))
+            except Exception:
+                pass
+            if total_real > 0:
+                real_used = total_real - real_free
+                # Subtract ledger entries for OTHER services (already tracked)
+                other_tracked = sum(
+                    mb for n, mb in self._vram_allocations.items()
+                    if n != name
+                )
+                this_actual = max(0, real_used - other_tracked)
+                diff = this_actual - estimate
+                self._vram_allocations[name] = this_actual
+                self._vram_free_mb -= diff
+                logger.info("Forge: reconciled %s to %dMB (real GPU: %d used, %d free)",
+                            name, this_actual, real_used, real_free)
+                return
+        # Fallback: use PyTorch tracking (misses subprocess/mmgp)
         svc = self._get_service(name)
         actual = svc.actual_vram_mb()
         if actual <= 0:
@@ -312,6 +388,27 @@ class ForgeCore:
 
     # ── Public API ────────────────────────────────────────────────────────────
 
+    async def _wait_gpu_ready(self, service: str) -> None:
+        """Wait for real GPU memory to be free after eviction.
+
+        After evicting services (especially large ones like TRELLIS via mmgp),
+        GPU memory is freed asynchronously by the driver and CUDA — this waits
+        up to 120s for it to settle before the new service tries to allocate.
+        """
+        estimate = self._estimate_vram(service)
+        needed = max(estimate, MIN_COFREE_MB)
+
+        for i in range(120):
+            real_free = _real_gpu_free_mb()
+            if real_free is None or real_free >= needed:
+                return
+            if i % 10 == 0:
+                logger.info("Forge: waiting for GPU memory (free=%dMB, need=%dMB) for %s",
+                            real_free, needed, service)
+            await asyncio.sleep(1)
+
+        logger.warning("Forge: GPU still not ready after 120s for %s (proceeding anyway)", service)
+
     async def _load_with_cleanup(self, service: str, model: str | None = None,
                                   quant: str | None = None, payload: dict | None = None) -> None:
         """Load service with timeout. Cleans up VRAM on failure or timeout."""
@@ -334,12 +431,37 @@ class ForgeCore:
             payload = {**payload, "model": model}
 
         if self._loaded.get(service):
+            # Service is loaded — but if OTHER services are also loaded, the
+            # GPU might be overcommitted. Self-managed services (vram_mb=0)
+            # need exclusive GPU access for model switching. Evict others.
+            # PIPELINE_LOCKED services are never evicted — they take priority.
+            others_loaded = [n for n, l in self._loaded.items()
+                            if l and n != service]
+            if others_loaded:
+                locked = [n for n in others_loaded
+                          if self._get_persistence(n) >= Persistence.PIPELINE_LOCKED]
+                if locked:
+                    return {"status": "error",
+                            "error": (f"Cannot load {service}: "
+                                      f"{locked[0]} is locked (pipeline-locked service running). "
+                                      f"Release it first.")}
+                for other in others_loaded:
+                    logger.info("Forge: evicting co-loaded %s (service %s is handling invoke)",
+                                other, service)
+                    await asyncio.to_thread(self._do_unload, other)
+                await self._wait_gpu_ready(service)
             svc = self._services[service]
             return await asyncio.to_thread(svc.infer, payload)
 
         self._cleanup_stale_allocations()
         if not self._can_fit(service):
             self._evict_for(service, force=True)
+
+        # After evicting subprocess services (LLM, ComfyUI), real GPU memory
+        # is freed asynchronously. Self-managed services (wan2gp with vram_mb=0)
+        # bypass the ledger check in _can_fit() and go straight to CUDA malloc.
+        # Wait for real GPU memory to be available before loading.
+        await self._wait_gpu_ready(service)
 
         await self._load_with_cleanup(service, model, quant, payload)
 
@@ -362,8 +484,13 @@ class ForgeCore:
         self._persistence_overrides.clear()
 
         self._cleanup_stale_allocations()
-        if not self._can_fit(service):
-            self._evict_for(service, force=True)
+        try:
+            if not self._can_fit(service):
+                self._evict_for(service, force=True)
+        except RuntimeError as e:
+            return {"status": "error", "error": str(e)}
+
+        await self._wait_gpu_ready(service)
 
         try:
             await self._load_with_cleanup(service, model, quant)
@@ -449,17 +576,53 @@ class Forge:
 
     def __init__(self):
         self._core = ForgeCore()
+        # Serialize preload/invoke so concurrent requests don't race on
+        # VRAM checks and model loading. Without this, two simultaneous
+        # preload calls can both pass _can_fit() before either marks
+        # itself as loaded, causing GPU overcommit.
+        self._load_lock = asyncio.Lock()
+        # Reap any zombie subprocesses left by previous forge replicas
+        self._reap_zombies()
+
+    @staticmethod
+    def _reap_zombies():
+        """Kill and reap any leftover subprocess processes from previous replicas.
+
+        When a forge replica dies without cleanly stopping its subprocess
+        (e.g. during a Ray Serve redeploy), the llama-server becomes an orphan.
+        Kill any remaining llama-server processes to free GPU memory.
+        """
+        import subprocess
+        try:
+            # Kill any ACTUAL running llama-server processes
+            subprocess.run(["pkill", "-9", "-f", "llama-server"],
+                           capture_output=True, timeout=5)
+            time.sleep(2)
+            # Verify they're gone
+            result = subprocess.run(
+                ["pgrep", "-f", "llama-server"],
+                capture_output=True, text=True, timeout=5
+            )
+            if result.returncode == 0:
+                remaining = result.stdout.strip().split("\n")
+                logger.warning("Forge: %d llama-server processes still running after pkill",
+                               len(remaining))
+        except Exception as exc:
+            logger.warning("Forge: zombie cleanup failed: %s", exc)
 
     async def invoke(self, service: str, payload: dict,
                      model: str | None = None, quant: str | None = None) -> dict:
-        return await self._core.invoke(service, payload, model, quant)
+        async with self._load_lock:
+            return await self._core.invoke(service, payload, model, quant)
 
     async def preload(self, service: str, model: str | None = None,
                       quant: str | None = None) -> dict:
-        return await self._core.preload(service, model, quant)
+        async with self._load_lock:
+            return await self._core.preload(service, model, quant)
 
     async def release(self, service: str | None = None) -> dict:
-        return await self._core.release(service)
+        async with self._load_lock:
+            return await self._core.release(service)
 
     async def unload_service(self, service: str) -> None:
         await self._core.unload_service(service)

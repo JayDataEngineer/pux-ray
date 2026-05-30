@@ -24,8 +24,13 @@ async def workflow_list_specs(
     ctx: Context | None = None,
 ) -> list[dict[str, Any]]:
     """List available workflow specs with step counts and descriptions."""
-    result = await _wf(ctx).list_specs()
-    return result.get("data", [])
+    try:
+        result = await _wf(ctx).list_specs()
+        return result.get("data", [])
+    except Exception as e:
+        from loguru import logger
+        logger.error("workflow_list_specs failed: {}", e)
+        return []
 
 
 async def workflow_get_spec(

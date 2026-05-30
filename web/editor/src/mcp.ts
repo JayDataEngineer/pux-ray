@@ -29,34 +29,41 @@ async function ensureInit() {
     })
 
     if (!resp.ok) {
+      initPromise = null  // Allow retry on next call
       throw new Error(`MCP initialize failed: ${resp.status} ${await resp.text()}`)
     }
 
     const text = await resp.text()
     const dataLine = text.split('\n').find((l) => l.startsWith('data: '))
     if (!dataLine) {
+      initPromise = null
       throw new Error('MCP initialize: no data line in response')
     }
 
     const msg = JSON.parse(dataLine.slice(6))
     if (msg.error) {
+      initPromise = null
       throw new Error(`MCP initialize error: ${msg.error.message}`)
     }
     sessionId = msg.result?.sessionId ?? null
 
-    // Send initialized notification
-    await fetch(MCP_URL, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Accept': 'application/json, text/event-stream',
-        ...(sessionId ? { 'Mcp-Session-Id': sessionId } : {}),
-      },
-      body: JSON.stringify({
-        jsonrpc: '2.0',
-        method: 'notifications/initialized',
-      }),
-    })
+    // Send initialized notification (best-effort, stateless servers may ignore it)
+    try {
+      await fetch(MCP_URL, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json, text/event-stream',
+          ...(sessionId ? { 'Mcp-Session-Id': sessionId } : {}),
+        },
+        body: JSON.stringify({
+          jsonrpc: '2.0',
+          method: 'notifications/initialized',
+        }),
+      })
+    } catch {
+      // Stateless servers don't require this notification
+    }
   })()
 
   return initPromise
@@ -86,7 +93,14 @@ export async function callTool<T = unknown>(name: string, args: Record<string, u
   const dataLine = text.split('\n').find((l) => l.startsWith('data: '))
   if (!dataLine) throw new Error('No response from MCP server')
 
-  const msg = JSON.parse(dataLine.slice(6))
+  const dataStr = dataLine.slice(6)
+  let msg: any
+  try {
+    msg = JSON.parse(dataStr)
+  } catch {
+    // FastMCP sometimes returns plain text errors (e.g. "Error calling tool...")
+    throw new Error(dataStr.trim() || 'MCP returned invalid JSON')
+  }
   if (msg.error) throw new Error(msg.error.message || 'MCP tool error')
 
   // FastMCP wraps result in content[{type:"text", text:"..."}]

@@ -186,6 +186,9 @@ RUN git clone --depth 1 https://github.com/shitagaki-lab/see-through.git /opt/se
 # Native SOMA 77-joint output, 282M params, <3GB VRAM with CPU text offload
 COPY vendor/kimodo/ /opt/kimodo/
 RUN cd /opt/kimodo && SKIP_MOTION_CORRECTION_IN_SETUP=1 uv pip install -e ".[all]" || true
+# Build motion_correction C extension (CMake + CUDA, required for postprocessing)
+RUN cd /opt/kimodo/MotionCorrection && MAX_JOBS=4 python3 -m pip install . --no-build-isolation && \
+    python3 -c "import motion_correction; print('motion_correction OK')"
 
 # vibevoice.cpp (C++ GGML inference for VibeVoice TTS + ASR — quantized GGUF models)
 # Build CPU-only; CUDA backend needs dev libs not in golden image

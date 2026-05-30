@@ -14,6 +14,7 @@ export function App() {
   const runId = run?.run_id ?? null
 
   const [allSpecs, setAllSpecs] = useState<{ name: string; description: string; steps: number }[]>([])
+  const [error, setError] = useState<string | null>(null)
 
   const onSSEEvent = useCallback((event: SSEEvent) => {
     if (event.step_id) {
@@ -58,7 +59,11 @@ export function App() {
         return null
       })
       .then((s) => { if (s) setSpec(s) })
-      .catch(() => toast('error', 'Could not load pipeline specs'))
+      .catch((e) => {
+        const msg = e instanceof Error ? e.message : 'Could not load pipeline specs'
+        setError(msg)
+        toast('error', msg)
+      })
   }, [setSpec, toast])
 
   const handleSpecChange = useCallback(async (name: string) => {
@@ -106,6 +111,15 @@ export function App() {
   }, [reset, spec, setSpec])
 
   if (!spec) {
+    if (error) {
+      return (
+        <div className="loading-screen">
+          <p>Failed to load pipeline specs</p>
+          <p className="error-detail">{error}</p>
+          <button onClick={() => window.location.reload()}>Retry</button>
+        </div>
+      )
+    }
     return <div className="loading-screen">Loading workflow specs...</div>
   }
 

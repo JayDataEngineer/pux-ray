@@ -239,8 +239,8 @@ def _populate_hub_cache(cache_dir: Path, models: list[tuple[str, str, str]]) -> 
                 snap_file.symlink_to(blob_path)
             n_files += 1
 
-        # Write ref
-        (refs_dir / "main").write_text(rev_hash + "\n")
+        # Write ref (NO trailing newline — scan_cache_dir treats it as part of the hash)
+        (refs_dir / "main").write_text(rev_hash)
 
         # Remove .no_exist markers that block local loading
         no_exist_dir = hub_dir / ".no_exist"

@@ -29,6 +29,7 @@ dependencies = [
     # pytorch3d, nvdiffrast, flash_attn, etc.) live in the golden Docker image
     # (infra/docker/Dockerfile.gpu-all). Service-specific extras (rembg[cpu],
     # utils3d CUDA, mmgp) live in per-service Dockerfiles extending gpu-all.
+    "websockets>=16.0",
 ]
 
 [project.optional-dependencies]

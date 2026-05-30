@@ -624,7 +624,7 @@ class LLMService(ForgeSubprocessMixin, ForgeService):
 
             logger.info("Starting llama-server (%s): model=%s", self._engine, model_name)
             self.start_subprocess(new_cmd, port=self.PORT,
-                                  health_path="/v1/models", timeout=300)
+                                  health_path="/v1/models", timeout=600)
             self._current_cmd = new_cmd
             self.model_name = model_name
             self._loaded = True

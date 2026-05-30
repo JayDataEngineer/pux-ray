@@ -16,7 +16,7 @@ applications:
     route_prefix: /forge
     deployments:
       - name: forge
-        autoscaling_config: { min_replicas: 0, max_replicas: 1, downscale_delay_s: 120 }
+        autoscaling_config: { min_replicas: 1, max_replicas: 1, downscale_delay_s: 120 }
   - name: playground
     import_path: serve_config:playground
     route_prefix: /playground

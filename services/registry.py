@@ -41,9 +41,9 @@ SERVICE_REGISTRY: dict[str, ServiceEntry] = {
     "wan2gp": ServiceEntry(
         deployment="wan2gp", app="wan2gp",
         label="Wan2GP Pool", category="creative",
-        needs_gpu=True, default_model="wan/t2v-14B",
+        needs_gpu=True, default_model="wan/t2v",
         output_type="video",
-        model_aliases={"wan-t2v": "wan/t2v-14B", "wan-i2v": "wan/i2v-14B"},
+        model_aliases={"wan-t2v": "wan/t2v", "wan-i2v": "wan/i2v"},
         description="Wan2GP — unified model pool with mmgp VRAM management.",
     ),
 

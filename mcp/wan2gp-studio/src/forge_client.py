@@ -13,7 +13,7 @@ import httpx
 from loguru import logger
 
 DEFAULT_API_URL = "http://tech-noir-ray-serve-svc.ai-services:8000"
-DEFAULT_TIMEOUT = 300.0  # video generation is slow
+DEFAULT_TIMEOUT = 600.0  # LLM load after eviction can take >300s
 
 
 class ForgeClient:

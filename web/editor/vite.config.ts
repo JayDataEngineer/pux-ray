@@ -1,6 +1,24 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 
+// Ray Serve API URL — override with API_URL env var for remote dev
+const API_URL = process.env.API_URL || 'http://localhost:30080'
+
+const proxyConfig: Record<string, { target: string; ws: boolean }> = {
+  // WebSocket paths (Viser 3D, ComfyUI)
+  '/kimodo':  { target: API_URL, ws: true },
+  '/comfyui': { target: API_URL, ws: true },
+  // HTTP API paths
+  '/v1':        { target: API_URL, ws: false },
+  '/mcp':       { target: API_URL, ws: false },
+  '/forge':     { target: API_URL, ws: false },
+  '/health':    { target: API_URL, ws: false },
+  '/studio':    { target: API_URL, ws: false },
+  '/dashboard': { target: API_URL, ws: false },
+  '/admin':     { target: API_URL, ws: false },
+  '/llm':       { target: API_URL, ws: false },
+}
+
 export default defineConfig({
   plugins: [react()],
   base: '/editor/',
@@ -11,27 +29,11 @@ export default defineConfig({
   server: {
     host: '0.0.0.0',
     port: 5173,
-    proxy: {
-      '/v1': 'http://localhost:30080',
-      '/mcp': 'http://localhost:30080',
-      '/forge': 'http://localhost:30080',
-      '/health': 'http://localhost:30080',
-      '/kimodo': 'http://localhost:30080',
-      '/studio': 'http://localhost:30080',
-      '/dashboard': 'http://localhost:30080',
-    },
+    proxy: proxyConfig,
   },
   preview: {
     host: '0.0.0.0',
     port: 4173,
-    proxy: {
-      '/v1': 'http://localhost:30080',
-      '/mcp': 'http://localhost:30080',
-      '/forge': 'http://localhost:30080',
-      '/health': 'http://localhost:30080',
-      '/kimodo': 'http://localhost:30080',
-      '/studio': 'http://localhost:30080',
-      '/dashboard': 'http://localhost:30080',
-    },
+    proxy: proxyConfig,
   },
 })

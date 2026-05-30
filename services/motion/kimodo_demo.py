@@ -12,6 +12,7 @@ import logging
 import textwrap
 
 from services.forge_base import ForgeService
+from services.forge_persistence import Persistence
 from services.forge_subprocess import ForgeSubprocessMixin
 
 logger = logging.getLogger(__name__)
@@ -36,30 +37,11 @@ _WRAPPER_SCRIPT = textwrap.dedent("""\
     _hfapi.model_info = lambda *a, **kw: _FakeModelInfo()
     huggingface_hub.model_info = _hfapi.model_info
 
-    # ── Patch 2: Resolve repo IDs to local cached snapshot paths ──
-    # from_pretrained("org/model") triggers network checks in transformers.
-    # If the model is cached locally, resolve to the snapshot path so
-    # transformers sees it as a local directory and skips network calls.
-    from huggingface_hub import scan_cache_dir
-    _cache_dir = os.environ.get("HF_HUB_CACHE", "")
-    _repo_to_local = {}
-    if _cache_dir:
-        try:
-            for _repo in scan_cache_dir(_cache_dir).repos:
-                for _rev in _repo.revisions:
-                    _repo_to_local[_repo.repo_id] = str(_rev.snapshot_path)
-                    break
-        except Exception:
-            pass
-
-    if _repo_to_local:
-        import transformers
-        _orig_auto_from = transformers.AutoTokenizer.from_pretrained
-        @classmethod
-        def _patched_auto_from(cls, name_or_path, *a, **kw):
-            name_or_path = _repo_to_local.get(name_or_path, name_or_path)
-            return _orig_auto_from(name_or_path, *a, **kw)
-        transformers.AutoTokenizer.from_pretrained = _patched_auto_from
+    # ── Patch 2: Set offline mode so transformers uses local cache ──
+    # With HF_HUB_CACHE set and model_info patched to be a no-op,
+    # transformers should resolve cached models automatically.
+    os.environ["HF_HUB_OFFLINE"] = "1"
+    os.environ["TRANSFORMERS_OFFLINE"] = "1"
 
     # ── Start kimodo ──
     import kimodo.demo
@@ -73,6 +55,7 @@ class KimodoDemoService(ForgeSubprocessMixin, ForgeService):
     vram_mb = 17_408
     service_name = "kimodo_demo"
     default_model = "kimodo-soma-rp"
+    persistence = Persistence.PIPELINE_LOCKED
 
     PORT = 18470
 
