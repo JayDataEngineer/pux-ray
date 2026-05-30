@@ -13,10 +13,9 @@ type SidebarTab = 'assets' | 'history'
 
 interface Props {
   run: WorkflowRun | null
-  onNavigateHistory?: (specName: string, runId: string) => void
 }
 
-export function AssetSidebar({ run: _run, onNavigateHistory }: Props) {
+export function AssetSidebar({ run: _run }: Props) {
   const [activeTab, setActiveTab] = useState<SidebarTab>('assets')
   const [playingId, setPlayingId] = useState<string | null>(null)
   const [expandedCategories, setExpandedCategories] = useState<Set<AssetCategory>>(new Set(['image']))
