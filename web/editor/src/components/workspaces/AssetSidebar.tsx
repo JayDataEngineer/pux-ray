@@ -18,8 +18,6 @@ export function AssetSidebar({ run: _run, onNavigateHistory }: Props) {
   const assets = useAssetStore((s) => s.assets)
   const addAsset = useAssetStore((s) => s.addAsset)
   const removeAsset = useAssetStore((s) => s.removeAsset)
-  const images = assets.filter((a) => a.type === 'image')
-  const audio = assets.filter((a) => a.type === 'audio')
   const [pastRuns] = useState<{ run_id: string; spec_name: string; status: string }[]>(() => {
     try { return JSON.parse(localStorage.getItem('past_runs') || '[]') } catch { return [] }
   })
@@ -91,11 +89,11 @@ export function AssetSidebar({ run: _run, onNavigateHistory }: Props) {
               <div className="sidebar-empty">No assets yet<br />Generate or Import</div>
             </div>
           )}
-          {images.length > 0 && (
+          {assets.filter(a => a.type === 'image').length > 0 && (
             <div className="sidebar-section">
-              <div className="sidebar-subtitle">Images ({images.length})</div>
+              <div className="sidebar-subtitle">Images ({assets.filter(a => a.type === 'image').length})</div>
               <div className="sidebar-thumb-grid">
-                {images.map((a) => (
+                {assets.filter(a => a.type === 'image').map((a) => (
                   <div key={a.id} className="sidebar-thumb" draggable
                     onDragStart={(e) => onDragStart(e, a)}
                     onDoubleClick={() => onDoubleClick(a.url)}>
@@ -109,10 +107,10 @@ export function AssetSidebar({ run: _run, onNavigateHistory }: Props) {
               </div>
             </div>
           )}
-          {audio.length > 0 && (
+          {assets.filter(a => a.type === 'audio').length > 0 && (
             <div className="sidebar-section">
-              <div className="sidebar-subtitle">Audio ({audio.length})</div>
-              {audio.map((a) => (
+              <div className="sidebar-subtitle">Audio ({assets.filter(a => a.type === 'audio').length})</div>
+              {assets.filter(a => a.type === 'audio').map((a) => (
                 <div key={a.id} className={`sidebar-clip ${playingId === a.id ? 'sidebar-clip--active' : ''}`}>
                   <button className="btn btn-ghost btn-sm" onClick={() => handlePlay(a)}>
                     {playingId === a.id ? '⏸' : <Play size={12} />}

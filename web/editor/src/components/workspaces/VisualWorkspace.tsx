@@ -19,7 +19,7 @@ type CharMode = 'generate' | 'existing'
 export function VisualWorkspace({ spec: _spec, run, allSpecs: _allSpecs, onSpecChange: _onSpecChange }: Props) {
   const setRun = useWorkflowStore((s) => s.setRun)
   const toast = useToastStore((s) => s.addToast)
-  const assetImages = useAssetStore((s) => s.assets.filter((a) => a.type === 'image'))
+  const allAssets = useAssetStore((s) => s.assets)
   const [activeStep, setActiveStep] = useState<PipelineStep>('character')
   const [charMode, setCharMode] = useState<CharMode>('generate')
   const [charPrompt, setCharPrompt] = useState('')
@@ -201,11 +201,11 @@ export function VisualWorkspace({ spec: _spec, run, allSpecs: _allSpecs, onSpecC
                 <>
                   <div className="form-group">
                     <label className="form-label">Pick from Assets</label>
-                    {assetImages.length === 0 ? (
+                    {(() => { const imgs = allAssets.filter((a) => a.type === 'image'); return imgs.length === 0 ? (
                       <div className="sidebar-empty">No images in asset folder — generate or import first</div>
                     ) : (
                       <div className="asset-picker-grid">
-                        {assetImages.slice(0, 12).map((a) => (
+                        {imgs.slice(0, 12).map((a) => (
                           <div key={a.id}
                             className={`asset-picker-thumb ${charImage === a.url ? 'asset-picker-thumb--active' : ''}`}
                             onClick={() => { setCharImage(a.url); setActiveStep('mesh'); toast('info', `Using "${a.name}" as character`) }}>
@@ -214,7 +214,7 @@ export function VisualWorkspace({ spec: _spec, run, allSpecs: _allSpecs, onSpecC
                           </div>
                         ))}
                       </div>
-                    )}
+                    )))()}
                   </div>
                   <button className="btn btn-secondary btn-block" onClick={() => setCharMode('generate')}>
                     Or generate new
