@@ -52,7 +52,12 @@ class ForgeClient:
                      payload.get("service"), payload.get("model", "default"))
         resp = await client.post(f"{self.base_url}/v1/run", json=payload)
         resp.raise_for_status()
-        return resp.json()
+        try:
+            return resp.json()
+        except Exception:
+            text = resp.text[:500]
+            logger.error("ForgeClient: non-JSON response: {}", text)
+            return {"status": "error", "error": text or f"HTTP {resp.status_code}"}
 
     async def status(self) -> dict[str, Any]:
         """Get Forge GPU status (VRAM, loaded services)."""

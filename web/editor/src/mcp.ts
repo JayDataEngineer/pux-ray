@@ -106,7 +106,11 @@ export async function callTool<T = unknown>(name: string, args: Record<string, u
   // FastMCP wraps result in content[{type:"text", text:"..."}]
   const content = msg.result?.content
   if (content?.[0]?.type === 'text') {
-    return JSON.parse(content[0].text)
+    try {
+      return JSON.parse(content[0].text)
+    } catch {
+      throw new Error(content[0].text?.slice(0, 200) || 'MCP returned unparseable result')
+    }
   }
   return msg.result as T
 }

@@ -10,8 +10,14 @@ async function runPipeline(pipelineId: string, params: Record<string, unknown>):
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ pipeline: pipelineId, params }),
   })
-  if (!res.ok) throw new Error(`Pipeline ${pipelineId} failed: ${res.status}`)
-  return res.json()
+  const text = await res.text()
+  if (!res.ok) {
+    // Try to extract error from JSON body, fallback to status text
+    try { const err = JSON.parse(text); throw new Error(err.error || err.message || `HTTP ${res.status}`) }
+    catch { if (text) throw new Error(text.slice(0, 200)); throw new Error(`Pipeline ${pipelineId} failed: HTTP ${res.status}`) }
+  }
+  try { return JSON.parse(text) }
+  catch { throw new Error(`Invalid response from pipeline: ${text.slice(0, 200)}`) }
 }
 
 interface Props {
