@@ -42,7 +42,7 @@ export const Sidebar = React.forwardRef<HTMLDivElement, React.ComponentProps<"di
     const { state } = useSidebar()
     return (
       <div ref={ref} data-state={state}
-        className={`flex flex-col border-r border-zinc-800 bg-zinc-900 text-zinc-200 transition-all duration-200 ${state === "expanded" ? "w-64" : "w-12"} ${className || ''}`}
+        className={`flex flex-col border-r border-border bg-card text-foreground transition-all duration-200 ${state === "expanded" ? "w-64" : "w-12"} ${className || ''}`}
         {...props}>{children}</div>
     )
   }
@@ -54,7 +54,7 @@ export const SidebarTrigger = React.forwardRef<React.ElementRef<"button">, React
     const { toggleSidebar } = useSidebar()
     return (
       <button ref={ref} onClick={toggleSidebar}
-        className={`flex h-7 w-7 items-center justify-center rounded-sm text-zinc-400 hover:text-accent hover:bg-accent/10 transition-colors ${className || ''}`}
+        className={`flex h-7 w-7 items-center justify-center rounded-sm text-muted-foreground hover:text-accent hover:bg-accent/10 transition-colors ${className || ''}`}
         {...props}><PanelLeft size={16} /><span className="sr-only">Toggle Sidebar</span></button>
     )
   }
@@ -63,7 +63,7 @@ SidebarTrigger.displayName = "SidebarTrigger"
 
 export const SidebarHeader = React.forwardRef<HTMLDivElement, React.ComponentProps<"div">>(
   ({ className, children, ...props }, ref) => (
-    <div ref={ref} className={`flex items-center gap-2 px-3 py-3 border-b border-zinc-800 ${className || ''}`} {...props}>{children}</div>
+    <div ref={ref} className={`flex items-center gap-2 px-3 py-3 border-b border-border ${className || ''}`} {...props}>{children}</div>
   )
 )
 SidebarHeader.displayName = "SidebarHeader"
@@ -84,7 +84,7 @@ SidebarGroup.displayName = "SidebarGroup"
 
 export const SidebarGroupLabel = React.forwardRef<HTMLDivElement, React.ComponentProps<"div">>(
   ({ className, children, ...props }, ref) => (
-    <div ref={ref} className={`px-2 py-1.5 text-[10px] font-medium uppercase tracking-wider text-zinc-500 ${className || ''}`} {...props}>{children}</div>
+    <div ref={ref} className={`px-2 py-1.5 text-[10px] font-medium uppercase tracking-wider text-muted-foreground ${className || ''}`} {...props}>{children}</div>
   )
 )
 SidebarGroupLabel.displayName = "SidebarGroupLabel"

@@ -44,12 +44,12 @@ function AppSidebar() {
       <SidebarHeader>
         {!collapsed && <span className="text-xs font-medium tracking-wider text-accent uppercase">ASSETS</span>}
         <div className="flex gap-0.5 ml-auto">
-          <label className="flex h-7 w-7 items-center justify-center rounded-sm text-zinc-400 hover:text-accent cursor-pointer"><Plus size={16} /><input type="file" className="hidden" accept="image/*,audio/*,video/*" onChange={handleImport} /></label>
+          <label className="flex h-7 w-7 items-center justify-center rounded-sm text-muted-foreground hover:text-accent cursor-pointer"><Plus size={16} /><input type="file" className="hidden" accept="image/*,audio/*,video/*" onChange={handleImport} /></label>
           <SidebarTrigger />
         </div>
       </SidebarHeader>
       <SidebarContent>
-        {assets.length === 0 && !collapsed && <div className="px-3 py-6 text-xs text-zinc-500 text-center">No assets yet<br/>Generate or Import</div>}
+        {assets.length === 0 && !collapsed && <div className="px-3 py-6 text-xs text-muted-foreground text-center">No assets yet<br/>Generate or Import</div>}
         {CATEGORY_ORDER.map((cat) => {
           const items = assets.filter((a) => a.category === cat)
           if (items.length === 0) return null
@@ -59,17 +59,17 @@ function AppSidebar() {
           return (
             <SidebarGroup key={cat}>
               <SidebarGroupLabel className="cursor-pointer flex items-center gap-1 text-[10px]" onClick={() => setExpandedCats((p) => {const n=new Set(p); n.has(cat)?n.delete(cat):n.add(cat); return n})}>
-                {expanded ? <ChevronDown size={10} /> : <ChevronRight size={10} />}<Icon size={12} />{CATEGORY_LABEL[cat]}<span className="ml-auto text-[9px] bg-zinc-800 px-1 rounded">{items.length}</span>
+                {expanded ? <ChevronDown size={10} /> : <ChevronRight size={10} />}<Icon size={12} />{CATEGORY_LABEL[cat]}<span className="ml-auto text-[9px] bg-muted px-1 rounded">{items.length}</span>
               </SidebarGroupLabel>
               {expanded && (cat === 'image' ? (
                 <div className="grid grid-cols-2 gap-1">
                   {items.map((a) => (
-                    <div key={a.id} className="relative group cursor-pointer border border-zinc-800 hover:border-accent/50"
+                    <div key={a.id} className="relative group cursor-pointer border border-border hover:border-accent/50"
                       draggable onDragStart={(e) => { e.dataTransfer.setData('application/tech-noir-asset', JSON.stringify({url:a.url,type:a.type,name:a.name,id:a.id})); e.dataTransfer.setData('text/plain',a.url); e.dataTransfer.effectAllowed='copy' }}
                       onDoubleClick={() => { const o=document.createElement('div');o.className='fixed inset-0 z-50 bg-black/90 flex items-center justify-center cursor-pointer';o.onclick=()=>o.remove();const i=document.createElement('img');i.src=a.url;i.className='max-w-[90vw] max-h-[90vh] object-contain';o.appendChild(i);document.body.appendChild(o) }}>
                       <img src={a.url} alt={a.name} className="w-full aspect-[4/5] object-cover" draggable={false} />
                       <span className="absolute bottom-0 inset-x-0 bg-black/70 px-1 py-0.5 text-[8px] truncate">{a.name.slice(0,14)}</span>
-                      <button className="absolute top-0.5 right-0.5 hidden group-hover:flex bg-black/70 rounded p-0.5 text-red-400" onClick={(e)=>{e.stopPropagation();removeAsset(a.id)}}><Trash2 size={10}/></button>
+                      <button className="absolute top-0.5 right-0.5 hidden group-hover:flex bg-black/70 rounded p-0.5 text-destructive" onClick={(e)=>{e.stopPropagation();removeAsset(a.id)}}><Trash2 size={10}/></button>
                     </div>
                   ))}
                 </div>
@@ -78,7 +78,7 @@ function AppSidebar() {
                   <div key={a.id} className={`flex items-center gap-1.5 px-1 py-0.5 text-xs hover:bg-accent/10 rounded cursor-pointer ${playingId===a.id?'bg-accent/10':''}`}>
                     <button className="p-0.5 hover:text-accent" onClick={() => setPlayingId((p)=>p===a.id?null:a.id)}>{playingId===a.id?'⏸':<Play size={10}/>}</button>
                     <Icon size={12} /><span className="flex-1 truncate">{a.name}</span>
-                    <button className="p-0.5 hover:text-red-400 opacity-0 group-hover:opacity-100" onClick={()=>removeAsset(a.id)}><Trash2 size={10}/></button>
+                    <button className="p-0.5 hover:text-destructive opacity-0 group-hover:opacity-100" onClick={()=>removeAsset(a.id)}><Trash2 size={10}/></button>
                   </div>
                 ))
               ))}
@@ -150,15 +150,15 @@ function AssetsTab() {
   }
 
   return (
-    <div className="flex-1 flex flex-col p-4 overflow-y-auto bg-zinc-950">
+    <div className="flex-1 flex flex-col p-4 overflow-y-auto bg-background">
       <div className="flex gap-1 mb-4">
-        <button className={`px-4 py-1.5 text-xs font-medium rounded ${tabCat==='image'?'bg-accent/20 text-accent':'text-zinc-500 hover:text-zinc-300'}`} onClick={()=>setTabCat('image')}><Image size={14} className="inline mr-1.5"/>Image</button>
-        <button className={`px-4 py-1.5 text-xs font-medium rounded ${tabCat==='audio'?'bg-accent/20 text-accent':'text-zinc-500 hover:text-zinc-300'}`} onClick={()=>setTabCat('audio')}><Music size={14} className="inline mr-1.5"/>Audio</button>
+        <button className={`px-4 py-1.5 text-xs font-medium rounded ${tabCat==='image'?'bg-accent/20 text-accent':'text-muted-foreground hover:text-foreground'}`} onClick={()=>setTabCat('image')}><Image size={14} className="inline mr-1.5"/>Image</button>
+        <button className={`px-4 py-1.5 text-xs font-medium rounded ${tabCat==='audio'?'bg-accent/20 text-accent':'text-muted-foreground hover:text-foreground'}`} onClick={()=>setTabCat('audio')}><Music size={14} className="inline mr-1.5"/>Audio</button>
       </div>
 
       <div className="flex flex-col gap-1 mb-4">
         {tasks.map((t) => { const Icon = t.icon; return (
-          <button key={t.id} className={`flex items-center gap-2 px-3 py-2 text-left text-sm rounded border transition-colors ${selected.id===t.id?'border-accent bg-accent/10 text-accent':'border-zinc-800 text-zinc-400 hover:border-zinc-700'}`} onClick={()=>handleTaskChange(t)}>
+          <button key={t.id} className={`flex items-center gap-2 px-3 py-2 text-left text-sm rounded border transition-colors ${selected.id===t.id?'border-accent bg-accent/10 text-accent':'border-border text-muted-foreground hover:border-input'}`} onClick={()=>handleTaskChange(t)}>
             <Icon size={16} />{t.label}
           </button>
         )})}
@@ -167,24 +167,24 @@ function AssetsTab() {
       <div className="flex flex-col gap-3 flex-1 overflow-y-auto">
         {selected.params.map((p: any) => (
           <div key={p.n} className="flex flex-col gap-1">
-            <label className="text-[11px] font-medium text-zinc-400">{p.l}</label>
+            <label className="text-[11px] font-medium text-muted-foreground">{p.l}</label>
             {p.t === 'select' && p.opts ? (
-              <select className="bg-zinc-900 border border-zinc-800 rounded px-2 py-1.5 text-sm text-zinc-200 focus:border-accent outline-none" value={String(paramVals[p.n]??p.d??'')} onChange={e=>setParamVals(prev=>({...prev,[p.n]:e.target.value}))}>
+              <select className="bg-card border border-border rounded px-2 py-1.5 text-sm text-foreground focus:border-accent outline-none" value={String(paramVals[p.n]??p.d??'')} onChange={e=>setParamVals(prev=>({...prev,[p.n]:e.target.value}))}>
                 {p.opts.map((o: string)=><option key={o} value={o}>{o}</option>)}
               </select>
             ) : p.t === 'number' ? (
-              <input type="number" className="bg-zinc-900 border border-zinc-800 rounded px-2 py-1.5 text-sm text-zinc-200 focus:border-accent outline-none" value={paramVals[p.n]??p.d??''} onChange={e=>setParamVals(prev=>({...prev,[p.n]:parseInt(e.target.value)||0}))} placeholder={p.p} />
+              <input type="number" className="bg-card border border-border rounded px-2 py-1.5 text-sm text-foreground focus:border-accent outline-none" value={paramVals[p.n]??p.d??''} onChange={e=>setParamVals(prev=>({...prev,[p.n]:parseInt(e.target.value)||0}))} placeholder={p.p} />
             ) : p.t === 'image' || p.t === 'audio' ? (
-              <label className="flex items-center justify-center h-20 border border-dashed border-zinc-700 rounded text-xs text-zinc-500 hover:border-accent/50 cursor-pointer">
+              <label className="flex items-center justify-center h-20 border border-dashed border-input rounded text-xs text-muted-foreground hover:border-accent/50 cursor-pointer">
                 {paramVals[p.n] ? 'File loaded' : p.p}
                 <input type="file" className="hidden" accept={p.t==='image'?'image/*':'audio/*'} onChange={e=>{const f=e.target.files?.[0];if(!f)return;const r=new FileReader();r.onload=()=>{const d=r.result as string;setParamVals(prev=>({...prev,[p.n]:d.includes(',')?d.split(',')[1]:d}))};r.readAsDataURL(f)}} />
               </label>
             ) : (
-              <textarea className="bg-zinc-900 border border-zinc-800 rounded px-2 py-1.5 text-sm text-zinc-200 focus:border-accent outline-none resize-none" rows={3} value={String(paramVals[p.n]??'')} onChange={e=>setParamVals(prev=>({...prev,[p.n]:e.target.value}))} placeholder={p.p} />
+              <textarea className="bg-card border border-border rounded px-2 py-1.5 text-sm text-foreground focus:border-accent outline-none resize-none" rows={3} value={String(paramVals[p.n]??'')} onChange={e=>setParamVals(prev=>({...prev,[p.n]:e.target.value}))} placeholder={p.p} />
             )}
           </div>
         ))}
-        <button className="mt-2 bg-accent text-zinc-950 font-semibold py-2 rounded text-sm hover:bg-accent/80 transition-colors disabled:opacity-50" disabled={generating} onClick={handleGenerate}>
+        <button className="mt-2 bg-accent text-accent-foreground font-semibold py-2 rounded text-sm hover:bg-accent/80 transition-colors disabled:opacity-50" disabled={generating} onClick={handleGenerate}>
           {generating ? 'Generating...' : `Generate ${selected.label}`}
         </button>
       </div>
@@ -236,40 +236,40 @@ function VideoTab() {
   }
 
   return (
-    <div className="flex-1 flex flex-col p-4 overflow-hidden bg-zinc-950">
-      <div className="flex-1 flex flex-col items-center justify-center border border-zinc-800 rounded bg-zinc-900 mb-3" onDragOver={e=>e.preventDefault()} onDrop={onDrop}>
+    <div className="flex-1 flex flex-col p-4 overflow-hidden bg-background">
+      <div className="flex-1 flex flex-col items-center justify-center border border-border rounded bg-card mb-3" onDragOver={e=>e.preventDefault()} onDrop={onDrop}>
         {selectedSegment?.videoUrl ? (
           <video src={selectedSegment.videoUrl} controls className="max-w-full max-h-full" />
         ) : segments.length === 0 ? (
-          <p className="text-zinc-500 text-sm">Drag images from Assets sidebar to add keyframes</p>
+          <p className="text-muted-foreground text-sm">Drag images from Assets sidebar to add keyframes</p>
         ) : (
-          <p className="text-zinc-400 text-sm">{segments.length} keyframe(s) — select one and generate video</p>
+          <p className="text-muted-foreground text-sm">{segments.length} keyframe(s) — select one and generate video</p>
         )}
       </div>
-      <div className="h-32 border border-zinc-800 rounded bg-zinc-900 p-2 flex items-center gap-1 overflow-x-auto">
+      <div className="h-32 border border-border rounded bg-card p-2 flex items-center gap-1 overflow-x-auto">
         {segments.map((seg) => (
-          <div key={seg.id} className={`h-full min-w-[60px] flex items-center justify-center bg-zinc-800 border rounded text-[10px] cursor-pointer relative overflow-hidden ${seg.id===selectedSegmentId?'border-accent':'border-zinc-700'}`}
+          <div key={seg.id} className={`h-full min-w-[60px] flex items-center justify-center bg-muted border rounded text-[10px] cursor-pointer relative overflow-hidden ${seg.id===selectedSegmentId?'border-accent':'border-input'}`}
             style={{width:`${seg.duration*40}px`}} onClick={()=>setSelectedSegment(seg.id)}>
             {seg.thumbnailUrl && <img src={seg.thumbnailUrl} alt="" className="absolute inset-0 w-full h-full object-cover opacity-40" />}
-            <span className="relative z-10 text-zinc-300">K_{String(seg.order+1).padStart(2,'0')}</span>
+            <span className="relative z-10 text-foreground">K_{String(seg.order+1).padStart(2,'0')}</span>
           </div>
         ))}
-        <button className="h-full min-w-[30px] flex items-center justify-center border border-dashed border-zinc-700 rounded text-zinc-500 hover:border-accent/50" onClick={()=>{const s=addSegment({duration:5,status:'empty'});setSelectedSegment(s.id)}}>+</button>
+        <button className="h-full min-w-[30px] flex items-center justify-center border border-dashed border-input rounded text-muted-foreground hover:border-accent/50" onClick={()=>{const s=addSegment({duration:5,status:'empty'});setSelectedSegment(s.id)}}>+</button>
       </div>
       {selectedSegment && (
         <div className="mt-3 flex flex-col gap-2">
-          <input className="bg-zinc-900 border border-zinc-800 rounded px-2 py-1 text-sm text-zinc-200" placeholder="Video prompt (e.g. walking forward, cinematic)" value={selectedSegment.prompt}
+          <input className="bg-card border border-border rounded px-2 py-1 text-sm text-foreground" placeholder="Video prompt (e.g. walking forward, cinematic)" value={selectedSegment.prompt}
             onChange={(e) => updateSegment(selectedSegment.id, { prompt: e.target.value })} />
           <div className="flex gap-2">
-            <input type="number" className="bg-zinc-900 border border-zinc-800 rounded px-2 py-1 w-20 text-sm text-zinc-200" placeholder="Duration" value={selectedSegment.duration}
+            <input type="number" className="bg-card border border-border rounded px-2 py-1 w-20 text-sm text-foreground" placeholder="Duration" value={selectedSegment.duration}
               onChange={(e) => updateSegment(selectedSegment.id, { duration: parseFloat(e.target.value) || 5 })} />
-            <button className="flex-1 bg-accent text-zinc-950 font-semibold py-1 rounded text-sm hover:bg-accent/80 disabled:opacity-50" disabled={generating || !selectedSegment.firstFrameB64} onClick={handleGenerateVideo}>
+            <button className="flex-1 bg-accent text-accent-foreground font-semibold py-1 rounded text-sm hover:bg-accent/80 disabled:opacity-50" disabled={generating || !selectedSegment.firstFrameB64} onClick={handleGenerateVideo}>
               {generating ? 'Generating...' : 'Generate LTX Video'}
             </button>
           </div>
         </div>
       )}
-      {audioCues.length > 0 && <div className="mt-1 text-[10px] text-zinc-500">{audioCues.length} audio cue(s) from generated assets</div>}
+      {audioCues.length > 0 && <div className="mt-1 text-[10px] text-muted-foreground">{audioCues.length} audio cue(s) from generated assets</div>}
     </div>
   )
 }
@@ -284,15 +284,15 @@ export function WorkspaceLayout({ spec: _spec, run: _run, onSpecChange: _oc, all
   const [tab, setTab] = useState<Tab>('assets')
   return (
     <SidebarProvider defaultOpen={true}>
-      <div className="flex h-screen w-full bg-zinc-950 text-zinc-200">
+      <div className="flex h-screen w-full bg-background text-foreground">
         <Sidebar><AppSidebar /></Sidebar>
         <div className="flex-1 flex flex-col min-w-0">
-          <header className="flex items-center justify-between h-11 px-3 border-b border-zinc-800 flex-shrink-0">
+          <header className="flex items-center justify-between h-11 px-3 border-b border-border flex-shrink-0">
             <div className="flex items-center gap-6">
               <span className="text-sm font-bold text-accent tracking-tight">TECH NOIR</span>
               <nav className="flex gap-0">
-                <button className={`px-3 h-11 text-xs font-medium border-b-2 transition-colors ${tab==='assets'?'border-accent text-accent':'border-transparent text-zinc-500 hover:text-zinc-300'}`} onClick={()=>setTab('assets')}>Assets</button>
-                <button className={`px-3 h-11 text-xs font-medium border-b-2 transition-colors ${tab==='video'?'border-accent text-accent':'border-transparent text-zinc-500 hover:text-zinc-300'}`} onClick={()=>setTab('video')}>Video</button>
+                <button className={`px-3 h-11 text-xs font-medium border-b-2 transition-colors ${tab==='assets'?'border-accent text-accent':'border-transparent text-muted-foreground hover:text-foreground'}`} onClick={()=>setTab('assets')}>Assets</button>
+                <button className={`px-3 h-11 text-xs font-medium border-b-2 transition-colors ${tab==='video'?'border-accent text-accent':'border-transparent text-muted-foreground hover:text-foreground'}`} onClick={()=>setTab('video')}>Video</button>
               </nav>
             </div>
           </header>
