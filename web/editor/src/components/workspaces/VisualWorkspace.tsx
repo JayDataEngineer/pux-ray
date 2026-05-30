@@ -6,6 +6,16 @@ import { useAssetStore } from '../../stores/assets'
 import { useToastStore } from '../../stores/toast'
 import type { WorkflowSpec, WorkflowRun } from '../../types'
 
+async function runPipeline(pipelineId: string, params: Record<string, unknown>): Promise<Record<string, unknown>> {
+  const res = await fetch('/v1/run', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ pipeline: pipelineId, params }),
+  })
+  if (!res.ok) throw new Error(`Pipeline ${pipelineId} failed: ${res.status}`)
+  return res.json()
+}
+
 interface Props {
   spec: WorkflowSpec
   run: WorkflowRun | null
@@ -78,40 +88,37 @@ export function VisualWorkspace({ spec: _spec, run, allSpecs: _allSpecs, onSpecC
   }, [])
 
   const handleCompose = useCallback(async () => {
-    if (!run) { toast('error', 'No active run'); return }
-    if (!charImage) { toast('error', 'Select a character image first'); return }
+    if (!charImage) { toast('error', 'Select a character image first (Step 1 or Use Existing)'); return }
     if (!poseImage) { toast('error', 'Upload a pose image first (Kimodo or file)'); return }
-    if (!scenePrompt) { toast('error', 'Enter a scene description'); return }
     setGenerating(true)
     try {
-      // Strip data URL prefix — Wan2GP expects raw base64
       const strip = (url: string): string => {
         const idx = url.indexOf(',')
         return idx > 0 ? url.slice(idx + 1) : url
       }
-      const result = await executeStep(run.spec_name, run.run_id, 'scene_compose', {
-        input_prompt: scenePrompt,
-        image_b64: strip(charImage),
-        reference_images: [strip(poseImage)],
-      }) as Record<string, unknown>
-      if (result.status === 'error') {
-        toast('error', String(result.error || 'Failed'))
+      const result = await runPipeline('vnccs/pose-edit', {
+        character_image_b64: strip(charImage),
+        rotations: {},
+        model_rotation_y: 0.0,
+        seed: 42,
+      })
+      if (result.status === 'error' || result.status === 'failed') {
+        toast('error', `VNCCS pose-edit: ${String(result.error || result.message || 'Failed')}`)
+        setGenerating(false)
         return
       }
-      const updated = await getRun(run.spec_name, run.run_id)
-      setRun(updated)
-      const art = Object.values(updated.artifacts).find((a) => a.step_id === 'scene_compose' && a.media_type.startsWith('image/'))
-      if (art) {
-        const url = `/v1/wf/${updated.spec_name}/runs/${updated.run_id}/artifacts/${art.step_id}/${art.name}.png`
-        setComposedImage(url)
+      if (result.data) {
+        setComposedImage(`data:image/png;base64,${result.data}`)
+        toast('success', 'VNCCS pose edit complete — character posed successfully')
+      } else {
+        toast('error', `VNCCS returned no image. Response: ${JSON.stringify(result).slice(0, 300)}`)
       }
-      toast('success', 'Scene composed')
-    } catch (e) {
-      toast('error', e instanceof Error ? e.message : 'Composition failed')
+    } catch (err) {
+      toast('error', `VNCCS pipeline error: ${err instanceof Error ? err.message : String(err)}`)
     } finally {
       setGenerating(false)
     }
-  }, [run, charImage, poseImage, scenePrompt, setRun, toast])
+  }, [charImage, poseImage, toast])
 
   const displayImage = activeStep === 'compose' && composedImage
     ? composedImage

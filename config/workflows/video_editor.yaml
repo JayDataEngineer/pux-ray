@@ -95,18 +95,14 @@ steps:
   scene_compose:
     type: forge
     service: wan2gp
-    model: qwen-image-edit
-    depends_on: [generate_character, mesh_pose]
+    model: flux
+    depends_on: [generate_character]
     params:
       input_prompt: "{{ inputs.scene_prompt }}"
       image_b64: "{{ generate_character.outputs.image }}"
-      reference_images:
-        - "{{ mesh_pose.outputs.posed_image }}"
       seed: "{{ inputs.seed }}"
-      sampling_steps: 4
-      guide_scale: 1.0
-      loras_selected:
-        - "Qwen-Image-Edit-2511-Lightning-4steps-V1.0-bf16.safetensors"
+      sampling_steps: 20
+      guide_scale: 3.5
     outputs:
       scene: { media_type: image/png }
 
