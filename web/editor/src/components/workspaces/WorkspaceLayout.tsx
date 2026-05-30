@@ -2,7 +2,8 @@ import { useState, useEffect, useRef } from 'react'
 import { AudioWorkspace } from './AudioWorkspace'
 import { VisualWorkspace } from './VisualWorkspace'
 import { VideoWorkspace } from './VideoWorkspace'
-import { AssetSidebar } from './AssetSidebar'
+import { NewSidebar } from './NewSidebar'
+import { SidebarProvider } from '../ui/sidebar'
 import { useAssetStore } from '../../stores/assets'
 import type { WorkflowRun, WorkflowSpec } from '../../types'
 
@@ -86,12 +87,14 @@ export function WorkspaceLayout({ spec, run, onSpecChange, allSpecs }: Props) {
           </button>
         </div>
       </header>
-      <div className="workspace-body">
-        <AssetSidebar run={run} />
-        {tab === 'audio' && <AudioWorkspace run={run} />}
-        {tab === 'visuals' && <VisualWorkspace spec={spec} run={run} allSpecs={allSpecs} onSpecChange={onSpecChange} />}
-        {tab === 'video' && <VideoWorkspace run={run} />}
-      </div>
+      <SidebarProvider defaultOpen={true}>
+        <NewSidebar />
+        <div className="flex-1 flex min-w-0">
+          {tab === 'audio' && <AudioWorkspace run={run} />}
+          {tab === 'visuals' && <VisualWorkspace spec={spec} run={run} allSpecs={allSpecs} onSpecChange={onSpecChange} />}
+          {tab === 'video' && <VideoWorkspace run={run} />}
+        </div>
+      </SidebarProvider>
     </div>
   )
 }

@@ -1,4 +1,5 @@
 import { defineConfig } from 'vite'
+import tailwindcss from '@tailwindcss/vite'
 import react from '@vitejs/plugin-react'
 
 // Ray Serve API URL — override with API_URL env var for remote dev
@@ -20,7 +21,8 @@ const proxyConfig: Record<string, { target: string; ws: boolean }> = {
 }
 
 export default defineConfig({
-  plugins: [react()],
+  resolve: { alias: { '@': '/src' } },
+  plugins: [tailwindcss(),react()],
   base: '/editor/',
   build: {
     outDir: '../../gateway/editor',
