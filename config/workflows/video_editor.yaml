@@ -11,6 +11,15 @@ inputs:
     type: string
     required: true
     description: "Character appearance description"
+  image_model:
+    type: string
+    default: "z_image"
+    enum: [z_image, z_image_base]
+    description: "Image model — z_image (turbo, 8 steps) or z_image_base (standard, 50 steps)"
+  negative_prompt:
+    type: string
+    default: "blurry, low quality, deformed, bad anatomy"
+    description: "Negative prompt. Ignored by Turbo (z_image)."
   scene_prompt:
     type: string
     required: true
@@ -63,11 +72,10 @@ steps:
   generate_character:
     type: forge
     service: wan2gp
-    model: z_image
+    model: "{{ inputs.image_model }}"
     params:
       input_prompt: "{{ inputs.character_prompt }}"
-      quality: "{{ inputs.quality }}"
-      n_prompt: "bad quality,worst quality"
+      n_prompt: "{{ inputs.negative_prompt }}"
       seed: "{{ inputs.seed }}"
       sampling_steps: 8
       guide_scale: 0.0

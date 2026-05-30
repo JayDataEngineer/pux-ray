@@ -1195,38 +1195,41 @@ class Wan2GPService:
 
     # ── Inference ─────────────────────────────────────────────────────────
 
-    # Quality-mode presets for Z-Image — mapped by base_model_type
-    _Z_IMAGE_QUALITY = {
-        "turbo": {
+    # Per-model defaults for Z-Image — applied when model is explicitly selected
+    _Z_IMAGE_DEFAULTS = {
+        "z_image": {
             "sampling_steps": 8, "guide_scale": 0.0, "n_prompt": "",
-            "cfg_normalization": False,
         },
-        "standard": {
+        "z_image_base": {
             "sampling_steps": 50, "guide_scale": 4.0,
-            "n_prompt": "blurry, low quality, deformed, bad anatomy, extra fingers, watermark, cropped",
-            "cfg_normalization": False,
         },
     }
 
     def infer(self, payload: dict) -> dict:
         model_key = payload.get("model") or payload.get("model_type") or self._loaded_model or self.default_model
 
-        # Z-Image quality mode: "standard" → z_image_base, "turbo" → z_image
+        # Z-Image model-driven defaults — model choice drives all params.
+        # Also supports legacy "quality" key (turbo → z_image, standard → z_image_base).
         _quality = payload.get("quality", "") or payload.get("input_quality", "")
         if _quality and model_key in ("z_image", "z_image/z_image", "z_image_base", "z_image/z_image_base"):
-            preset = self._Z_IMAGE_QUALITY.get(_quality, {})
             if _quality == "standard" and "z_image_base" not in model_key:
                 model_key = "z_image_base"
             elif _quality == "turbo" and "z_image_base" in model_key:
                 model_key = "z_image"
-            # Quality preset always wins — YAML provides editor defaults,
-            # but the quality selector is the authoritative source.
+        # Resolve and check if it's a Z-Image variant
+        _resolved = self._resolve_model(model_key) if model_key else ""
+        _base_variant = "z_image_base" if "z_image_base" in _resolved else (
+            "z_image" if "z_image" in _resolved else None
+        )
+        if _base_variant and _base_variant in self._Z_IMAGE_DEFAULTS:
+            preset = self._Z_IMAGE_DEFAULTS[_base_variant]
             for k, v in preset.items():
                 if v is not None:
                     payload[k] = v
-            logger.info("Z-Image quality=%s model=%s steps=%s cfg=%s",
-                        _quality, model_key, payload.get("sampling_steps"),
-                        payload.get("guide_scale"))
+            logger.info("Z-Image model=%s steps=%s cfg=%s n_prompt=%s",
+                        _resolved, payload.get("sampling_steps"),
+                        payload.get("guide_scale"),
+                        "yes" if payload.get("n_prompt") else "no")
 
         if model_key != self._loaded_model:
             try:
