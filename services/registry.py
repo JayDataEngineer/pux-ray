@@ -208,6 +208,26 @@ SERVICE_REGISTRY: dict[str, ServiceEntry] = {
         description="Kimodo Viser demo — interactive 3D motion authoring.",
     ),
 
+    "gemx": ServiceEntry(
+        deployment="forge", app="forge",
+        label="GEM-X Pose Estimator", category="motion",
+        needs_gpu=True, default_model="gem_soma",
+        output_type="json",
+        description="GEM-X — NVIDIA video-based SOMA 77-joint pose estimation (Apache 2.0).",
+    ),
+
+    "kohya": ServiceEntry(
+        deployment="forge", app="forge",
+        label="kohya_ss LoRA Trainer", category="training",
+        needs_gpu=True, default_model="lance-poseedit",
+        output_type="json",
+        model_aliases={
+            "lance-poseedit": "lance-poseedit",
+            "klein-poseedit": "klein-poseedit",
+        },
+        description="kohya_ss sd-scripts — LoRA training for Lance 3B / Klein 4B (Apache 2.0).",
+    ),
+
     # ── Avatar Pipeline (Forge-managed, staged VRAM) ──────────────────────────
     "avatar": ServiceEntry(
         deployment="forge", app="forge",

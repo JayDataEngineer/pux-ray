@@ -39,6 +39,24 @@ _PIPELINE_CATALOG = {
         "description": "Reference character → cloned variant",
         "params": {"character_character_image_b64": "string", "prompt": "string"},
     },
+    "lance/gemx-mesh": {
+        "description": "GEM-X video-based SOMA mesh extraction — video → per-frame 77-joint poses",
+        "params": {"video_path": "string (required)", "cache_key": "string"},
+    },
+    "lance/extract-frames": {
+        "description": "Extract frames from video via ffmpeg",
+        "params": {"video_path": "string", "output_dir": "string", "max_frames": "int"},
+    },
+    "lance/pair-frames": {
+        "description": "Pair video frames for training (Frame_A ≠ Frame_B, prevents identity mapping)",
+        "params": {"frames_dir": "string", "frame_offset": "int", "seed": "int"},
+    },
+    "lance/full-pipeline": {
+        "description": "Complete training data generation — videos → kohya_ss control_dirs dataset. "
+                       "GEM-X mesh + DWPose skeleton + frame pairing. No teacher model.",
+        "params": {"video_dir": "string (required)", "output_dir": "string",
+                   "max_pairs": "int", "frame_offset": "int", "seed": "int"},
+    },
 }
 
 

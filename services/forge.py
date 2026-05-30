@@ -74,6 +74,10 @@ SERVICE_MAP: dict[str, tuple[str, str]] = {
     "avatar":    ("services.avatar.forge_avatar",     "AvatarForgeService"),
     # Kimodo demo — Viser interactive 3D motion authoring (subprocess)
     "kimodo_demo": ("services.motion.kimodo_demo",    "KimodoDemoService"),
+    # GEM-X — NVIDIA video-to-SOMA mesh pose estimation (subprocess)
+    "gemx":       ("services.gemx.forge_gemx",        "GemxForgeService"),
+    # kohya_ss — LoRA training (subprocess, flux_train_network.py)
+    "kohya":      ("services.kohya.forge_kohya",      "KohyaForgeService"),
 }
 
 # ─── GPU Node (multi-node prep) ──────────────────────────────────────────────
