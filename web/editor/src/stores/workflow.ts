@@ -24,7 +24,7 @@ export const useWorkflowStore = create<WorkflowStore>((set) => ({
   run: null,
   selectedStepId: null,
   loading: false,
-  viewMode: 'pipeline',
+  viewMode: 'timeline',
 
   setSpec: (spec) => set({ spec }),
   setRun: (run) => set({ run }),
