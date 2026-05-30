@@ -291,31 +291,64 @@ export function VisualWorkspace({ spec: _spec, run, allSpecs: _allSpecs, onSpecC
           )}
 
           {activeStep === 'compose' && (
+          {activeStep === 'compose' && (
             <>
               <div className="form-group">
                 <label className="form-label">Source Character</label>
-                <div className="asset-input">
-                  {charImage && <img src={charImage} alt="Source" className="asset-thumb" />}
-                  <span>{charImage ? 'CHAR_01' : '—'}</span>
-                </div>
+                {charImage ? (
+                  <div className="asset-input">
+                    <img src={charImage} alt="Source" className="asset-thumb" />
+                    <span>Selected</span>
+                    <button className="btn btn-ghost btn-sm" onClick={() => setCharImage(null)}>Clear</button>
+                  </div>
+                ) : (
+                  <div className="asset-picker-grid">
+                    {allAssets.filter(a => a.type === 'image').slice(0, 6).map((a) => (
+                      <div key={a.id} className="asset-picker-thumb" onClick={() => setCharImage(a.url)}>
+                        <img src={a.url} alt={a.name} />
+                        <span>{a.name.slice(0, 12)}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                <label className="btn btn-ghost btn-sm" style={{ cursor: 'pointer', marginTop: 4 }}>
+                  Upload Character
+                  <input type="file" accept="image/*" style={{ display: 'none' }} onChange={(e) => {
+                    const f = e.target.files?.[0]; if (!f) return
+                    const r = new FileReader(); r.onload = () => setCharImage(r.result as string)
+                    r.readAsDataURL(f)
+                  }} />
+                </label>
               </div>
               <div className="form-group">
-                <label className="form-label">Pose Reference</label>
-                <div className="asset-input">
-                  {poseImage && <img src={poseImage} alt="Pose" className="asset-thumb" />}
-                  <span>{poseImage ? 'Pose_Uploaded' : '—'}</span>
-                </div>
+                <label className="form-label">Pose Reference (Kimodo output)</label>
+                {poseImage ? (
+                  <div className="asset-input">
+                    <img src={poseImage} alt="Pose" className="asset-thumb" />
+                    <span>Selected</span>
+                    <button className="btn btn-ghost btn-sm" onClick={() => setPoseImage(null)}>Clear</button>
+                  </div>
+                ) : (
+                  <div className="asset-picker-grid">
+                    {allAssets.filter(a => a.type === 'image').slice(0, 6).map((a) => (
+                      <div key={a.id} className="asset-picker-thumb" onClick={() => setPoseImage(a.url)}>
+                        <img src={a.url} alt={a.name} />
+                        <span>{a.name.slice(0, 12)}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                <label className="btn btn-ghost btn-sm" style={{ cursor: 'pointer', marginTop: 4 }}>
+                  Upload Pose
+                  <input type="file" accept="image/*" style={{ display: 'none' }} onChange={(e) => {
+                    const f = e.target.files?.[0]; if (!f) return
+                    const r = new FileReader(); r.onload = () => setPoseImage(r.result as string)
+                    r.readAsDataURL(f)
+                  }} />
+                </label>
               </div>
-              <div className="form-group">
-                <label className="form-label">Scene Description</label>
-                <textarea className="form-input form-textarea" value={scenePrompt} onChange={(e) => setScenePrompt(e.target.value)} rows={3} placeholder="Describe the scene/background..." />
-              </div>
-              <div className="form-group">
-                <label className="form-label">Refinement Strength <span className="param-value">{refineStrength.toFixed(2)}</span></label>
-                <input type="range" min={0} max={1} step={0.01} value={refineStrength} onChange={(e) => setRefineStrength(parseFloat(e.target.value))} />
-              </div>
-              <button className="btn btn-primary btn-block" disabled={generating || !scenePrompt} onClick={handleCompose}>
-                {generating ? 'COMPOSING...' : 'UPDATE PREVIEW'}
+              <button className="btn btn-primary btn-block" disabled={generating || !charImage || !poseImage} onClick={handleCompose}>
+                {generating ? 'COMPOSING...' : 'COMPOSE (VNCCS Pose Edit)'}
               </button>
             </>
           )}
