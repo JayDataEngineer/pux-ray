@@ -8,11 +8,23 @@ import os
 import torch
 from accelerate import init_empty_weights
 from diffusers import FlowMatchEulerDiscreteScheduler, Cosmos2TextToImagePipeline
-from diffusers import AutoencoderKLCosmos, CosmosTransformer3DModel
+from diffusers import CosmosTransformer3DModel
 from diffusers.utils import logging
 from mmgp import offload
 from shared.utils import files_locator as fl
 from transformers import AutoTokenizer, Qwen3ForCausalLM
+
+# Reuse Z-Image's AutoencoderKL — same VAE checkpoint, same interface.
+# Cosmos2TextToImagePipeline just calls vae.encode()/decode(), doesn't
+# care about the specific VAE class. Avoids config incompatibility with
+# diffusers' AutoencoderKLCosmos.
+import sys as _sys
+_zimg_dir = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "z_image"
+)
+if _zimg_dir not in _sys.path:
+    _sys.path.insert(0, _zimg_dir)
+from autoencoder_kl import AutoencoderKL
 
 logger = logging.get_logger(__name__)
 
@@ -112,7 +124,7 @@ class model_factory:
         vae = offload.fast_load_transformers_model(
             vae_filename,
             writable_tensors=True,
-            modelClass=AutoencoderKLCosmos,
+            modelClass=AutoencoderKL,
             defaultConfigPath=vae_config_path,
             default_dtype=VAE_dtype,
         )
