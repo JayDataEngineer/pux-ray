@@ -1199,10 +1199,11 @@ class Wan2GPService:
     _Z_IMAGE_QUALITY = {
         "turbo": {
             "sampling_steps": 8, "guide_scale": 0.0, "n_prompt": "",
-            "cfg_normalization": None,
+            "cfg_normalization": False,
         },
         "standard": {
             "sampling_steps": 50, "guide_scale": 4.0,
+            "n_prompt": "blurry, low quality, deformed, bad anatomy, extra fingers, watermark, cropped",
             "cfg_normalization": False,
         },
     }
@@ -1218,12 +1219,11 @@ class Wan2GPService:
                 model_key = "z_image_base"
             elif _quality == "turbo" and "z_image_base" in model_key:
                 model_key = "z_image"
-            # Apply preset defaults (only if caller didn't explicitly set them)
+            # Quality preset always wins — YAML provides editor defaults,
+            # but the quality selector is the authoritative source.
             for k, v in preset.items():
-                if v is not None and k not in payload:
+                if v is not None:
                     payload[k] = v
-            if _quality == "turbo":
-                payload["n_prompt"] = ""  # Turbo ignores negative prompts
             logger.info("Z-Image quality=%s model=%s steps=%s cfg=%s",
                         _quality, model_key, payload.get("sampling_steps"),
                         payload.get("guide_scale"))

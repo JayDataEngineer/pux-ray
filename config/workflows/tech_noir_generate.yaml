@@ -34,6 +34,8 @@ steps:
       quality: "{{ inputs.quality }}"
       n_prompt: "{{ inputs.negative_prompt }}"
       seed: "{{ inputs.seed }}"
+      sampling_steps: 8
+      guide_scale: 0.0
       width: "{{ inputs.width }}"
       height: "{{ inputs.height }}"
     outputs:
