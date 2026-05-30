@@ -17,6 +17,12 @@ applications:
     deployments:
       - name: forge
         autoscaling_config: { min_replicas: 1, max_replicas: 1, downscale_delay_s: 120 }
+  - name: workflow_engine
+    import_path: serve_config:workflow_engine
+    route_prefix: /wf
+    deployments:
+      - name: workflow_engine
+        autoscaling_config: { min_replicas: 1, max_replicas: 1, downscale_delay_s: 120 }
   - name: playground
     import_path: serve_config:playground
     route_prefix: /playground

@@ -31,7 +31,7 @@ logger = logging.getLogger(__name__)
 
 
 def _get_engine():
-    return serve.get_deployment_handle("workflow_engine", "workflow-engine")
+    return serve.get_deployment_handle("workflow_engine", "workflow_engine")
 
 
 # ---------------------------------------------------------------------------
