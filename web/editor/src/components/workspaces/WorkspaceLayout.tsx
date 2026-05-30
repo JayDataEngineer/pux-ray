@@ -1,5 +1,5 @@
 import { useState } from "react"
-import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar"
+import { SidebarProvider, SidebarInset, SidebarTrigger } from "@/components/ui/sidebar"
 import { NavigationMenu, NavigationMenuItem, NavigationMenuLink, NavigationMenuList, navigationMenuTriggerStyle } from "@/components/ui/navigation-menu"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -36,7 +36,7 @@ export function WorkspaceLayout(_props: any = {}) {
   return (
     <SidebarProvider>
       <AppSidebar />
-      <main>
+      <SidebarInset>
         <header className="flex items-center h-11 px-4 border-b gap-4">
           <SidebarTrigger />
           <span className="font-bold text-sm tracking-tight">TECH NOIR</span>
@@ -48,7 +48,7 @@ export function WorkspaceLayout(_props: any = {}) {
           </NavigationMenu>
         </header>
         {tab === "assets" ? <AssetsTab /> : <VideoTab />}
-      </main>
+      </SidebarInset>
     </SidebarProvider>
   )
 }
