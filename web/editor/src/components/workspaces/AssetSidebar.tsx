@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback } from 'react'
-import { FolderOpen, History, Plus, Music, Trash2, Play } from 'lucide-react'
+import { FolderOpen, History, Plus, Music, Trash2, Play, Upload } from 'lucide-react'
 import { useAssetStore } from '../../stores/assets'
 import { useTimelineStore } from '../../stores/timeline'
 import { useToastStore } from '../../stores/toast'
