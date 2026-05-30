@@ -427,6 +427,9 @@ CUSTOM_HANDLERS = [
     "models.see_through.see_through_handler",
     "models.hy_motion.hy_motion_handler",
     "models.pixal3d.pixal3d_handler",
+    "models.upscale.upscale_handler",
+    "models.pose.pose_handler",
+    "models.body.body_handler",
 ]
 
 def _get_family_handlers() -> list[str]:

@@ -161,6 +161,27 @@ SERVICE_REGISTRY: dict[str, ServiceEntry] = {
         output_type="image",
         description="See-Through — anime layer decomposition.",
     ),
+    "nvidia_upscale": ServiceEntry(
+        deployment="wan2gp", app="wan2gp",
+        label="GPU Upscale", category="image",
+        needs_gpu=True, default_model="nvidia_upscale",
+        output_type="video",
+        description="GPU-accelerated Lanczos upscaling for images and video.",
+    ),
+    "dwpose": ServiceEntry(
+        deployment="wan2gp", app="wan2gp",
+        label="DWPose Detection", category="image",
+        needs_gpu=False, default_model="dwpose",
+        output_type="json",
+        description="Mediapipe face mesh keypoint detection + face cropping.",
+    ),
+    "body_mesh": ServiceEntry(
+        deployment="wan2gp", app="wan2gp",
+        label="BodyMesh Renderer", category="3d",
+        needs_gpu=False, default_model="body_mesh",
+        output_type="image",
+        description="Skeleton wireframe renderer from joint rotation parameters.",
+    ),
 
     # ── Kimodo Motion (Forge-managed, standalone) ────────────────────────────
     "kimodo": ServiceEntry(
