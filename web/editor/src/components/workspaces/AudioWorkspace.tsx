@@ -1,7 +1,8 @@
 import { useState, useCallback, useRef } from 'react'
-import { Music, Volume2, Mic, Wand2, Play, Trash2 } from 'lucide-react'
+import { Music, Volume2, Mic, Wand2, Play, Trash2, Save } from 'lucide-react'
 import { callTool } from '../../mcp'
 import { useTimelineStore } from '../../stores/timeline'
+import { useVoiceStore } from '../../stores/voices'
 import { useToastStore } from '../../stores/toast'
 
 // Audio task definitions — each is either a DAG pipeline or a direct service call.
@@ -86,7 +87,27 @@ export function AudioWorkspace({ run: _run }: { run: import('../../types').Workf
   const [playingId, setPlayingId] = useState<string | null>(null)
   const audioRef = useRef<HTMLAudioElement>(null)
   const addAudioCue = useTimelineStore((s) => s.addAudioCue)
+  const savedVoices = useVoiceStore((s) => s.voices)
+  const addVoice = useVoiceStore((s) => s.addVoice)
+  const removeVoice = useVoiceStore((s) => s.removeVoice)
   const toast = useToastStore((s) => s.addToast)
+
+  const handleSaveVoice = (clip: GeneratedClip) => {
+    if (!clip.audioUrl) return
+    const name = prompt('Voice name:') || `Voice ${savedVoices.length + 1}`
+    if (!name) return
+    const b64 = clip.audioUrl.includes(',') ? clip.audioUrl.split(',')[1] : clip.audioUrl
+    addVoice({ name, audioB64: b64, modelId: clip.taskId })
+    toast('success', `Voice "${name}" saved`)
+  }
+
+  const handleUseSavedVoice = (voiceId: string) => {
+    const voice = savedVoices.find((v) => v.id === voiceId)
+    if (voice) {
+      setParamValues((prev) => ({ ...prev, reference_audio_b64: voice.audioB64 }))
+      toast('info', `Using saved voice: ${voice.name}`)
+    }
+  }
 
   const handleGenerate = useCallback(async () => {
     setGenerating(true)
@@ -170,7 +191,26 @@ export function AudioWorkspace({ run: _run }: { run: import('../../types').Workf
           </div>
         </div>
 
-        {/* Dynamic Parameters — rendered from task definition, not hardcoded */}
+        {/* Saved Voices — shown for voice clone */}
+        {selectedTask.id === 'moss_voice_clone' && savedVoices.length > 0 && (
+          <div className="audio-section">
+            <label className="audio-section-label">SAVED VOICES ({savedVoices.length})</label>
+            <div className="model-selector">
+              {savedVoices.map((v) => (
+                <div key={v.id} className="sidebar-clip" style={{ cursor: 'pointer' }} onClick={() => handleUseSavedVoice(v.id)}>
+                  <Mic size={14} className="sidebar-icon" />
+                  <span className="sidebar-clip-label">{v.name}</span>
+                  <span className="sidebar-clip-dur">{v.createdAt.slice(0, 10)}</span>
+                  <button className="btn btn-ghost btn-sm" onClick={(e) => { e.stopPropagation(); removeVoice(v.id) }}>
+                    <Trash2 size={10} />
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Dynamic Parameters */}
         <div className="audio-section">
           <label className="audio-section-label">PARAMETERS</label>
           {selectedTask.params.map((param) => (
@@ -248,6 +288,11 @@ export function AudioWorkspace({ run: _run }: { run: import('../../types').Workf
                 <span className="clip-dur">{clip.duration}s</span>
                 {clip.status === 'generating' && <span className="clip-status">Generating...</span>}
                 {clip.status === 'error' && <span className="clip-status clip-status--error">{clip.error}</span>}
+                {clip.status === 'ready' && clip.taskId === 'moss_voice_gen' && (
+                  <button className="btn btn-ghost btn-sm" onClick={() => handleSaveVoice(clip)} title="Save this voice for reuse">
+                    <Save size={12} />
+                  </button>
+                )}
                 <button className="btn btn-ghost btn-sm" onClick={() => setClips((prev) => prev.filter((c) => c.id !== clip.id))}>
                   <Trash2 size={12} />
                 </button>
