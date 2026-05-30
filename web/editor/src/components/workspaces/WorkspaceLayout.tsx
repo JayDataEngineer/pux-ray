@@ -1,29 +1,22 @@
 import { useState, useEffect, useCallback } from "react"
-import { NavigationMenu, NavigationMenuItem, NavigationMenuLink, NavigationMenuList, navigationMenuTriggerStyle } from "@/components/ui/navigation-menu"
 import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Card, CardContent } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Badge } from "@/components/ui/badge"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Separator } from "@/components/ui/separator"
+import { ScrollArea } from "@/components/ui/scroll-area"
 import { useToastStore } from "@/stores/toast"
 import { useTimelineStore } from "@/stores/timeline"
 import { useAssetStore } from "@/stores/assets"
 import { callTool, forgeStatus, listTools, type MCPTool } from "@/mcp"
-import { Cpu, HardDrive, PanelLeft, Image, Music, Mic, Wand2 } from "lucide-react"
+import { Cpu, HardDrive, PanelLeft, PanelRightClose, Wand2 } from "lucide-react"
 import { AppSidebar } from "./AppSidebar"
 
 type TabId = "assets" | "video"
-
-const GENRE_TABS = [
-  { id:"image" as const, label:"Image", icon:Image },
-  { id:"audio" as const, label:"Audio", icon:Music },
-  { id:"voice" as const, label:"Voice", icon:Mic },
-]
 
 const TOOL_GENRE: Record<string, string> = {
   generate_sound: "audio",
@@ -35,9 +28,15 @@ function toolGenre(name: string): string {
   return TOOL_GENRE[name] ?? "image"
 }
 
+function isAssetTool(t: MCPTool): boolean {
+  if (t.name.startsWith("workflow_") || t.name.startsWith("llm_")) return false
+  const admin = ["list_models", "list_services", "get_service", "forge_status", "load_service", "unload_services", "tts_voices", "chat", "transcribe"]
+  return !admin.includes(t.name)
+}
+
 function renderField(
   name: string,
-  prop: NonNullable<MCPTool["inputSchema"]["properties"]>[string],
+  prop: NonNullable<NonNullable<MCPTool["inputSchema"]["properties"]>[string]>,
   value: unknown,
   onChange: (v: unknown) => void,
 ) {
@@ -47,7 +46,7 @@ function renderField(
   if (prop.enum) {
     return (
       <div key={name} className="flex flex-col gap-1.5">
-        <Label>{label}</Label>
+        <Label className="text-xs text-muted-foreground">{label}</Label>
         <Select value={String(value ?? prop.default ?? "")} onValueChange={onChange}>
           <SelectTrigger><SelectValue /></SelectTrigger>
           <SelectContent>
@@ -63,7 +62,7 @@ function renderField(
   if (schemaType === "number" || schemaType === "integer") {
     return (
       <div key={name} className="flex flex-col gap-1.5">
-        <Label>{label}</Label>
+        <Label className="text-xs text-muted-foreground">{label}</Label>
         <Input type="number" value={String(value ?? prop.default ?? "")}
           onChange={(e) => onChange(e.target.value ? Number(e.target.value) : "")}
           placeholder={placeholder} />
@@ -74,13 +73,13 @@ function renderField(
   if (schemaType === "object") {
     return (
       <div key={name} className="flex flex-col gap-1.5">
-        <Label>{label}</Label>
+        <Label className="text-xs text-muted-foreground">{label}</Label>
         <Textarea value={typeof value === "object" ? JSON.stringify(value ?? prop.default ?? {}, null, 2) : String(value ?? "")}
           onChange={(e) => {
             try { onChange(JSON.parse(e.target.value)) }
             catch { onChange(e.target.value) }
           }}
-          placeholder={placeholder} rows={4} />
+          placeholder={placeholder} rows={4} className="font-mono text-xs" />
       </div>
     )
   }
@@ -89,7 +88,7 @@ function renderField(
   if (isLong) {
     return (
       <div key={name} className="flex flex-col gap-1.5">
-        <Label>{label}</Label>
+        <Label className="text-xs text-muted-foreground">{label}</Label>
         <Textarea value={String(value ?? prop.default ?? "")}
           onChange={(e) => onChange(e.target.value || "")}
           placeholder={placeholder} rows={3} />
@@ -99,7 +98,7 @@ function renderField(
 
   return (
     <div key={name} className="flex flex-col gap-1.5">
-      <Label>{label}</Label>
+      <Label className="text-xs text-muted-foreground">{label}</Label>
       <Input value={String(value ?? prop.default ?? "")}
         onChange={(e) => onChange(e.target.value || "")}
         placeholder={placeholder} />
@@ -109,36 +108,34 @@ function renderField(
 
 export function WorkspaceLayout(_props: any = {}) {
   const [tab, setTab] = useState<TabId>("assets")
-  const [sidebarOpen, setSidebarOpen] = useState(true)
+  const [leftOpen, setLeftOpen] = useState(true)
+  const [rightOpen, setRightOpen] = useState(true)
 
   return (
     <div className="flex h-screen w-full bg-background">
-      <AppSidebar open={sidebarOpen} onToggle={() => setSidebarOpen((o) => !o)} />
+      <AppSidebar open={leftOpen} onToggle={() => setLeftOpen((o) => !o)} />
       <div className="flex flex-1 flex-col min-w-0">
-        <header className="flex items-center h-11 px-4 border-b gap-4 shrink-0">
-          <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setSidebarOpen((o) => !o)}>
+        <header className="flex items-center h-11 px-4 border-b gap-2 shrink-0">
+          <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setLeftOpen((o) => !o)}>
             <PanelLeft className="h-4 w-4" />
           </Button>
           <span className="font-bold text-sm tracking-tight">TECH NOIR</span>
-          <NavigationMenu>
-            <NavigationMenuList>
-              <NavigationMenuItem>
-                <NavigationMenuLink className={navigationMenuTriggerStyle()} active={tab === "assets"} onClick={() => setTab("assets")}>
-                  Assets
-                </NavigationMenuLink>
-              </NavigationMenuItem>
-              <NavigationMenuItem>
-                <NavigationMenuLink className={navigationMenuTriggerStyle()} active={tab === "video"} onClick={() => setTab("video")}>
-                  Video
-                </NavigationMenuLink>
-              </NavigationMenuItem>
-            </NavigationMenuList>
-          </NavigationMenu>
+          <Separator orientation="vertical" className="h-5 mx-1" />
+          <Button variant={tab === "assets" ? "secondary" : "ghost"} size="sm" className="h-7 text-xs"
+            onClick={() => setTab("assets")}>Assets</Button>
+          <Button variant={tab === "video" ? "secondary" : "ghost"} size="sm" className="h-7 text-xs"
+            onClick={() => setTab("video")}>Video</Button>
           <div className="flex-1" />
           <GpuStatus />
+          <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setRightOpen((o) => !o)}>
+            <PanelRightClose className="h-4 w-4" />
+          </Button>
         </header>
-        <div className="flex-1 min-h-0">
-          {tab === "assets" ? <AssetsTab /> : <VideoTab />}
+        <div className="flex flex-1 min-h-0">
+          <div className="flex-1 min-w-0 overflow-auto">
+            {tab === "assets" ? <AssetsTab /> : <VideoTab />}
+          </div>
+          {rightOpen && <ServicesSidebar />}
         </div>
       </div>
     </div>
@@ -171,34 +168,30 @@ function GpuStatus() {
   const used = status.vram_total_mb - status.vram_free_mb
   const pct = Math.round((used / status.vram_total_mb) * 100)
   return (
-    <Badge variant="outline" className="text-xs gap-1 cursor-pointer" onClick={refresh} title={`${status.loaded} service(s) loaded, ${used}MB / ${status.vram_total_mb}MB VRAM`}>
+    <Badge variant="outline" className="text-xs gap-1 cursor-pointer" onClick={refresh}>
       <HardDrive className="h-3 w-3" />
       {pct}% GPU
     </Badge>
   )
 }
 
-function AssetsTab() {
-  const toast = useToastStore((s) => s.addToast)
-  const addAsset = useAssetStore((s) => s.addAsset)
+function ServicesSidebar() {
   const [tools, setTools] = useState<MCPTool[]>([])
-  const [loading, setLoading] = useState(true)
+  const [selected, setSelected] = useState("")
   const [genre, setGenre] = useState("image")
-  const [selected, setSelected] = useState<string>("")
   const [values, setValues] = useState<Record<string, unknown>>({})
   const [generating, setGenerating] = useState(false)
+  const toast = useToastStore((s) => s.addToast)
+  const addAsset = useAssetStore((s) => s.addAsset)
 
   useEffect(() => {
     listTools().then((all) => {
       setTools(all)
-      setLoading(false)
       if (all.length > 0) setSelected(all[0].name)
-    }).catch(() => {
-      setLoading(false)
-      toast("error", "Failed to load forge tools")
-    })
+    }).catch(() => toast("error", "Failed to load forge tools"))
   }, [])
 
+  const assetTools = tools.filter(isAssetTool)
   const currentTool = tools.find((t) => t.name === selected)
   const props_ = currentTool?.inputSchema?.properties ?? {}
 
@@ -224,7 +217,7 @@ function AssetsTab() {
         if (result.data) {
           const mt = result.media_type || "image/png"
           const isAud = mt.includes("audio")
-          const cat = mt.includes("audio") && currentTool.name === "generate_music" ? "music" as const : isAud ? "sfx" as const : "image" as const
+          const cat = isAud && currentTool.name === "generate_music" ? "music" as const : isAud ? "sfx" as const : "image" as const
           addAsset({
             name: `${currentTool.name} ${new Date().toLocaleTimeString()}`,
             type: isAud ? "audio" : "image",
@@ -246,61 +239,62 @@ function AssetsTab() {
     }
   }
 
-  if (loading) {
-    return (
-      <div className="flex-1 flex items-center justify-center p-6">
-        <Skeleton className="h-8 w-48" />
-      </div>
-    )
-  }
+  const genres = [...new Set(assetTools.map((t) => toolGenre(t.name)))]
 
   return (
-    <div className="flex-1 flex gap-6 p-6">
-      <div className="w-56 shrink-0">
-        <Tabs value={genre} onValueChange={(v) => { setGenre(v); const t = tools.find((x) => toolGenre(x.name) === v); if (t) setSelected(t.name) }}>
-          <TabsList className="w-full">
-            {GENRE_TABS.map((g) => (
-              <TabsTrigger key={g.id} value={g.id} className="flex-1">{g.label}</TabsTrigger>
-            ))}
-          </TabsList>
-          {GENRE_TABS.map((g) => (
-            <TabsContent key={g.id} value={g.id} className="mt-2 space-y-1">
-              {tools.filter((t) => {
-                if (t.name === "list_models" || t.name === "list_services" || t.name === "get_service" ||
-                    t.name === "forge_status" || t.name === "transcribe" || t.name === "chat" ||
-                    t.name === "llm_configure" || t.name === "load_service" || t.name === "unload_services" ||
-                    t.name === "tts_voices" ||
-                    t.name.startsWith("workflow_")) return false
-                return toolGenre(t.name) === g.id
-              }).map((t) => {
-                const Icon = GENRE_TABS.find((x) => x.id === g.id)?.icon ?? Wand2
-                return (
-                  <Button key={t.name} variant={selected === t.name ? "secondary" : "ghost"}
-                    className="w-full justify-start gap-2 h-auto py-2" onClick={() => setSelected(t.name)}>
-                    <Icon />{t.description?.split("—")[0]?.trim() || t.name}
-                  </Button>
-                )
-              })}
-            </TabsContent>
-          ))}
-        </Tabs>
+    <div className="w-80 border-l bg-sidebar text-sidebar-foreground flex flex-col shrink-0">
+      <div className="flex items-center justify-between p-3 border-b">
+        <span className="font-semibold text-sm">Forge Services</span>
       </div>
-      <Separator orientation="vertical" />
-      <Card className="flex-1 max-w-lg overflow-y-auto">
-        {currentTool && (
-          <>
-            <CardHeader><CardTitle className="text-base">{currentTool.description || currentTool.name}</CardTitle></CardHeader>
-            <CardContent className="flex flex-col gap-4">
-              {Object.entries(props_).map(([name, prop]) =>
-                renderField(name, prop, values[name], (v) => setValues((prev) => ({ ...prev, [name]: v })))
-              )}
-              <Button className="mt-2" disabled={generating} onClick={handleGenerate}>
-                {generating ? "Generating..." : `Generate ${currentTool.name}`}
-              </Button>
-            </CardContent>
-          </>
-        )}
-      </Card>
+      <div className="flex border-b">
+        {genres.map((g) => (
+          <button key={g} onClick={() => setGenre(g)}
+            className={`flex-1 py-2 text-xs font-medium text-center transition-colors ${genre === g ? "bg-sidebar-accent text-sidebar-accent-foreground" : "text-sidebar-foreground/60 hover:text-sidebar-foreground"}`}>
+            {g}
+          </button>
+        ))}
+      </div>
+      <ScrollArea className="flex-1">
+        <div className="p-2 space-y-1">
+          {assetTools.filter((t) => toolGenre(t.name) === genre).map((t) => (
+            <button key={t.name} onClick={() => setSelected(t.name)}
+              className={`w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-xs text-left transition-colors ${selected === t.name ? "bg-sidebar-accent text-sidebar-accent-foreground" : "hover:bg-sidebar-accent/50"}`}>
+              <Wand2 className="h-3.5 w-3.5 shrink-0" />
+              <span className="truncate">{t.description?.split("—")[0]?.trim() || t.name}</span>
+            </button>
+          ))}
+        </div>
+      </ScrollArea>
+      {currentTool && (
+        <div className="border-t p-3 space-y-3">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-medium">{currentTool.description || currentTool.name}</span>
+            <Badge variant="outline" className="text-[10px]">{currentTool.name}</Badge>
+          </div>
+          <div className="space-y-2 max-h-[60vh] overflow-y-auto">
+            {Object.entries(props_).map(([name, prop]) =>
+              renderField(name, prop, values[name], (v) => setValues((prev) => ({ ...prev, [name]: v })))
+            )}
+          </div>
+          <Button className="w-full h-8 text-xs" disabled={generating} onClick={handleGenerate}>
+            {generating ? "Generating..." : `Generate`}
+          </Button>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function AssetsTab() {
+  return (
+    <div className="flex-1 flex items-center justify-center p-6">
+      <div className="text-center space-y-4">
+        <h2 className="text-lg font-semibold">Asset Library</h2>
+        <p className="text-sm text-muted-foreground max-w-md">
+          Select a forge service from the right sidebar to generate assets.
+          Drag them from the left sidebar into the Video tab.
+        </p>
+      </div>
     </div>
   )
 }
