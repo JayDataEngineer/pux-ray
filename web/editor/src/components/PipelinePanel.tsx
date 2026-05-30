@@ -103,8 +103,18 @@ export function PipelinePanel({ spec, run, onLoadRun }: Props) {
             const sourceArtifacts = sourceRefs.map((ref) => {
               const artKey = Object.keys(run?.artifacts || {}).find((k) => k.startsWith(`${ref.stepId}.${ref.outputKey}`))
               const art = artKey && run ? run.artifacts[artKey] : null
+              const extMap: Record<string, string> = {
+                'image/png': 'png', 'image/jpeg': 'jpg', 'image/webp': 'webp',
+                'video/mp4': 'mp4', 'video/webm': 'webm',
+                'audio/wav': 'wav', 'audio/mp3': 'mp3',
+                'model/gltf-binary': 'glb',
+              }
               const thumbnailUrl = art && run
-                ? `/v1/wf/${run.spec_name}/runs/${run.run_id}/artifacts/${art.step_id}/${art.name.includes('.') ? art.name : art.name + '.png'}`
+                ? (() => {
+                    const ext = extMap[art.media_type] || art.name.split('.').pop() || 'bin'
+                    const filename = art.name.includes('.') ? art.name : `${art.name}.${ext}`
+                    return `/v1/wf/${run.spec_name}/runs/${run.run_id}/artifacts/${art.step_id}/${filename}`
+                  })()
                 : null
               return { stepId: ref.stepId, outputKey: ref.outputKey, thumbnailUrl }
             })

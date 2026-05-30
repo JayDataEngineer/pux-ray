@@ -11,8 +11,20 @@ interface Props {
   run: WorkflowRun | null
 }
 
-function artifactBaseUrl(run: WorkflowRun, stepId: string, name: string): string {
-  const filename = name.includes('.') ? name : name + '.bin'
+function extForMedia(mediaType: string): string {
+  const m: Record<string, string> = {
+    'image/png': 'png', 'image/jpeg': 'jpg', 'image/webp': 'webp',
+    'video/mp4': 'mp4', 'video/webm': 'webm',
+    'audio/wav': 'wav', 'audio/mp3': 'mp3', 'audio/ogg': 'ogg',
+    'application/json': 'json', 'model/gltf-binary': 'glb',
+    'model/gltf+json': 'gltf', 'application/zip': 'zip',
+  }
+  return m[mediaType] || 'bin'
+}
+
+function artifactBaseUrl(run: WorkflowRun, stepId: string, name: string, mediaType: string): string {
+  const ext = extForMedia(mediaType)
+  const filename = name.includes('.') ? name : `${name}.${ext}`
   return `/v1/wf/${run.spec_name}/runs/${run.run_id}/artifacts/${stepId}/${filename}`
 }
 
@@ -74,7 +86,7 @@ export function PreviewPanel({ run }: Props) {
   }
 
   const artifact = artifacts[selectedIdx] || artifacts[0]
-  const artifactUrl = artifactBaseUrl(run, artifact.step_id, artifact.name)
+  const artifactUrl = artifactBaseUrl(run, artifact.step_id, artifact.name, artifact.media_type)
   const mediaType = artifact.media_type
   const isVideo = mediaType.startsWith('video/')
   const fps = isVideo ? (typeof run.inputs?.video_fps === 'number' ? run.inputs.video_fps : 24) : 24
@@ -100,7 +112,7 @@ export function PreviewPanel({ run }: Props) {
       {artifacts.length > 1 && (
         <div className="preview-grid">
           {artifacts.map((art, idx) => {
-            const url = artifactBaseUrl(run, art.step_id, art.name)
+            const url = artifactBaseUrl(run, art.step_id, art.name, art.media_type)
             const mt = art.media_type
             return (
               <div

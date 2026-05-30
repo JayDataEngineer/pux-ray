@@ -280,7 +280,7 @@ async def wf_list_artifacts(request: Request) -> JSONResponse:
                         "step_id": step_dir.name,
                         "filename": f.name,
                         "size_bytes": f.stat().st_size,
-                        "url": f"/v1/wf/runs/{run_id}/artifacts/{step_dir.name}/{f.name}",
+                        "url": f"/v1/wf/{spec_name}/runs/{run_id}/artifacts/{step_dir.name}/{f.name}",
                     })
     return JSONResponse({"run_id": run_id, "artifacts": artifacts})
 

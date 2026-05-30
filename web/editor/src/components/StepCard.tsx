@@ -54,8 +54,15 @@ export function StepCard({ stepId, stepType, interaction, status, durationMs, er
   const icon = STATUS_ICONS[status] || '○'
   const hasArtifact = artifacts.length > 0
   const artifact = hasArtifact ? artifacts[0] : null
+  const extMap: Record<string, string> = {
+    'image/png': 'png', 'image/jpeg': 'jpg', 'image/webp': 'webp',
+    'video/mp4': 'mp4', 'video/webm': 'webm',
+    'audio/wav': 'wav', 'audio/mp3': 'mp3',
+    'model/gltf-binary': 'glb', 'application/json': 'json',
+  }
+  const ext = artifact ? (extMap[artifact.media_type] || 'bin') : 'bin'
   const thumbUrl = artifact && runId
-    ? `/v1/wf/${specName}/runs/${runId}/artifacts/${artifact.step_id}/${artifact.name.includes('.') ? artifact.name : artifact.name + '.png'}`
+    ? `/v1/wf/${specName}/runs/${runId}/artifacts/${artifact.step_id}/${artifact.name.includes('.') ? artifact.name : artifact.name + '.' + ext}`
     : null
   const isReview = interaction === 'review'
   const hasSourceThumbs = sourceArtifacts.some((s) => s.thumbnailUrl !== null)
