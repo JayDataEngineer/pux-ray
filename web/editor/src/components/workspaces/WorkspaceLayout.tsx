@@ -4,30 +4,26 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Badge } from "@/components/ui/badge"
-import {
-  SidebarProvider,
-  SidebarInset,
-  SidebarTrigger,
-} from "@/components/ui/sidebar"
 import { useToastStore } from "@/stores/toast"
 import { useTimelineStore } from "@/stores/timeline"
 import { forgeStatus } from "@/mcp"
-import { Cpu, HardDrive } from "lucide-react"
+import { Cpu, HardDrive, PanelLeft } from "lucide-react"
 import { AppSidebar } from "./AppSidebar"
 
 type TabId = "assets" | "video"
 
-// ── Main Layout ─────────────────────────────────────────────────────────────
-
 export function WorkspaceLayout(_props: any = {}) {
   const [tab, setTab] = useState<TabId>("assets")
+  const [sidebarOpen, setSidebarOpen] = useState(true)
 
   return (
-    <SidebarProvider>
-      <AppSidebar />
-      <SidebarInset className="flex flex-col min-w-0">
+    <div className="flex h-screen w-full bg-background">
+      <AppSidebar open={sidebarOpen} onToggle={() => setSidebarOpen((o) => !o)} />
+      <div className="flex flex-1 flex-col min-w-0">
         <header className="flex items-center h-11 px-4 border-b gap-4 shrink-0">
-          <SidebarTrigger />
+          <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setSidebarOpen((o) => !o)}>
+            <PanelLeft className="h-4 w-4" />
+          </Button>
           <span className="font-bold text-sm tracking-tight">TECH NOIR</span>
           <NavigationMenu>
             <NavigationMenuList>
@@ -49,8 +45,8 @@ export function WorkspaceLayout(_props: any = {}) {
         <div className="flex-1 min-h-0">
           {tab === "assets" ? <AssetsTab /> : <VideoTab />}
         </div>
-      </SidebarInset>
-    </SidebarProvider>
+      </div>
+    </div>
   )
 }
 
@@ -107,7 +103,7 @@ function AssetsTab() {
   )
 }
 
-// ── Video Tab (unchanged) ──────────────────────────────────────────────────
+// ── Video Tab ──────────────────────────────────────────────────
 
 function VideoTab() {
   const segments = useTimelineStore((s) => s.segments)
