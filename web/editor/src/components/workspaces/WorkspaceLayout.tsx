@@ -1,137 +1,161 @@
-import { useState } from "react"
-import { SidebarProvider, SidebarInset, SidebarTrigger } from "@/components/ui/sidebar"
+import { useState, useEffect, useCallback } from "react"
 import { NavigationMenu, NavigationMenuItem, NavigationMenuLink, NavigationMenuList, navigationMenuTriggerStyle } from "@/components/ui/navigation-menu"
 import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import { Textarea } from "@/components/ui/textarea"
-import { Label } from "@/components/ui/label"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Separator } from "@/components/ui/separator"
-import { AppSidebar } from "@/components/workspaces/AppSidebar"
+import { Card, CardContent } from "@/components/ui/card"
+import { Skeleton } from "@/components/ui/skeleton"
+import { Badge } from "@/components/ui/badge"
+import {
+  SidebarProvider,
+  SidebarInset,
+  SidebarTrigger,
+} from "@/components/ui/sidebar"
 import { useToastStore } from "@/stores/toast"
-import { useAssetStore } from "@/stores/assets"
 import { useTimelineStore } from "@/stores/timeline"
-import type { AssetCategory } from "@/stores/assets"
-import { Image, Music, Mic, Volume2, Wand2, Layers } from "lucide-react"
-
-const AUDIO_TASKS: any[] = [
-  { id:'ace_step',label:'ACE-Step Music',icon:Music,model:'tts/ace_step_v1_5',params:[{n:'input_prompt',t:'text',l:'Prompt',p:'epic cinematic orchestral'},{n:'duration_seconds',t:'number',l:'Duration (s)',p:'30',d:30}]},
-  { id:'moss_sfx',label:'MOSS Sound Effect',icon:Volume2,model:'moss/moss-soundeffect',params:[{n:'input_prompt',t:'text',l:'Description',p:'rain and thunder'},{n:'duration_seconds',t:'number',l:'Duration (s)',p:'5',d:5}]},
-  { id:'moss_voice_clone',label:'Voice Clone',icon:Mic,model:'moss/moss-tts',params:[{n:'text',t:'text',l:'Text',p:'Hello world'},{n:'reference_audio_b64',t:'file',l:'Reference Audio',p:'Upload voice sample'}]},
-  { id:'moss_voice_gen',label:'Voice Generator',icon:Wand2,model:'moss/moss-voicegenerator',params:[{n:'input_prompt',t:'text',l:'Voice Description',p:'deep British male voice'}]},
-  { id:'kokoro',label:'Kokoro TTS',icon:Mic,model:'kokoro',params:[{n:'text',t:'text',l:'Text',p:'Hello world'},{n:'voice',t:'string',l:'Voice',p:'af_bella',d:'af_bella'}]},
-]
-const IMAGE_TASKS: any[] = [
-  { id:'z_image',label:'Z-Image Turbo',icon:Image,pipeline:'tech-noir/generate',params:[{n:'prompt',t:'text',l:'Prompt',p:'A cyberpunk samurai...'},{n:'quality',t:'select',l:'Quality',opts:['turbo','standard'],d:'turbo'}]},
-  { id:'z_image_base',label:'Z-Image Base',icon:Image,pipeline:'tech-noir/generate',params:[{n:'prompt',t:'text',l:'Prompt',p:'A cyberpunk samurai...'},{n:'quality',t:'select',l:'Quality',opts:['turbo','standard'],d:'standard'}]},
-  { id:'vnccs_pose',label:'VNCCS Pose Edit',icon:Layers,pipeline:'vnccs/pose-edit',params:[{n:'character_image_b64',t:'file',l:'Character Image',p:'Select from assets'},{n:'rotations',t:'string',l:'Rotations JSON',p:'{}',d:'{}'}]},
-]
+import { forgeStatus } from "@/mcp"
+import { Cpu, HardDrive } from "lucide-react"
+import { AppSidebar } from "./AppSidebar"
 
 type TabId = "assets" | "video"
 
+// ── Main Layout ─────────────────────────────────────────────────────────────
+
 export function WorkspaceLayout(_props: any = {}) {
   const [tab, setTab] = useState<TabId>("assets")
+
   return (
     <SidebarProvider>
       <AppSidebar />
-      <SidebarInset>
-        <header className="flex items-center h-11 px-4 border-b gap-4">
+      <SidebarInset className="flex flex-col">
+        <header className="flex items-center h-11 px-4 border-b gap-4 shrink-0">
           <SidebarTrigger />
           <span className="font-bold text-sm tracking-tight">TECH NOIR</span>
           <NavigationMenu>
             <NavigationMenuList>
-              <NavigationMenuItem><NavigationMenuLink className={navigationMenuTriggerStyle()} active={tab==="assets"} onClick={()=>setTab("assets")}>Assets</NavigationMenuLink></NavigationMenuItem>
-              <NavigationMenuItem><NavigationMenuLink className={navigationMenuTriggerStyle()} active={tab==="video"} onClick={()=>setTab("video")}>Video</NavigationMenuLink></NavigationMenuItem>
+              <NavigationMenuItem>
+                <NavigationMenuLink className={navigationMenuTriggerStyle()} active={tab === "assets"} onClick={() => setTab("assets")}>
+                  Assets
+                </NavigationMenuLink>
+              </NavigationMenuItem>
+              <NavigationMenuItem>
+                <NavigationMenuLink className={navigationMenuTriggerStyle()} active={tab === "video"} onClick={() => setTab("video")}>
+                  Video
+                </NavigationMenuLink>
+              </NavigationMenuItem>
             </NavigationMenuList>
           </NavigationMenu>
+          <div className="flex-1" />
+          <GpuStatus />
         </header>
-        {tab === "assets" ? <AssetsTab /> : <VideoTab />}
+        <div className="flex-1 min-h-0">
+          {tab === "assets" ? <AssetsTab /> : <VideoTab />}
+        </div>
       </SidebarInset>
     </SidebarProvider>
   )
 }
 
-function AssetsTab() {
-  const toast = useToastStore((s) => s.addToast)
-  const addAsset = useAssetStore((s) => s.addAsset)
-  const [selected, setSelected] = useState(IMAGE_TASKS[0])
-  const [paramVals, setParamVals] = useState<Record<string, string|number>>(()=>{const d:Record<string,string|number>={};selected.params.forEach((p:any)=>{if(p.d!==undefined)d[p.n]=p.d});return d})
-  const [generating, setGenerating] = useState(false)
+// ── GPU Status Indicator ────────────────────────────────────────────────────
 
-  const handleGenerate = async () => {
-    setGenerating(true)
+function GpuStatus() {
+  const [status, setStatus] = useState<{ loaded: number; vram_free_mb: number; vram_total_mb: number } | null>(null)
+  const [error, setError] = useState(false)
+
+  const refresh = useCallback(async () => {
     try {
-      const payload = selected.pipeline ? {pipeline:selected.pipeline,params:paramVals} : {service:'wan2gp',model:selected.model,...paramVals}
-      const res = await fetch('/v1/run',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)})
-      const text = await res.text()
-      let result:Record<string,unknown>={}
-      try {result=JSON.parse(text)} catch {toast('error',text.slice(0,200));setGenerating(false);return}
-      if (result.status==='ok'||result.status==='success') {
-        if(result.data){const mt=result.media_type as string||'image/png';const isAud=mt.includes('audio');const cat:AssetCategory=selected.id.includes('ace')?'music':selected.id.includes('sfx')?'sfx':selected.id.includes('voice')?'voice':'image';addAsset({name:`${selected.label} ${new Date().toLocaleTimeString()}`,type:isAud?'audio':'image',category:cat,mediaType:mt,url:`data:${mt};base64,${result.data}`,sizeBytes:Math.round((result.data as string).length*0.75),source:'generated'});toast('success',selected.label)}
-      } else toast('error',String(result.error||result.message||'Unknown error'))
-    } catch(e) {toast('error',e instanceof Error?e.message:String(e))}
-    finally{setGenerating(false)}
-  }
+      const s = await forgeStatus()
+      setStatus({
+        loaded: Object.keys(s.loaded).length,
+        vram_free_mb: s.vram_free_mb,
+        vram_total_mb: s.vram_total_mb || 22528,
+      })
+      setError(false)
+    } catch {
+      setError(true)
+    }
+  }, [])
 
+  useEffect(() => { refresh(); const id = setInterval(refresh, 15000); return () => clearInterval(id) }, [refresh])
+
+  if (error) return <Badge variant="outline" className="text-xs gap-1"><Cpu className="h-3 w-3 text-destructive" />Offline</Badge>
+  if (!status) return <Skeleton className="h-5 w-20" />
+
+  const used = status.vram_total_mb - status.vram_free_mb
+  const pct = Math.round((used / status.vram_total_mb) * 100)
   return (
-    <div className="flex-1 flex gap-6 p-6">
-      <div className="w-56 shrink-0">
-        <Tabs defaultValue="image">
-          <TabsList className="w-full"><TabsTrigger value="image" className="flex-1">Image</TabsTrigger><TabsTrigger value="audio" className="flex-1">Audio</TabsTrigger></TabsList>
-          <TabsContent value="image" className="mt-2 space-y-1">{IMAGE_TASKS.map((t:any)=>{const Icon=t.icon;return <Button key={t.id} variant={selected.id===t.id?'secondary':'ghost'} className="w-full justify-start gap-2 h-auto py-2" onClick={()=>setSelected(t)}><Icon/>{t.label}</Button>})}</TabsContent>
-          <TabsContent value="audio" className="mt-2 space-y-1">{AUDIO_TASKS.map((t:any)=>{const Icon=t.icon;return <Button key={t.id} variant={selected.id===t.id?'secondary':'ghost'} className="w-full justify-start gap-2 h-auto py-2" onClick={()=>setSelected(t)}><Icon/>{t.label}</Button>})}</TabsContent>
-        </Tabs>
+    <Badge variant="outline" className="text-xs gap-1 cursor-pointer" onClick={refresh} title={`${status.loaded} service(s) loaded, ${used}MB / ${status.vram_total_mb}MB VRAM`}>
+      <HardDrive className="h-3 w-3" />
+      {pct}% GPU
+    </Badge>
+  )
+}
+
+// ── Assets Tab ─────────────────────────────────────────────────────────────
+
+function AssetsTab() {
+  return (
+    <div className="flex-1 flex items-center justify-center p-6">
+      <div className="text-center space-y-4">
+        <h2 className="text-lg font-semibold">Asset Library</h2>
+        <p className="text-sm text-muted-foreground max-w-md">
+          Browse generated and imported assets in the sidebar. Drag them into the Video tab to build your timeline.
+        </p>
+        <p className="text-xs text-muted-foreground">
+          Use the <strong>Generate</strong> tab to create new images, audio, 3D models, and more.
+        </p>
       </div>
-      <Separator orientation="vertical"/>
-      <Card className="flex-1 max-w-lg">
-        <CardHeader><CardTitle className="text-base">{selected.label}</CardTitle></CardHeader>
-        <CardContent className="flex flex-col gap-4">
-          {selected.params.map((p:any)=>(
-            <div key={p.n} className="flex flex-col gap-1.5">
-              <Label htmlFor={p.n}>{p.l}</Label>
-              {p.t==='select'&&p.opts?<Select value={String(paramVals[p.n]??p.d??'')} onValueChange={(v)=>setParamVals(prev=>({...prev,[p.n]:v}))}><SelectTrigger><SelectValue/></SelectTrigger><SelectContent>{p.opts.map((o:string)=><SelectItem key={o} value={o}>{o}</SelectItem>)}</SelectContent></Select>
-              :p.t==='number'?<Input id={p.n} type="number" value={paramVals[p.n]??p.d??''} onChange={e=>setParamVals(prev=>({...prev,[p.n]:parseInt(e.target.value)||0}))} placeholder={p.p}/>
-              :p.t==='file'?<Label htmlFor={p.n} className="flex items-center justify-center h-20 border-2 border-dashed rounded-lg cursor-pointer hover:border-primary/50 text-sm text-muted-foreground">{paramVals[p.n]?'File loaded':p.p}<Input id={p.n} type="file" className="hidden" accept="image/*" onChange={e=>{const f=e.target.files?.[0];if(!f)return;const r=new FileReader();r.onload=()=>{const d=r.result as string;setParamVals(prev=>({...prev,[p.n]:d.includes(',')?d.split(',')[1]:d}))};r.readAsDataURL(f)}}/></Label>
-              :p.t==='text'?<Textarea id={p.n} value={String(paramVals[p.n]??'')} onChange={e=>setParamVals(prev=>({...prev,[p.n]:e.target.value}))} placeholder={p.p} rows={3}/>
-              :<Input id={p.n} value={String(paramVals[p.n]??p.d??'')} onChange={e=>setParamVals(prev=>({...prev,[p.n]:e.target.value}))} placeholder={p.p}/>}
-            </div>
-          ))}
-          <Button className="mt-2" disabled={generating} onClick={handleGenerate}>{generating?'Generating...':`Generate ${selected.label}`}</Button>
-        </CardContent>
-      </Card>
     </div>
   )
 }
 
-function VideoTab() {
-  const segments=useTimelineStore((s)=>s.segments);const addSegment=useTimelineStore((s)=>s.addSegment);
-  const selectedSegmentId=useTimelineStore((s)=>s.selectedSegmentId);const setSelectedSegment=useTimelineStore((s)=>s.setSelectedSegment);const toast=useToastStore((s)=>s.addToast)
-  const selectedSegment=segments.find((s)=>s.id===selectedSegmentId)
+// ── Video Tab (unchanged) ──────────────────────────────────────────────────
 
-  const onDrop=(e:React.DragEvent)=>{e.preventDefault()
-    try{const d=JSON.parse(e.dataTransfer.getData('application/tech-noir-asset'))
-      if(d.type==='image'){const s=addSegment({prompt:d.name,firstFrameB64:d.url,thumbnailUrl:d.url,status:'empty'});setSelectedSegment(s.id);toast('info',`Keyframe: ${d.name}`)}}catch{}}
+function VideoTab() {
+  const segments = useTimelineStore((s) => s.segments)
+  const addSegment = useTimelineStore((s) => s.addSegment)
+  const selectedSegmentId = useTimelineStore((s) => s.selectedSegmentId)
+  const setSelectedSegment = useTimelineStore((s) => s.setSelectedSegment)
+  const toast = useToastStore((s) => s.addToast)
+  const selectedSegment = segments.find((s) => s.id === selectedSegmentId)
+
+  const onDrop = (e: React.DragEvent) => {
+    e.preventDefault()
+    try {
+      const d = JSON.parse(e.dataTransfer.getData("application/tech-noir-asset"))
+      if (d.type === "image") {
+        const s = addSegment({ prompt: d.name, firstFrameB64: d.url, thumbnailUrl: d.url, status: "empty" })
+        setSelectedSegment(s.id)
+        toast("info", `Keyframe: ${d.name}`)
+      }
+    } catch { /* ignore */ }
+  }
 
   return (
     <div className="flex-1 flex gap-6 p-6">
       <div className="flex-1 flex flex-col gap-4">
-        <Card className="flex-1" onDragOver={e=>e.preventDefault()} onDrop={onDrop}>
+        <Card className="flex-1" onDragOver={(e) => e.preventDefault()} onDrop={onDrop}>
           <CardContent className="flex items-center justify-center h-full min-h-[200px]">
-            {selectedSegment?.videoUrl?<video src={selectedSegment.videoUrl} controls className="max-w-full max-h-full rounded-lg"/>
-            :segments.length===0?<p className="text-muted-foreground text-sm">Drag images from the Assets sidebar</p>
-            :<p className="text-muted-foreground text-sm">{segments.length} keyframe(s) — select one to generate</p>}
+            {selectedSegment?.videoUrl ? (
+              <video src={selectedSegment.videoUrl} controls className="max-w-full max-h-full rounded-lg" />
+            ) : segments.length === 0 ? (
+              <p className="text-muted-foreground text-sm">Drag images from the Assets sidebar</p>
+            ) : (
+              <p className="text-muted-foreground text-sm">{segments.length} keyframe(s) — select one to generate</p>
+            )}
           </CardContent>
         </Card>
         <div className="h-24 flex items-center gap-1 p-2 border rounded-lg overflow-x-auto bg-muted/30">
-          {segments.map((seg)=>(
-            <div key={seg.id} className={`h-full flex items-center justify-center rounded-md text-[10px] cursor-pointer relative overflow-hidden shrink-0 border-2 ${seg.id===selectedSegmentId?'border-primary':'border-border'}`} style={{width:`${seg.duration*40}px`}} onClick={()=>setSelectedSegment(seg.id)}>
-              {seg.thumbnailUrl&&<img src={seg.thumbnailUrl} alt="" className="absolute inset-0 w-full h-full object-cover opacity-30"/>}
-              <span className="relative z-10 font-medium">K_{String(seg.order+1).padStart(2,'0')}</span>
+          {segments.map((seg) => (
+            <div
+              key={seg.id}
+              className={`h-full flex items-center justify-center rounded-md text-[10px] cursor-pointer relative overflow-hidden shrink-0 border-2 ${seg.id === selectedSegmentId ? "border-primary" : "border-border"}`}
+              style={{ width: `${seg.duration * 40}px` }}
+              onClick={() => setSelectedSegment(seg.id)}
+            >
+              {seg.thumbnailUrl && <img src={seg.thumbnailUrl} alt="" className="absolute inset-0 w-full h-full object-cover opacity-30" />}
+              <span className="relative z-10 font-medium">K_{String(seg.order + 1).padStart(2, "0")}</span>
             </div>
           ))}
-          <Button variant="outline" size="icon" className="h-full w-8 shrink-0" onClick={()=>{const s=addSegment({duration:5,status:'empty'});setSelectedSegment(s.id)}}>+</Button>
+          <Button variant="outline" size="icon" className="h-full w-8 shrink-0" onClick={() => { const s = addSegment({ duration: 5, status: "empty" }); setSelectedSegment(s.id) }}>+</Button>
         </div>
       </div>
     </div>
