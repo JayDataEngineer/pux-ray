@@ -78,7 +78,10 @@ export function VisualWorkspace({ spec: _spec, run, allSpecs: _allSpecs, onSpecC
   }, [])
 
   const handleCompose = useCallback(async () => {
-    if (!run || !charImage || !poseImage || !scenePrompt) return
+    if (!run) { toast('error', 'No active run'); return }
+    if (!charImage) { toast('error', 'Select a character image first'); return }
+    if (!poseImage) { toast('error', 'Upload a pose image first (Kimodo or file)'); return }
+    if (!scenePrompt) { toast('error', 'Enter a scene description'); return }
     setGenerating(true)
     try {
       const result = await executeStep(run.spec_name, run.run_id, 'scene_compose', {

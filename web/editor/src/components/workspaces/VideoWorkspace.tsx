@@ -274,9 +274,7 @@ export function VideoWorkspace({ run }: { run: WorkflowRun | null }) {
           <button className="btn btn-ghost btn-block" onClick={() => setShowBlendEditor(!showBlendEditor)}>
             Blends/Cuts
           </button>
-          <button className="btn btn-ghost btn-block" onClick={() => toast('info', 'Color grading coming soon')}>
-            Color Grading
-          </button>
+          <label className="panel-label" style={{ marginTop: 8, opacity: .5 }}>Color Grading — soon</label>
         </div>
 
         {/* Render */}

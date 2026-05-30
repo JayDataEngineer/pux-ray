@@ -5,6 +5,7 @@ import { listSpecs, getSpec, startRun, getRun } from './api'
 import { useSSE } from './hooks/useSSE'
 import { Layout } from './components/Layout'
 import { WorkspaceLayout } from './components/workspaces/WorkspaceLayout'
+import { ErrorBoundary } from './components/ErrorBoundary'
 import { Toaster } from './components/Toaster'
 import type { SSEEvent } from './types'
 
@@ -59,6 +60,12 @@ export function App() {
           const result = await startRun(s.name, {}, true)
           const fullRun = await getRun(s.name, result.run_id)
           setRun(fullRun)
+          // Save to history
+          try {
+            const history = JSON.parse(localStorage.getItem('past_runs') || '[]')
+            history.unshift({ run_id: result.run_id, spec_name: s.name, status: 'running', created_at: new Date().toISOString() })
+            localStorage.setItem('past_runs', JSON.stringify(history.slice(0, 50)))
+          } catch {}
         }
       })
       .catch((e) => {
@@ -96,16 +103,16 @@ export function App() {
   // Use workspace layout for timeline/workspace modes, pipeline layout for pipeline mode
   if (viewMode === 'timeline' || viewMode === 'kimodo') {
     return (
-      <>
+      <ErrorBoundary>
         {loading && <div className="loading-overlay"><div className="spinner" /></div>}
         <WorkspaceLayout spec={spec} run={run} allSpecs={allSpecs} onSpecChange={handleSpecChange} />
         <Toaster />
-      </>
+      </ErrorBoundary>
     )
   }
 
   return (
-    <>
+    <ErrorBoundary>
       {loading && <div className="loading-overlay"><div className="spinner" /></div>}
       <Layout spec={spec} allSpecs={allSpecs} run={run}
         onStart={async () => {}} onNewRun={() => reset()} onSpecChange={handleSpecChange}
@@ -114,6 +121,6 @@ export function App() {
           const fr = await getRun(sn, rid); setRun(fr)
         }} />
       <Toaster />
-    </>
+    </ErrorBoundary>
   )
 }
