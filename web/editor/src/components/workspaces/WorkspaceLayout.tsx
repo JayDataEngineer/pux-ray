@@ -13,60 +13,11 @@ import { Separator } from "@/components/ui/separator"
 import { useToastStore } from "@/stores/toast"
 import { useTimelineStore } from "@/stores/timeline"
 import { useAssetStore } from "@/stores/assets"
-import { callTool, forgeStatus } from "@/mcp"
-import { Cpu, HardDrive, PanelLeft, Image, Music, Mic, Volume2, Wand2 } from "lucide-react"
+import { callTool, forgeStatus, listTools, type MCPTool } from "@/mcp"
+import { Cpu, HardDrive, PanelLeft, Image, Music, Mic, Wand2 } from "lucide-react"
 import { AppSidebar } from "./AppSidebar"
 
 type TabId = "assets" | "video"
-
-interface ToolParam {
-  name: string
-  type: "text" | "number" | "select" | "file" | "textarea"
-  label: string
-  default?: string | number
-  options?: string[]
-  placeholder?: string
-}
-
-interface ToolDef {
-  id: string
-  label: string
-  icon: typeof Image
-  mcpTool: string
-  mcpArgs: Record<string, unknown>
-  params: ToolParam[]
-  category: "image" | "audio" | "voice"
-}
-
-const FORGE_TOOLS: ToolDef[] = [
-  // Image
-  { id:"z_image", label:"Z-Image", icon:Image, mcpTool:"run", mcpArgs:{service:"z_image"}, category:"image", params:[
-    { name:"prompt", type:"text", label:"Prompt", placeholder:"A cyberpunk samurai..." },
-    { name:"quality", type:"select", label:"Quality", default:"turbo", options:["turbo","standard"] },
-  ]},
-  // Audio
-  { id:"generate_music", label:"ACE-Step Music", icon:Music, mcpTool:"generate_music", mcpArgs:{}, category:"audio", params:[
-    { name:"prompt", type:"text", label:"Music description", placeholder:"epic cinematic orchestral" },
-    { name:"duration_seconds", type:"number", label:"Duration (s)", default:30, placeholder:"30" },
-  ]},
-  { id:"generate_sound", label:"MOSS Sound Effect", icon:Volume2, mcpTool:"generate_sound", mcpArgs:{}, category:"audio", params:[
-    { name:"prompt", type:"text", label:"Sound description", placeholder:"rain and thunder" },
-    { name:"duration_seconds", type:"number", label:"Duration (s)", default:5, placeholder:"5" },
-  ]},
-  // Voice
-  { id:"tts_kokoro", label:"Kokoro TTS", icon:Mic, mcpTool:"tts_speak", mcpArgs:{engine:"kokoro",mode:"custom_voice"}, category:"voice", params:[
-    { name:"text", type:"textarea", label:"Text to speak", placeholder:"Hello world" },
-    { name:"voice", type:"select", label:"Voice", default:"af_bella", options:["af_bella","af_nicole","af_sky","am_adam","am_michael","bf_emma","bm_george"] },
-  ]},
-  { id:"voice_clone", label:"Voice Clone", icon:Mic, mcpTool:"tts_speak", mcpArgs:{engine:"kokoro",mode:"voice_clone"}, category:"voice", params:[
-    { name:"text", type:"textarea", label:"Text to speak", placeholder:"Hello world" },
-    { name:"ref_audio_b64", type:"file", label:"Reference Audio", placeholder:"Upload voice sample" },
-  ]},
-  { id:"voice_design", label:"Voice Design", icon:Wand2, mcpTool:"tts_speak", mcpArgs:{engine:"kokoro",mode:"voice_design"}, category:"voice", params:[
-    { name:"text", type:"textarea", label:"Text to speak", placeholder:"Hello world" },
-    { name:"instruct", type:"text", label:"Voice description", placeholder:"deep British male voice" },
-  ]},
-]
 
 const GENRE_TABS = [
   { id:"image" as const, label:"Image", icon:Image },
@@ -74,8 +25,86 @@ const GENRE_TABS = [
   { id:"voice" as const, label:"Voice", icon:Mic },
 ]
 
-function toolsByGenre(genre: string) {
-  return FORGE_TOOLS.filter((t) => t.category === genre)
+const TOOL_GENRE: Record<string, string> = {
+  generate_sound: "audio",
+  generate_music: "audio",
+  tts_speak: "voice",
+}
+
+function toolGenre(name: string): string {
+  return TOOL_GENRE[name] ?? "image"
+}
+
+function renderField(
+  name: string,
+  prop: NonNullable<MCPTool["inputSchema"]["properties"]>[string],
+  value: unknown,
+  onChange: (v: unknown) => void,
+) {
+  const label = prop.description || name
+  const placeholder = typeof prop.default === "string" ? String(prop.default) : label
+
+  if (prop.enum) {
+    return (
+      <div key={name} className="flex flex-col gap-1.5">
+        <Label>{label}</Label>
+        <Select value={String(value ?? prop.default ?? "")} onValueChange={onChange}>
+          <SelectTrigger><SelectValue /></SelectTrigger>
+          <SelectContent>
+            {prop.enum.map((o) => <SelectItem key={o} value={o}>{o}</SelectItem>)}
+          </SelectContent>
+        </Select>
+      </div>
+    )
+  }
+
+  const schemaType = prop.type ?? "string"
+
+  if (schemaType === "number" || schemaType === "integer") {
+    return (
+      <div key={name} className="flex flex-col gap-1.5">
+        <Label>{label}</Label>
+        <Input type="number" value={String(value ?? prop.default ?? "")}
+          onChange={(e) => onChange(e.target.value ? Number(e.target.value) : "")}
+          placeholder={placeholder} />
+      </div>
+    )
+  }
+
+  if (schemaType === "object") {
+    return (
+      <div key={name} className="flex flex-col gap-1.5">
+        <Label>{label}</Label>
+        <Textarea value={typeof value === "object" ? JSON.stringify(value ?? prop.default ?? {}, null, 2) : String(value ?? "")}
+          onChange={(e) => {
+            try { onChange(JSON.parse(e.target.value)) }
+            catch { onChange(e.target.value) }
+          }}
+          placeholder={placeholder} rows={4} />
+      </div>
+    )
+  }
+
+  const isLong = (prop.description?.length ?? 0) > 80 || name === "lyrics" || name === "instruct"
+  if (isLong) {
+    return (
+      <div key={name} className="flex flex-col gap-1.5">
+        <Label>{label}</Label>
+        <Textarea value={String(value ?? prop.default ?? "")}
+          onChange={(e) => onChange(e.target.value || "")}
+          placeholder={placeholder} rows={3} />
+      </div>
+    )
+  }
+
+  return (
+    <div key={name} className="flex flex-col gap-1.5">
+      <Label>{label}</Label>
+      <Input value={String(value ?? prop.default ?? "")}
+        onChange={(e) => onChange(e.target.value || "")}
+        placeholder={placeholder} />
+    </div>
+  )
 }
 
 export function WorkspaceLayout(_props: any = {}) {
@@ -152,36 +181,52 @@ function GpuStatus() {
 function AssetsTab() {
   const toast = useToastStore((s) => s.addToast)
   const addAsset = useAssetStore((s) => s.addAsset)
-  const [genre, setGenre] = useState<string>("image")
-  const [selected, setSelected] = useState<ToolDef>(FORGE_TOOLS[0])
-  const [paramVals, setParamVals] = useState<Record<string, string | number>>({})
+  const [tools, setTools] = useState<MCPTool[]>([])
+  const [loading, setLoading] = useState(true)
+  const [genre, setGenre] = useState("image")
+  const [selected, setSelected] = useState<string>("")
+  const [values, setValues] = useState<Record<string, unknown>>({})
   const [generating, setGenerating] = useState(false)
 
   useEffect(() => {
-    const d: Record<string, string | number> = {}
-    selected.params.forEach((p) => { if (p.default !== undefined) d[p.name] = p.default })
-    setParamVals(d)
+    listTools().then((all) => {
+      setTools(all)
+      setLoading(false)
+      if (all.length > 0) setSelected(all[0].name)
+    }).catch(() => {
+      setLoading(false)
+      toast("error", "Failed to load forge tools")
+    })
+  }, [])
+
+  const currentTool = tools.find((t) => t.name === selected)
+  const props_ = currentTool?.inputSchema?.properties ?? {}
+
+  useEffect(() => {
+    if (!currentTool) return
+    const d: Record<string, unknown> = {}
+    for (const [k, v] of Object.entries(props_)) {
+      if (v.default !== undefined) d[k] = v.default
+    }
+    setValues(d)
   }, [selected])
 
   const handleGenerate = async () => {
+    if (!currentTool) return
     setGenerating(true)
     try {
-      const args = { ...selected.mcpArgs }
-      if (selected.mcpTool === "run") {
-        args.params = { ...paramVals }
-      } else {
-        for (const [k, v] of Object.entries(paramVals)) {
-          args[k] = v
-        }
+      const args: Record<string, unknown> = {}
+      for (const [k, v] of Object.entries(values)) {
+        if (v !== null && v !== "") args[k] = v
       }
-      const result = await callTool<{ status: string; data?: string; media_type?: string; error?: string; message?: string }>(selected.mcpTool, args)
+      const result = await callTool<{ status: string; data?: string; media_type?: string; error?: string; message?: string }>(currentTool.name, args)
       if (result.status === "ok" || result.status === "success") {
         if (result.data) {
           const mt = result.media_type || "image/png"
           const isAud = mt.includes("audio")
-          const cat = selected.category === "voice" ? "voice" : selected.id.includes("music") ? "music" : isAud ? "sfx" : "image" as const
+          const cat = mt.includes("audio") && currentTool.name === "generate_music" ? "music" as const : isAud ? "sfx" as const : "image" as const
           addAsset({
-            name: `${selected.label} ${new Date().toLocaleTimeString()}`,
+            name: `${currentTool.name} ${new Date().toLocaleTimeString()}`,
             type: isAud ? "audio" : "image",
             category: cat,
             mediaType: mt,
@@ -189,7 +234,7 @@ function AssetsTab() {
             sizeBytes: Math.round((result.data as string).length * 0.75),
             source: "generated",
           })
-          toast("success", `${selected.label} generated`)
+          toast("success", `${currentTool.name} generated`)
         }
       } else {
         toast("error", String(result.error || result.message || "Unknown error"))
@@ -201,10 +246,18 @@ function AssetsTab() {
     }
   }
 
+  if (loading) {
+    return (
+      <div className="flex-1 flex items-center justify-center p-6">
+        <Skeleton className="h-8 w-48" />
+      </div>
+    )
+  }
+
   return (
     <div className="flex-1 flex gap-6 p-6">
       <div className="w-56 shrink-0">
-        <Tabs value={genre} onValueChange={(v) => { setGenre(v); const items = toolsByGenre(v); if (items.length) setSelected(items[0]) }}>
+        <Tabs value={genre} onValueChange={(v) => { setGenre(v); const t = tools.find((x) => toolGenre(x.name) === v); if (t) setSelected(t.name) }}>
           <TabsList className="w-full">
             {GENRE_TABS.map((g) => (
               <TabsTrigger key={g.id} value={g.id} className="flex-1">{g.label}</TabsTrigger>
@@ -212,12 +265,19 @@ function AssetsTab() {
           </TabsList>
           {GENRE_TABS.map((g) => (
             <TabsContent key={g.id} value={g.id} className="mt-2 space-y-1">
-              {toolsByGenre(g.id).map((t) => {
-                const Icon = t.icon
+              {tools.filter((t) => {
+                if (t.name === "list_models" || t.name === "list_services" || t.name === "get_service" ||
+                    t.name === "forge_status" || t.name === "transcribe" || t.name === "chat" ||
+                    t.name === "llm_configure" || t.name === "load_service" || t.name === "unload_services" ||
+                    t.name === "tts_voices" ||
+                    t.name.startsWith("workflow_")) return false
+                return toolGenre(t.name) === g.id
+              }).map((t) => {
+                const Icon = GENRE_TABS.find((x) => x.id === g.id)?.icon ?? Wand2
                 return (
-                  <Button key={t.id} variant={selected.id === t.id ? "secondary" : "ghost"}
-                    className="w-full justify-start gap-2 h-auto py-2" onClick={() => setSelected(t)}>
-                    <Icon />{t.label}
+                  <Button key={t.name} variant={selected === t.name ? "secondary" : "ghost"}
+                    className="w-full justify-start gap-2 h-auto py-2" onClick={() => setSelected(t.name)}>
+                    <Icon />{t.description?.split("—")[0]?.trim() || t.name}
                   </Button>
                 )
               })}
@@ -226,55 +286,20 @@ function AssetsTab() {
         </Tabs>
       </div>
       <Separator orientation="vertical" />
-      <Card className="flex-1 max-w-lg">
-        <CardHeader><CardTitle className="text-base">{selected.label}</CardTitle></CardHeader>
-        <CardContent className="flex flex-col gap-4">
-          {selected.params.map((p) => (
-            <div key={p.name} className="flex flex-col gap-1.5">
-              <Label htmlFor={p.name}>{p.label}</Label>
-              {p.type === "select" && p.options ? (
-                <Select value={String(paramVals[p.name] ?? p.default ?? "")}
-                  onValueChange={(v) => setParamVals((prev) => ({ ...prev, [p.name]: v } as Record<string, string | number>))}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    {p.options.map((o) => <SelectItem key={o} value={o}>{o}</SelectItem>)}
-                  </SelectContent>
-                </Select>
-              ) : p.type === "number" ? (
-                <Input id={p.name} type="number" value={paramVals[p.name] ?? p.default ?? ""}
-                  onChange={(e) => setParamVals((prev) => ({ ...prev, [p.name]: parseInt(e.target.value) || 0 }))}
-                  placeholder={p.placeholder} />
-              ) : p.type === "file" ? (
-                <Label htmlFor={p.name}
-                  className="flex items-center justify-center h-20 border-2 border-dashed rounded-lg cursor-pointer hover:border-primary/50 text-sm text-muted-foreground">
-                  {paramVals[p.name] ? "File loaded" : p.placeholder}
-                  <Input id={p.name} type="file" className="hidden"
-                    onChange={(e) => {
-                      const f = e.target.files?.[0]
-                      if (!f) return
-                      const r = new FileReader()
-                      r.onload = () => {
-                        const d = r.result as string
-                        setParamVals((prev) => ({ ...prev, [p.name]: d.includes(",") ? (d.split(",")[1] || "") : d }))
-                      }
-                      r.readAsDataURL(f)
-                    }} />
-                </Label>
-              ) : p.type === "textarea" ? (
-                <Textarea id={p.name} value={String(paramVals[p.name] ?? "")}
-                  onChange={(e) => setParamVals((prev) => ({ ...prev, [p.name]: e.target.value }))}
-                  placeholder={p.placeholder} rows={3} />
-              ) : (
-                <Input id={p.name} value={String(paramVals[p.name] ?? p.default ?? "")}
-                  onChange={(e) => setParamVals((prev) => ({ ...prev, [p.name]: e.target.value }))}
-                  placeholder={p.placeholder} />
+      <Card className="flex-1 max-w-lg overflow-y-auto">
+        {currentTool && (
+          <>
+            <CardHeader><CardTitle className="text-base">{currentTool.description || currentTool.name}</CardTitle></CardHeader>
+            <CardContent className="flex flex-col gap-4">
+              {Object.entries(props_).map(([name, prop]) =>
+                renderField(name, prop, values[name], (v) => setValues((prev) => ({ ...prev, [name]: v })))
               )}
-            </div>
-          ))}
-          <Button className="mt-2" disabled={generating} onClick={handleGenerate}>
-            {generating ? "Generating..." : `Generate ${selected.label}`}
-          </Button>
-        </CardContent>
+              <Button className="mt-2" disabled={generating} onClick={handleGenerate}>
+                {generating ? "Generating..." : `Generate ${currentTool.name}`}
+              </Button>
+            </CardContent>
+          </>
+        )}
       </Card>
     </div>
   )

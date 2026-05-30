@@ -1,4 +1,4 @@
-import type { WorkflowSpec, WorkflowRun } from './types'
+import type { WorkflowSpec, WorkflowRun, ServiceInfo, ServiceResult } from './types'
 
 const MCP_URL = '/mcp/wan2gp-studio/mcp'
 
@@ -115,6 +115,49 @@ export async function callTool<T = unknown>(name: string, args: Record<string, u
   return msg.result as T
 }
 
+export interface MCPTool {
+  name: string
+  description?: string
+  inputSchema: {
+    type?: string
+    properties?: Record<string, {
+      type?: string
+      default?: unknown
+      description?: string
+      enum?: string[]
+      anyOf?: { type?: string; default?: unknown }[]
+    }>
+    required?: string[]
+    additionalProperties?: boolean
+  }
+  outputSchema?: Record<string, unknown>
+  _meta?: Record<string, unknown>
+}
+
+export async function listTools(): Promise<MCPTool[]> {
+  await ensureInit()
+  const resp = await fetch(MCP_URL, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Accept': 'application/json, text/event-stream',
+      ...(sessionId ? { 'Mcp-Session-Id': sessionId } : {}),
+    },
+    body: JSON.stringify({
+      jsonrpc: '2.0',
+      id: nextId++,
+      method: 'tools/list',
+      params: {},
+    }),
+  })
+  const text = await resp.text()
+  const dataLine = text.split('\n').find((l) => l.startsWith('data: '))
+  if (!dataLine) throw new Error('No response from MCP server')
+  const msg = JSON.parse(dataLine.slice(6))
+  if (msg.error) throw new Error(msg.error.message || 'MCP listTools error')
+  return msg.result?.tools ?? []
+}
+
 // ========== Convenience wrappers ==========
 
 export async function listSpecs() {
@@ -194,4 +237,78 @@ export async function loadKimodo(): Promise<{ status: string }> {
 
 export function kimodoUrl() {
   return `${window.location.origin}/kimodo/`
+}
+
+// ========== Service Catalog (REST API — direct, no MCP wrapper needed) ==========
+
+export async function listServices(): Promise<ServiceInfo[]> {
+  const res = await fetch('/v1/services')
+  if (!res.ok) throw new Error(`Failed to fetch services: ${res.status}`)
+  return res.json()
+}
+
+export async function getServiceInfo(name: string): Promise<ServiceInfo & { default_model: string }> {
+  const res = await fetch(`/v1/services/${name}`)
+  if (!res.ok) throw new Error(`Failed to fetch service ${name}: ${res.status}`)
+  return res.json()
+}
+
+export async function invokeService(
+  service: string,
+  params: Record<string, unknown>,
+  model?: string,
+): Promise<ServiceResult> {
+  const payload: Record<string, unknown> = { service, ...params }
+  if (model) payload.model = model
+  const res = await fetch('/v1/run', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
+  if (!res.ok) throw new Error(`Service invoke failed: ${res.status}`)
+  return res.json()
+}
+
+export async function invokeServiceFormData(
+  service: string,
+  formData: FormData,
+): Promise<ServiceResult> {
+  const res = await fetch('/v1/run', {
+    method: 'POST',
+    body: formData,
+  })
+  const text = await res.text()
+  try { return JSON.parse(text) }
+  catch { return { status: 'error', error: text.slice(0, 500) } }
+}
+
+export async function loadService(name: string, model?: string): Promise<ServiceResult> {
+  const res = await fetch('/forge', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action: 'preload', service: name, model }),
+  })
+  if (!res.ok) throw new Error(`Failed to load service: ${res.status}`)
+  return res.json()
+}
+
+export async function forgeStatus(): Promise<{
+  loaded: Record<string, number>
+  vram_free_mb: number
+  vram_total_mb: number
+  gpu?: { device: string; total_mb: number; allocated_mb: number }
+}> {
+  const res = await fetch('/status')
+  if (!res.ok) throw new Error(`Failed to get status: ${res.status}`)
+  return res.json()
+}
+
+/** Read a File as a base64 data URL string. */
+export function fileToBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve(reader.result as string)
+    reader.onerror = () => reject(new Error('Failed to read file'))
+    reader.readAsDataURL(file)
+  })
 }
