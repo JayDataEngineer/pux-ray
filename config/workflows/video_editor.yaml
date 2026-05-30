@@ -45,10 +45,6 @@ inputs:
     type: string
     default: "ambient environmental sounds matching the scene"
     description: "Prompt for MOSS sound effects"
-  quality:
-    type: string
-    default: "turbo"
-    enum: [turbo, standard]
   seed:
     type: integer
     default: 42
