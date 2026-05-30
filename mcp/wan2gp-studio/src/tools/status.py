@@ -113,3 +113,42 @@ async def forge_status(
         status.pop("gpu_nodes", None)
 
     return status
+
+
+async def list_pipelines(
+    ctx: Context | None = None,
+) -> list[dict[str, Any]]:
+    """List all available DAG pipelines with their parameter schemas.
+
+    Returns each pipeline's ID, description, and parameter definitions
+    (name, type, default, required). Use this to dynamically build forms.
+    """
+    import inspect
+    from gateway.routes.workflows import _WORKFLOW_REGISTRY
+
+    pipelines = []
+    for pipeline_id, fn in sorted(_WORKFLOW_REGISTRY.items()):
+        sig = inspect.signature(fn)
+        params = []
+        for name, param in sig.parameters.items():
+            if name in ("kwargs", "args"):
+                continue
+            ptype = "string"
+            if param.annotation != inspect.Parameter.empty:
+                ann = str(param.annotation)
+                if "int" in ann: ptype = "integer"
+                elif "float" in ann: ptype = "number"
+                elif "bool" in ann: ptype = "boolean"
+                elif "dict" in ann: ptype = "object"
+            params.append({
+                "name": name,
+                "type": ptype,
+                "required": param.default == inspect.Parameter.empty,
+                "default": None if param.default == inspect.Parameter.empty else param.default,
+            })
+        pipelines.append({
+            "id": pipeline_id,
+            "description": (fn.__doc__ or "").strip().split("\n")[0],
+            "params": params,
+        })
+    return pipelines

@@ -102,7 +102,7 @@ mcp = FastMCP(
 
 from .tools.generate import run
 from .tools.image import generate_image
-from .tools.status import list_models, list_services, get_service, forge_status
+from .tools.status import list_models, list_services, get_service, forge_status, list_pipelines
 from .tools.tts import tts_speak, tts_voices
 from .tools.audio import transcribe, generate_sound, generate_music
 from .tools.llm import chat, llm_configure
@@ -175,6 +175,11 @@ mcp.tool(generate_image, meta={
 mcp.tool(list_models)
 mcp.tool(list_services)
 mcp.tool(get_service)
+mcp.tool(list_pipelines, meta={
+    "ui": {"resourceUri": "ui://apps/pipelines"},
+    "openai/toolInvocation/invoking": "Loading pipelines…",
+    "openai/toolInvocation/invoked": "Done",
+})
 mcp.tool(forge_status, meta={
     "ui": {"resourceUri": "ui://apps/admin"},
     "openai/toolInvocation/invoking": "Checking GPU…",
