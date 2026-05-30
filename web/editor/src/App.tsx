@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback } from 'react'
 import { useWorkflowStore } from './stores/workflow'
 import { useToastStore } from './stores/toast'
-import { listSpecs, getSpec, startRun, getRun } from './api'
+import { listSpecs, getSpec, startRun, getRun, executeStep } from './api'
 import { useSSE } from './hooks/useSSE'
 import { Layout } from './components/Layout'
 import { Toaster } from './components/Toaster'
@@ -81,9 +81,22 @@ export function App() {
     setLoading(true)
     try {
       const result = await startRun(spec.name, inputs, true)
-      const fullRun = await getRun(spec.name, result.run_id)
+      let fullRun = await getRun(spec.name, result.run_id)
       setRun(fullRun)
-      toast('info', 'Run created — run each step individually')
+      // Auto-execute the first step so the user sees output immediately
+      const firstStep = spec.steps[0]
+      if (firstStep) {
+        try {
+          const stepResult = await executeStep(spec.name, result.run_id, firstStep.id) as Record<string, unknown>
+          if (stepResult.status === 'error') {
+            toast('error', String(stepResult.error || 'Generation failed'))
+          }
+          fullRun = await getRun(spec.name, result.run_id)
+          setRun(fullRun)
+        } catch (e) {
+          toast('error', e instanceof Error ? e.message : 'Generation failed')
+        }
+      }
     } catch (e) {
       toast('error', e instanceof Error ? e.message : 'Could not start pipeline')
     } finally {
