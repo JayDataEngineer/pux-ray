@@ -125,7 +125,8 @@ export interface MCPTool {
       default?: unknown
       description?: string
       enum?: string[]
-      anyOf?: { type?: string; default?: unknown }[]
+      anyOf?: { type?: string; default?: unknown; additionalProperties?: boolean }[]
+      additionalProperties?: boolean
     }>
     required?: string[]
     additionalProperties?: boolean

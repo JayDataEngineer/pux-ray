@@ -18,98 +18,50 @@ import { AppSidebar } from "./AppSidebar"
 
 type TabId = "assets" | "video"
 
-const TOOL_GENRE: Record<string, string> = {
-  generate_sound: "audio",
-  generate_music: "audio",
-  tts_speak: "voice",
+const COMMON_PARAMS = [
+  "model", "prompt", "text", "image_b64", "audio_b64",
+  "seed", "steps", "guidance", "width", "height", "frames",
+  "negative_prompt", "voice", "language",
+]
+
+interface FieldDef {
+  name: string
+  type: "text" | "number" | "select" | "file" | "textarea" | "json"
+  label: string
+  default?: unknown
+  options?: string[]
+  required?: boolean
 }
 
-function toolGenre(name: string): string {
-  return TOOL_GENRE[name] ?? "image"
+function extractCommonParams(desc: string): FieldDef[] {
+  if (!desc.toLowerCase().includes("common:")) return []
+  return COMMON_PARAMS.map((n) => {
+    const isNumeric = ["seed", "steps", "guidance", "width", "height", "frames"].includes(n)
+    return { name: n, type: isNumeric ? "number" as const : "textarea" as const, label: n.replace(/_/g, " "), default: isNumeric ? undefined : "" }
+  })
 }
 
-function isAssetTool(t: MCPTool): boolean {
-  if (t.name.startsWith("workflow_") || t.name.startsWith("llm_")) return false
-  const admin = ["list_models", "list_services", "get_service", "forge_status", "load_service", "unload_services", "tts_voices", "chat", "transcribe"]
-  return !admin.includes(t.name)
+function isFreeformObject(prop: Record<string, unknown>): boolean {
+  if (prop.type === "object") return true
+  if (prop.additionalProperties) return true
+  if (Array.isArray(prop.anyOf)) return prop.anyOf.some((a: any) => a.type === "object" || a.additionalProperties)
+  return false
 }
 
-function renderField(
-  name: string,
-  prop: NonNullable<NonNullable<MCPTool["inputSchema"]["properties"]>[string]>,
-  value: unknown,
-  onChange: (v: unknown) => void,
-) {
-  const label = prop.description || name
-  const placeholder = typeof prop.default === "string" ? String(prop.default) : label
+const GENRE_ORDER = ["image", "audio", "voice"]
 
-  if (prop.enum) {
-    return (
-      <div key={name} className="flex flex-col gap-1.5">
-        <Label className="text-xs text-muted-foreground">{label}</Label>
-        <Select value={String(value ?? prop.default ?? "")} onValueChange={onChange}>
-          <SelectTrigger><SelectValue /></SelectTrigger>
-          <SelectContent>
-            {prop.enum.map((o) => <SelectItem key={o} value={o}>{o}</SelectItem>)}
-          </SelectContent>
-        </Select>
-      </div>
-    )
-  }
-
-  const schemaType = prop.type ?? "string"
-
-  if (schemaType === "number" || schemaType === "integer") {
-    return (
-      <div key={name} className="flex flex-col gap-1.5">
-        <Label className="text-xs text-muted-foreground">{label}</Label>
-        <Input type="number" value={String(value ?? prop.default ?? "")}
-          onChange={(e) => onChange(e.target.value ? Number(e.target.value) : "")}
-          placeholder={placeholder} />
-      </div>
-    )
-  }
-
-  if (schemaType === "object") {
-    return (
-      <div key={name} className="flex flex-col gap-1.5">
-        <Label className="text-xs text-muted-foreground">{label}</Label>
-        <Textarea value={typeof value === "object" ? JSON.stringify(value ?? prop.default ?? {}, null, 2) : String(value ?? "")}
-          onChange={(e) => {
-            try { onChange(JSON.parse(e.target.value)) }
-            catch { onChange(e.target.value) }
-          }}
-          placeholder={placeholder} rows={4} className="font-mono text-xs" />
-      </div>
-    )
-  }
-
-  const isLong = (prop.description?.length ?? 0) > 80 || name === "lyrics" || name === "instruct"
-  if (isLong) {
-    return (
-      <div key={name} className="flex flex-col gap-1.5">
-        <Label className="text-xs text-muted-foreground">{label}</Label>
-        <Textarea value={String(value ?? prop.default ?? "")}
-          onChange={(e) => onChange(e.target.value || "")}
-          placeholder={placeholder} rows={3} />
-      </div>
-    )
-  }
-
-  return (
-    <div key={name} className="flex flex-col gap-1.5">
-      <Label className="text-xs text-muted-foreground">{label}</Label>
-      <Input value={String(value ?? prop.default ?? "")}
-        onChange={(e) => onChange(e.target.value || "")}
-        placeholder={placeholder} />
-    </div>
-  )
+const SERVICE_GENRE: Record<string, string> = {
+  z_image: "image", comfyui: "image", nvidia_upscale: "image", dwpose: "image",
+  ace_step: "audio", moss_soundeffect: "audio",
+  kokoro: "voice", espeak: "voice", index_tts: "voice", faster_qwen3_tts: "voice",
+  generate_sound: "audio", generate_music: "audio", tts_speak: "voice",
 }
 
 export function WorkspaceLayout(_props: any = {}) {
   const [tab, setTab] = useState<TabId>("assets")
   const [leftOpen, setLeftOpen] = useState(true)
   const [rightOpen, setRightOpen] = useState(true)
+  const [selectedService, setSelectedService] = useState("")
 
   return (
     <div className="flex h-screen w-full bg-background">
@@ -133,9 +85,12 @@ export function WorkspaceLayout(_props: any = {}) {
         </header>
         <div className="flex flex-1 min-h-0">
           <div className="flex-1 min-w-0 overflow-auto">
-            {tab === "assets" ? <AssetsTab /> : <VideoTab />}
+            {tab === "assets"
+              ? <AssetsTab selectedService={selectedService} />
+              : <VideoTab />
+            }
           </div>
-          {rightOpen && <ServicesSidebar />}
+          {rightOpen && <ServicesSidebar selected={selectedService} onSelect={setSelectedService} />}
         </div>
       </div>
     </div>
@@ -175,51 +130,134 @@ function GpuStatus() {
   )
 }
 
-function ServicesSidebar() {
+function ServicesSidebar({ selected, onSelect }: { selected: string; onSelect: (name: string) => void }) {
   const [tools, setTools] = useState<MCPTool[]>([])
-  const [selected, setSelected] = useState("")
+  const [services, setServices] = useState<{ name: string; label: string; category: string }[]>([])
   const [genre, setGenre] = useState("image")
-  const [values, setValues] = useState<Record<string, unknown>>({})
-  const [generating, setGenerating] = useState(false)
-  const toast = useToastStore((s) => s.addToast)
-  const addAsset = useAssetStore((s) => s.addAsset)
 
   useEffect(() => {
-    listTools().then((all) => {
-      setTools(all)
-      if (all.length > 0) setSelected(all[0].name)
-    }).catch(() => toast("error", "Failed to load forge tools"))
+    listTools().then(setTools).catch(() => {})
+    fetch("/v1/services").then((r) => r.json()).then(setServices).catch(() => {})
   }, [])
 
-  const assetTools = tools.filter(isAssetTool)
-  const currentTool = tools.find((t) => t.name === selected)
-  const props_ = currentTool?.inputSchema?.properties ?? {}
+  const allItems = [
+    ...tools.filter((t) => !["run","list_models","list_services","get_service","forge_status","load_service","unload_services","tts_voices","chat","transcribe","llm_configure"].includes(t.name) && !t.name.startsWith("workflow_")),
+    ...services.filter((s) => !tools.find((t) => t.name === s.name)),
+  ]
+  const items = allItems.filter((s) => {
+    const n = "name" in s ? (s as any).name : (s as any).name
+    return SERVICE_GENRE[n] === genre
+  })
+
+  return (
+    <div className="w-56 border-l bg-sidebar text-sidebar-foreground flex flex-col shrink-0">
+      <div className="p-2 border-b">
+        <span className="text-xs font-semibold">Services</span>
+      </div>
+      <div className="flex border-b text-xs">
+        {GENRE_ORDER.map((g) => (
+          <button key={g} onClick={() => setGenre(g)}
+            className={`flex-1 py-1.5 text-center font-medium transition-colors ${genre === g ? "bg-sidebar-accent text-sidebar-accent-foreground" : "text-sidebar-foreground/60 hover:text-sidebar-foreground"}`}>
+            {g}
+          </button>
+        ))}
+      </div>
+      <ScrollArea className="flex-1">
+        <div className="p-1.5 space-y-0.5">
+          {items.map((item) => {
+            const name = "name" in item ? (item as any).name : (item as any).name
+            const label = "label" in item ? (item as any).label : name
+            return (
+              <button key={name} onClick={() => onSelect(name)}
+                className={`w-full flex items-center gap-2 px-2 py-1.5 rounded text-xs text-left transition-colors ${selected === name ? "bg-sidebar-accent text-sidebar-accent-foreground" : "hover:bg-sidebar-accent/50"}`}>
+                <Wand2 className="h-3 w-3 shrink-0" />
+                <span className="truncate">{label}</span>
+              </button>
+            )
+          })}
+        </div>
+      </ScrollArea>
+    </div>
+  )
+}
+
+function AssetsTab({ selectedService: selected }: { selectedService: string }) {
+  const toast = useToastStore((s) => s.addToast)
+  const addAsset = useAssetStore((s) => s.addAsset)
+  const [tools, setTools] = useState<MCPTool[]>([])
+  const [services, setServices] = useState<{ name: string; label: string; category: string }[]>([])
+  const [values, setValues] = useState<Record<string, unknown>>({})
+  const [generating, setGenerating] = useState(false)
+  const [fields, setFields] = useState<FieldDef[]>([])
 
   useEffect(() => {
-    if (!currentTool) return
-    const d: Record<string, unknown> = {}
-    for (const [k, v] of Object.entries(props_)) {
-      if (v.default !== undefined) d[k] = v.default
+    listTools().then(setTools).catch(() => {})
+    fetch("/v1/services").then((r) => r.json()).then(setServices).catch(() => {})
+  }, [])
+
+  const currentTool = tools.find((t) => t.name === selected)
+  const currentService = services.find((s) => s.name === selected)
+
+  useEffect(() => {
+    if (!currentTool && !currentService) return
+
+    if (currentTool && currentTool.inputSchema?.properties) {
+      const props_ = currentTool.inputSchema.properties as Record<string, Record<string, unknown>>
+      const extracted: FieldDef[] = []
+      for (const [k, v] of Object.entries(props_)) {
+        if (isFreeformObject(v)) {
+          const common = extractCommonParams((v.description as string) || "")
+          if (common.length > 0) {
+            extracted.push(...common)
+            continue
+          }
+        }
+        const isNum = v.type === "number" || v.type === "integer"
+        const isLong = ((v.description as string)?.length ?? 0) > 80 || k === "lyrics" || k === "instruct"
+        const hasEnum = !!v.enum
+        extracted.push({
+          name: k, label: (v.description as string) || k,
+          type: hasEnum ? "select" as const : isNum ? "number" as const : isLong ? "textarea" as const : "text" as const,
+          default: v.default,
+          options: v.enum as string[] | undefined,
+          required: currentTool.inputSchema.required?.includes(k),
+        })
+      }
+      setFields(extracted)
+      const d: Record<string, unknown> = {}
+      for (const f of extracted) {
+        if (f.default !== undefined) d[f.name] = f.default
+      }
+      setValues(d)
     }
-    setValues(d)
-  }, [selected])
+  }, [selected, currentTool])
 
   const handleGenerate = async () => {
-    if (!currentTool) return
+    const useTool = currentTool || tools.find((t) => t.name === "run")
+    if (!useTool) return
     setGenerating(true)
     try {
       const args: Record<string, unknown> = {}
-      for (const [k, v] of Object.entries(values)) {
-        if (v !== null && v !== "") args[k] = v
+      if (useTool.name === "run") {
+        args.service = currentService?.name || selected
+        const params: Record<string, unknown> = {}
+        for (const [k, v] of Object.entries(values)) {
+          if (v !== null && v !== "") params[k] = v
+        }
+        args.params = params
+      } else {
+        for (const [k, v] of Object.entries(values)) {
+          if (v !== null && v !== "") args[k] = v
+        }
       }
-      const result = await callTool<{ status: string; data?: string; media_type?: string; error?: string; message?: string }>(currentTool.name, args)
+      const result = await callTool<{ status: string; data?: string; media_type?: string; error?: string; message?: string }>(useTool.name, args)
       if (result.status === "ok" || result.status === "success") {
         if (result.data) {
           const mt = result.media_type || "image/png"
           const isAud = mt.includes("audio")
-          const cat = isAud && currentTool.name === "generate_music" ? "music" as const : isAud ? "sfx" as const : "image" as const
+          const cat = isAud && selected.includes("music") ? "music" as const : isAud ? "sfx" as const : "image" as const
           addAsset({
-            name: `${currentTool.name} ${new Date().toLocaleTimeString()}`,
+            name: `${selected} ${new Date().toLocaleTimeString()}`,
             type: isAud ? "audio" : "image",
             category: cat,
             mediaType: mt,
@@ -227,7 +265,7 @@ function ServicesSidebar() {
             sizeBytes: Math.round((result.data as string).length * 0.75),
             source: "generated",
           })
-          toast("success", `${currentTool.name} generated`)
+          toast("success", `${selected} generated`)
         }
       } else {
         toast("error", String(result.error || result.message || "Unknown error"))
@@ -239,62 +277,61 @@ function ServicesSidebar() {
     }
   }
 
-  const genres = [...new Set(assetTools.map((t) => toolGenre(t.name)))]
+  const label = currentService?.label || currentTool?.description?.split("—")[0]?.trim() || selected
 
   return (
-    <div className="w-80 border-l bg-sidebar text-sidebar-foreground flex flex-col shrink-0">
-      <div className="flex items-center justify-between p-3 border-b">
-        <span className="font-semibold text-sm">Forge Services</span>
-      </div>
-      <div className="flex border-b">
-        {genres.map((g) => (
-          <button key={g} onClick={() => setGenre(g)}
-            className={`flex-1 py-2 text-xs font-medium text-center transition-colors ${genre === g ? "bg-sidebar-accent text-sidebar-accent-foreground" : "text-sidebar-foreground/60 hover:text-sidebar-foreground"}`}>
-            {g}
-          </button>
-        ))}
-      </div>
-      <ScrollArea className="flex-1">
-        <div className="p-2 space-y-1">
-          {assetTools.filter((t) => toolGenre(t.name) === genre).map((t) => (
-            <button key={t.name} onClick={() => setSelected(t.name)}
-              className={`w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-xs text-left transition-colors ${selected === t.name ? "bg-sidebar-accent text-sidebar-accent-foreground" : "hover:bg-sidebar-accent/50"}`}>
-              <Wand2 className="h-3.5 w-3.5 shrink-0" />
-              <span className="truncate">{t.description?.split("—")[0]?.trim() || t.name}</span>
-            </button>
-          ))}
-        </div>
-      </ScrollArea>
-      {currentTool && (
-        <div className="border-t p-3 space-y-3">
+    <div className="flex-1 p-6">
+      <Card className="max-w-xl mx-auto">
+        <CardContent className="pt-6 space-y-4">
           <div className="flex items-center justify-between">
-            <span className="text-xs font-medium">{currentTool.description || currentTool.name}</span>
-            <Badge variant="outline" className="text-[10px]">{currentTool.name}</Badge>
+            <h2 className="text-base font-semibold">{label || "Select a service"}</h2>
+            {selected && <Badge variant="outline" className="text-[10px]">{selected}</Badge>}
           </div>
-          <div className="space-y-2 max-h-[60vh] overflow-y-auto">
-            {Object.entries(props_).map(([name, prop]) =>
-              renderField(name, prop, values[name], (v) => setValues((prev) => ({ ...prev, [name]: v })))
-            )}
-          </div>
-          <Button className="w-full h-8 text-xs" disabled={generating} onClick={handleGenerate}>
-            {generating ? "Generating..." : `Generate`}
-          </Button>
-        </div>
-      )}
-    </div>
-  )
-}
-
-function AssetsTab() {
-  return (
-    <div className="flex-1 flex items-center justify-center p-6">
-      <div className="text-center space-y-4">
-        <h2 className="text-lg font-semibold">Asset Library</h2>
-        <p className="text-sm text-muted-foreground max-w-md">
-          Select a forge service from the right sidebar to generate assets.
-          Drag them from the left sidebar into the Video tab.
-        </p>
-      </div>
+          {fields.map((f) => (
+            <div key={f.name} className="space-y-1">
+              <Label className="text-xs text-muted-foreground capitalize">{f.label}</Label>
+              {f.type === "select" && f.options ? (
+                <Select value={String(values[f.name] ?? f.default ?? "")}
+                  onValueChange={(v) => setValues((prev) => ({ ...prev, [f.name]: v }))}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {f.options.map((o) => <SelectItem key={o} value={o}>{o}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              ) : f.type === "number" ? (
+                <Input type="number" value={String(values[f.name] ?? f.default ?? "")}
+                  onChange={(e) => setValues((prev) => ({ ...prev, [f.name]: e.target.value ? Number(e.target.value) : "" }))}
+                  placeholder={f.label} />
+              ) : f.type === "file" ? (
+                <Label className="flex items-center justify-center h-16 border-2 border-dashed rounded-lg cursor-pointer hover:border-primary/50 text-xs text-muted-foreground">
+                  {values[f.name] ? "File loaded" : "Upload file"}
+                  <Input type="file" className="hidden"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0]
+                      if (!file) return
+                      const r = new FileReader()
+                      r.onload = () => setValues((prev) => ({ ...prev, [f.name]: (r.result as string).split(",")[1] || "" }))
+                      r.readAsDataURL(file)
+                    }} />
+                </Label>
+              ) : f.type === "textarea" ? (
+                <Textarea value={String(values[f.name] ?? f.default ?? "")}
+                  onChange={(e) => setValues((prev) => ({ ...prev, [f.name]: e.target.value }))}
+                  placeholder={f.label} rows={3} />
+              ) : (
+                <Input value={String(values[f.name] ?? f.default ?? "")}
+                  onChange={(e) => setValues((prev) => ({ ...prev, [f.name]: e.target.value }))}
+                  placeholder={f.label} />
+              )}
+            </div>
+          ))}
+          {selected && fields.length > 0 && (
+            <Button className="w-full" disabled={generating} onClick={handleGenerate}>
+              {generating ? "Generating..." : "Generate"}
+            </Button>
+          )}
+        </CardContent>
+      </Card>
     </div>
   )
 }
@@ -327,20 +364,18 @@ function VideoTab() {
             {selectedSegment?.videoUrl ? (
               <video src={selectedSegment.videoUrl} controls className="max-w-full max-h-full rounded-lg" />
             ) : segments.length === 0 ? (
-              <p className="text-muted-foreground text-sm">Drag images from the Assets sidebar</p>
+              <p className="text-muted-foreground text-sm">Drag images from the sidebar</p>
             ) : (
-              <p className="text-muted-foreground text-sm">{segments.length} keyframe(s) — select one to generate</p>
+              <p className="text-muted-foreground text-sm">{segments.length} keyframe(s)</p>
             )}
           </CardContent>
         </Card>
         <div className="h-24 flex items-center gap-1 p-2 border rounded-lg overflow-x-auto bg-muted/30">
           {segments.map((seg) => (
-            <div
-              key={seg.id}
+            <div key={seg.id}
               className={`h-full flex items-center justify-center rounded-md text-[10px] cursor-pointer relative overflow-hidden shrink-0 border-2 ${seg.id === selectedSegmentId ? "border-primary" : "border-border"}`}
               style={{ width: `${seg.duration * 40}px` }}
-              onClick={() => setSelectedSegment(seg.id)}
-            >
+              onClick={() => setSelectedSegment(seg.id)}>
               {seg.thumbnailUrl && <img src={seg.thumbnailUrl} alt="" className="absolute inset-0 w-full h-full object-cover opacity-30" />}
               <span className="relative z-10 font-medium">K_{String(seg.order + 1).padStart(2, "0")}</span>
             </div>
