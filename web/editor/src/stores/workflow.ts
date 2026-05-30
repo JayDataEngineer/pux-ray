@@ -1,7 +1,7 @@
 import { create } from 'zustand'
 import type { WorkflowSpec, WorkflowRun, StepState } from '../types'
 
-export type ViewMode = 'pipeline' | 'kimodo'
+export type ViewMode = 'pipeline' | 'timeline' | 'kimodo'
 
 interface WorkflowStore {
   spec: WorkflowSpec | null

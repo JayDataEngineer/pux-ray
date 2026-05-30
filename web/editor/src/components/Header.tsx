@@ -63,6 +63,12 @@ export function Header({ spec, allSpecs, run, onNewRun, onSpecChange }: HeaderPr
           </>
         )}
         <button
+          className={`btn btn-ghost btn-sm ${viewMode === 'timeline' ? 'btn-active' : ''}`}
+          onClick={() => toggleView('timeline')}
+        >
+          Timeline
+        </button>
+        <button
           className={`btn btn-ghost btn-sm ${viewMode === 'kimodo' ? 'btn-active' : ''}`}
           onClick={() => toggleView('kimodo')}
         >

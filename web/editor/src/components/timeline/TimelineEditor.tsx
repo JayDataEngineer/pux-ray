@@ -6,7 +6,6 @@ import { useTimelineStore } from '../../stores/timeline'
 
 export function TimelineEditor() {
   const selectedSegmentId = useTimelineStore((s) => s.selectedSegmentId)
-  const audioCues = useTimelineStore((s) => s.audioCues)
 
   return (
     <div className="timeline-editor">
@@ -21,11 +20,9 @@ export function TimelineEditor() {
           </div>
         )}
       </div>
-      {audioCues.length > 0 && (
-        <div className="timeline-audio-table-wrap">
-          <AudioTablePanel />
-        </div>
-      )}
+      <div className="timeline-audio-table-wrap">
+        <AudioTablePanel />
+      </div>
     </div>
   )
 }
