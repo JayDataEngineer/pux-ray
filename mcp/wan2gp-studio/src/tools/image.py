@@ -20,6 +20,13 @@ _MODEL_PRESETS: dict[str, dict] = {
         "sampling_steps": 8, "guide_scale": 0.0,
         "description": "Fast distilled model, 8 steps, no CFG. Best for photorealism.",
     },
+    "z_image_flash": {
+        "label": "Z-Image Flash",
+        "quality": "turbo",
+        "width": 1024, "height": 1024,
+        "sampling_steps": 4, "guide_scale": 0.0,
+        "description": "Ultra-fast variant, 4 steps, no CFG. Maximum speed.",
+    },
     "z_image_base": {
         "label": "Z-Image Base",
         "quality": "standard",
@@ -27,6 +34,13 @@ _MODEL_PRESETS: dict[str, dict] = {
         "sampling_steps": 50, "guide_scale": 4.0,
         "negative_prompt": "blurry, low quality, deformed, bad anatomy, extra fingers, watermark, cropped",
         "description": "Full model, 50 steps, CFG 4.0. Best for creative work and fine-tuning.",
+    },
+    "anima_base": {
+        "label": "Anima",
+        "quality": "standard",
+        "width": 1024, "height": 1024,
+        "sampling_steps": 30, "guide_scale": 4.0,
+        "description": "Anime-focused 2B model, 30 steps, CFG 4.0.",
     },
     "flux_schnell": {
         "label": "Flux Schnell",
@@ -39,6 +53,13 @@ _MODEL_PRESETS: dict[str, dict] = {
         "width": 1024, "height": 1024,
         "sampling_steps": 28, "guide_scale": 3.5,
         "description": "Full Flux model, 28 steps.",
+    },
+    "flux2_klein_4b": {
+        "label": "FLUX-Klein 4B",
+        "width": 1024, "height": 1024,
+        "steps": 4,
+        "embedded_guidance_scale": 1,
+        "description": "FLUX.2 Klein 4B, 4 steps, embedded guidance.",
     },
     "trellis": {
         "label": "TRELLIS 3D",
@@ -62,7 +83,8 @@ _MODEL_CHOICES = list(_MODEL_PRESETS.keys())
 
 async def generate_image(
     model: Annotated[str, Field(
-        description=f"Model to use. One of: {', '.join(_MODEL_CHOICES)}",
+        description=f"Model to use.",
+        enum=_MODEL_CHOICES,
     )],
     prompt: Annotated[str, Field(
         description="Text prompt describing the image to generate. 60-200 words for best results.",
@@ -111,6 +133,12 @@ async def generate_image(
 
     preset = _MODEL_PRESETS.get(model, {})
 
+    # Resolve model name for the forge backend
+    backend_model = model
+    if model == "z_image_flash":
+        backend_model = "z_image"
+        preset["sampling_steps"] = 4
+
     # Build params: start with preset defaults, override with explicit args
     params: dict[str, Any] = {
         "input_prompt": prompt,
@@ -126,17 +154,14 @@ async def generate_image(
             params["n_prompt"] = negative_prompt
         elif "negative_prompt" in preset:
             params["n_prompt"] = preset["negative_prompt"]
-        # Only set steps/CFG if model preset has them (not all models do)
         if "sampling_steps" in preset and sampling_steps is None:
             params["sampling_steps"] = preset["sampling_steps"]
         if "guide_scale" in preset and guide_scale is None:
             params["guide_scale"] = preset["guide_scale"]
-        # Pass through model-specific extra params
-        for extra_key in ("steps", "guidance", "resolution"):
+        for extra_key in ("steps", "guidance", "resolution", "embedded_guidance_scale"):
             if extra_key in preset:
                 params[extra_key] = preset[extra_key]
     else:
-        # Advanced mode: only explicit args, no preset defaults
         if quality:
             params["quality"] = quality
         params["width"] = width
@@ -151,6 +176,5 @@ async def generate_image(
     if image_b64:
         params["image_b64"] = image_b64
 
-    # Route through wan2gp forge adapter
-    payload = {"service": "wan2gp", "model": model, **params}
+    payload = {"service": "wan2gp", "model": backend_model, **params}
     return await client.invoke(payload)
