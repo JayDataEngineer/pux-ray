@@ -9,11 +9,11 @@ import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Separator } from "@/components/ui/separator"
 import { useToastStore } from "@/stores/toast"
-import { useTimelineStore } from "@/stores/timeline"
 import { useAssetStore, type Asset } from "@/stores/assets"
 import { callTool, forgeStatus, listTools, type MCPTool } from "@/mcp"
 import { Cpu, HardDrive, PanelLeft, PanelRightClose, Wand2, Loader2, CheckCircle2, XCircle, Clock, ListTodo, X } from "lucide-react"
 import { AppSidebar } from "./AppSidebar"
+import { VideoEditor } from "./VideoEditor"
 
 type TabId = "assets" | "video"
 
@@ -97,7 +97,7 @@ export function WorkspaceLayout() {
           <div className="flex-1 min-w-0 overflow-auto">
             {tab === "assets"
               ? <AssetsTab selectedService={selectedService} selectedAsset={selectedAsset} onCloseAsset={() => setSelectedAsset(null)} jobs={jobs} onAddJob={(j) => setJobs(j)} nextJobId={nextJobId} />
-              : <VideoTab />
+              : <VideoEditor />
             }
           </div>
           {rightOpen && <ServicesSidebar selected={selectedService} onSelect={setSelectedService} />}
@@ -436,53 +436,4 @@ function AssetsTab({ selectedService, selectedAsset, onCloseAsset, jobs, onAddJo
   )
 }
 
-function VideoTab() {
-  const segments = useTimelineStore((s) => s.segments)
-  const addSegment = useTimelineStore((s) => s.addSegment)
-  const selectedSegmentId = useTimelineStore((s) => s.selectedSegmentId)
-  const setSelectedSegment = useTimelineStore((s) => s.setSelectedSegment)
-  const toast = useToastStore((s) => s.addToast)
-  const selectedSegment = segments.find((s) => s.id === selectedSegmentId)
 
-  const onDrop = (e: React.DragEvent) => {
-    e.preventDefault()
-    try {
-      const d = JSON.parse(e.dataTransfer.getData("application/tech-noir-asset"))
-      if (d.type === "image") {
-        const s = addSegment({ prompt: d.name, firstFrameB64: d.url, thumbnailUrl: d.url, status: "empty" })
-        setSelectedSegment(s.id)
-        toast("info", `Keyframe: ${d.name}`)
-      }
-    } catch { /* ignore */ }
-  }
-
-  return (
-    <div className="flex-1 flex gap-6 p-6">
-      <div className="flex-1 flex flex-col gap-4">
-        <Card className="flex-1" onDragOver={(e) => e.preventDefault()} onDrop={onDrop}>
-          <CardContent className="flex items-center justify-center h-full min-h-[200px]">
-            {selectedSegment?.videoUrl ? (
-              <video src={selectedSegment.videoUrl} controls className="max-w-full max-h-full rounded-lg" />
-            ) : segments.length === 0 ? (
-              <p className="text-muted-foreground text-sm">Drag images from the sidebar</p>
-            ) : (
-              <p className="text-muted-foreground text-sm">{segments.length} keyframe(s)</p>
-            )}
-          </CardContent>
-        </Card>
-        <div className="h-24 flex items-center gap-1 p-2 border rounded-lg overflow-x-auto bg-muted/30">
-          {segments.map((seg) => (
-            <div key={seg.id}
-              className={`h-full flex items-center justify-center rounded-md text-[10px] cursor-pointer relative overflow-hidden shrink-0 border-2 ${seg.id === selectedSegmentId ? "border-primary" : "border-border"}`}
-              style={{ width: `${seg.duration * 40}px` }}
-              onClick={() => setSelectedSegment(seg.id)}>
-              {seg.thumbnailUrl && <img src={seg.thumbnailUrl} alt="" className="absolute inset-0 w-full h-full object-cover opacity-30" />}
-              <span className="relative z-10 font-medium">K_{String(seg.order + 1).padStart(2, "0")}</span>
-            </div>
-          ))}
-          <Button variant="outline" size="icon" className="h-full w-8 shrink-0" onClick={() => { const s = addSegment({ duration: 5, status: "empty" }); setSelectedSegment(s.id) }}>+</Button>
-        </div>
-      </div>
-    </div>
-  )
-}
