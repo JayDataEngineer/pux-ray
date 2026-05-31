@@ -40,7 +40,7 @@ const SERVICE_GENRE: Record<string, string> = {
   ace_step: "audio", moss_soundeffect: "audio",
   kokoro: "voice", espeak: "voice", index_tts: "voice", faster_qwen3_tts: "voice",
   generate_sound: "audio", generate_music: "audio", tts_speak: "voice",
-  generate_image: "image",
+  generate_image: "image", char_sheet: "image", pose_edit: "image",
 }
 
 // Services covered by a dedicated MCP tool — hide from sidebar to avoid duplicates
