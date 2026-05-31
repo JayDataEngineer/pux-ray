@@ -18,13 +18,6 @@ _MODEL_PRESETS: dict[str, dict] = {
         "sampling_steps": 8, "guide_scale": 0.0,
         "description": "Fast distilled model, 8 steps, no CFG. Best for photorealism.",
     },
-    "z_image_flash": {
-        "label": "Z-Image Flash",
-        "quality": "turbo",
-        "width": 1024, "height": 1024,
-        "sampling_steps": 4, "guide_scale": 0.0,
-        "description": "Ultra-fast variant, 4 steps, no CFG. Maximum speed.",
-    },
     "z_image_base": {
         "label": "Z-Image Base",
         "quality": "standard",
@@ -80,14 +73,15 @@ _MODEL_CHOICES = list(_MODEL_PRESETS.keys())
 
 
 async def generate_image(
-    prompt: Annotated[str, Field(
-        description="Text prompt describing the image to generate. 60-200 words for best results.",
-    )],
     model: Annotated[str, Field(
         description=f"Model to use.",
         enum=_MODEL_CHOICES,
         default="z_image",
-    )] = "z_image",
+    )],
+    prompt: Annotated[str, Field(
+        description="Text prompt describing the image to generate. 60-200 words for best results.",
+        default="",
+    )],
     negative_prompt: Annotated[str | None, Field(
         description="Negative prompt for base models. Ignored by turbo/distilled models.",
     )] = None,
@@ -128,12 +122,6 @@ async def generate_image(
         raise RuntimeError("API client not initialized")
 
     preset = _MODEL_PRESETS.get(model, {})
-
-    # Resolve model name for the forge backend
-    backend_model = model
-    if model == "z_image_flash":
-        backend_model = "z_image"
-        preset["sampling_steps"] = 4
 
     # Build params: start with preset defaults, override with explicit args
     params = {
