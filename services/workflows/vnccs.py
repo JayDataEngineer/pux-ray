@@ -68,6 +68,7 @@ def _compose_images_side_by_side(*images_b64: str) -> str:
 
 def char_sheet(
     prompt: str,
+    image_b64: str | None = None,
     seed: int = 42,
     quality: str = "turbo",
     negative_prompt: str = "",
@@ -75,31 +76,37 @@ def char_sheet(
 ) -> dict[str, Any]:
     """VNCCS Step 1: text prompt → character base sheet.
 
+    If image_b64 is provided, the Z-Image step is skipped and the
+    provided image goes directly to QWEN refinement (image-to-sheet).
+
     Two-stage pipeline:
-      1. SD base (Z-Image) generates initial character image
+      1. (optional) SD base (Z-Image) generates initial character image
       2. QWEN-Image-Edit refines face/body details
     """
     svc = get_service()
-    steps = 8 if quality == "turbo" else 50
 
-    svc.load("z_image")
-    base = svc.infer({
-        "input_prompt": prompt,
-        "n_prompt": negative_prompt or "bad quality,worst quality",
-        "seed": seed,
-        "sampling_steps": steps,
-        "guide_scale": 1.0 if quality == "turbo" else 4.0,
-        "width": 1024,
-        "height": 1024,
-    })
-
-    if base.get("status") != "ok":
-        return error_response(f"Base generation failed: {base.get('error', 'unknown')}")
+    if image_b64:
+        base_image = image_b64
+    else:
+        steps = 8 if quality == "turbo" else 50
+        svc.load("z_image")
+        base = svc.infer({
+            "input_prompt": prompt,
+            "n_prompt": negative_prompt or "bad quality,worst quality",
+            "seed": seed,
+            "sampling_steps": steps,
+            "guide_scale": 1.0 if quality == "turbo" else 4.0,
+            "width": 1024,
+            "height": 1024,
+        })
+        if base.get("status") != "ok":
+            return error_response(f"Base generation failed: {base.get('error', 'unknown')}")
+        base_image = base["data"]
 
     svc.load("qwen-image-edit")
     refined = svc.infer({
         "input_prompt": "Draw character from image2",
-        "image_b64": base["data"],
+        "image_b64": base_image,
         "seed": seed,
         "sampling_steps": 4,
         "guide_scale": 1.0,

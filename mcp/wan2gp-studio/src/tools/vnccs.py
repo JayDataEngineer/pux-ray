@@ -15,8 +15,13 @@ async def char_sheet(
     prompt: Annotated[str, Field(
         description="Text description of the character. Include appearance, clothing, style.",
     )],
+    image_b64: Annotated[str | None, Field(
+        description="Base64-encoded starting image. If provided, skips Z-Image "
+                    "base generation and refines this image directly into a sheet.",
+    )] = None,
     quality: Annotated[str, Field(
-        description="Generation quality: 'turbo' (4-step, fast) or 'standard' (50-step, detailed).",
+        description="Generation quality: 'turbo' (4-step, fast) or 'standard' (50-step, detailed). "
+                    "Only used when no starting image is provided.",
         enum=["turbo", "standard"],
         default="turbo",
     )] = "turbo",
@@ -28,11 +33,14 @@ async def char_sheet(
     )] = "",
     ctx: Context | None = None,
 ) -> dict:
-    """Generate a character base sheet from a text description.
+    """Generate a character base sheet from a text description, optionally from a starting image.
 
     Two-stage pipeline:
-      1. Z-Image generates the base character
+      1. (optional) Z-Image generates the base character from text
       2. QWEN-Image-Edit refines details
+
+    If image_b64 is provided, the Z-Image step is skipped and the
+    provided image goes directly to QWEN refinement.
 
     Returns base64-encoded image data.
     """
@@ -43,6 +51,8 @@ async def char_sheet(
         raise RuntimeError("API client not initialized")
 
     params: dict[str, Any] = {"prompt": prompt, "seed": seed}
+    if image_b64:
+        params["image_b64"] = image_b64
     if quality:
         params["quality"] = quality
     if negative_prompt:
