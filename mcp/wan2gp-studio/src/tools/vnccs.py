@@ -19,6 +19,36 @@ async def char_sheet(
         description="Base64-encoded starting image. If provided, skips Z-Image "
                     "base generation and refines this image directly into a sheet.",
     )] = None,
+    sex: Annotated[str | None, Field(
+        description="Character sex (e.g. 'female', 'male').",
+    )] = None,
+    age: Annotated[int | None, Field(
+        description="Character age (e.g. 18, 25, 30).",
+    )] = None,
+    race: Annotated[str | None, Field(
+        description="Character race/ethnicity (e.g. 'human', 'elf').",
+    )] = None,
+    eyes: Annotated[str | None, Field(
+        description="Eye description (e.g. 'blue eyes', 'red eyes').",
+    )] = None,
+    hair: Annotated[str | None, Field(
+        description="Hair description (e.g. 'black short', 'long blonde').",
+    )] = None,
+    face: Annotated[str | None, Field(
+        description="Face shape or features (e.g. 'oval', 'sharp').",
+    )] = None,
+    body: Annotated[str | None, Field(
+        description="Body type (e.g. 'slim', 'athletic', 'curvy').",
+    )] = None,
+    skin_color: Annotated[str | None, Field(
+        description="Skin color (e.g. 'fair', 'tan', 'dark').",
+    )] = None,
+    additional_details: Annotated[str | None, Field(
+        description="Any additional character details not covered by other fields.",
+    )] = None,
+    background_color: Annotated[str | None, Field(
+        description="Background color for the character sheet (e.g. 'white', 'transparent').",
+    )] = None,
     quality: Annotated[str, Field(
         description="Generation quality: 'turbo' (4-step, fast) or 'standard' (50-step, detailed). "
                     "Only used when no starting image is provided.",
@@ -33,14 +63,16 @@ async def char_sheet(
     )] = "",
     ctx: Context | None = None,
 ) -> dict:
-    """Generate a character base sheet from a text description, optionally from a starting image.
+    """Generate a character base sheet from structured attributes.
+
+    Matches the VNCCS CharacterCreator node inputs. All character
+    attributes are optional — only prompt is required. If image_b64
+    is provided, the Z-Image step is skipped and the image goes
+    directly to QWEN refinement.
 
     Two-stage pipeline:
-      1. (optional) Z-Image generates the base character from text
+      1. (optional) Z-Image generates the base character
       2. QWEN-Image-Edit refines details
-
-    If image_b64 is provided, the Z-Image step is skipped and the
-    provided image goes directly to QWEN refinement.
 
     Returns base64-encoded image data.
     """
@@ -53,6 +85,11 @@ async def char_sheet(
     params: dict[str, Any] = {"prompt": prompt, "seed": seed}
     if image_b64:
         params["image_b64"] = image_b64
+    for k in ("sex", "age", "race", "eyes", "hair", "face", "body",
+              "skin_color", "additional_details", "background_color"):
+        v = locals().get(k)
+        if v is not None:
+            params[k] = v
     if quality:
         params["quality"] = quality
     if negative_prompt:
