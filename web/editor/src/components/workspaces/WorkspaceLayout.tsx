@@ -378,8 +378,20 @@ function AssetsTab({ selectedService, selectedAsset, onCloseAsset, jobs, onAddJo
               <h2 className="text-base font-semibold">{label}</h2>
               {selectedService && <Badge variant="outline" className="text-[10px]">{selectedService}</Badge>}
             </div>
-            {fields.map((f) => (
-              <div key={f.name} className="space-y-1">
+            {fields.map((f) => {
+              const handleDrop = (e: React.DragEvent) => {
+                e.preventDefault()
+                try {
+                  const d = JSON.parse(e.dataTransfer.getData("application/tech-noir-asset"))
+                  if (d.url && (f.type === "file" || f.name.includes("image") || f.name.includes("b64"))) {
+                    setValues((p) => ({ ...p, [f.name]: d.url.split(",")[1] || d.url }))
+                  } else if (d.name && f.type === "text") {
+                    setValues((p) => ({ ...p, [f.name]: d.name }))
+                  }
+                } catch {}
+              }
+              return (
+              <div key={f.name} className="space-y-1" onDragOver={(e) => e.preventDefault()} onDrop={handleDrop}>
                 <Label className="text-xs text-muted-foreground capitalize">{f.label}</Label>
                 {f.type === "select" && f.options ? (
                   <Select value={String(values[f.name] ?? f.default ?? "")}
@@ -423,7 +435,8 @@ function AssetsTab({ selectedService, selectedAsset, onCloseAsset, jobs, onAddJo
                     placeholder={f.label} />
                 )}
               </div>
-            ))}
+              )
+            })}
             {fields.length > 0 && (
               <Button className="w-full" disabled={generating || running.length > 0} onClick={handleGenerate}>
                 {generating ? "Generating..." : "Generate"}
