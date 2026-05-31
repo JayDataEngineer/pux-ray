@@ -80,13 +80,14 @@ _MODEL_CHOICES = list(_MODEL_PRESETS.keys())
 
 
 async def generate_image(
-    model: Annotated[str, Field(
-        description=f"Model to use.",
-        enum=_MODEL_CHOICES,
-    )],
     prompt: Annotated[str, Field(
         description="Text prompt describing the image to generate. 60-200 words for best results.",
     )],
+    model: Annotated[str, Field(
+        description=f"Model to use.",
+        enum=_MODEL_CHOICES,
+        default="z_image",
+    )] = "z_image",
     negative_prompt: Annotated[str | None, Field(
         description="Negative prompt for base models. Ignored by turbo/distilled models.",
     )] = None,
