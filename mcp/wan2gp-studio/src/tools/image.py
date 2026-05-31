@@ -111,9 +111,6 @@ async def generate_image(
     guide_scale: Annotated[float | None, Field(
         description="[Advanced] CFG guidance scale. Overrides model preset.",
     )] = None,
-    quality: Annotated[str | None, Field(
-        description="[Advanced] Quality mode: 'turbo' or 'standard'. Overrides model preset.",
-    )] = None,
     ctx: Context | None = None,
 ) -> dict:
     """Generate an image using Z-Image, Flux, AniGen, or TRELLIS.
@@ -145,7 +142,7 @@ async def generate_image(
 
     # Apply preset defaults (overridden by explicit args when not in advanced mode)
     if not advanced:
-        params["quality"] = quality or preset.get("quality", "turbo")
+        params["quality"] = preset.get("quality", "turbo")
         params["width"] = width if width != 1024 else preset.get("width", 1024)
         params["height"] = height if height != 1024 else preset.get("height", 1024)
         if negative_prompt is not None:
@@ -160,8 +157,6 @@ async def generate_image(
             if extra_key in preset:
                 params[extra_key] = preset[extra_key]
     else:
-        if quality:
-            params["quality"] = quality
         params["width"] = width
         params["height"] = height
         if negative_prompt is not None:
