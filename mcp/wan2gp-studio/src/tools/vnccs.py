@@ -17,8 +17,12 @@ async def char_sheet(
                     "full prompt instead of building one from the character attributes.",
     )] = "",
     image_b64: Annotated[str | None, Field(
-        description="Base64-encoded starting image. If provided, skips SD base "
-                    "generation and refines this image directly into a sheet.",
+        description="Base64-encoded starting character image. If provided, skips SD "
+                    "base generation and refines this image directly into a sheet.",
+    )] = None,
+    reference_image_b64: Annotated[str | None, Field(
+        description="Base64-encoded body reference template image for the sheet layout. "
+                    "Overrides the default character sheet template.",
     )] = None,
     nsfw: Annotated[bool, Field(
         description="Enable NSFW/nude mode. When true, character is generated "
@@ -96,6 +100,8 @@ async def char_sheet(
         params["prompt"] = prompt
     if image_b64:
         params["image_b64"] = image_b64
+    if reference_image_b64:
+        params["reference_image_b64"] = reference_image_b64
     for k in ("nsfw", "background_color", "aesthetics", "sex", "age", "race",
               "eyes", "hair", "face", "body", "skin_color", "additional_details",
               "lora_prompt", "quality"):

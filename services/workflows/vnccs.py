@@ -159,6 +159,7 @@ def _build_face_details(
 def char_sheet(
     prompt: str = "",
     image_b64: str | None = None,
+    reference_image_b64: str | None = None,
     seed: int = 42,
     quality: str = "turbo",
     negative_prompt: str = "",
