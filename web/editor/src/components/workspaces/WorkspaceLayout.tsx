@@ -12,7 +12,7 @@ import { useToastStore } from "@/stores/toast"
 import { useTimelineStore } from "@/stores/timeline"
 import { useAssetStore } from "@/stores/assets"
 import { callTool, forgeStatus, listTools, type MCPTool } from "@/mcp"
-import { Cpu, HardDrive, PanelLeft, PanelRightClose, Wand2, Loader2, CheckCircle2, XCircle, Clock } from "lucide-react"
+import { Cpu, HardDrive, PanelLeft, PanelRightClose, Wand2, Loader2, CheckCircle2, XCircle, Clock, ListTodo } from "lucide-react"
 import { AppSidebar } from "./AppSidebar"
 
 type TabId = "assets" | "video"
@@ -77,6 +77,7 @@ export function WorkspaceLayout() {
             onClick={() => setTab("video")}>Video</Button>
           <div className="flex-1" />
           <GpuStatus />
+          <JobsButton jobs={jobs} />
           <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setRightOpen((o) => !o)}>
             <PanelRightClose className="h-4 w-4" />
           </Button>
@@ -91,6 +92,63 @@ export function WorkspaceLayout() {
           {rightOpen && <ServicesSidebar selected={selectedService} onSelect={setSelectedService} />}
         </div>
       </div>
+    </div>
+  )
+}
+
+function JobsButton({ jobs }: { jobs: JobEntry[] }) {
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    const handleClick = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
+    }
+    document.addEventListener("mousedown", handleClick)
+    return () => document.removeEventListener("mousedown", handleClick)
+  }, [])
+
+  const running = jobs.filter((j) => j.status === "running")
+
+  return (
+    <div ref={ref} className="relative">
+      <Button variant="ghost" size="icon" className="h-7 w-7 relative" onClick={() => setOpen(!open)}
+        title={`${jobs.length} job(s)`}>
+        {running.length > 0 ? (
+          <Loader2 className="h-4 w-4 animate-spin text-primary" />
+        ) : (
+          <ListTodo className="h-4 w-4" />
+        )}
+        {jobs.length > 0 && (
+          <span className="absolute -top-0.5 -right-0.5 flex h-3.5 w-3.5 items-center justify-center rounded-full bg-primary text-[8px] text-primary-foreground">
+            {jobs.length > 9 ? "9+" : jobs.length}
+          </span>
+        )}
+      </Button>
+      {open && (
+        <div className="absolute right-0 top-full mt-1 w-72 rounded-md border bg-popover text-popover-foreground shadow-md z-50">
+          <div className="p-2 border-b text-xs font-medium flex items-center gap-1.5">
+            <Clock className="h-3 w-3" /> Jobs ({jobs.length})
+          </div>
+          {jobs.length === 0 ? (
+            <p className="text-xs text-muted-foreground/50 py-4 text-center">No jobs</p>
+          ) : (
+            <div className="max-h-72 overflow-y-auto p-1 space-y-0.5">
+              {jobs.map((j) => (
+                <div key={j.id} className="flex items-center gap-2 px-2 py-1.5 rounded text-xs hover:bg-accent">
+                  {j.status === "running" && <Loader2 className="h-3 w-3 shrink-0 animate-spin text-primary" />}
+                  {j.status === "completed" && <CheckCircle2 className="h-3 w-3 shrink-0 text-green-500" />}
+                  {j.status === "failed" && <XCircle className="h-3 w-3 shrink-0 text-destructive" />}
+                  <span className="flex-1 truncate">{j.name}</span>
+                  {j.status === "running" && <span className="text-[10px] text-muted-foreground">{Math.round((Date.now() - j.startedAt) / 1000)}s</span>}
+                  {j.status === "completed" && j.endedAt && <span className="text-[10px] text-muted-foreground">{(j.endedAt - j.startedAt) / 1000}s</span>}
+                  {j.status === "failed" && <span className="text-[10px] text-destructive truncate max-w-24">{j.error}</span>}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   )
 }
@@ -270,9 +328,8 @@ function AssetsTab({ selectedService, jobs, onAddJob, nextJobId }: {
   }
 
   return (
-    <div className="flex-1 p-6 flex gap-6">
-      {/* Tool widget */}
-      <div className="flex-1 max-w-xl">
+    <div className="flex-1 p-6 flex justify-center">
+      <div className="w-full max-w-xl">
         <Card>
           <CardContent className="pt-6 space-y-4">
             <div className="flex items-center justify-between">
@@ -321,35 +378,6 @@ function AssetsTab({ selectedService, jobs, onAddJob, nextJobId }: {
               <Button className="w-full" disabled={generating || running.length > 0} onClick={handleGenerate}>
                 {generating ? "Generating..." : "Generate"}
               </Button>
-            )}
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Job panel */}
-      <div className="w-64 shrink-0">
-        <Card>
-          <CardContent className="pt-4 space-y-2">
-            <div className="flex items-center gap-1.5 text-xs font-semibold text-muted-foreground">
-              <Clock className="h-3 w-3" /> Jobs
-              {running.length > 0 && <Badge variant="secondary" className="text-[10px] px-1 py-0">{running.length} active</Badge>}
-            </div>
-            {jobs.length === 0 ? (
-              <p className="text-xs text-muted-foreground/50 py-4 text-center">No jobs yet</p>
-            ) : (
-              <div className="space-y-1 max-h-[60vh] overflow-y-auto">
-                {jobs.map((j) => (
-                  <div key={j.id} className="flex items-center gap-2 px-2 py-1.5 rounded text-xs hover:bg-muted/50">
-                    {j.status === "running" && <Loader2 className="h-3 w-3 shrink-0 animate-spin text-primary" />}
-                    {j.status === "completed" && <CheckCircle2 className="h-3 w-3 shrink-0 text-green-500" />}
-                    {j.status === "failed" && <XCircle className="h-3 w-3 shrink-0 text-destructive" />}
-                    <span className="flex-1 truncate">{j.name}</span>
-                    {j.status === "running" && <span className="text-[10px] text-muted-foreground">{Math.round((Date.now() - j.startedAt) / 1000)}s</span>}
-                    {j.status === "completed" && j.endedAt && <span className="text-[10px] text-muted-foreground">{(j.endedAt - j.startedAt) / 1000}s</span>}
-                    {j.status === "failed" && <span className="text-[10px] text-destructive truncate max-w-20">{j.error}</span>}
-                  </div>
-                ))}
-              </div>
             )}
           </CardContent>
         </Card>
