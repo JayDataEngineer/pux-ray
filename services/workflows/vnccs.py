@@ -66,24 +66,142 @@ def _compose_images_side_by_side(*images_b64: str) -> str:
     return base64.b64encode(buf.getvalue()).decode()
 
 
+def _build_char_prompt(
+    aesthetics: str = "",
+    background_color: str = "green",
+    nsfw: bool = False,
+    sex: str = "female",
+    age: int = 18,
+    race: str = "",
+    eyes: str = "",
+    hair: str = "",
+    face: str = "",
+    body: str = "",
+    skin_color: str = "",
+    additional_details: str = "",
+    lora_prompt: str = "",
+) -> tuple[str, str]:
+    """Build positive and negative prompts matching VNCCS CharacterCreator exactly."""
+    pos = f"{aesthetics or 'masterpiece,best quality,amazing quality'}, simple background, expressionless"
+    if background_color:
+        pos += f", {background_color} background"
+
+    # Sex tokens
+    sex = sex.lower().strip() if sex else "female"
+    is_male = sex in ("male", "man", "boy", "m")
+    if is_male:
+        pos += ", (1boy)"
+        neg_sex = "1girl, girl, woman, femine, breasts, vagina"
+    else:
+        pos += ", (1girl)"
+        neg_sex = "1boy, man, penis, dick"
+
+    # NSFW / nude phrase
+    if nsfw:
+        nude = "(naked, nude, penis)" if is_male else "(naked, nude, vagina, nipples)"
+    else:
+        nude = "(bare chest, wear white boxers)" if is_male else "(wear white bra and panties)"
+    pos += f", {nude}"
+
+    # Age
+    pos += f", {age}yo"
+    if is_male:
+        if age <= 3: pos += ", (toddler boy:1.0)"
+        elif age <= 11: pos += ", (shota:1.0)"
+        elif age <= 16: pos += ", (teenager boy:1.0)"
+        elif age <= 18: pos += ", (young_adult man:1.0)"
+        elif age <= 24: pos += ", (young_adult man:1.5)"
+        elif age <= 50: pos += ", (adult man:1.0)"
+        elif age <= 60: pos += ", (old man:1.0)"
+    else:
+        if age <= 3: pos += ", (toddler girl:1.0)"
+        elif age <= 11: pos += ", (loli:1.0)"
+        elif age <= 18: pos += ", (teenager girl:1.0)"
+        elif age <= 24: pos += ", (young_adult woman:1.0)"
+        elif age <= 50: pos += ", (adult woman:1.0)"
+        elif age <= 60: pos += ", (old woman:1.0)"
+
+    # Attributes
+    if race: pos += f", ({race} race:1.0)"
+    if hair: pos += f", ({hair} hair:1.0)"
+    if eyes: pos += f", ({eyes} eyes:1.0)"
+    if face: pos += f", ({face} face:1.0)"
+    if body: pos += f", ({body} body:1.0)"
+    if skin_color: pos += f", ({skin_color} skin:1.0)"
+    if additional_details: pos += f", ({additional_details})"
+    if lora_prompt: pos += f", {lora_prompt}"
+
+    neg = f"bad quality,worst quality,worst detail,sketch,censor, missing arm, missing leg, distorted body, footwear, {neg_sex}"
+
+    return pos, neg
+
+
+def _build_face_details(
+    sex: str = "female",
+    race: str = "",
+    eyes: str = "",
+    hair: str = "",
+    face: str = "",
+    skin_color: str = "",
+    additional_details: str = "",
+) -> str:
+    """Build face detail string matching VNCCS build_face_details."""
+    parts = ["1girl" if sex in ("female",) else "1boy"]
+    if race: parts.append(f"{race} race")
+    if eyes: parts.append(f"{eyes} eyes")
+    if hair: parts.append(f"{hair} hair")
+    if face: parts.append(f"{face} face")
+    if skin_color: parts.append(f"{skin_color} skin")
+    if additional_details: parts.append(additional_details)
+    return ", ".join(p for p in parts if p) + ", (expressionless:1.0)"
+
+
 def char_sheet(
-    prompt: str,
+    prompt: str = "",
     image_b64: str | None = None,
     seed: int = 42,
     quality: str = "turbo",
     negative_prompt: str = "",
+    sex: str = "female",
+    age: int = 18,
+    nsfw: bool = False,
+    background_color: str = "green",
+    aesthetics: str = "",
+    race: str = "",
+    eyes: str = "",
+    hair: str = "",
+    face: str = "",
+    body: str = "",
+    skin_color: str = "",
+    additional_details: str = "",
+    lora_prompt: str = "",
     **kwargs: Any,
 ) -> dict[str, Any]:
-    """VNCCS Step 1: text prompt → character base sheet.
+    """VNCCS Step 1: full character sheet generation matching ComfyUI workflow.
 
-    If image_b64 is provided, the Z-Image step is skipped and the
-    provided image goes directly to QWEN refinement (image-to-sheet).
+    Builds the prompt exactly like VNCCS CharacterCreator, generates the base
+    character via SD, refines with QWEN, and outputs body sheet + face details.
 
-    Two-stage pipeline:
-      1. (optional) SD base (Z-Image) generates initial character image
-      2. QWEN-Image-Edit refines face/body details
+    If image_b64 is provided, the SD base generation is skipped and the
+    image goes directly to QWEN refinement.
+
+    Returns base64-encoded image data.
     """
     svc = get_service()
+
+    # Build prompts matching CharacterCreator
+    char_prompt, built_negative = _build_char_prompt(
+        aesthetics=aesthetics or "masterpiece,best quality,amazing quality",
+        background_color=background_color,
+        nsfw=nsfw, sex=sex, age=age, race=race,
+        eyes=eyes, hair=hair, face=face, body=body,
+        skin_color=skin_color, additional_details=additional_details,
+        lora_prompt=lora_prompt,
+    )
+    final_negative = negative_prompt or built_negative
+
+    # Use prompt param as override if provided
+    gen_prompt = prompt if prompt else char_prompt
 
     if image_b64:
         base_image = image_b64
@@ -91,28 +209,39 @@ def char_sheet(
         steps = 8 if quality == "turbo" else 50
         svc.load("z_image")
         base = svc.infer({
-            "input_prompt": prompt,
-            "n_prompt": negative_prompt or "bad quality,worst quality",
+            "input_prompt": gen_prompt,
+            "n_prompt": final_negative,
             "seed": seed,
             "sampling_steps": steps,
             "guide_scale": 1.0 if quality == "turbo" else 4.0,
             "width": 1024,
             "height": 1024,
+            "loras_selected": [
+                "IL/mimimeter.safetensors",
+            ] if quality == "turbo" else [],
         })
         if base.get("status") != "ok":
             return error_response(f"Base generation failed: {base.get('error', 'unknown')}")
         base_image = base["data"]
 
+    # QWEN refinement stage with face details
+    face_details = _build_face_details(sex=sex, race=race, eyes=eyes, hair=hair,
+                                        face=face, skin_color=skin_color,
+                                        additional_details=additional_details)
+
     svc.load("qwen-image-edit")
     refined = svc.infer({
-        "input_prompt": "Draw character from image2",
+        "input_prompt": f"Draw character from image2, {face_details}",
         "image_b64": base_image,
         "seed": seed,
         "sampling_steps": 4,
         "guide_scale": 1.0,
         "loras_selected": [
             "Qwen-Image-Edit-2511-Lightning-4steps-V1.0-bf16.safetensors",
-        ] if quality == "turbo" else [],
+            "VNCCS/poser_helper_v2_000004200.safetensors",
+        ] if quality == "turbo" else [
+            "VNCCS/poser_helper_v2_000004200.safetensors",
+        ],
     })
 
     if refined.get("status") != "ok":
