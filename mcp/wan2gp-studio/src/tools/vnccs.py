@@ -1,6 +1,6 @@
-"""VNCCS workflow MCP tools — character sheet and pose edit pipelines.
+"""VNCCS workflow MCP tools — character sheet, pose edit, and clone pipelines.
 
-Both route through the Forge's DAG pipeline runner at /v1/run
+All route through the Forge's DAG pipeline runner at /v1/run
 with the pipeline key set to the VNCCS workflow name.
 """
 from __future__ import annotations
@@ -24,15 +24,15 @@ async def char_sheet(
         description="Base64-encoded body reference template image for the sheet layout. "
                     "Overrides the default character sheet template.",
     )] = None,
-    nsfw: Annotated[bool, Field(
-        description="Enable NSFW/nude mode. When true, character is generated "
-                    "naked. When false (default), wears underwear.",
-    )] = False,
     model: Annotated[str, Field(
         description="SD model for base character generation. 'z_image' for SD distilled "
                     "(fast), 'z_image_base' for full quality SD, 'flux_schnell' for Flux.",
         enum=["z_image", "z_image_base", "flux_schnell", "flux_dev", "anima_base"],
     )] = "z_image",
+    nsfw: Annotated[bool, Field(
+        description="Enable NSFW/nude mode. When true, character is generated "
+                    "naked. When false (default), wears underwear.",
+    )] = False,
     background_color: Annotated[str, Field(
         description="Background color for the character sheet (e.g. 'green', 'white', 'transparent').",
     )] = "green",
@@ -87,10 +87,6 @@ async def char_sheet(
 
     Builds the prompt exactly like the original ComfyUI CharacterCreator node
     from structured attributes (sex, age, race, eyes, hair, body, nsfw, etc).
-
-    Two-stage pipeline:
-      1. Z-Image generates the base character with constructed prompt
-      2. QWEN-Image-Edit refines with face details
 
     Returns base64-encoded image data.
     """
@@ -156,3 +152,71 @@ async def pose_edit(
     params["model_rotation_y"] = model_rotation_y
 
     return await client.invoke({"pipeline": "vnccs/pose-edit", "params": params})
+
+
+async def clone_character(
+    reference_image_b64: Annotated[str, Field(
+        description="Base64-encoded reference character image to clone/modify.",
+    )],
+    sex: Annotated[str, Field(
+        description="Target character sex.",
+        enum=["female", "male"],
+    )] = "female",
+    age: Annotated[int, Field(
+        description="Target character age. Drives body type descriptors.",
+    )] = 18,
+    race: Annotated[str, Field(
+        description="Target character race/ethnicity.",
+    )] = "human",
+    eyes: Annotated[str, Field(
+        description="Target eye description.",
+    )] = "blue eyes",
+    hair: Annotated[str, Field(
+        description="Target hair description.",
+    )] = "black long",
+    face: Annotated[str, Field(
+        description="Target face features.",
+    )] = "",
+    body: Annotated[str, Field(
+        description="Target body type.",
+    )] = "medium breasts",
+    skin_color: Annotated[str, Field(
+        description="Target skin color.",
+    )] = "",
+    additional_details: Annotated[str, Field(
+        description="Any additional changes to apply to the cloned character.",
+    )] = "",
+    seed: Annotated[int, Field(
+        description="Random seed for reproducibility. -1 for random.",
+    )] = -1,
+    ctx: Context | None = None,
+) -> dict:
+    """Clone an existing character with modified attributes.
+
+    Takes a reference character image and re-renders it with new
+    character attributes (age, hair, eyes, body, etc) using QWEN-Image-Edit.
+    The character's core identity is preserved while applying the changes.
+
+    Corresponds to the VNCCS Step1.1 Clone workflow.
+
+    Returns base64-encoded image data.
+    """
+    if ctx is None:
+        raise RuntimeError("No MCP context available")
+    client = ctx.lifespan_context.get("forge_client")
+    if client is None:
+        raise RuntimeError("API client not initialized")
+
+    character_def: dict[str, Any] = {}
+    for k in ("sex", "age", "race", "eyes", "hair", "face", "body", "skin_color", "additional_details"):
+        v = locals()[k]
+        if v:
+            character_def[k] = v
+
+    params: dict[str, Any] = {
+        "reference_image_b64": reference_image_b64,
+        "character_def": character_def,
+        "seed": seed,
+    }
+
+    return await client.invoke({"pipeline": "vnccs/clone", "params": params})

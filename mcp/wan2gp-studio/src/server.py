@@ -102,7 +102,7 @@ mcp = FastMCP(
 
 from .tools.generate import run
 from .tools.image import generate_image
-from .tools.vnccs import char_sheet, pose_edit
+from .tools.vnccs import char_sheet, pose_edit, clone_character
 from .tools.status import list_models, list_services, get_service, forge_status, list_pipelines
 from .tools.tts import tts_speak, tts_voices
 from .tools.audio import transcribe, generate_sound, generate_music
@@ -181,6 +181,11 @@ mcp.tool(char_sheet, meta={
 mcp.tool(pose_edit, meta={
     "ui": {"resourceUri": "ui://apps/image"},
     "openai/toolInvocation/invoking": "Applying pose…",
+    "openai/toolInvocation/invoked": "Done",
+})
+mcp.tool(clone_character, meta={
+    "ui": {"resourceUri": "ui://apps/image"},
+    "openai/toolInvocation/invoking": "Cloning character…",
     "openai/toolInvocation/invoked": "Done",
 })
 mcp.tool(list_models)

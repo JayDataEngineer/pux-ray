@@ -40,7 +40,7 @@ const SERVICE_GENRE: Record<string, string> = {
   ace_step: "audio", moss_soundeffect: "audio",
   kokoro: "voice", espeak: "voice", index_tts: "voice", faster_qwen3_tts: "voice",
   generate_sound: "audio", generate_music: "audio", tts_speak: "voice",
-  generate_image: "image", char_sheet: "image", pose_edit: "image",
+  generate_image: "image", char_sheet: "image", pose_edit: "image", clone_character: "image",
   kimodo: "motion", kimodo_demo: "motion", hy_motion: "motion", gemx: "motion",
 }
 
