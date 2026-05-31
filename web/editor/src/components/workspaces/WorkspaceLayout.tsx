@@ -37,12 +37,15 @@ const COMMON_PARAMS = [
 const GENRE_ORDER = ["image", "audio", "voice"]
 
 const SERVICE_GENRE: Record<string, string> = {
-  z_image: "image", comfyui: "image", nvidia_upscale: "image", dwpose: "image",
+  comfyui: "image",
   ace_step: "audio", moss_soundeffect: "audio",
   kokoro: "voice", espeak: "voice", index_tts: "voice", faster_qwen3_tts: "voice",
   generate_sound: "audio", generate_music: "audio", tts_speak: "voice",
   generate_image: "image",
 }
+
+// Services covered by a dedicated MCP tool — hide from sidebar to avoid duplicates
+const COVERED_SERVICES = new Set(["z_image"])
 
 function extractCommonParams(desc: string): FieldDef[] {
   if (!desc.toLowerCase().includes("common:")) return []
@@ -196,7 +199,7 @@ function ServicesSidebar({ selected, onSelect }: { selected: string; onSelect: (
 
   const allItems = [
     ...tools.filter((t) => !["run","list_models","list_services","get_service","forge_status","load_service","unload_services","tts_voices","chat","transcribe","llm_configure"].includes(t.name) && !t.name.startsWith("workflow_")),
-    ...services.filter((s) => !tools.find((t) => t.name === s.name)),
+    ...services.filter((s) => !tools.find((t) => t.name === s.name) && !COVERED_SERVICES.has(s.name)),
   ]
   const items = allItems.filter((s) => SERVICE_GENRE[("name" in s ? (s as any).name : (s as any).name)] === genre)
 
