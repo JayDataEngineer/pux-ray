@@ -2,7 +2,7 @@ import { ScrollArea } from "@/components/ui/scroll-area"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
-import { useAssetStore, CATEGORY_LABEL, CATEGORY_ORDER, type AssetCategory } from "@/stores/assets"
+import { useAssetStore, CATEGORY_LABEL, CATEGORY_ORDER, type AssetCategory, type Asset } from "@/stores/assets"
 import { useToastStore } from "@/stores/toast"
 import { FolderOpen, Plus, Music, Image, Mic, Volume2, Trash2, ChevronDown, PanelLeftClose, X } from "lucide-react"
 
@@ -13,9 +13,10 @@ const ICONS: Record<AssetCategory, typeof Image> = {
 interface AppSidebarProps {
   open: boolean
   onToggle: () => void
+  onSelectAsset?: (asset: Asset) => void
 }
 
-export function AppSidebar({ open, onToggle }: AppSidebarProps) {
+export function AppSidebar({ open, onToggle, onSelectAsset }: AppSidebarProps) {
   const assets = useAssetStore((s) => s.assets)
   const removeAsset = useAssetStore((s) => s.removeAsset)
   const addAsset = useAssetStore((s) => s.addAsset)
@@ -70,6 +71,7 @@ export function AppSidebar({ open, onToggle }: AppSidebarProps) {
                   <div className="grid grid-cols-2 gap-1 p-1">
                     {items.map((a) => (
                       <div key={a.id} className="relative group/item cursor-pointer rounded-md border overflow-hidden"
+                        onClick={() => onSelectAsset?.(a)}
                         draggable onDragStart={(e) => { e.dataTransfer.setData("application/tech-noir-asset", JSON.stringify({url:a.url,type:a.type,name:a.name,id:a.id})) }}>
                         <img src={a.url} alt={a.name} className="w-full aspect-square object-cover" draggable={false} />
                         <span className="absolute bottom-0 inset-x-0 bg-background/80 px-1.5 py-0.5 text-[9px] truncate">{a.name.slice(0,12)}</span>
@@ -81,6 +83,7 @@ export function AppSidebar({ open, onToggle }: AppSidebarProps) {
                   <div className="px-1 py-0.5 space-y-0.5">
                     {items.map((a) => (
                       <div key={a.id} className="flex items-center gap-1.5 px-2 py-1 rounded-md text-xs hover:bg-sidebar-accent cursor-pointer group/item"
+                        onClick={() => onSelectAsset?.(a)}
                         draggable onDragStart={(e) => { e.dataTransfer.setData("application/tech-noir-asset", JSON.stringify({url:a.url,type:a.type,name:a.name,id:a.id})) }}>
                         <Icon className="h-3 w-3 shrink-0" />
                         <span className="flex-1 truncate">{a.name}</span>
@@ -146,6 +149,7 @@ export function AppSidebar({ open, onToggle }: AppSidebarProps) {
                           <div className="grid grid-cols-2 gap-1 p-1">
                             {items.map((a) => (
                               <div key={a.id} className="relative group/item cursor-pointer rounded-md border overflow-hidden"
+                                onClick={() => onSelectAsset?.(a)}
                                 draggable onDragStart={(e) => { e.dataTransfer.setData("application/tech-noir-asset", JSON.stringify({url:a.url,type:a.type,name:a.name,id:a.id})) }}>
                                 <img src={a.url} alt={a.name} className="w-full aspect-square object-cover" draggable={false} />
                                 <span className="absolute bottom-0 inset-x-0 bg-background/80 px-1.5 py-0.5 text-[9px] truncate">{a.name.slice(0,12)}</span>
@@ -157,6 +161,7 @@ export function AppSidebar({ open, onToggle }: AppSidebarProps) {
                           <div className="px-1 py-0.5 space-y-0.5">
                             {items.map((a) => (
                               <div key={a.id} className="flex items-center gap-1.5 px-2 py-1 rounded-md text-xs hover:bg-sidebar-accent cursor-pointer group/item"
+                                onClick={() => onSelectAsset?.(a)}
                                 draggable onDragStart={(e) => { e.dataTransfer.setData("application/tech-noir-asset", JSON.stringify({url:a.url,type:a.type,name:a.name,id:a.id})) }}>
                                 <Icon className="h-3 w-3 shrink-0" />
                                 <span className="flex-1 truncate">{a.name}</span>

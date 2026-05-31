@@ -10,9 +10,9 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Separator } from "@/components/ui/separator"
 import { useToastStore } from "@/stores/toast"
 import { useTimelineStore } from "@/stores/timeline"
-import { useAssetStore } from "@/stores/assets"
+import { useAssetStore, type Asset } from "@/stores/assets"
 import { callTool, forgeStatus, listTools, type MCPTool } from "@/mcp"
-import { Cpu, HardDrive, PanelLeft, PanelRightClose, Wand2, Loader2, CheckCircle2, XCircle, Clock, ListTodo } from "lucide-react"
+import { Cpu, HardDrive, PanelLeft, PanelRightClose, Wand2, Loader2, CheckCircle2, XCircle, Clock, ListTodo, X } from "lucide-react"
 import { AppSidebar } from "./AppSidebar"
 
 type TabId = "assets" | "video"
@@ -58,12 +58,21 @@ export function WorkspaceLayout() {
   const [leftOpen, setLeftOpen] = useState(true)
   const [rightOpen, setRightOpen] = useState(true)
   const [selectedService, setSelectedService] = useState("")
+  const [selectedAsset, setSelectedAsset] = useState<Asset | null>(null)
   const [jobs, setJobs] = useState<JobEntry[]>([])
   const nextJobId = useRef(1)
 
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setSelectedAsset(null)
+    }
+    document.addEventListener("keydown", handler)
+    return () => document.removeEventListener("keydown", handler)
+  }, [])
+
   return (
     <div className="flex h-screen w-full bg-background">
-      <AppSidebar open={leftOpen} onToggle={() => setLeftOpen((o) => !o)} />
+      <AppSidebar open={leftOpen} onToggle={() => setLeftOpen((o) => !o)} onSelectAsset={(a) => { setSelectedService(""); setSelectedAsset(a) }} />
       <div className="flex flex-1 flex-col min-w-0">
         <header className="flex items-center h-11 px-4 border-b gap-2 shrink-0">
           <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setLeftOpen((o) => !o)}>
@@ -85,7 +94,7 @@ export function WorkspaceLayout() {
         <div className="flex flex-1 min-h-0">
           <div className="flex-1 min-w-0 overflow-auto">
             {tab === "assets"
-              ? <AssetsTab selectedService={selectedService} jobs={jobs} onAddJob={(j) => setJobs(j)} nextJobId={nextJobId} />
+              ? <AssetsTab selectedService={selectedService} selectedAsset={selectedAsset} onCloseAsset={() => setSelectedAsset(null)} jobs={jobs} onAddJob={(j) => setJobs(j)} nextJobId={nextJobId} />
               : <VideoTab />
             }
           </div>
@@ -221,8 +230,9 @@ function ServicesSidebar({ selected, onSelect }: { selected: string; onSelect: (
   )
 }
 
-function AssetsTab({ selectedService, jobs, onAddJob, nextJobId }: {
-  selectedService: string; jobs: JobEntry[]
+function AssetsTab({ selectedService, selectedAsset, onCloseAsset, jobs, onAddJob, nextJobId }: {
+  selectedService: string; selectedAsset: Asset | null; onCloseAsset: () => void
+  jobs: JobEntry[]
   onAddJob: (j: JobEntry[] | ((prev: JobEntry[]) => JobEntry[])) => void
   nextJobId: React.MutableRefObject<number>
 }) {
@@ -319,10 +329,40 @@ function AssetsTab({ selectedService, jobs, onAddJob, nextJobId }: {
   const running = jobs.filter((j) => j.status === "running")
   const label = currentService?.label || currentTool?.description?.split("—")[0]?.trim() || selectedService
 
+  if (selectedAsset) {
+    const { url, name, mediaType, sizeBytes } = selectedAsset
+    const isImage = mediaType.startsWith("image/") || url.startsWith("data:image/")
+    return (
+      <div className="flex-1 p-6 flex justify-center">
+        <div className="w-full max-w-2xl">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-base font-semibold">{name}</h2>
+            <Button variant="ghost" size="icon" className="h-7 w-7" onClick={onCloseAsset} title="Close (Esc)">
+              <X className="h-4 w-4" />
+            </Button>
+          </div>
+          <Card>
+            <CardContent className="p-4 flex items-center justify-center min-h-[300px]">
+              {isImage ? (
+                <img src={url} alt={name} className="max-w-full max-h-[70vh] object-contain rounded-lg" />
+              ) : (
+                <audio src={url} controls className="w-full" />
+              )}
+            </CardContent>
+          </Card>
+          <div className="mt-2 text-xs text-muted-foreground">
+            Size: {sizeBytes ? `${Math.round(sizeBytes / 1024)} KB` : "Unknown"}
+            {mediaType ? <> · Type: {mediaType}</> : null}
+          </div>
+        </div>
+      </div>
+    )
+  }
+
   if (!selectedService) {
     return (
       <div className="flex-1 flex items-center justify-center p-6">
-        <p className="text-sm text-muted-foreground">Select a service from the right sidebar</p>
+        <p className="text-sm text-muted-foreground">Select a service from the right sidebar, or click an asset in the left sidebar</p>
       </div>
     )
   }
