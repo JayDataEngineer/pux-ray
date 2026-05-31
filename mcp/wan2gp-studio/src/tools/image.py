@@ -94,9 +94,6 @@ async def generate_image(
     height: Annotated[int, Field(
         description="Image height in pixels. Must be divisible by 16.",
     )] = 1024,
-    image_b64: Annotated[str | None, Field(
-        description="Base64-encoded source image for i2v/image-edit models.",
-    )] = None,
     advanced: Annotated[bool, Field(
         description="Enable advanced mode to override all parameters manually.",
     )] = False,
@@ -155,8 +152,5 @@ async def generate_image(
         if guide_scale is not None:
             params["guide_scale"] = guide_scale
 
-    if image_b64:
-        params["image_b64"] = image_b64
-
-    payload = {"service": "wan2gp", "model": backend_model, **params}
+    payload = {"service": "wan2gp", "model": model, **params}
     return await client.invoke(payload)
