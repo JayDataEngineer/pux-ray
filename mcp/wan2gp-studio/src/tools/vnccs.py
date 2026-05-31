@@ -119,12 +119,9 @@ async def char_sheet(
 
 async def pose_edit(
     character_image_b64: Annotated[str, Field(
-        description="Base64-encoded character image to re-pose.",
+        description="Base64-encoded character image to re-pose. The character's identity "
+                    "and clothing are preserved while matching the target pose.",
     )],
-    rotations: Annotated[str, Field(
-        description="JSON string of joint rotations: {\"joint_name\": [rx, ry, rz], ...}. "
-                    "Leave empty for default T-pose.",
-    )] = "",
     model_rotation_y: Annotated[float, Field(
         description="Camera angle in degrees: 0=front, 90=right, 180=back, 270=left.",
     )] = 0.0,
@@ -133,14 +130,16 @@ async def pose_edit(
     )] = -1,
     ctx: Context | None = None,
 ) -> dict:
-    """Apply a body mesh pose to a character image.
+    """Re-pose a character image using BodyMesh + DWPose + QWEN.
 
-    Three-stage pipeline:
-      1. BodyMesh renders joint rotations into a 3D skeleton image (CPU)
-      2. DWPose extracts a skeleton overlay (CPU)
+    Three-stage VNCCS pipeline:
+      1. BodyMesh renders the target pose as a 3D skeleton image (CPU)
+      2. DWPose extracts a skeleton overlay from the mesh (CPU)
       3. QWEN-Image-Edit composites mesh + character + skeleton → posed character
 
-    The character keeps their identity and clothing while matching the target pose.
+    Uses the VNCCS PoseStudio V2 LoRA for high-quality pose preservation.
+    Default pose is a front-facing T-pose. For custom poses, use the kimodo
+    motion service to generate joint rotation data.
 
     Returns base64-encoded image data.
     """
@@ -154,12 +153,6 @@ async def pose_edit(
         "character_image_b64": character_image_b64,
         "seed": seed,
     }
-    if rotations:
-        import json as _json
-        try:
-            params["rotations"] = _json.loads(rotations)
-        except _json.JSONDecodeError:
-            return {"status": "error", "error": "rotations must be valid JSON"}
     params["model_rotation_y"] = model_rotation_y
 
     return await client.invoke({"pipeline": "vnccs/pose-edit", "params": params})

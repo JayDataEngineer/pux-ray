@@ -34,13 +34,14 @@ const COMMON_PARAMS = [
   "negative_prompt", "voice", "language",
 ]
 
-const GENRE_ORDER = ["image", "audio", "voice"]
+const GENRE_ORDER = ["image", "audio", "voice", "motion"]
 
 const SERVICE_GENRE: Record<string, string> = {
   ace_step: "audio", moss_soundeffect: "audio",
   kokoro: "voice", espeak: "voice", index_tts: "voice", faster_qwen3_tts: "voice",
   generate_sound: "audio", generate_music: "audio", tts_speak: "voice",
   generate_image: "image", char_sheet: "image", pose_edit: "image",
+  kimodo: "motion", kimodo_demo: "motion", hy_motion: "motion", gemx: "motion",
 }
 
 // Services covered by a dedicated MCP tool — hide from sidebar to avoid duplicates
