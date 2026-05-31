@@ -267,9 +267,10 @@ function AssetsTab({ selectedService, selectedAsset, onCloseAsset, jobs, onAddJo
         }
         const isNum = v.type === "number" || v.type === "integer"
         const isLong = ((v.description as string)?.length ?? 0) > 80 || k === "lyrics" || k === "instruct"
+        const isImgField = k.includes("image") || k.includes("b64") || k.includes("img") || k.includes("photo")
         extracted.push({
           name: k, label: (v.description as string) || k,
-          type: v.enum ? "select" as const : isNum ? "number" as const : isLong ? "textarea" as const : "text" as const,
+          type: isImgField ? "file" as const : v.enum ? "select" as const : isNum ? "number" as const : isLong ? "textarea" as const : "text" as const,
           default: v.default, options: v.enum as string[] | undefined,
           required: currentTool.inputSchema.required?.includes(k),
         })
