@@ -37,7 +37,6 @@ const COMMON_PARAMS = [
 const GENRE_ORDER = ["image", "audio", "voice"]
 
 const SERVICE_GENRE: Record<string, string> = {
-  comfyui: "image",
   ace_step: "audio", moss_soundeffect: "audio",
   kokoro: "voice", espeak: "voice", index_tts: "voice", faster_qwen3_tts: "voice",
   generate_sound: "audio", generate_music: "audio", tts_speak: "voice",
