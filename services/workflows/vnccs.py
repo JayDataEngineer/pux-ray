@@ -160,6 +160,7 @@ def char_sheet(
     prompt: str = "",
     image_b64: str | None = None,
     reference_image_b64: str | None = None,
+    model: str = "z_image",
     seed: int = 42,
     quality: str = "turbo",
     negative_prompt: str = "",
@@ -208,7 +209,7 @@ def char_sheet(
         base_image = image_b64
     else:
         steps = 8 if quality == "turbo" else 50
-        svc.load("z_image")
+        svc.load(model)
         base = svc.infer({
             "input_prompt": gen_prompt,
             "n_prompt": final_negative,

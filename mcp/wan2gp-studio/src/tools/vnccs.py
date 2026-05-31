@@ -28,6 +28,11 @@ async def char_sheet(
         description="Enable NSFW/nude mode. When true, character is generated "
                     "naked. When false (default), wears underwear.",
     )] = False,
+    model: Annotated[str, Field(
+        description="SD model for base character generation. 'z_image' for SD distilled "
+                    "(fast), 'z_image_base' for full quality SD, 'flux_schnell' for Flux.",
+        enum=["z_image", "z_image_base", "flux_schnell", "flux_dev", "anima_base"],
+    )] = "z_image",
     background_color: Annotated[str, Field(
         description="Background color for the character sheet (e.g. 'green', 'white', 'transparent').",
     )] = "green",
@@ -102,7 +107,7 @@ async def char_sheet(
         params["image_b64"] = image_b64
     if reference_image_b64:
         params["reference_image_b64"] = reference_image_b64
-    for k in ("nsfw", "background_color", "aesthetics", "sex", "age", "race",
+    for k in ("nsfw", "model", "background_color", "aesthetics", "sex", "age", "race",
               "eyes", "hair", "face", "body", "skin_color", "additional_details",
               "lora_prompt", "quality"):
         params[k] = locals()[k]

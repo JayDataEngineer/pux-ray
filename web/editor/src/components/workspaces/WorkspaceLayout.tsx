@@ -394,8 +394,16 @@ function AssetsTab({ selectedService, selectedAsset, onCloseAsset, jobs, onAddJo
                     onChange={(e) => setValues((p) => ({ ...p, [f.name]: e.target.value ? Number(e.target.value) : "" }))}
                     placeholder={f.label} />
                 ) : f.type === "file" ? (
-                  <Label className="flex items-center justify-center h-16 border-2 border-dashed rounded-lg cursor-pointer hover:border-primary/50 text-sm text-muted-foreground">
-                    {values[f.name] ? "File loaded" : "Upload file"}
+                  <Label className="flex items-center justify-center h-16 border-2 border-dashed rounded-lg cursor-pointer hover:border-primary/50 text-sm text-muted-foreground"
+                    onDragOver={(e) => e.preventDefault()}
+                    onDrop={(e) => {
+                      e.preventDefault()
+                      try {
+                        const d = JSON.parse(e.dataTransfer.getData("application/tech-noir-asset"))
+                        if (d.url) setValues((p) => ({ ...p, [f.name]: d.url.split(",")[1] || d.url }))
+                      } catch {}
+                    }}>
+                    {values[f.name] ? "Loaded from asset" : "Drop asset or click to upload"}
                     <Input type="file" className="hidden"
                       onChange={(e) => {
                         const file = e.target.files?.[0]
