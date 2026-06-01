@@ -361,9 +361,25 @@ def sprite(
     }
 
 
+# Pre-defined VNCCS pose presets matching the original PoseGenerator
+_POSE_PRESETS: dict[str, dict[str, list[float]]] = {
+    "front": {},
+    "side": {"model_rotation_y": [0, 90, 0]},
+    "walk": {"r_elbow": [0, 0, -30], "l_elbow": [0, 0, 30], "r_knee": [0, 0, 20], "l_knee": [0, 0, -10]},
+    "sit": {"r_knee": [90, 0, 0], "l_knee": [90, 0, 0], "r_hip": [-45, 0, 0], "l_hip": [-45, 0, 0]},
+    "arms_crossed": {"r_shoulder": [0, 0, -90], "l_shoulder": [0, 0, 90], "r_elbow": [0, 0, -90], "l_elbow": [0, 0, 90]},
+    "hand_on_hip": {"r_shoulder": [0, 0, -45], "r_elbow": [0, 0, -90], "r_wrist": [0, 0, -45]},
+    "pointing": {"r_shoulder": [0, 0, -90], "r_elbow": [0, 0, -180], "r_wrist": [0, 0, 0]},
+    "salute": {"r_shoulder": [0, 0, -180], "r_elbow": [0, 0, 0], "r_wrist": [0, 0, 0]},
+    "kneel": {"r_knee": [90, 0, 0], "l_knee": [45, 0, 0], "r_hip": [-90, 0, 0], "l_hip": [-45, 0, 0]},
+    "lean": {"r_hip": [15, 0, 0], "l_hip": [15, 0, 0], "spine": [-15, 0, 0]},
+}
+
+
 def pose_edit(
     character_image_b64: str,
-    rotations: dict[str, list[float]],
+    rotations: dict[str, list[float]] | None = None,
+    pose_preset: str | None = None,
     model_rotation_y: float = 0.0,
     seed: int = 42,
     backend: str = "auto",
@@ -381,7 +397,12 @@ def pose_edit(
     svc = get_service()
     svc.load("qwen-image-edit")
 
-    mesh_b64 = render_pose_b64(rotations, model_rotation_y=model_rotation_y, backend=backend)
+    # Resolve rotations: explicit > preset > empty (T-pose)
+    resolved = rotations if rotations else {}
+    if not resolved and pose_preset and pose_preset in _POSE_PRESETS:
+        resolved = _POSE_PRESETS[pose_preset]
+
+    mesh_b64 = render_pose_b64(resolved, model_rotation_y=model_rotation_y, backend=backend)
     skeleton_b64 = skeleton_from_image_b64(mesh_b64, 1024, 1024)
 
     result = svc.infer({
