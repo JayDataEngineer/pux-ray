@@ -378,36 +378,50 @@ _POSE_PRESETS: dict[str, dict[str, list[float]]] = {
 
 def pose_edit(
     character_image_b64: str,
+    pose_image_b64: str | None = None,
     rotations: dict[str, list[float]] | None = None,
-    pose_preset: str | None = None,
     model_rotation_y: float = 0.0,
     seed: int = 42,
     backend: str = "auto",
     **kwargs: Any,
 ) -> dict[str, Any]:
-    """VNCCS pose edit: character + BodyMesh pose → posed character image.
+    """VNCCS pose edit: character + pose reference → posed character image.
+
+    If pose_image_b64 is provided, DWPose extracts skeleton from the
+    reference pose image directly (matching the original Pose Studio
+    workflow). Otherwise, BodyMesh renders a default T-pose.
 
     Pipeline:
-      1. BodyMeshRenderer renders the target pose as 3D mesh (CPU)
-      2. DWPose extracts skeleton from mesh
-      3. Mesh + character + skeleton composited side-by-side
-      4. QWEN edits the character to match the pose
+      1. DWPose extracts skeleton from reference pose (or BodyMesh renders T-pose)
+      2. Mesh/skeleton + character composited side-by-side
+      3. QWEN edits the character to match the target pose
     """
-    from services.workflows.utils.dwpose import skeleton_from_image_b64
     svc = get_service()
     svc.load("qwen-image-edit")
 
-    # Resolve rotations: explicit > preset > empty (T-pose)
-    resolved = rotations if rotations else {}
-    if not resolved and pose_preset and pose_preset in _POSE_PRESETS:
-        resolved = _POSE_PRESETS[pose_preset]
-
-    mesh_b64 = render_pose_b64(resolved, model_rotation_y=model_rotation_y, backend=backend)
-    skeleton_b64 = skeleton_from_image_b64(mesh_b64, 1024, 1024)
+    if pose_image_b64:
+        # Extract pose from reference image via DWPose
+        from services.workflows.utils.dwpose import skeleton_from_image_b64
+        skeleton_b64 = skeleton_from_image_b64(pose_image_b64, 1024, 1024)
+        reference_images = [pose_image_b64, character_image_b64, skeleton_b64]
+        input_prompt = (
+            "Match the body pose shown in Picture 1. "
+            "Picture 2 is the character to draw. Picture 3 shows the skeleton overlay. "
+            "Replicate the exact pose, limb positions, and body orientation from Picture 1 "
+            "while maintaining the character's identity, clothing, and appearance."
+        )
+    else:
+        # Fall back to BodyMesh default T-pose
+        from services.workflows.utils.dwpose import skeleton_from_image_b64
+        resolved = rotations if rotations else {}
+        mesh_b64 = render_pose_b64(resolved, model_rotation_y=model_rotation_y, backend=backend)
+        skeleton_b64 = skeleton_from_image_b64(mesh_b64, 1024, 1024)
+        reference_images = [mesh_b64, character_image_b64, skeleton_b64]
+        input_prompt = VNCCS_INSTRUCTION
 
     result = svc.infer({
-        "input_prompt": VNCCS_INSTRUCTION,
-        "reference_images": [mesh_b64, character_image_b64, skeleton_b64],
+        "input_prompt": input_prompt,
+        "reference_images": reference_images,
         "seed": seed,
         "sampling_steps": 4,
         "guide_scale": 1.0,

@@ -113,47 +113,30 @@ async def char_sheet(
     return await client.invoke({"pipeline": "vnccs/char-sheet", "params": params})
 
 
-_POSE_PRESETS = {
-    "front": {"label": "Front T-pose", "description": "Default front-facing standing pose"},
-    "side": {"label": "Side stance", "description": "90-degree side-facing stance"},
-    "walk": {"label": "Walking", "description": "Mid-stride walking pose"},
-    "sit": {"label": "Sitting", "description": "Sitting on a surface"},
-    "arms_crossed": {"label": "Arms crossed", "description": "Standing with arms crossed"},
-    "hand_on_hip": {"label": "Hand on hip", "description": "One hand on hip, confident stance"},
-    "pointing": {"label": "Pointing", "description": "Pointing forward with one arm"},
-    "salute": {"label": "Saluting", "description": "Hand raised in salute"},
-    "kneel": {"label": "Kneeling", "description": "One knee on ground"},
-    "lean": {"label": "Leaning", "description": "Leaning to one side"},
-}
-
 async def pose_edit(
     character_image_b64: Annotated[str, Field(
-        description="Base64-encoded character image to re-pose. The character's identity "
-                    "and clothing are preserved while matching the target pose.",
+        description="Base64-encoded character image to re-pose. The character's "
+                    "identity and clothing are preserved while matching the target pose.",
     )],
-    pose_preset: Annotated[str, Field(
-        description="Pre-defined pose from the VNCCS pose library. "
-                    f"Options: {', '.join(f'{k}' for k in _POSE_PRESETS)}",
-        enum=list(_POSE_PRESETS.keys()),
-    )] = "front",
-    model_rotation_y: Annotated[float, Field(
-        description="Camera angle in degrees: 0=front, 90=right, 180=back, 270=left.",
-    )] = 0.0,
+    pose_image_b64: Annotated[str | None, Field(
+        description="Base64-encoded reference pose image to match. Provide a photo or "
+                    "render of a person in the desired pose. If omitted, uses a default "
+                    "T-pose. For custom poses, generate one via the kimodo motion service.",
+    )] = None,
     seed: Annotated[int, Field(
         description="Random seed for reproducibility. -1 for random.",
     )] = -1,
     ctx: Context | None = None,
 ) -> dict:
-    """Re-pose a character image using BodyMesh + DWPose + QWEN.
+    """Re-pose a character using the VNCCS PoseStudio workflow.
 
-    Three-stage VNCCS pipeline matching the original ComfyUI workflow:
-      1. BodyMesh renders the selected pose as a 3D skeleton image (CPU)
-      2. DWPose extracts a skeleton overlay from the mesh (CPU)
-      3. QWEN-Image-Edit composites mesh + character + skeleton → posed character
+    Takes a character image and a reference pose image (like the original
+    VNCCS Pose Studio QWEN workflow). The pose is extracted from the
+    reference image and applied to the character via QWEN-Image-Edit.
 
-    Uses the VNCCS PoseStudio V2 LoRA for high-quality pose preservation.
-    Select from 10 pre-defined VNCCS pose presets or pass custom rotation data
-    from the kimodo motion service via the run tool.
+    If no pose_image_b64 is provided, uses a default T-pose via our
+    BodyMesh renderer (CPU). For custom pose data, use the kimodo,
+    kimodo_demo, or gemx motion services.
 
     Returns base64-encoded image data.
     """
@@ -165,10 +148,10 @@ async def pose_edit(
 
     params: dict[str, Any] = {
         "character_image_b64": character_image_b64,
-        "pose_preset": pose_preset,
         "seed": seed,
     }
-    params["model_rotation_y"] = model_rotation_y
+    if pose_image_b64:
+        params["pose_image_b64"] = pose_image_b64
 
     return await client.invoke({"pipeline": "vnccs/pose-edit", "params": params})
 
