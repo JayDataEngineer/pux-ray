@@ -210,46 +210,27 @@ def char_sheet(
     else:
         steps = 8 if quality == "turbo" else 50
         svc.load(model)
-        base = svc.infer({
+        infer_kw: dict[str, Any] = {
+            "model": model,
             "input_prompt": gen_prompt,
-            "n_prompt": final_negative,
             "seed": seed,
             "sampling_steps": steps,
             "guide_scale": 1.0 if quality == "turbo" else 4.0,
             "width": 1024,
             "height": 1024,
-            "loras_selected": [
-                "IL/mimimeter.safetensors",
-            ] if quality == "turbo" else [],
-        })
+        }
+        if final_negative:
+            infer_kw["n_prompt"] = final_negative
+        base = svc.infer(infer_kw)
         if base.get("status") != "ok":
             return error_response(f"Base generation failed: {base.get('error', 'unknown')}")
         base_image = base["data"]
 
-    # QWEN refinement stage with face details
-    face_details = _build_face_details(sex=sex, race=race, eyes=eyes, hair=hair,
-                                        face=face, skin_color=skin_color,
-                                        additional_details=additional_details)
-
-    svc.load("qwen-image-edit")
-    refined = svc.infer({
-        "input_prompt": f"Draw character from image2, {face_details}",
-        "image_b64": base_image,
-        "seed": seed,
-        "sampling_steps": 4,
-        "guide_scale": 1.0,
-        "loras_selected": [
-            "Qwen-Image-Edit-2511-Lightning-4steps-V1.0-bf16.safetensors",
-            "VNCCS/poser_helper_v2_000004200.safetensors",
-        ] if quality == "turbo" else [
-            "VNCCS/poser_helper_v2_000004200.safetensors",
-        ],
-    })
-
-    if refined.get("status") != "ok":
-        return error_response(f"Refinement failed: {refined.get('error', 'unknown')}")
-
-    return refined
+    # Return result - QWEN refinement disabled temporarily
+    if image_b64:
+        return {"status": "ok", "data": image_b64, "media_type": "image/png",
+                "message": "Input image passed through (QWEN refinement disabled)"}
+    return base
 
 
 def emotions(

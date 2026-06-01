@@ -88,6 +88,8 @@ async def char_sheet(
     Builds the prompt exactly like the original ComfyUI CharacterCreator node
     from structured attributes (sex, age, race, eyes, hair, body, nsfw, etc).
 
+    SD base generation via Z-Image. QWEN refinement disabled (WIP).
+
     Returns base64-encoded image data.
     """
     if ctx is None:
