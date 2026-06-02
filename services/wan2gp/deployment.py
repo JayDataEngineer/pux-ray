@@ -1091,6 +1091,7 @@ class Wan2GPService:
         "sampling_steps": "steps",
         "guide_scale": "guidance_scale",
         "frame_num": "num_frames",
+        "input_ref_images": "reference_images",
     }
 
     # Universal defaults for common generate() parameters
@@ -1174,6 +1175,51 @@ class Wan2GPService:
             if param.default != inspect.Parameter.empty:
                 continue
 
+        # Convert base64 reference images to PIL for native models (QWEN, etc.)
+        _ref_key = "input_ref_images" if "input_ref_images" in kwargs else (
+            "reference_images" if "reference_images" in kwargs else None)
+        if _ref_key and isinstance(kwargs.get(_ref_key), list):
+            from PIL import Image
+            import io as _io
+            decoded = []
+            for item in kwargs[_ref_key]:
+                if isinstance(item, str):
+                    decoded.append(
+                        Image.open(_io.BytesIO(base64.b64decode(item))).convert("RGB")
+                    )
+                else:
+                    decoded.append(item)
+            kwargs[_ref_key] = decoded
+
+        # Load LoRAs for native models (QWEN, etc.)
+        loras_selected = payload.get("loras_selected", [])
+        if loras_selected and isinstance(loras_selected, list):
+            kwargs["loras_selected"] = loras_selected
+            # Find the transformer in the model for LoRA injection
+            pipe = getattr(model, 'pipe', model)
+            transformer = None
+            for attr in ("transformer", "model", "unet", "dit"):
+                candidate = getattr(pipe, attr, None) if isinstance(pipe, object) else None
+                if candidate is not None and hasattr(candidate, 'parameters'):
+                    transformer = candidate
+                    break
+            if transformer is not None:
+                resolved = self._resolve_lora_paths(loras_selected)
+                if resolved:
+                    from mmgp import offload as _moff
+                    _moff.load_loras_into_model(
+                        transformer, resolved,
+                        [1.0] * len(resolved),
+                        activate_all_loras=True,
+                    )
+                    kwargs["loras_slists"] = {
+                        "phase1": [1.0] * len(resolved),
+                        "phase2": [1.0] * len(resolved),
+                        "phase3": [1.0] * len(resolved),
+                        "shared": [True] * len(resolved),
+                    }
+        kwargs.setdefault("loras_slists", {"phase1": [], "phase2": [], "phase3": []})
+
         if not hasattr(model, '_interrupt'):
             model._interrupt = False
         result = model.generate(**kwargs)
@@ -1225,7 +1271,7 @@ class Wan2GPService:
         if _base_variant and _base_variant in self._Z_IMAGE_DEFAULTS:
             preset = self._Z_IMAGE_DEFAULTS[_base_variant]
             for k, v in preset.items():
-                if v is not None:
+                if v is not None and k not in payload:
                     payload[k] = v
             logger.info("Z-Image model=%s steps=%s cfg=%s n_prompt=%s",
                         _resolved, payload.get("sampling_steps"),
@@ -1310,18 +1356,23 @@ class Wan2GPService:
                 img = Image.open(io.BytesIO(base64.b64decode(payload["image_end_b64"]))).convert("RGB")
                 kwargs["image_end"] = img
 
-            # Handle reference_images for VNCCS (base64 strings → PIL images)
-            if "reference_images" in kwargs and isinstance(kwargs["reference_images"], list):
+            # Handle reference_images / input_ref_images for VNCCS + QWEN (base64 → PIL)
+            _ref_key = None
+            if "input_ref_images" in kwargs and isinstance(kwargs["input_ref_images"], list):
+                _ref_key = "input_ref_images"
+            elif "reference_images" in kwargs and isinstance(kwargs["reference_images"], list):
+                _ref_key = "reference_images"
+            if _ref_key:
                 from PIL import Image
                 import io
                 decoded = []
-                for img_b64 in kwargs["reference_images"]:
+                for img_b64 in kwargs[_ref_key]:
                     if isinstance(img_b64, str):
                         decoded.append(
                             Image.open(io.BytesIO(base64.b64decode(img_b64))).convert("RGB")
                         )
                 if decoded:
-                    kwargs["reference_images"] = decoded
+                    kwargs[_ref_key] = decoded
 
             logger.info("Wan2GP generate: model=%s kwargs=%s",
                         self._loaded_model, list(kwargs.keys()))
@@ -2502,7 +2553,12 @@ class Wan2GPService:
             raise RuntimeError("Model returned no output")
 
         if isinstance(frames_tensor, torch.Tensor):
-            frames_np = frames_tensor.cpu().float().numpy()
+            # Preserve uint8 tensors (e.g. QWEN decode_to_cpu_uint8) —
+            # converting to float then normalizing destroys uint8 [0,255] data.
+            if frames_tensor.dtype == torch.uint8:
+                frames_np = frames_tensor.cpu().numpy()
+            else:
+                frames_np = frames_tensor.cpu().float().numpy()
         else:
             frames_np = frames_tensor
         msg = f"encode_input: shape={frames_np.shape} dtype={frames_np.dtype} min={frames_np.min():.2f} max={frames_np.max():.2f}"
