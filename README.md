@@ -1,8 +1,8 @@
 # Tech Noir
 
-Home AI infrastructure — Ray Serve on a single RTX 4090, orchestrated via Kubernetes.
+Home AI infrastructure — Ray Serve on consumer GPUs, orchestrated via Kubernetes.
 
-Generates images, video, audio, 3D meshes, motion, and text through a unified API. Wan2GP handles GPU model management with automatic VRAM offloading. MCP servers expose tools for agents and chat UIs. DAG pipelines compose multi-step workflows (character creation, video editing, pose transfer).
+Generates images, video, audio, 3D meshes, motion, and text through a unified API. A Wan2GP extension handles GPU model management with automatic VRAM offloading. MCP servers expose tools for agents and chat UIs. DAG pipelines compose multi-step workflows (character creation, video editing, pose transfer).
 
 ## What it does
 
