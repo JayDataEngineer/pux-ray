@@ -1,4 +1,4 @@
-# Tech Noir
+# Pux Ray
 
 Home AI infrastructure — Ray Serve on consumer GPUs, orchestrated via Kubernetes.
 
