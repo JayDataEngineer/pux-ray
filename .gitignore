@@ -16,6 +16,8 @@ tests/data/*.png
 tests/data/*.wav
 tests/data/*.mp3
 tests/data/*.mp4
+test_output/
+tests/e2e_output/
 
 # Ray
 .ray_tmp/
@@ -74,6 +76,17 @@ llama-server-upstream
 
 # Personal docs
 USAGE.md
+TODO.md
 
 # Reference/learning repos
 learn/
+
+# Tool caches
+.antigravitycli/
+.next/
+.task/
+
+# Root-level npm artifacts (web/editor has its own)
+/node_modules/
+/package.json
+/pnpm-lock.yaml
