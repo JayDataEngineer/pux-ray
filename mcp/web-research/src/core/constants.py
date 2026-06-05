@@ -34,7 +34,7 @@ SELENIUM_RETRY_COUNT = 2
 CRAWL4AI_MAX_CONCURRENT = 5
 
 # Search configuration
-DEFAULT_SEARCH_ENGINES = ["duckduckgo", "brave", "bing"]
+DEFAULT_SEARCH_ENGINES = ["duckduckgo", "brave", "mojeek", "qwant", "google", "bing"]
 MAX_SEARCH_PAGES = 5
 
 # Cache TTL (seconds)
