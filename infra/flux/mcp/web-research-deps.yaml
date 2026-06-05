@@ -70,9 +70,16 @@ data:
         - json
       default_lang: en
       max_results: 20
+      # Suspend engines that error so they don't crash subsequent searches
+      ban_time_on_fail: 5
+      max_ban_time_on_fail: 120
+      suspended_times:
+        SearxEngineAccessDenied: 86400      # 1 day — site blocked us
+        SearxEngineCaptcha: 86400           # 1 day — CAPTCHA challenge
+        SearxEngineTooManyRequests: 3600    # 1 hour — rate limited
     outgoing:
-      request_timeout: 12.0
-      max_request_timeout: 20.0
+      request_timeout: 3.0
+      max_request_timeout: 6.0
     engines:
       - name: google
         disabled: true
@@ -84,18 +91,20 @@ data:
         disabled: true
       - name: startpage
         disabled: true
+      - name: ask
+        disabled: true                      # Returns 404 on every query
       - name: qwant
         disabled: false
-        timeout: 8.0
+        timeout: 3.0
       - name: duckduckgo
         disabled: false
-        timeout: 10.0
+        timeout: 3.0
       - name: brave
         disabled: false
-        timeout: 8.0
+        timeout: 3.0
       - name: bing
         disabled: false
-        timeout: 10.0
+        timeout: 1.5                        # Unreliable — cut off fast
       - name: wikipedia
         disabled: false
       - name: wikidata
