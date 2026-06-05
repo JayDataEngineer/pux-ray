@@ -32,7 +32,7 @@ class UnifiedSearchService:
     async def search(
         self,
         query: str,
-        pages: int = 3,
+        pages: int = 1,
         exclude_blacklist: bool = True,
         top_k: int | None = None,
         rerank: bool = False,
