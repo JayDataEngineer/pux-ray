@@ -59,27 +59,25 @@ const GENRE_ICONS: Record<string, string> = { image: "◎", audio: "♪", voice:
 
 // Map backend category → genre for sidebar grouping
 const CATEGORY_TO_GENRE: Record<string, string> = {
-  image: "image", creative: "image", tts: "voice", asr: "voice",
-  audio: "audio", motion: "motion", "3d": "3d", training: "image", avatar: "image", llm: "voice",
+  tts: "voice", asr: "voice", audio: "audio", motion: "motion", "3d": "3d",
 }
 
 const SERVICE_GENRE: Record<string, string> = {
-  ace_step: "audio", moss_soundeffect: "audio",
-  kokoro: "voice", espeak: "voice", index_tts: "voice", faster_qwen3_tts: "voice",
-  generate_sound: "audio", generate_music: "audio", tts_speak: "voice",
-  generate: "image", generate_character_sheet: "image", edit: "image", clone_character: "image",
+  generate: "image", edit: "image", generate_character_sheet: "image",
+  ace_step: "audio", moss_soundeffect: "audio", generate_sound: "audio", generate_music: "audio",
+  kokoro: "voice", espeak: "voice", index_tts: "voice", faster_qwen3_tts: "voice", tts_speak: "voice",
   kimodo: "motion", kimodo_demo: "motion", hy_motion: "motion", gemx: "motion",
+  trellis: "3d", anigen: "3d", body_mesh: "3d",
 }
 
 const SERVICE_LABELS: Record<string, string> = {
   generate: "Generate",
   edit: "Edit",
   generate_character_sheet: "Generate Character Sheet",
-  clone_character: "Clone Character",
   tts_speak: "Text to Speech",
   generate_sound: "Sound Effect",
   generate_music: "Music Gen",
-  ace_step: "ACE-Step Music",
+  ace_step: "ACE-Step",
   moss_soundeffect: "MOSS SFX",
   kokoro: "Kokoro TTS",
   espeak: "eSpeak TTS",
@@ -89,10 +87,16 @@ const SERVICE_LABELS: Record<string, string> = {
   kimodo_demo: "Kimodo Demo",
   hy_motion: "HY-Motion",
   gemx: "GEM-X Pose",
+  trellis: "TRELLIS 3D",
+  anigen: "AniGen 3D",
+  body_mesh: "BodyMesh",
 }
 
-// Services covered by a dedicated MCP tool — hide from sidebar to avoid duplicates
-const COVERED_SERVICES = new Set(["z_image"])
+// Backend-only services hidden from sidebar
+const HIDDEN_SERVICES = new Set([
+  "z_image", "wan2gp", "comfyui", "llm", "faster_whisper", "vibevoice_asr",
+  "see_through", "nvidia_upscale", "dwpose", "lance", "kohya", "avatar",
+])
 
 function extractCommonParams(desc: string): FieldDef[] {
   if (!desc.toLowerCase().includes("common:")) return []
@@ -238,7 +242,7 @@ function ServicesSidebar({ selected, onSelect }: { selected: string; onSelect: (
 
   const allItems = [
     ...tools.filter((t) => !["run","list_models","list_services","get_service","forge_status","load_service","unload_services","tts_voices","chat","transcribe","llm_configure"].includes(t.name) && !t.name.startsWith("workflow_")),
-    ...services.filter((s) => !tools.find((t) => t.name === s.name) && !COVERED_SERVICES.has(s.name)),
+    ...services.filter((s) => !tools.find((t) => t.name === s.name) && !HIDDEN_SERVICES.has(s.name)),
   ]
 
   const getLabel = (item: MCPTool | { name: string; label: string }) => {
