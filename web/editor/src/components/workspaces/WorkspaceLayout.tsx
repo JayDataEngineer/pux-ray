@@ -409,16 +409,9 @@ function AssetPreviewDialog({ asset, onClose, onSelect }: { asset: Asset | null;
   return (
     <Dialog open={!!asset} onOpenChange={(open) => { if (!open) onClose() }}>
       <DialogContent className="sm:max-w-3xl p-0 gap-0 flex flex-col overflow-hidden">
-        <DialogHeader className="px-4 py-3 border-b flex-row items-center justify-between space-y-0">
-          <DialogTitle className="text-sm font-medium truncate mr-4">{name}</DialogTitle>
-          <div className="flex items-center gap-1 shrink-0">
-            <span className="text-[10px] text-muted-foreground mr-2">
-              {sizeBytes ? `${Math.round(sizeBytes / 1024)} KB` : ""}{mediaType ? ` · ${mediaType}` : ""}
-            </span>
-            <Button variant="ghost" size="icon" className="h-7 w-7" onClick={handleDownload} title="Download">
-              <Download className="h-4 w-4" />
-            </Button>
-          </div>
+        <DialogHeader className="px-4 py-3 border-b shrink-0">
+          <DialogTitle className="text-sm font-medium truncate">{name}</DialogTitle>
+          <DialogDescription className="sr-only">Preview asset {name}</DialogDescription>
         </DialogHeader>
         <div className="flex-1 min-h-0 relative flex items-center justify-center bg-black/40 p-4">
           {hasPrev && (
@@ -439,9 +432,17 @@ function AssetPreviewDialog({ asset, onClose, onSelect }: { asset: Asset | null;
             </Button>
           )}
         </div>
-        <div className="px-4 py-2 border-t flex items-center justify-between text-[10px] text-muted-foreground">
-          <span>{idx + 1} / {allAssets.length}</span>
-          <span>← → to navigate</span>
+        <div className="px-4 py-2 border-t flex items-center justify-between">
+          <span className="text-[10px] text-muted-foreground">{idx + 1} / {allAssets.length}</span>
+          <div className="flex items-center gap-3">
+            <span className="text-[10px] text-muted-foreground">
+              {sizeBytes ? `${Math.round(sizeBytes / 1024)} KB` : ""}{mediaType ? ` · ${mediaType}` : ""}
+            </span>
+            <Button variant="ghost" size="icon" className="h-6 w-6" onClick={handleDownload} title="Download">
+              <Download className="h-3.5 w-3.5" />
+            </Button>
+          </div>
+          <span className="text-[10px] text-muted-foreground">← → navigate</span>
         </div>
       </DialogContent>
     </Dialog>
