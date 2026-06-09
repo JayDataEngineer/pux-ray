@@ -527,7 +527,7 @@ function AssetsTab({ selectedService, jobs, onAddJob, nextJobId }: {
     if (!useTool) return
 
     const jobId = nextJobId.current++
-    const jobName = currentService?.label || currentTool?.description?.split("—")[0]?.trim() || selectedService
+    const jobName = SERVICE_LABELS[selectedService] || currentService?.label || selectedService
     onAddJob((prev) => [{ id: jobId, name: jobName, status: "running", startedAt: Date.now() }, ...prev])
 
     setGenerating(true)
