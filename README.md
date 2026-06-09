@@ -170,7 +170,3 @@ python scripts/test_services_v2.py               # Integration tests
 | `DEVELOPMENT.md` | Development workflow on constrained hardware |
 | `WORKFLOW.md` | Flux GitOps workflow |
 | `docs/archive/` | Historical gap analysis docs |
-
-## License
-
-Private repository.

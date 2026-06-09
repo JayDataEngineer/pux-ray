@@ -70,6 +70,8 @@ class APIIngressDeployment:
             path = request.url.path
             if path == "/comfyui" or path.startswith("/comfyui/"):
                 await self._ingress.comfyui_ws_proxy(request)
+            elif path == "/kimodo" or path.startswith("/kimodo/"):
+                await self._ingress.kimodo_ws_proxy(request)
             else:
                 await request.close()
             return
@@ -124,6 +126,10 @@ class APIIngressDeployment:
         # ComfyUI proxy
         if path == "/comfyui" or path.startswith("/comfyui/"):
             return await self._ingress.comfyui_proxy(request)
+
+        # Kimodo proxy (Viser 3D motion UI)
+        if path == "/kimodo" or path.startswith("/kimodo/"):
+            return await self._ingress.kimodo_proxy(request)
 
         # Pipeline execution
         if path == "/api/pipelines/execute" and method == "POST":

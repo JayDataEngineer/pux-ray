@@ -90,3 +90,9 @@ learn/
 /node_modules/
 /package.json
 /pnpm-lock.yaml
+
+# WIP / experimental (not ready for main)
+tech-noir-chat/
+web/editor-mcp/
+web/editor/@/
+sdk/test/

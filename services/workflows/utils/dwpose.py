@@ -400,3 +400,16 @@ def skeleton_from_image_b64(image_b64: str,
     out_buf = io.BytesIO()
     result_pil.save(out_buf, format="PNG")
     return base64.b64encode(out_buf.getvalue()).decode()
+
+
+def extract_skeleton_step(
+    image_b64: str,
+    output_width: int = 1024,
+    output_height: int = 1024,
+) -> dict:
+    """DAG step wrapper: returns dict with 'data' (base64) + 'media_type'.
+
+    Used by the python step executor in vnccs_pose_edit DAG.
+    """
+    skeleton_b64 = skeleton_from_image_b64(image_b64, output_width, output_height)
+    return {"data": skeleton_b64, "media_type": "image/png"}

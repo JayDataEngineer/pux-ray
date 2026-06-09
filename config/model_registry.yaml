@@ -26,8 +26,8 @@ llm:
     ubatch_size: 256
     no_host: true
     threads: 8
-    description: Q6_K 125K context, TurboQuant K/V, no DFlash. mmproj (vision) in DRAM.
-      Single slot, max quality text-only inference.
+    description: Q6_K 125K context, TurboQuant K/V, no DFlash. mmproj (vision) in
+      DRAM. Single slot, max quality text-only inference.
   qwen3.6-27b-q6_k-vision:
     engine: beellama
     path: llm/Qwen3.6-27B-Q6_K.gguf
@@ -61,8 +61,8 @@ llm:
     no_host: true
     no_spec_dm_adaptive: false
     threads: 8
-    description: Q6_K 200K context, mmproj (vision) in VRAM. Single slot.
-      Max quality + vision, tightest VRAM.
+    description: Q6_K 200K context, mmproj (vision) in VRAM. Single slot. Max quality
+      + vision, tightest VRAM.
   qwen3.6-27b-q6_k-parallel:
     engine: beellama
     path: llm/Qwen3.6-27B-Q6_K.gguf
@@ -96,8 +96,8 @@ llm:
     no_host: true
     no_spec_dm_adaptive: false
     threads: 8
-    description: Q6_K 125K parallel, mmproj (vision) in DRAM. Two concurrent
-      slots, TurboQuant K/V, DFlash speculative decoding.
+    description: Q6_K 125K parallel, mmproj (vision) in DRAM. Two concurrent slots,
+      TurboQuant K/V, DFlash speculative decoding.
   qwen3.6-27b-dflash-draft-q4km:
     path: llm/dflash-draft-3.6-q4_k_m.gguf
     source: hf://spiritbuun/Qwen3.6-27B-DFlash-GGUF/dflash-draft-3.6-q4_k_m.gguf
@@ -106,9 +106,9 @@ llm:
     size_gb: 1.03
     vram_estimate_gb: 1.5
     device: gpu
-    description: DFlash draft model for Qwen 3.6 27B (Q4_K_M). Cross-attention
-      speculative drafter used by BeeLlama.cpp. Q4 recommended over Q8 (author
-      benchmarks show Q8 is net-negative for tok/s).
+    description: DFlash draft model for Qwen 3.6 27B (Q4_K_M). Cross-attention speculative
+      drafter used by BeeLlama.cpp. Q4 recommended over Q8 (author benchmarks show
+      Q8 is net-negative for tok/s).
   qwen3.6-27b-q5_k_s:
     engine: beellama
     path: llm/Qwen3.6-27B-Q5_K_S.gguf
@@ -138,7 +138,8 @@ llm:
     reasoning: true
     batch_size: 2048
     ubatch_size: 256
-    description: "Q5_K_S 100K + DFlash + TurboQuant + Vision (mmproj on GPU). Sacrificed 200K→100K context to fit mmproj in VRAM for faster vision."
+    description: "Q5_K_S 100K + DFlash + TurboQuant + Vision (mmproj on GPU). Sacrificed\
+      \ 200K\u2192100K context to fit mmproj in VRAM for faster vision."
   qwen3.6-27b-q5_k_s-32k:
     engine: beellama
     path: llm/Qwen3.6-27B-Q5_K_S.gguf
@@ -168,8 +169,8 @@ llm:
     reasoning: true
     batch_size: 2048
     ubatch_size: 256
-    description: "Q5_K_S 32K + DFlash + TurboQuant (fallback). Fast: ~170 tok/s.
-      No vision. Use if 200K profile OOMs."
+    description: 'Q5_K_S 32K + DFlash + TurboQuant (fallback). Fast: ~170 tok/s. No
+      vision. Use if 200K profile OOMs.'
   qwen3.6-27b-ud-q4_k_xl:
     engine: beellama
     path: llm/Qwen3.6-27B-UD-Q4_K_XL.gguf
@@ -321,7 +322,8 @@ vibevoice-cpp:
     size_gb: 1.6
     vram_estimate_gb: 2.0
     device: gpu
-    description: VibeVoice Realtime 0.5B TTS quantized Q8_0. Fast text-to-speech with voice presets.
+    description: VibeVoice Realtime 0.5B TTS quantized Q8_0. Fast text-to-speech with
+      voice presets.
   asr-q8:
     path: vibevoice-cpp/vibevoice-asr-q8_0.gguf
     source: hf://mudler/vibevoice.cpp-models/vibevoice-asr-q8_0.gguf
@@ -330,7 +332,8 @@ vibevoice-cpp:
     size_gb: 13.0
     vram_estimate_gb: 14.0
     device: gpu
-    description: VibeVoice ASR 7B quantized Q8_0. Long-form transcription with native diarization.
+    description: VibeVoice ASR 7B quantized Q8_0. Long-form transcription with native
+      diarization.
   asr-q4:
     path: vibevoice-cpp/vibevoice-asr-q4_k.gguf
     source: hf://mudler/vibevoice.cpp-models/vibevoice-asr-q4_k.gguf
@@ -357,7 +360,8 @@ vibevoice-cpp:
     size_gb: 0.008
     vram_estimate_gb: 0.01
     device: cpu
-    description: Pre-baked English male voice preset (Carter) for VibeVoice Realtime TTS.
+    description: Pre-baked English male voice preset (Carter) for VibeVoice Realtime
+      TTS.
   voice-en-emma:
     path: vibevoice-cpp/voice-en-Emma.gguf
     source: hf://mudler/vibevoice.cpp-models/voice-en-Emma.gguf
@@ -366,7 +370,8 @@ vibevoice-cpp:
     size_gb: 0.006
     vram_estimate_gb: 0.01
     device: cpu
-    description: Pre-baked English female voice preset (Emma) for VibeVoice Realtime TTS.
+    description: Pre-baked English female voice preset (Emma) for VibeVoice Realtime
+      TTS.
 asr:
   faster-whisper:
     path: asr/faster-whisper/
@@ -449,8 +454,8 @@ vision:
     size_gb: 1.8
     vram_estimate_gb: 2.0
     device: gpu
-    description: Qwen 3.6 27B mmproj (F32). Full precision vision projector.
-      Referenced by LLM configs as mmproj_path.
+    description: Qwen 3.6 27B mmproj (F32). Full precision vision projector. Referenced
+      by LLM configs as mmproj_path.
   qwen3.6-27b-mmproj-bf16-alt:
     path: vision/mmproj-BF16.gguf
     source: hf://Qwen/Qwen3-27B-GGUF/mmproj-BF16.gguf
@@ -459,8 +464,8 @@ vision:
     size_gb: 0.9
     vram_estimate_gb: 1.5
     device: gpu
-    description: Qwen 3.6 27B mmproj (BF16 alternate). From Qwen official GGUF.
-      Referenced by some LLM configs as mmproj_path.
+    description: Qwen 3.6 27B mmproj (BF16 alternate). From Qwen official GGUF. Referenced
+      by some LLM configs as mmproj_path.
 comfyui:
   checkpoint-sdxl-base:
     path: image-gen/comfyui/checkpoints/sd_xl_base_1.0.safetensors
@@ -506,8 +511,9 @@ comfyui:
     size_gb: 6.8
     vram_estimate_gb: 7.5
     device: gpu
-    description: "ALF mix IL v4.3 [final] — Illustrious 8-step checkpoint. VNCCS author's
-      mix (Shio_N). LCM/Euler A, CFG 1.8-2.0, 6-8 steps. Civitai version 2044675."
+    description: "ALF mix IL v4.3 [final] \u2014 Illustrious 8-step checkpoint. VNCCS\
+      \ author's mix (Shio_N). LCM/Euler A, CFG 1.8-2.0, 6-8 steps. Civitai version\
+      \ 2044675."
   checkpoint-ilflatmix-v4:
     path: image-gen/comfyui/checkpoints/Illustrious/ILFlatMixV4_00001_.safetensors
     source: civitai://2044675
@@ -516,8 +522,8 @@ comfyui:
     size_gb: 6.8
     vram_estimate_gb: 7.5
     device: gpu
-    description: "ALF mix IL v4.3 [00001] — Illustrious checkpoint. VNCCS SDXL pipeline.
-      Civitai version 2044675."
+    description: "ALF mix IL v4.3 [00001] \u2014 Illustrious checkpoint. VNCCS SDXL\
+      \ pipeline. Civitai version 2044675."
   text-encoder-ltx-2.3-projection:
     path: image-gen/comfyui/text_encoders/ltx-2.3_text_projection_bf16.safetensors
     source: hf://Kijai/LTX2.3_comfy/text_encoders/ltx-2.3_text_projection_bf16.safetensors
@@ -544,8 +550,9 @@ comfyui:
     size_gb: 23.0
     vram_estimate_gb: 12.0
     device: gpu
-    description: Gemma 3 12B IT text encoder. Full bf16 (5 shards, 23 GB). Used by ComfyUI LTX
-      text encoder node. Auto-downloaded by ComfyUI on first use. FP4 quant version preferred.
+    description: Gemma 3 12B IT text encoder. Full bf16 (5 shards, 23 GB). Used by
+      ComfyUI LTX text encoder node. Auto-downloaded by ComfyUI on first use. FP4
+      quant version preferred.
   lora-dmd2-sdxl-4step:
     path: image-gen/comfyui/loras/DMD2/dmd2_sdxl_4step_lora_fp16.safetensors
     source: hf://tianweiy/DMD2/dmd2_sdxl_4step_lora_fp16.safetensors
@@ -882,8 +889,6 @@ comfyui:
     vram_estimate_gb: 1.5
     device: cpu
     description: SDPose whole-body detector. From Comfy-Org repackaged.
-  # -- YOLO Detectors (auto-downloaded by ultralytics, tracked for IaC) --
-
   ultralytics-face:
     path: image-gen/comfyui/ultralytics/bbox/face_yolov8m.pt
     source: hf://Bingsu/adetailer/face_yolov8m.pt
@@ -892,8 +897,7 @@ comfyui:
     size_gb: 0.05
     vram_estimate_gb: 0.0
     device: cpu
-    description: "YOLOv8m face detector. ADetailer model for FaceDetailer node."
-
+    description: YOLOv8m face detector. ADetailer model for FaceDetailer node.
   ultralytics-person:
     path: image-gen/comfyui/ultralytics/segm/person_yolov8m-seg.pt
     source: null
@@ -902,10 +906,8 @@ comfyui:
     size_gb: 0.02
     vram_estimate_gb: 0.0
     device: cpu
-    description: "YOLOv8m person segmentation. Auto-downloaded by ultralytics at first use."
-
-  # -- DWPose (auto-downloaded by comfyui_controlnet_aux) --
-
+    description: YOLOv8m person segmentation. Auto-downloaded by ultralytics at first
+      use.
   dwpose:
     path: image-gen/comfyui/controlnet/dw-ll_ucoco_384_bs5.torchscript.pt
     source: null
@@ -914,8 +916,8 @@ comfyui:
     size_gb: 0.2
     vram_estimate_gb: 0.5
     device: cpu
-    description: "DWPose detector. Auto-downloaded by comfyui_controlnet_aux at first use."
-
+    description: DWPose detector. Auto-downloaded by comfyui_controlnet_aux at first
+      use.
   unet-ltx23-gguf:
     path: image-gen/comfyui/unet/ltx-2.3-22b-distilled-1.1-UD-Q4_K_M.gguf
     source: hf://unsloth/LTX-2.3-GGUF/distilled-1.1/ltx-2.3-22b-distilled-1.1-UD-Q4_K_M.gguf
@@ -960,7 +962,8 @@ comfyui:
     size_gb: 12.0
     vram_estimate_gb: 12.0
     device: gpu
-    description: Z-Image Base UNet (BF16). Non-distilled foundation model — full diversity for training data generation. Apache 2.0.
+    description: "Z-Image Base UNet (BF16). Non-distilled foundation model \u2014\
+      \ full diversity for training data generation. Apache 2.0."
   unet-zimage-turbo:
     path: image-gen/comfyui/unet/z_image_turbo_bf16.safetensors
     source: hf://Comfy-Org/z_image_turbo/split_files/diffusion_models/z_image_turbo_bf16.safetensors
@@ -969,7 +972,8 @@ comfyui:
     size_gb: 4.0
     vram_estimate_gb: 4.0
     device: gpu
-    description: Z-Image Turbo UNet (BF16). Distilled variant — faster but less diversity. From Comfy-Org repackaged.
+    description: "Z-Image Turbo UNet (BF16). Distilled variant \u2014 faster but less\
+      \ diversity. From Comfy-Org repackaged."
   vae-zimage:
     path: image-gen/comfyui/vae/ae.safetensors
     source: hf://Comfy-Org/z_image_turbo/split_files/vae/ae.safetensors
@@ -1144,8 +1148,8 @@ comfyui:
     size_gb: 16.0
     vram_estimate_gb: 2.0
     device: gpu
-    description: Pixal3D checkpoints. Fine-tune of TRELLIS.2 with projection-mode conditioning
-      for high-fidelity image-to-3D with PBR textures.
+    description: Pixal3D checkpoints. Fine-tune of TRELLIS.2 with projection-mode
+      conditioning for high-fidelity image-to-3D with PBR textures.
   pixal3d_dinov3:
     path: 3d/pixal3d/dinov3/facebook/dinov3-vitl16-pretrain-lvd1689m/
     source: modelscope://facebook/dinov3-vitl16-pretrain-lvd1689m
@@ -1154,8 +1158,8 @@ comfyui:
     size_gb: 1.2
     vram_estimate_gb: 0.5
     device: gpu
-    description: DINOv3 ViT-L/16 image encoder for Pixal3D proj-mode conditioning. Gated on
-      HuggingFace, free on ModelScope.
+    description: DINOv3 ViT-L/16 image encoder for Pixal3D proj-mode conditioning.
+      Gated on HuggingFace, free on ModelScope.
 multimodal:
   phi4-multimodal:
     path: multimodal/phi4-multimodal-instruct/
@@ -1167,7 +1171,6 @@ multimodal:
     device: gpu
     description: Phi-4-multimodal-instruct 5.6B omni model. Text+vision+speech input,
       text output. ASR, speech translation, image understanding, OCR, multimodal QA.
-
 image:
   see-through-layerdiff:
     path: image/see-through/layerdiff3d/
@@ -1187,8 +1190,8 @@ image:
     size_gb: 5.0
     vram_estimate_gb: 5.0
     device: gpu
-    description: See-Through Marigold depth estimation pipeline. UNet + VAE + text encoder
-      for per-layer depth prediction.
+    description: See-Through Marigold depth estimation pipeline. UNet + VAE + text
+      encoder for per-layer depth prediction.
   see-through-scheduler:
     path: image/see-through/scheduler/
     source: hf://frankjoshua/juggernautXL_version6Rundiffusion
@@ -1198,7 +1201,6 @@ image:
     vram_estimate_gb: 0.0
     device: cpu
     description: Juggernaut XL v6 scheduler config for See-Through LayerDiff denoising.
-
 vision_models:
   florence2-large-ft:
     path: vision/florence-2-large-ft/
@@ -1210,7 +1212,6 @@ vision_models:
     device: gpu
     description: Florence-2-large-ft 0.77B vision foundation model. Captioning, object
       detection, segmentation, OCR, region grounding, visual QA.
-
 audio:
   ace-step:
     path: audio/acestep/
@@ -1240,8 +1241,8 @@ audio:
     size_gb: 11.3
     vram_estimate_gb: 7.0
     device: gpu
-    description: MOSS-SoundEffect v2.0 DiT+FlowMatching. 1.3B DiT + Qwen3-1.7B + DAC VAE.
-      48kHz output. No separate audio tokenizer needed.
+    description: MOSS-SoundEffect v2.0 DiT+FlowMatching. 1.3B DiT + Qwen3-1.7B + DAC
+      VAE. 48kHz output. No separate audio tokenizer needed.
   moss-tts:
     path: audio/moss-tts/
     source: hf://OpenMOSS-Team/MOSS-TTS
@@ -1282,8 +1283,8 @@ audio:
     size_gb: 7.1
     vram_estimate_gb: 0.0
     device: cpu
-    description: MOSS Audio Tokenizer (3.5B). Audio codec for MOSS-SoundEffect.
-      Loaded to CPU to conserve VRAM.
+    description: MOSS Audio Tokenizer (3.5B). Audio codec for MOSS-SoundEffect. Loaded
+      to CPU to conserve VRAM.
   moss-tts-local-transformer:
     path: audio/moss-tts-local-transformer/
     source: hf://OpenMOSS-Team/MOSS-TTS-Local-Transformer
@@ -1292,8 +1293,8 @@ audio:
     size_gb: 6.2
     vram_estimate_gb: 4.0
     device: gpu
-    description: MOSS-TTS-Local-Transformer 1.7B lighter TTS variant with local
-      transformer decoder. Requires MOSS-Audio-Tokenizer.
+    description: MOSS-TTS-Local-Transformer 1.7B lighter TTS variant with local transformer
+      decoder. Requires MOSS-Audio-Tokenizer.
   moss-tts-realtime:
     path: audio/moss-tts-realtime/
     source: hf://OpenMOSS-Team/MOSS-TTS-Realtime
@@ -1334,7 +1335,6 @@ audio:
     device: gpu
     description: TangoFlux text-to-audio generation. Flow matching with DiT/MMDiT,
       CRPO-aligned. Generates 44.1kHz audio up to 30s.
-
 motion:
   hy-motion-1.0:
     path: motion/hy-motion-1.0/
@@ -1344,9 +1344,9 @@ motion:
     size_gb: 28.0
     vram_estimate_gb: 22.0
     device: gpu
-    description: HY-Motion 1.0 text-to-3D motion generation. DiT-based Flow
-      Matching with dual text encoders (Qwen3-8B + CLIP-ViT-L/14). Includes
-      pipeline config.yml, ckpt, body model, and prompt engineering module.
+    description: HY-Motion 1.0 text-to-3D motion generation. DiT-based Flow Matching
+      with dual text encoders (Qwen3-8B + CLIP-ViT-L/14). Includes pipeline config.yml,
+      ckpt, body model, and prompt engineering module.
   hy-motion-1.0-lite:
     path: motion/hy-motion-1.0-lite/
     source: hf://tencent/HY-Motion-1.0-Lite
@@ -1364,9 +1364,8 @@ motion:
     size_gb: 0.5
     vram_estimate_gb: 1.0
     device: cpu
-    description: HY-Motion prompt engineering module. Rewrites user prompts and
-      estimates motion duration before generation.
-
+    description: HY-Motion prompt engineering module. Rewrites user prompts and estimates
+      motion duration before generation.
 voices:
   emma:
     path: voices/Emma.wav
@@ -1397,9 +1396,6 @@ embeddings:
     device: gpu
     description: Jina v5 nano retrieval (IQ4_NL GGUF).
 wan2gp:
-  # Wan2GP models are downloaded by the Wan2GP download job (task models:download:wan2gp).
-  # The job uses Wan2GP's internal download_models() which resolves quantized variants
-  # from DeepBeepMeep repos. Paths here match the actual flat-file layout on PVC.
   wan-t2v-14B:
     path: wan2gp/wan2.1_text2video_14B_quanto_mbf16_int8.safetensors
     source: hf://DeepBeepMeep/Wan2.1
@@ -1471,7 +1467,8 @@ wan2gp:
     size_gb: 0.3
     vram_estimate_gb: 0.5
     device: gpu
-    description: Wan2.1 VAE. Shared by all Wan video models. Downloaded by Wan2GP job.
+    description: Wan2.1 VAE. Shared by all Wan video models. Downloaded by Wan2GP
+      job.
   wan2.2-vae:
     path: wan2gp/Wan2.2_VAE.safetensors
     source: hf://DeepBeepMeep/Wan2.1
@@ -1480,7 +1477,8 @@ wan2gp:
     size_gb: 2.8
     vram_estimate_gb: 1.0
     device: gpu
-    description: Wan2.2 VAE. Used by animate and newer models. Downloaded by Wan2GP job.
+    description: Wan2.2 VAE. Used by animate and newer models. Downloaded by Wan2GP
+      job.
   index-tts-v2:
     path: wan2gp/index_tts2_gpt_fp16.safetensors
     source: hf://DeepBeepMeep/TTS
@@ -1588,7 +1586,8 @@ wan2gp:
     size_gb: 8.0
     vram_estimate_gb: 8.0
     device: gpu
-    description: ACE-Step v1.5 XL music transformer quantized. Downloaded by Wan2GP job.
+    description: ACE-Step v1.5 XL music transformer quantized. Downloaded by Wan2GP
+      job.
   ltxv-098-13b:
     path: wan2gp/ltxv_0.9.8_13B_dev_quanto_bf16_int8.safetensors
     source: hf://DeepBeepMeep/LTX-Video
@@ -1633,7 +1632,8 @@ wan2gp:
     size_gb: 12.0
     vram_estimate_gb: 12.0
     device: gpu
-    description: Z-Image Base 6B (non-distilled, high quality). Downloaded by Wan2GP job.
+    description: Z-Image Base 6B (non-distilled, high quality). Downloaded by Wan2GP
+      job.
   ltx2-22b:
     path: wan2gp/ltx-2.3-22b-dev_diffusion_model.safetensors
     source: hf://DeepBeepMeep/LTX-Video
@@ -1642,7 +1642,8 @@ wan2gp:
     size_gb: 22.0
     vram_estimate_gb: 22.0
     device: gpu
-    description: LTX-2.3 22B dev. Used by WDC/workflow video stages. Downloaded by Wan2GP job.
+    description: LTX-2.3 22B dev. Used by WDC/workflow video stages. Downloaded by
+      Wan2GP job.
   ltx2-19b:
     path: wan2gp/ltx-2-19b-dev_diffusion_model.safetensors
     source: hf://DeepBeepMeep/LTX-Video
@@ -1660,7 +1661,8 @@ wan2gp:
     size_gb: 20.0
     vram_estimate_gb: 20.0
     device: gpu
-    description: Qwen-Image-Edit Plus 20B quantized. Primary VNCCS/tech-noir image editor. Downloaded by Wan2GP job.
+    description: Qwen-Image-Edit Plus 20B quantized. Primary VNCCS/tech-noir image
+      editor. Downloaded by Wan2GP job.
   qwen-image-edit:
     path: wan2gp/qwen_image_edit_20B_bf16.safetensors
     source: hf://DeepBeepMeep/Qwen-Image-Edit
@@ -1669,7 +1671,8 @@ wan2gp:
     size_gb: 40.0
     vram_estimate_gb: 40.0
     device: gpu
-    description: Qwen-Image-Edit 20B bf16. Full precision image editing. Downloaded by Wan2GP job.
+    description: Qwen-Image-Edit 20B bf16. Full precision image editing. Downloaded
+      by Wan2GP job.
   anima-base:
     path: wan2gp/anima-base-v1.0.safetensors
     source: hf://circlestone-labs/Anima/split_files/diffusion_models/anima-base-v1.0.safetensors
@@ -1678,7 +1681,8 @@ wan2gp:
     size_gb: 4.0
     vram_estimate_gb: 6.0
     device: gpu
-    description: Anima Base 2B — Cosmos-Predict2 anime/illustration T2I by CircleStone Labs + Comfy Org. 30 steps, CFG 4-5, 512-1536px. Danbooru tags.
+    description: "Anima Base 2B \u2014 Cosmos-Predict2 anime/illustration T2I by CircleStone\
+      \ Labs + Comfy Org. 30 steps, CFG 4-5, 512-1536px. Danbooru tags."
   anima-text-encoder:
     path: wan2gp/qwen_3_06b_base.safetensors
     source: hf://circlestone-labs/Anima/split_files/text_encoders/qwen_3_06b_base.safetensors
@@ -1697,7 +1701,6 @@ wan2gp:
     vram_estimate_gb: 7.0
     device: gpu
     description: MOSS-SoundEffect v2.0 DiT+FlowMatching. Downloaded by Wan2GP job.
-  # Wan2GP shared encoders and support models (downloaded by Wan2GP job)
   t5-xxl:
     path: wan2gp/T5_xxl_1.1/T5_xxl_1.1_enc_quanto_bf16_int8.safetensors
     source: hf://DeepBeepMeep/Wan2.1
@@ -1752,9 +1755,7 @@ wan2gp:
     vram_estimate_gb: 12.0
     device: gpu
     description: Mistral 3 Small quantized. Alternative text backbone for some models.
-
 lance:
-  # -- GGUF (preferred — dequantizes to bf16, lower VRAM than AWQ cached mode) --
   lance-video-gguf-q5km:
     path: lance/Lance_3B_Video-Q5_K_M.gguf
     source: hf://samuelchristlie/Lance-GGUF/Lance_3B_Video-Q5_K_M.gguf
@@ -1763,8 +1764,9 @@ lance:
     size_gb: 5.53
     vram_estimate_gb: 7.0
     device: gpu
-    description: Lance 3B Video GGUF Q5_K_M (5.53 GB). Primary quant — t2v, video_edit, x2t_video,
-      i2v. Dequantizes to bf16 at runtime. Lower VRAM than AWQ cached mode.
+    description: "Lance 3B Video GGUF Q5_K_M (5.53 GB). Primary quant \u2014 t2v,\
+      \ video_edit, x2t_video, i2v. Dequantizes to bf16 at runtime. Lower VRAM than\
+      \ AWQ cached mode."
   lance-image-gguf-q5km:
     path: lance/Lance_3B-Q5_K_M.gguf
     source: hf://samuelchristlie/Lance-GGUF/Lance_3B-Q5_K_M.gguf
@@ -1782,7 +1784,8 @@ lance:
     size_gb: 4.96
     vram_estimate_gb: 6.0
     device: gpu
-    description: Lance 3B Video GGUF Q4_K_M (4.96 GB). Smaller/faster quant for constrained VRAM.
+    description: Lance 3B Video GGUF Q4_K_M (4.96 GB). Smaller/faster quant for constrained
+      VRAM.
   lance-image-gguf-q4km:
     path: lance/Lance_3B-Q4_K_M.gguf
     source: hf://samuelchristlie/Lance-GGUF/Lance_3B-Q4_K_M.gguf
@@ -1792,7 +1795,6 @@ lance:
     vram_estimate_gb: 5.0
     device: gpu
     description: Lance 3B Image GGUF Q4_K_M (3.95 GB). Smallest quant.
-  # -- AWQ INT4 (fallback — requires separate AWQ inference script) --
   lance-image-awq:
     path: lance/Lance-3B-AWQ-INT4/
     source: hf://Reza2kn/Lance-3B-AWQ-INT4
@@ -1813,7 +1815,6 @@ lance:
     device: gpu
     description: Lance 3B Video AWQ INT4 (6.02 GB). Fallback if GGUF unavailable.
       Requires config files from bytedance-research/Lance.
-  # -- Full bf16 (reference, not needed for inference) --
   lance-image:
     path: lance/Lance_3B/
     source: hf://bytedance-research/Lance
@@ -1822,7 +1823,8 @@ lance:
     size_gb: 24.7
     vram_estimate_gb: 14.0
     device: gpu
-    description: Lance 3B image bf16 (24.7 GB). Reference only — use GGUF or AWQ.
+    description: "Lance 3B image bf16 (24.7 GB). Reference only \u2014 use GGUF or\
+      \ AWQ."
   lance-video:
     path: lance/Lance_3B_Video/
     source: hf://bytedance-research/Lance
@@ -1831,11 +1833,8 @@ lance:
     size_gb: 28.4
     vram_estimate_gb: 14.0
     device: gpu
-    description: Lance 3B video bf16 (28.4 GB). Reference only — use GGUF or AWQ.
-  # -- Shared components (required by all Lance variants) --
-  # These come as subdirectories of the bytedance-research/Lance snapshot.
-  # The AWQ snapshots include their own config files.
-  # For a fresh setup, download the full Lance repo once and the dirs will populate.
+    description: "Lance 3B video bf16 (28.4 GB). Reference only \u2014 use GGUF or\
+      \ AWQ."
   lance-vit:
     path: lance/Qwen2.5-VL-ViT/
     source: hf://bytedance-research/Lance
@@ -1854,9 +1853,8 @@ lance:
     size_gb: 2.82
     vram_estimate_gb: 1.0
     device: gpu
-    description: Wan2.2 VAE for Lance (2.82 GB). Required by all variants.
-      Part of bytedance-research/Lance repo snapshot.
-
+    description: Wan2.2 VAE for Lance (2.82 GB). Required by all variants. Part of
+      bytedance-research/Lance repo snapshot.
 cache:
   huggingface:
     path: cache/huggingface/
@@ -1867,7 +1865,6 @@ cache:
     vram_estimate_gb: 0.0
     device: cpu
     description: HuggingFace model cache. Auto-populated.
-
 avatar:
   kimodo-soma-rp:
     path: avatar/kimodo/Kimodo-SOMA-RP-v1.1/
@@ -1878,8 +1875,8 @@ avatar:
     vram_estimate_gb: 3.0
     device: gpu
     description: Kimodo-SOMA-RP v1.1 kinematic motion diffusion model. 282M params.
-      Text -> SOMA 77-joint motion. 700 hours commercial mocap training data.
-      Use TEXT_ENCODER_DEVICE=cpu for <3GB VRAM.
+      Text -> SOMA 77-joint motion. 700 hours commercial mocap training data. Use
+      TEXT_ENCODER_DEVICE=cpu for <3GB VRAM.
   kimodo-text-encoder:
     path: cache/huggingface/meta-llama/Meta-Llama-3-8B-Instruct/
     source: hf://meta-llama/Meta-Llama-3-8B-Instruct
@@ -1907,5 +1904,14 @@ avatar:
     size_gb: 0.5
     vram_estimate_gb: 0.5
     device: gpu
-    description: SOMA unified body model assets. 77-joint parametric model.
-      Only needed for GEM-X video estimation fallback.
+    description: SOMA unified body model assets. 77-joint parametric model. Only needed
+      for GEM-X video estimation fallback.
+diffusion-klein-4b-diffusers:
+  path: image-gen/diffusers/flux-2-klein-4b
+  source: hf://black-forest-labs/FLUX.2-klein-4B
+  download: snapshot
+  sha256: null
+  size_gb: 7.5
+  vram_estimate_gb: 14.0
+  device: gpu
+  description: Flux.2 Klein 4B Diffusers (bf16). For kohya_ss LoRA training.

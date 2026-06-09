@@ -94,10 +94,9 @@ class PythonStepExecutor(StepExecutor):
                 if key in result and isinstance(result[key], str):
                     try:
                         data = base64.b64decode(result[key])
-                        ext = _ext_for_media_type(result.get("media_type", ""))
                         ref = await context.artifacts.store(
                             context.run_id, context.step_id,
-                            f"output{ext}", data,
+                            "output", data,
                             result.get("media_type", "application/octet-stream"),
                         )
                         outputs["output"] = str(ref.file_path)

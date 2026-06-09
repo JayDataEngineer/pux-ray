@@ -100,7 +100,7 @@ class WorkflowRun:
                     step_id, name = parts
                     step_node = nested.setdefault(step_id, {})
                     outputs_node = step_node.setdefault("outputs", {})
-                    outputs_node[name] = ref["file_path"]
+                    outputs_node[name] = str(ref["file_path"])
         return nested
 
 

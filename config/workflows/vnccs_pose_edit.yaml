@@ -1,64 +1,85 @@
 name: vnccs_pose_edit
-version: "1.0"
-description: Character image + BodyMesh pose → posed character image
+version: "2.0"
+description: >-
+  Character image + pose reference → posed character.
+  Uses DWPose skeleton extraction + QWEN-Image-Edit with VNCCS PoseStudio LoRA.
+  Pose reference images come from Kimodo (NVIDIA) or user upload.
 
 inputs:
   character_image:
     type: string
     required: true
-    description: "Base64-encoded character image"
-  rotations:
+    description: "Base64-encoded character image to re-pose (image2 in QWEN)"
+  pose_image:
     type: string
     required: true
-    description: "JSON-encoded joint rotations"
-  model_rotation_y:
+    description: >-
+      Base64-encoded pose reference image (image1 in QWEN).
+      Generate one with Kimodo (motion tab) or upload a reference photo.
+  prompt:
+    type: string
+    required: false
+    default: "Draw character from image2"
+    description: >-
+      QWEN prompt. The original VNCCS prompt_template is:
+      'Draw character from image2\n<lighting>\n<user_prompt>'.
+      Include any lighting or custom instructions here.
+  lora_name:
+    type: string
+    required: false
+    default: "VNCCS/VNCCS_PoseStudioQIE2511_V2.safetensors"
+    description: >-
+      VNCCS PoseStudio LoRA filename. Original workflow uses
+      VNCCS_PoseStudioQIE2511_V1 or V2 from MIUProject/VNCCS_PoseStudio.
+  lora_strength:
     type: number
-    default: 0.0
+    required: false
+    default: 1.0
+    description: "PoseStudio LoRA strength (0-2). Original workflow uses 1.0."
+  sampling_steps:
+    type: integer
+    required: false
+    default: 4
+    description: "QWEN sampling steps. Original workflow uses 4 (lightning mode)."
+  guide_scale:
+    type: number
+    required: false
+    default: 1.0
+    description: "CFG guidance scale. Original workflow uses 1.0."
   seed:
     type: integer
+    required: false
     default: 42
+    description: "Random seed. -1 for random."
 
 steps:
-  render_mesh:
-    type: forge
-    service: wan2gp
-    model: body_mesh
-    params:
-      rotations: "{{ inputs.rotations }}"
-      model_rotation_y: "{{ inputs.model_rotation_y }}"
-    outputs:
-      mesh: { media_type: image/png }
-
   extract_skeleton:
-    type: forge
-    service: wan2gp
-    model: dwpose
-    depends_on: [render_mesh]
+    type: python
+    function: services.workflows.utils.dwpose:extract_skeleton_step
     params:
-      image_b64: "{{ render_mesh.outputs.mesh }}"
+      image_b64: "{{ inputs.pose_image }}"
+      output_width: 1024
+      output_height: 1024
     outputs:
-      skeleton: { media_type: image/png }
+      output: { media_type: image/png }
 
   pose_transfer:
     type: forge
     service: wan2gp
     model: qwen-image-edit
-    depends_on: [render_mesh, extract_skeleton]
+    depends_on: [extract_skeleton]
     params:
-      input_prompt: >-
-        Match the body pose shown in Picture 1 (3D body mesh).
-        Picture 2 is the character to draw. Picture 3 shows the skeleton overlay.
-        Replicate the exact pose, limb positions, and body orientation from Picture 1
-        while maintaining the character's identity, clothing, and appearance.
+      input_prompt: "{{ inputs.prompt }}"
       reference_images:
-        - "{{ render_mesh.outputs.mesh }}"
+        - "{{ inputs.pose_image }}"
         - "{{ inputs.character_image }}"
-        - "{{ extract_skeleton.outputs.skeleton }}"
+        - "{{ extract_skeleton.outputs.output }}"
       seed: "{{ inputs.seed }}"
-      sampling_steps: 4
-      guide_scale: 1.0
+      sampling_steps: "{{ inputs.sampling_steps }}"
+      guide_scale: "{{ inputs.guide_scale }}"
+      lora_strength: "{{ inputs.lora_strength }}"
       loras_selected:
         - "Qwen-Image-Edit-2511-Lightning-4steps-V1.0-bf16.safetensors"
-        - "VNCCS/VNCCS_PoseStudioQIE2511_V2.safetensors"
+        - "{{ inputs.lora_name }}"
     outputs:
       image: { media_type: image/png }

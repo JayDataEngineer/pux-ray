@@ -116,6 +116,13 @@ class KimodoDemoService(ForgeSubprocessMixin, ForgeService):
         """Proxy requests to the Viser demo's HTTP API."""
         if "path" in payload:
             try:
+                if payload.get("raw"):
+                    return self._call_raw_full(
+                        method=payload.get("method", "GET"),
+                        path=payload["path"],
+                        params=payload.get("params"),
+                        timeout=payload.get("timeout", 600),
+                    )
                 result = self._call(
                     method=payload.get("method", "GET"),
                     path=payload["path"],
