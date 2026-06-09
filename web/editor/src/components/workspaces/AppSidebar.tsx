@@ -87,7 +87,7 @@ export function AppSidebar({ open, onToggle, onSelectAsset }: AppSidebarProps) {
                 <Icon className="h-3.5 w-3.5" />
                 <span className="flex-1 text-left">{CATEGORY_LABEL[cat]}</span>
                 <Badge variant="secondary" className="h-4 px-1 text-[10px]">{items.length}</Badge>
-                <ChevronDown className="h-3 w-3 transition-transform group-data-[state=open]/collapsible:rotate-180" />
+                <ChevronDown className="h-3 w-3 transition-transform group-data-[panel-open]/collapsible:rotate-180" />
               </CollapsibleTrigger>
               <CollapsibleContent>
                 {cat === "image" ? (
@@ -195,7 +195,7 @@ export function AppSidebar({ open, onToggle, onSelectAsset }: AppSidebarProps) {
                         <Icon className="h-3.5 w-3.5" />
                         <span className="flex-1 text-left">{CATEGORY_LABEL[cat]}</span>
                         <Badge variant="secondary" className="h-4 px-1 text-[10px]">{items.length}</Badge>
-                        <ChevronDown className="h-3 w-3 transition-transform group-data-[state=open]/collapsible:rotate-180" />
+                        <ChevronDown className="h-3 w-3 transition-transform group-data-[panel-open]/collapsible:rotate-180" />
                       </CollapsibleTrigger>
                       <CollapsibleContent>
                         {cat === "image" ? (
