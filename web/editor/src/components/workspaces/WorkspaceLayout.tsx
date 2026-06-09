@@ -252,13 +252,12 @@ function ServicesSidebar({ selected, onSelect }: { selected: string; onSelect: (
     return name.replace(/_/g, " ").replace(/\b\w/g, (c: string) => c.toUpperCase())
   }
 
-  // Resolve genre: explicit SERVICE_GENRE → API category fallback → "image"
+  // Resolve genre: only items in SERVICE_GENRE or with mapped category get shown
   const getGenre = (item: MCPTool | { name: string; label: string; category?: string }) => {
     const name = ("name" in item) ? (item as any).name : ""
     if (SERVICE_GENRE[name]) return SERVICE_GENRE[name]
     const cat = ("category" in item && (item as any).category) ? (item as any).category : ""
-    if (CATEGORY_TO_GENRE[cat]) return CATEGORY_TO_GENRE[cat]
-    return "image"
+    return CATEGORY_TO_GENRE[cat] || ""
   }
 
   // Group by genre
