@@ -53,9 +53,15 @@ function ttsVisibleFields(engine: string, allFields: FieldDef[]): FieldDef[] {
   return allFields.filter((f) => visible.includes(f.name))
 }
 
-const GENRE_ORDER = ["image", "audio", "voice", "motion"]
+const GENRE_ORDER = ["image", "audio", "voice", "motion", "3d"]
 
-const GENRE_ICONS: Record<string, string> = { image: "◎", audio: "♪", voice: "🎤", motion: "↝" }
+const GENRE_ICONS: Record<string, string> = { image: "◎", audio: "♪", voice: "🎤", motion: "↝", "3d": "◆" }
+
+// Map backend category → genre for sidebar grouping
+const CATEGORY_TO_GENRE: Record<string, string> = {
+  image: "image", creative: "image", tts: "voice", asr: "voice",
+  audio: "audio", motion: "motion", "3d": "3d", training: "image", avatar: "image", llm: "voice",
+}
 
 const SERVICE_GENRE: Record<string, string> = {
   ace_step: "audio", moss_soundeffect: "audio",
@@ -242,17 +248,20 @@ function ServicesSidebar({ selected, onSelect }: { selected: string; onSelect: (
     return name.replace(/_/g, " ").replace(/\b\w/g, (c: string) => c.toUpperCase())
   }
 
+  // Resolve genre: explicit SERVICE_GENRE → API category fallback → "image"
+  const getGenre = (item: MCPTool | { name: string; label: string; category?: string }) => {
+    const name = ("name" in item) ? (item as any).name : ""
+    if (SERVICE_GENRE[name]) return SERVICE_GENRE[name]
+    const cat = ("category" in item && (item as any).category) ? (item as any).category : ""
+    if (CATEGORY_TO_GENRE[cat]) return CATEGORY_TO_GENRE[cat]
+    return "image"
+  }
+
   // Group by genre
   const grouped = GENRE_ORDER.map((genre) => ({
     genre,
-    items: allItems.filter((s) => SERVICE_GENRE[("name" in s ? (s as any).name : (s as any).name)] === genre),
+    items: allItems.filter((s) => getGenre(s) === genre),
   })).filter((g) => g.items.length > 0)
-
-  // Also add items with no genre mapping
-  const ungrouped = allItems.filter((s) => {
-    const name = ("name" in s ? (s as any).name : (s as any).name) as string
-    return !SERVICE_GENRE[name]
-  })
 
   return (
     <div className="w-56 border-l bg-sidebar text-sidebar-foreground flex flex-col shrink-0">
@@ -279,22 +288,6 @@ function ServicesSidebar({ selected, onSelect }: { selected: string; onSelect: (
             })}
           </div>
         ))}
-        {ungrouped.length > 0 && (
-          <div className="mb-2">
-            <div className="px-1.5 py-1 text-[10px] font-semibold uppercase tracking-wider text-sidebar-foreground/40">Other</div>
-            {ungrouped.map((item) => {
-              const name = ("name" in item ? (item as any).name : (item as any).name) as string
-              const label = getLabel(item)
-              return (
-                <button key={name} onClick={() => onSelect(name)}
-                  className={`w-full flex items-center gap-2 px-2 py-1.5 rounded text-xs text-left transition-colors ${selected === name ? "bg-sidebar-accent text-sidebar-accent-foreground" : "hover:bg-sidebar-accent/50"}`}>
-                  <Wand2 className="h-3 w-3 shrink-0 opacity-50" />
-                  <span className="truncate">{label}</span>
-                </button>
-              )
-            })}
-          </div>
-        )}
       </div>
     </div>
   )
