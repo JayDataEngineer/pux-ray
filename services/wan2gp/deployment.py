@@ -638,6 +638,9 @@ class Wan2GPService:
         "flux/flux-schnell": "flux/flux_schnell",
         "hy_motion/hy-motion-1.0": "hy_motion/hy-motion-1.0-lite",
         "ace_step": "tts/ace_step_v1_5",
+        "ace_step/v1_5": "tts/ace_step_v1_5",
+        "ace_step/v1": "tts/ace_step_v1",
+        "ace_step/v1_5_xl": "tts/ace_step_v1_5_xl",
         "index_tts2": "tts/index_tts2",
         "see-through": "see_through/see-through",
         # Workflow short-name aliases (tech_noir, vnccs, wdc use these)
@@ -1432,6 +1435,12 @@ class Wan2GPService:
             if meta and meta.get("hooks"):
                 kwargs = meta["hooks"].before_generate(model, kwargs)
 
+            # ── Prompt Relay (LTX Director temporal segments) ───────────
+            relay_config_str = kwargs.pop("_relay_config", None) or payload.get("_relay_config")
+            relay_cleanup = None
+            if relay_config_str and base_model_type in ("ltx2", "ltx_video"):
+                relay_cleanup = self._apply_prompt_relay(model, m, relay_config_str, kwargs)
+
             # bf16 autocast wraps model.generate() to handle mixed float32/bfloat16
             # ops (FSQ quantizer, attention layers). Default: ON.
             # Handlers can opt out by setting needs_bf16_autocast = False.
@@ -1448,16 +1457,189 @@ class Wan2GPService:
             # If pipeline returns our custom format (status + data), pass through
             if isinstance(result, dict) and "status" in result:
                 result["model"] = self._loaded_model
+                if relay_cleanup:
+                    relay_cleanup()
                 return result
 
             # Vendor format: tensor output → encode to video/image
             gen = self._encode_output(result, payload, defaults)
             gen["model"] = self._loaded_model
+            if relay_cleanup:
+                relay_cleanup()
             return gen
 
         except Exception as e:
             logger.error("Wan2GP inference failed: %s", e, exc_info=True)
             return {"status": "error", "error": str(e)}
+
+    # ── Prompt Relay (LTX Director) ─────────────────────────────────────────
+
+    def _apply_prompt_relay(self, model, model_entry: dict, config_str: str, kwargs: dict):
+        """Apply WDC Director-style prompt relay temporal attention masking.
+
+        Modifies the prompt to include segment tokens, then patches the
+        transformer's cross-attention with temporal masks so each frame
+        attends most strongly to its assigned segment's tokens.
+
+        Returns a cleanup function to remove patches after generation.
+        """
+        import json as _json
+        try:
+            config = _json.loads(config_str)
+        except Exception as e:
+            logger.warning("Prompt relay: invalid config JSON: %s", e)
+            return None
+
+        local_prompts = config.get("local_prompts", [])
+        if not local_prompts:
+            return None
+
+        segment_lengths_str = config.get("segment_lengths")
+        epsilon = float(config.get("epsilon", 0.001))
+
+        # Find the transformer and text encoder
+        pipe_dict = model_entry.get("pipe", {})
+        if isinstance(pipe_dict, dict) and "pipe" in pipe_dict:
+            pipe_dict = pipe_dict["pipe"]
+
+        transformer = None
+        for key in ("transformer", "model"):
+            obj = pipe_dict.get(key)
+            if obj is not None and hasattr(obj, "parameters"):
+                transformer = obj
+                break
+
+        text_encoder = pipe_dict.get("text_encoder")
+
+        if transformer is None:
+            logger.warning("Prompt relay: no transformer found, skipping")
+            return None
+
+        try:
+            from models.ltx2.prompt_relay import (
+                map_token_indices,
+                distribute_segment_lengths,
+                build_segments,
+                apply_relay_patches,
+                remove_relay_patches,
+            )
+
+            # Get the raw tokenizer from the text encoder
+            tokenizer = self._get_ltx_tokenizer(text_encoder, model)
+            if tokenizer is None:
+                logger.warning("Prompt relay: no tokenizer found, skipping")
+                return None
+
+            global_prompt = kwargs.get("input_prompt", "")
+
+            # Map token indices
+            full_prompt, token_ranges = map_token_indices(
+                tokenizer, global_prompt, local_prompts
+            )
+
+            # Compute total text tokens from the last token range
+            total_text_tokens = token_ranges[-1][1] if token_ranges else 0
+
+            logger.info(
+                "Prompt relay: %d segments, full prompt length=%d, text tokens=%d",
+                len(local_prompts), len(full_prompt), total_text_tokens,
+            )
+
+            # Determine latent dimensions from params
+            temporal_stride = 8  # LTX2 VAE temporal compression
+            frame_num = int(kwargs.get("frame_num", 121))
+            width = int(kwargs.get("width", 1536))
+            height = int(kwargs.get("height", 1024))
+            latent_frames = ((frame_num - 1) // temporal_stride) + 1
+            # LTX2 spatial compression: 32x from pixels to latent
+            latent_h = height // 32
+            latent_w = width // 32
+
+            # Convert pixel lengths to latent lengths
+            parsed_lengths = None
+            if segment_lengths_str:
+                parsed_lengths = segment_lengths_str  # Already a list from JSON
+
+            effective_lengths = distribute_segment_lengths(
+                len(local_prompts), latent_frames, parsed_lengths
+            )
+
+            # Build segment metadata
+            q_token_idx = build_segments(token_ranges, effective_lengths, epsilon)
+
+            # Apply patches with pre-computed masks
+            apply_relay_patches(
+                transformer, q_token_idx,
+                latent_frames=latent_frames,
+                latent_height=latent_h,
+                latent_width=latent_w,
+                total_text_tokens=total_text_tokens,
+            )
+
+            # Update kwargs with full prompt
+            kwargs["input_prompt"] = full_prompt
+
+            logger.info(
+                "Prompt relay applied: %d segments, lengths=%s, epsilon=%.4f, "
+                "latent=%dx%dx%d, text_tokens=%d",
+                len(local_prompts), effective_lengths, epsilon,
+                latent_frames, latent_h, latent_w, total_text_tokens,
+            )
+
+            # Return cleanup function
+            def cleanup():
+                try:
+                    remove_relay_patches(transformer)
+                except Exception:
+                    pass
+
+            return cleanup
+
+        except ImportError as e:
+            logger.warning("Prompt relay module not available: %s", e)
+            return None
+        except Exception as e:
+            logger.error("Prompt relay setup failed: %s", e, exc_info=True)
+            return None
+
+    @staticmethod
+    def _get_ltx_tokenizer(text_encoder, model) -> Any:
+        """Extract the raw tokenizer from the LTX text encoder.
+
+        LTX2 uses Gemma — the tokenizer is wrapped in the text encoder.
+        """
+        if text_encoder is None:
+            return None
+
+        # Try direct tokenizer attribute
+        if hasattr(text_encoder, "tokenizer"):
+            tok = text_encoder.tokenizer
+            # Check if it's the raw tokenizer (has __call__ that returns input_ids)
+            if hasattr(tok, "__call__") and not hasattr(tok, "tokenize"):
+                return tok
+            # Unwrap if it's a wrapper
+            if hasattr(tok, "tokenizer"):
+                return tok.tokenizer
+
+        # Try Gemma-specific paths
+        for attr in ("_tokenizer", "processor", "tokenizer_wrapper"):
+            obj = getattr(text_encoder, attr, None)
+            if obj is not None:
+                if hasattr(obj, "tokenizer"):
+                    return obj.tokenizer
+                if hasattr(obj, "__call__"):
+                    return obj
+
+        # Last resort: check if model has text_encoder with tokenizer
+        if hasattr(model, "text_encoder"):
+            te = model.text_encoder
+            if hasattr(te, "tokenizer"):
+                tok = te.tokenizer
+                if hasattr(tok, "tokenizer"):
+                    return tok.tokenizer
+                return tok
+
+        return None
 
     # ── LoRA Helpers ──────────────────────────────────────────────────────
 
