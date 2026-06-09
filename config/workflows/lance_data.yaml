@@ -1,0 +1,82 @@
+name: lance_data
+version: "1.0"
+description: |
+  Complete Lance Pose-Edit training data pipeline — video → dataset.
+  
+  MultiCamVideo frames → GEM-X mesh extraction → DWPose skeleton →
+  Frame pairing (Frame_A ≠ Frame_B) → kohya_ss control_dirs dataset.
+  
+  NO teacher model. Target = raw video frame.
+  Frame_1 = character reference (different frame, same person).
+  Frame_2 = target + pose source (preventing identity mapping).
+
+inputs:
+  video_dir:
+    type: string
+    required: true
+    description: "Directory containing scene subdirectories with cam*.mp4 files"
+  output_dir:
+    type: string
+    default: "/home/user/Documents/programs/lora/data/dataset"
+    description: "Output directory for kohya_ss control_dirs structure"
+  max_pairs:
+    type: integer
+    default: 5000
+    description: "Maximum training pairs to generate"
+  frame_offset:
+    type: integer
+    default: 30
+    description: "Minimum frame gap for pairing (prevents identity mapping)"
+  resolution:
+    type: integer
+    default: 1024
+    description: "Output image resolution (square)"
+  seed:
+    type: integer
+    default: 42
+
+steps:
+  # Stage 1: Extract frames from all videos
+  extract_frames:
+    type: python
+    function: services.workflows.lance_pipeline:extract_frames
+    params:
+      video_dir: "{{ inputs.video_dir }}"
+    outputs:
+      frames_manifest: { media_type: application/json }
+
+  # Stage 2: GEM-X mesh extraction (runs once per video, cached)
+  gemx_mesh:
+    type: forge
+    service: gemx
+    model: gem_soma
+    depends_on: [extract_frames]
+    params:
+      video_path: "{{ inputs.video_dir }}"
+    outputs:
+      soma_data: { media_type: application/json }
+
+  # Stage 3: Frame pairing (CPU, no GPU)
+  pair_frames:
+    type: python
+    function: services.workflows.lance_pipeline:pair_frames
+    depends_on: [extract_frames]
+    params:
+      frames_dir: "{{ inputs.video_dir }}"
+      frame_offset: "{{ inputs.frame_offset }}"
+      seed: "{{ inputs.seed }}"
+    outputs:
+      pairs: { media_type: application/json }
+
+  # Stage 4: Assemble kohya_ss dataset
+  build_dataset:
+    type: python
+    function: services.workflows.lance_pipeline:build_dataset
+    depends_on: [pair_frames, gemx_mesh]
+    params:
+      pairs_json: "{{ pair_frames.outputs.pairs }}"
+      output_dir: "{{ inputs.output_dir }}"
+      soma_cache_dir: "{{ gemx_mesh.outputs.soma_data.cache_dir }}"
+      resolution: "{{ inputs.resolution }}"
+    outputs:
+      result: { media_type: application/json }

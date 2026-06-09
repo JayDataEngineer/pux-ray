@@ -1,0 +1,40 @@
+name: lance_train
+version: "1.0"
+description: Train Lance 3B LoRA via kohya_ss — pose-guided character editing
+
+inputs:
+  dataset_dir:
+    type: string
+    required: true
+    description: "Path to kohya_ss control_dirs dataset (must contain img/, Control1-3/, captions/)"
+  output_dir:
+    type: string
+    default: "/home/user/Documents/programs/lora/output/checkpoints"
+    description: "Directory for LoRA checkpoints"
+  steps:
+    type: integer
+    default: 12000
+    description: "Max training steps"
+  rank:
+    type: integer
+    default: 128
+    description: "LoRA rank (network_dim)"
+  resume:
+    type: boolean
+    default: true
+    description: "Resume from latest checkpoint if found"
+
+steps:
+  train_lora:
+    type: forge
+    service: kohya
+    model: lance-poseedit
+    params:
+      action: train
+      dataset_dir: "{{ inputs.dataset_dir }}"
+      output_dir: "{{ inputs.output_dir }}"
+      steps: "{{ inputs.steps }}"
+      rank: "{{ inputs.rank }}"
+      resume: "{{ inputs.resume }}"
+    outputs:
+      result: { media_type: application/json }

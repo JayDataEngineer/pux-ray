@@ -1,0 +1,23 @@
+name: gemx_mesh
+version: "1.0"
+description: GEM-X video-based SOMA mesh extraction — one video → per-frame 77-joint poses
+
+inputs:
+  video_path:
+    type: string
+    required: true
+    description: "Path to .mp4 video file (81 frames, 1280×1280 from MultiCamVideo)"
+  cache_key:
+    type: string
+    default: ""
+    description: "Optional cache key override (default: video path hash)"
+
+steps:
+  run_gemx:
+    type: forge
+    service: gemx
+    model: gem_soma
+    params:
+      video_path: "{{ inputs.video_path }}"
+    outputs:
+      result: { media_type: application/json }
