@@ -97,7 +97,19 @@ export function AppSidebar({ open, onToggle, onSelectAsset }: AppSidebarProps) {
                         onClick={() => onSelectAsset?.(a)}
                         draggable onDragStart={(e) => { e.dataTransfer.setData("application/tech-noir-asset", JSON.stringify({url:a.url,type:a.type,name:a.name,id:a.id})) }}>
                         <img src={a.url} alt={a.name} className="w-full aspect-square object-cover" draggable={false} />
-                        <span className="absolute bottom-0 inset-x-0 bg-background/80 px-1.5 py-0.5 text-[9px] truncate">{a.name}</span>
+                        {renamingId === a.id ? (
+                          <div className="absolute bottom-0 inset-x-0 bg-background/90 px-1 py-0.5">
+                            <input className="w-full bg-background border border-border rounded px-1 py-0 text-[9px] outline-none focus:border-primary"
+                              value={renameValue}
+                              onChange={(e) => setRenameValue(e.target.value)}
+                              onBlur={commitRename}
+                              onKeyDown={(e) => { if (e.key === "Enter") commitRename(); if (e.key === "Escape") setRenamingId(null) }}
+                              onClick={(e) => e.stopPropagation()}
+                              autoFocus />
+                          </div>
+                        ) : (
+                          <span className="absolute bottom-0 inset-x-0 bg-background/80 px-1.5 py-0.5 text-[9px] truncate">{a.name}</span>
+                        )}
                         <div className="absolute top-0.5 right-0.5 hidden group-hover/item:flex gap-px">
                           <Button variant="ghost" size="icon" className="h-5 w-5 bg-background/80" onClick={(e)=>{e.stopPropagation();handleDownload(a)}}><Download className="h-3 w-3" /></Button>
                           <Button variant="ghost" size="icon" className="h-5 w-5 bg-background/80" onClick={(e)=>{e.stopPropagation();startRename(a)}}><Pencil className="h-3 w-3" /></Button>
@@ -193,7 +205,19 @@ export function AppSidebar({ open, onToggle, onSelectAsset }: AppSidebarProps) {
                                 onClick={() => onSelectAsset?.(a)}
                                 draggable onDragStart={(e) => { e.dataTransfer.setData("application/tech-noir-asset", JSON.stringify({url:a.url,type:a.type,name:a.name,id:a.id})) }}>
                                 <img src={a.url} alt={a.name} className="w-full aspect-square object-cover" draggable={false} />
-                                <span className="absolute bottom-0 inset-x-0 bg-background/80 px-1.5 py-0.5 text-[9px] truncate">{a.name}</span>
+                                {renamingId === a.id ? (
+                                  <div className="absolute bottom-0 inset-x-0 bg-background/90 px-1 py-0.5">
+                                    <input className="w-full bg-background border border-border rounded px-1 py-0 text-[9px] outline-none focus:border-primary"
+                                      value={renameValue}
+                                      onChange={(e) => setRenameValue(e.target.value)}
+                                      onBlur={commitRename}
+                                      onKeyDown={(e) => { if (e.key === "Enter") commitRename(); if (e.key === "Escape") setRenamingId(null) }}
+                                      onClick={(e) => e.stopPropagation()}
+                                      autoFocus />
+                                  </div>
+                                ) : (
+                                  <span className="absolute bottom-0 inset-x-0 bg-background/80 px-1.5 py-0.5 text-[9px] truncate">{a.name}</span>
+                                )}
                                 <div className="absolute top-0.5 right-0.5 hidden group-hover/item:flex gap-px">
                                   <Button variant="ghost" size="icon" className="h-5 w-5 bg-background/80" onClick={(e)=>{e.stopPropagation();handleDownload(a)}}><Download className="h-3 w-3" /></Button>
                                   <Button variant="ghost" size="icon" className="h-5 w-5 bg-background/80" onClick={(e)=>{e.stopPropagation();startRename(a)}}><Pencil className="h-3 w-3" /></Button>
