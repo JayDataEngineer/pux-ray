@@ -113,7 +113,7 @@ export function AppSidebar({ open, onToggle, onSelectAsset }: AppSidebarProps) {
                         <div className="absolute top-0.5 right-0.5 hidden group-hover/item:flex gap-px">
                           <Button variant="ghost" size="icon" className="h-5 w-5 bg-background/80" onClick={(e)=>{e.stopPropagation();handleDownload(a)}}><Download className="h-3 w-3" /></Button>
                           <Button variant="ghost" size="icon" className="h-5 w-5 bg-background/80" onClick={(e)=>{e.stopPropagation();startRename(a)}}><Pencil className="h-3 w-3" /></Button>
-                          <Button variant="ghost" size="icon" className="h-5 w-5 bg-background/80" onClick={(e)=>{e.stopPropagation();removeAsset(a.id)}}><Trash2 className="text-destructive h-3 w-3" /></Button>
+                          <Button variant="ghost" size="icon" className="h-5 w-5 bg-background/80" onClick={(e)=>{e.stopPropagation();removeAsset(a.id);toast("info", "Deleted: "+a.name)}}><Trash2 className="text-destructive h-3 w-3" /></Button>
                         </div>
                       </div>
                     ))}
@@ -139,7 +139,7 @@ export function AppSidebar({ open, onToggle, onSelectAsset }: AppSidebarProps) {
                         <div className="hidden group-hover/item:flex gap-px">
                           <Button variant="ghost" size="icon" className="h-5 w-5 shrink-0" onClick={(e)=>{e.stopPropagation();handleDownload(a)}}><Download className="h-3 w-3" /></Button>
                           <Button variant="ghost" size="icon" className="h-5 w-5 shrink-0" onClick={(e)=>{e.stopPropagation();startRename(a)}}><Pencil className="h-3 w-3" /></Button>
-                          <Button variant="ghost" size="icon" className="h-5 w-5 shrink-0" onClick={(e)=>{e.stopPropagation();removeAsset(a.id)}}><Trash2 className="text-destructive h-3 w-3" /></Button>
+                          <Button variant="ghost" size="icon" className="h-5 w-5 shrink-0" onClick={(e)=>{e.stopPropagation();removeAsset(a.id);toast("info", "Deleted: "+a.name)}}><Trash2 className="text-destructive h-3 w-3" /></Button>
                         </div>
                       </div>
                     ))}
@@ -221,7 +221,7 @@ export function AppSidebar({ open, onToggle, onSelectAsset }: AppSidebarProps) {
                                 <div className="absolute top-0.5 right-0.5 hidden group-hover/item:flex gap-px">
                                   <Button variant="ghost" size="icon" className="h-5 w-5 bg-background/80" onClick={(e)=>{e.stopPropagation();handleDownload(a)}}><Download className="h-3 w-3" /></Button>
                                   <Button variant="ghost" size="icon" className="h-5 w-5 bg-background/80" onClick={(e)=>{e.stopPropagation();startRename(a)}}><Pencil className="h-3 w-3" /></Button>
-                                  <Button variant="ghost" size="icon" className="h-5 w-5 bg-background/80" onClick={(e)=>{e.stopPropagation();removeAsset(a.id)}}><Trash2 className="text-destructive h-3 w-3" /></Button>
+                                  <Button variant="ghost" size="icon" className="h-5 w-5 bg-background/80" onClick={(e)=>{e.stopPropagation();removeAsset(a.id);toast("info", "Deleted: "+a.name)}}><Trash2 className="text-destructive h-3 w-3" /></Button>
                                 </div>
                               </div>
                             ))}
@@ -247,7 +247,7 @@ export function AppSidebar({ open, onToggle, onSelectAsset }: AppSidebarProps) {
                                 <div className="hidden group-hover/item:flex gap-px">
                                   <Button variant="ghost" size="icon" className="h-5 w-5 shrink-0" onClick={(e)=>{e.stopPropagation();handleDownload(a)}}><Download className="h-3 w-3" /></Button>
                                   <Button variant="ghost" size="icon" className="h-5 w-5 shrink-0" onClick={(e)=>{e.stopPropagation();startRename(a)}}><Pencil className="h-3 w-3" /></Button>
-                                  <Button variant="ghost" size="icon" className="h-5 w-5 shrink-0" onClick={(e)=>{e.stopPropagation();removeAsset(a.id)}}><Trash2 className="text-destructive h-3 w-3" /></Button>
+                                  <Button variant="ghost" size="icon" className="h-5 w-5 shrink-0" onClick={(e)=>{e.stopPropagation();removeAsset(a.id);toast("info", "Deleted: "+a.name)}}><Trash2 className="text-destructive h-3 w-3" /></Button>
                                 </div>
                               </div>
                             ))}
