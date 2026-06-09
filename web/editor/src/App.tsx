@@ -7,8 +7,8 @@ export function App() {
   return (
     <ErrorBoundary>
       <TooltipProvider>
-        <WorkspaceLayout spec={null!} run={null} allSpecs={[]} onSpecChange={() => {}} />
-      <Toaster />
+        <WorkspaceLayout />
+        <Toaster />
       </TooltipProvider>
     </ErrorBoundary>
   )

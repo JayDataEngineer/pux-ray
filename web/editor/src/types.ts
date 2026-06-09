@@ -69,3 +69,39 @@ export interface SSEEvent {
   artifacts?: string[]
   ts?: number
 }
+
+// ── Service Catalog (for dynamic UI generation) ──────────────────────────────
+
+export interface ParamSpecInfo {
+  name: string
+  type: 'text' | 'number' | 'select' | 'file' | 'textarea' | 'json' | 'bool'
+  label: string
+  required: boolean
+  default?: string | number | boolean | null
+  placeholder?: string
+  description?: string
+  options?: string[]
+}
+
+export interface ServiceInfo {
+  name: string
+  label: string
+  category: string
+  needs_gpu: boolean
+  output_type: string
+  description: string
+  model_aliases: string[]
+  params_schema: ParamSpecInfo[]
+}
+
+export interface ServiceResult {
+  status: string
+  data?: string
+  url?: string
+  media_type?: string
+  error?: string
+  message?: string
+  service?: string
+  vram_free_mb?: number
+  vram_used_mb?: number
+}

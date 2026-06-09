@@ -9,15 +9,20 @@ const proxyConfig: Record<string, { target: string; ws: boolean }> = {
   // WebSocket paths (Viser 3D, ComfyUI)
   '/kimodo':  { target: API_URL, ws: true },
   '/comfyui': { target: API_URL, ws: true },
+  // MCP App Host — embedded in Ray ingress
+  '/mcp/wan2gp-studio': { target: API_URL, ws: false },
   // HTTP API paths
   '/v1':        { target: API_URL, ws: false },
   '/mcp':       { target: API_URL, ws: false },
   '/forge':     { target: API_URL, ws: false },
+  '/status':    { target: API_URL, ws: false },
   '/health':    { target: API_URL, ws: false },
   '/studio':    { target: API_URL, ws: false },
   '/dashboard': { target: API_URL, ws: false },
   '/admin':     { target: API_URL, ws: false },
   '/llm':       { target: API_URL, ws: false },
+  // Chat API — proxy to Next.js editor-mcp backend (port 3000)
+  '/api/chat':  { target: 'http://localhost:3000', ws: false },
 }
 
 export default defineConfig({

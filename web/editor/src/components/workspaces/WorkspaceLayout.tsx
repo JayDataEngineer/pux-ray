@@ -8,10 +8,12 @@ import { Textarea } from "@/components/ui/textarea"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Separator } from "@/components/ui/separator"
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog"
 import { useToastStore } from "@/stores/toast"
 import { useAssetStore, type Asset } from "@/stores/assets"
+import { kimodoUrl } from "@/mcp"
 import { callTool, forgeStatus, listTools, type MCPTool } from "@/mcp"
-import { Cpu, HardDrive, PanelLeft, PanelRightClose, Wand2, Loader2, CheckCircle2, XCircle, Clock, ListTodo, X } from "lucide-react"
+import { Cpu, HardDrive, PanelLeft, PanelRightClose, Wand2, Loader2, CheckCircle2, XCircle, Clock, ListTodo, X, ExternalLink, Maximize2 } from "lucide-react"
 import { AppSidebar } from "./AppSidebar"
 import { VideoEditor } from "./VideoEditor"
 
@@ -24,7 +26,7 @@ interface JobEntry {
 }
 
 interface FieldDef {
-  name: string; type: "text" | "number" | "select" | "file" | "textarea" | "json"
+  name: string; type: "text" | "number" | "select" | "file" | "textarea" | "json" | "boolean"
   label: string; default?: unknown; options?: string[]; required?: boolean
 }
 
@@ -33,6 +35,23 @@ const COMMON_PARAMS = [
   "seed", "steps", "guidance", "width", "height", "frames",
   "negative_prompt", "voice", "language",
 ]
+
+// ── Dynamic TTS: per-engine field visibility ────────────────────────────
+// When engine changes, irrelevant fields for other engines are hidden.
+
+const TTS_ENGINE_VISIBLE_FIELDS: Record<string, string[]> = {
+  kokoro: ["text", "engine", "voice"],
+  espeak: ["text", "engine", "language"],
+  moss_tts: ["text", "engine", "instruct", "ref_audio_b64", "language"],
+  index_tts: ["text", "engine"],
+  qwen3_tts: ["text", "engine", "mode", "voice", "instruct", "ref_audio_b64", "language"],
+}
+
+function ttsVisibleFields(engine: string, allFields: FieldDef[]): FieldDef[] {
+  const visible = TTS_ENGINE_VISIBLE_FIELDS[engine]
+  if (!visible) return allFields  // Unknown engine → show all
+  return allFields.filter((f) => visible.includes(f.name))
+}
 
 const GENRE_ORDER = ["image", "audio", "voice", "motion"]
 
@@ -233,6 +252,72 @@ function ServicesSidebar({ selected, onSelect }: { selected: string; onSelect: (
   )
 }
 
+// ── Kimodo Picture-in-Picture Dialog ──────────────────────────────────────────
+
+function KimodoDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (o: boolean) => void }) {
+  const [loading, setLoading] = useState(false)
+  const [loaded, setLoaded] = useState(false)
+
+  const handleOpen = useCallback(async (willOpen: boolean) => {
+    if (willOpen && !loaded) {
+      setLoading(true)
+      try {
+        // Load kimodo_demo on GPU via Forge
+        const res = await fetch('/forge', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'preload', service: 'kimodo_demo' }),
+        })
+        if (!res.ok) throw new Error('Failed to load Kimodo')
+        setLoaded(true)
+      } catch (e) {
+        console.error('Kimodo load failed:', e)
+      } finally {
+        setLoading(false)
+      }
+    }
+    onOpenChange(willOpen)
+  }, [loaded, onOpenChange])
+
+  // The full Kimodo URL — same origin, proxied through ingress
+  const url = kimodoUrl()
+
+  return (
+    <Dialog open={open} onOpenChange={handleOpen}>
+      <DialogContent
+        showCloseButton={true}
+        className="sm:max-w-[95vw] w-full h-[90vh] max-h-[90vh] p-0 gap-0 flex flex-col overflow-hidden"
+      >
+        <DialogHeader className="px-4 py-2 border-b shrink-0 flex-row items-center justify-between space-y-0">
+          <div className="flex items-center gap-2">
+            <DialogTitle className="text-sm">Kimodo Motion Studio</DialogTitle>
+            <Badge variant="outline" className="text-[9px]">NVIDIA</Badge>
+          </div>
+          <DialogDescription className="text-[10px] text-muted-foreground sr-only">
+            Pose a character in 3D, then take a screenshot (Exports → Screenshot) and drag the PNG into the pose image field.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="flex-1 min-h-0 relative bg-black">
+          {loading ? (
+            <div className="absolute inset-0 flex flex-col items-center justify-center text-muted-foreground gap-2">
+              <Loader2 className="h-8 w-8 animate-spin" />
+              <span className="text-xs">Loading Kimodo on GPU…</span>
+              <span className="text-[10px] text-muted-foreground/60">This takes ~60s on first load</span>
+            </div>
+          ) : loaded || open ? (
+            <iframe
+              src={url}
+              className="w-full h-full border-0"
+              allow="clipboard-write"
+              title="Kimodo Motion Studio"
+            />
+          ) : null}
+        </div>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
 function AssetsTab({ selectedService, selectedAsset, onCloseAsset, jobs, onAddJob, nextJobId }: {
   selectedService: string; selectedAsset: Asset | null; onCloseAsset: () => void
   jobs: JobEntry[]
@@ -240,6 +325,7 @@ function AssetsTab({ selectedService, selectedAsset, onCloseAsset, jobs, onAddJo
   nextJobId: React.MutableRefObject<number>
 }) {
   const toast = useToastStore((s) => s.addToast)
+  const [kimodoOpen, setKimodoOpen] = useState(false)
   const addAsset = useAssetStore((s) => s.addAsset)
   const [tools, setTools] = useState<MCPTool[]>([])
   const [services, setServices] = useState<{ name: string; label: string; category: string }[]>([])
@@ -266,17 +352,36 @@ function AssetsTab({ selectedService, selectedAsset, onCloseAsset, jobs, onAddJo
           const common = extractCommonParams((v.description as string) || "")
           if (common.length > 0) { extracted.push(...common); continue }
         }
+        const isBool = v.type === "boolean"
         const isNum = v.type === "number" || v.type === "integer"
         const isLong = ((v.description as string)?.length ?? 0) > 80 || k === "lyrics" || k === "instruct"
         const isImgField = k.includes("image") || k.includes("b64") || k.includes("img") || k.includes("photo")
         extracted.push({
           name: k, label: (v.description as string) || k,
-          type: isImgField ? "file" as const : v.enum ? "select" as const : isNum ? "number" as const : isLong ? "textarea" as const : "text" as const,
+          type: isBool ? "boolean" as const : isImgField ? "file" as const : v.enum ? "select" as const : isNum ? "number" as const : isLong ? "textarea" as const : "text" as const,
           default: v.default, options: v.enum as string[] | undefined,
           required: currentTool.inputSchema.required?.includes(k),
         })
       }
       setFields(extracted)
+      // ── Dynamic TTS: inject engine options for tts_speak ─────────────────
+      if (selectedService === "tts_speak") {
+        const engineField = extracted.find((f) => f.name === "engine")
+        if (engineField) {
+          engineField.type = "select"
+          engineField.options = ["kokoro", "qwen3_tts", "moss_tts", "espeak", "index_tts"]
+          engineField.default = "kokoro"
+        }
+        const modeField = extracted.find((f) => f.name === "mode")
+        if (modeField) {
+          modeField.type = "select"
+          modeField.options = ["custom_voice", "voice_design", "voice_clone"]
+          modeField.default = "custom_voice"
+        }
+        // Ensure good defaults for TTS
+        if (!values.engine) values.engine = "kokoro"
+        if (!values.mode) values.mode = "custom_voice"
+      }
       const d: Record<string, unknown> = {}
       for (const f of extracted) { if (f.default !== undefined) d[f.name] = f.default }
       setValues(d)
@@ -372,6 +477,7 @@ function AssetsTab({ selectedService, selectedAsset, onCloseAsset, jobs, onAddJo
   }
 
   return (
+    <>
     <div className="flex-1 p-6 flex justify-center">
       <div className="w-full max-w-xl">
         <Card>
@@ -380,7 +486,10 @@ function AssetsTab({ selectedService, selectedAsset, onCloseAsset, jobs, onAddJo
               <h2 className="text-base font-semibold">{label}</h2>
               {selectedService && <Badge variant="outline" className="text-[10px]">{selectedService}</Badge>}
             </div>
-            {fields.map((f) => {
+            {(selectedService === "tts_speak"
+              ? ttsVisibleFields(String(values.engine || "kokoro"), fields)
+              : fields
+            ).map((f) => {
               const handleDrop = (e: React.DragEvent) => {
                 e.preventDefault()
                 try {
@@ -394,7 +503,16 @@ function AssetsTab({ selectedService, selectedAsset, onCloseAsset, jobs, onAddJo
               }
               return (
               <div key={f.name} className="space-y-1" onDragOver={(e) => e.preventDefault()} onDrop={handleDrop}>
-                <Label className="text-xs text-muted-foreground capitalize">{f.label}</Label>
+                <div className="flex items-center gap-1">
+                  <Label className="text-xs text-muted-foreground capitalize">{f.label}</Label>
+                  {selectedService === "pose_edit" && f.name === "pose_image_b64" && (
+                    <button type="button"
+                      onClick={() => setKimodoOpen(true)}
+                      className="inline-flex items-center gap-1 text-[10px] text-primary hover:underline ml-auto">
+                      <Maximize2 className="h-3 w-3" /> Open Kimodo Studio
+                    </button>
+                  )}
+                </div>
                 {f.type === "select" && f.options ? (
                   <Select value={String(values[f.name] ?? f.default ?? "")}
                     onValueChange={(v) => setValues((p) => ({ ...p, [f.name]: v }))}>
@@ -431,6 +549,13 @@ function AssetsTab({ selectedService, selectedAsset, onCloseAsset, jobs, onAddJo
                   <Textarea value={String(values[f.name] ?? f.default ?? "")}
                     onChange={(e) => setValues((p) => ({ ...p, [f.name]: e.target.value }))}
                     placeholder={f.label} rows={3} />
+                ) : f.type === "boolean" ? (
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input type="checkbox" checked={!!values[f.name]}
+                      onChange={(e) => setValues((p) => ({ ...p, [f.name]: e.target.checked }))}
+                      className="h-4 w-4 rounded border-border text-primary focus:ring-primary" />
+                    <span className="text-xs text-muted-foreground">{values[f.name] ? "Yes" : "No"}</span>
+                  </label>
                 ) : (
                   <Input value={String(values[f.name] ?? f.default ?? "")}
                     onChange={(e) => setValues((p) => ({ ...p, [f.name]: e.target.value }))}
@@ -448,6 +573,8 @@ function AssetsTab({ selectedService, selectedAsset, onCloseAsset, jobs, onAddJo
         </Card>
       </div>
     </div>
+    <KimodoDialog open={kimodoOpen} onOpenChange={setKimodoOpen} />
+    </>
   )
 }
 

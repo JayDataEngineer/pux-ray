@@ -1,4 +1,5 @@
 @import "tailwindcss";
+@import "tw-animate-css";
 
 @custom-variant dark (&:is(.dark *));
 
@@ -112,4 +113,20 @@
   --sidebar-accent-foreground: oklch(0.985 0 0);
   --sidebar-border: oklch(1 0 0 / 10%);
   --sidebar-ring: oklch(0.556 0 0);
+  --animate-shimmer: shimmer-sweep var(--shimmer-duration, 1000ms) linear infinite both;
+}
+@keyframes shimmer-sweep {
+  from { background-position: 150% 0; }
+  to { background-position: -100% 0; }
+}
+
+@utility shimmer {
+  background-image: linear-gradient(90deg, transparent 40%, hsl(var(--muted-foreground) / 0.1) 50%, transparent 60%);
+  background-size: 200% 100%;
+  animation: var(--animate-shimmer);
+}
+
+@layer base {
+  * { @apply border-border outline-ring/50; }
+  body { @apply bg-background text-foreground; }
 }
