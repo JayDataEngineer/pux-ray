@@ -53,8 +53,6 @@ function ttsVisibleFields(engine: string, allFields: FieldDef[]): FieldDef[] {
   return allFields.filter((f) => visible.includes(f.name))
 }
 
-const GENRE_ORDER = ["image", "audio", "voice", "motion", "3d"]
-
 const GENRE_ORDER = ["image", "audio", "motion", "3d"]
 
 const GENRE_ICONS: Record<string, string> = { image: "◎", audio: "♪", motion: "↝", "3d": "◆" }
