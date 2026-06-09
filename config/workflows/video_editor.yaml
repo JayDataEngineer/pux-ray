@@ -106,20 +106,21 @@ steps:
     outputs:
       scene: { media_type: image/png }
 
-  # ─── Stage 4: Video generation (LTX) ──────────────────────────────────
+  # ─── Stage 4: Video generation (LTX with Director support) ───────────
   generate_video:
-    type: forge
-    service: wan2gp
+    type: ltx_generate
     model: ltx2
     depends_on: [scene_compose]
     params:
-      image_b64: "{{ scene_compose.outputs.scene }}"
       input_prompt: "{{ inputs.video_prompt }}"
+      image_b64: "{{ scene_compose.outputs.scene }}"
+      image_end_b64: "{{ inputs.last_frame_image }}"
       seed: "{{ inputs.seed }}"
       fps: "{{ inputs.video_fps }}"
       frame_num: "{{ inputs.video_frames }}"
       guide_scale: 3.0
-      last_frame_b64: "{{ inputs.last_frame_image }}"
+      guide_phases: 2
+      sampling_steps: 40
     outputs:
       video: { media_type: video/mp4 }
 

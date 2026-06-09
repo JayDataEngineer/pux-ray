@@ -29,13 +29,13 @@ inputs:
 
 steps:
   generate:
-    type: forge
-    service: wan2gp
+    type: ltx_generate
     model: ltx2
     params:
       input_prompt: "{{ inputs.prompt }}"
       image_b64: "{{ inputs.first_frame }}"
       audio_b64: "{{ inputs.audio }}"
+      audio_scale: "1.0"
       seed: "{{ inputs.seed }}"
       width: "{{ inputs.width }}"
       height: "{{ inputs.height }}"
@@ -43,5 +43,6 @@ steps:
       sampling_steps: 24
       guide_scale: 3.0
       fps: 24
+      guide_phases: 2
     outputs:
       video: { media_type: video/mp4 }

@@ -28,8 +28,7 @@ inputs:
 
 steps:
   generate_video:
-    type: forge
-    service: wan2gp
+    type: ltx_generate
     model: ltx2
     params:
       input_prompt: "{{ inputs.prompt }}"
