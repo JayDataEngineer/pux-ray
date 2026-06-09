@@ -1,0 +1,150 @@
+name: ltx_director
+version: "1.0"
+description: >
+  LTX Video generation with Director-style prompt relay, spatial upscaling,
+  and multi-stage guidance. Native Wan2GP execution — no ComfyUI bridge.
+
+  Supports:
+  - Prompt relay: per-segment prompts with temporal attention masking
+  - FFLF: first-frame / last-frame conditioning
+  - Audio conditioning: soundtrack or generated audio
+  - Spatial upscaling: 2x latent-space upscale
+  - LoRA selection: dynamic runtime LoRA loading
+  - Multi-stage: 2-phase guidance for higher quality
+
+inputs:
+  # ─── Prompts ────────────────────────────────────────────────────────
+  global_prompt:
+    type: string
+    required: true
+    description: "Global prompt for the entire video (characters, scene context)"
+  segment_prompts:
+    type: string
+    required: false
+    description: >
+      Pipe-separated local prompts for temporal segments.
+      Example: "a woman walking through a door|the woman enters a dark room|she finds a glowing artifact"
+      When provided, enables Director-style prompt relay.
+  segment_lengths:
+    type: string
+    required: false
+    description: >
+      Comma-separated frame counts per segment (pixel space).
+      Must match number of segment_prompts. Auto-distributed if omitted.
+  epsilon:
+    type: string
+    default: "0.001"
+    description: >
+      Prompt relay boundary sharpness. Lower = sharper boundaries.
+      Try 0.5+ for softer transitions between segments.
+
+  # ─── Start/End frames ──────────────────────────────────────────────
+  start_image:
+    type: string
+    required: true
+    description: "Start frame image (base64 or artifact path)"
+  end_image:
+    type: string
+    required: false
+    description: "Optional last frame for FFLF conditioning (base64 or artifact path)"
+
+  # ─── Generation params ─────────────────────────────────────────────
+  negative_prompt:
+    type: string
+    default: ""
+  seed:
+    type: integer
+    default: 42
+  fps:
+    type: integer
+    default: 24
+  frames:
+    type: integer
+    default: 121
+    description: "Total frames (121 = ~5s at 24fps)"
+  steps:
+    type: integer
+    default: 40
+    description: "Denoising steps (8 for distilled, 30-40 for dev)"
+  guidance:
+    type: string
+    default: "3.0"
+    description: "CFG guidance scale"
+
+  # ─── Audio ──────────────────────────────────────────────────────────
+  audio_b64:
+    type: string
+    required: false
+    description: "Audio conditioning data (base64 WAV/MP3)"
+  audio_scale:
+    type: string
+    default: "1.0"
+    description: "Audio conditioning strength (0-1)"
+  audio_prompt_type:
+    type: string
+    default: ""
+    description: "Audio mode: '' (generated), 'A' (soundtrack conditioning)"
+
+  # ─── LoRA ───────────────────────────────────────────────────────────
+  loras:
+    type: string
+    required: false
+    description: "Comma-separated LoRA filenames (from ltx2 LoRA dir)"
+
+  # ─── Advanced ───────────────────────────────────────────────────────
+  guide_phases:
+    type: integer
+    default: 2
+    description: "Number of guidance phases (1 or 2)"
+  width:
+    type: integer
+    default: 1536
+  height:
+    type: integer
+    default: 1024
+  spatial_upscale:
+    type: string
+    default: "false"
+    description: "Run 2x spatial upscaler after generation"
+
+steps:
+  # ─── LTX Video Generation with Director ──────────────────────────────
+  generate:
+    type: ltx_generate
+    model: ltx2
+    params:
+      input_prompt: "{{ inputs.global_prompt }}"
+      local_prompts: "{{ inputs.segment_prompts }}"
+      segment_lengths: "{{ inputs.segment_lengths }}"
+      epsilon: "{{ inputs.epsilon }}"
+      image_b64: "{{ inputs.start_image }}"
+      image_end_b64: "{{ inputs.end_image }}"
+      n_prompt: "{{ inputs.negative_prompt }}"
+      seed: "{{ inputs.seed }}"
+      fps: "{{ inputs.fps }}"
+      frame_num: "{{ inputs.frames }}"
+      sampling_steps: "{{ inputs.steps }}"
+      guide_scale: "{{ inputs.guidance }}"
+      audio_b64: "{{ inputs.audio_b64 }}"
+      audio_scale: "{{ inputs.audio_scale }}"
+      audio_prompt_type: "{{ inputs.audio_prompt_type }}"
+      loras_selected: "{{ inputs.loras }}"
+      guide_phases: "{{ inputs.guide_phases }}"
+      width: "{{ inputs.width }}"
+      height: "{{ inputs.height }}"
+    outputs:
+      video: { media_type: video/mp4 }
+
+  # ─── Spatial Upscale (disabled — requires Wan2GP latent upscale API) ─
+  # Will be re-enabled when Wan2GP adds direct latent upscale support.
+  # upscale:
+  #   type: ltx_upscale
+  #   model: ltx2
+  #   depends_on: [generate]
+  #   params:
+  #     video: "{{ generate.outputs.video }}"
+  #     input_prompt: "{{ inputs.global_prompt }}"
+  #     seed: "{{ inputs.seed }}"
+  #     fps: "{{ inputs.fps }}"
+  #   outputs:
+  #     video: { media_type: video/mp4 }
