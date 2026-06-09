@@ -37,6 +37,7 @@ from gateway.routes.wf_engine import (
     wf_approve_step, wf_rerun_step, wf_execute_step, wf_get_artifact, wf_list_artifacts, wf_events,
 )
 from gateway.studio import studio_page, studio_apps, studio_switch, studio_release
+from gateway.mcp_app_host import handle_mcp_host
 from registry.config import Config
 from services.registry import SERVICE_REGISTRY, get_service, resolve_model, list_all_models
 from services.forge import SERVICE_MAP as FORGE_SERVICES
@@ -258,6 +259,19 @@ class APIIngress:
                 "output_type": entry.output_type,
                 "description": entry.description,
                 "model_aliases": list(entry.model_aliases.keys()),
+                "params_schema": [
+                    {
+                        "name": p.label.lower().replace(" ", "_"),
+                        "type": p.type,
+                        "label": p.label,
+                        "required": p.required,
+                        "default": p.default,
+                        "placeholder": p.placeholder,
+                        "description": p.description,
+                        "options": p.options,
+                    }
+                    for p in entry.params_schema
+                ],
             })
         return JSONResponse(services)
 
@@ -277,6 +291,19 @@ class APIIngress:
             "output_type": entry.output_type,
             "model_aliases": entry.model_aliases,
             "description": entry.description,
+            "params_schema": [
+                {
+                    "name": p.label.lower().replace(" ", "_"),
+                    "type": p.type,
+                    "label": p.label,
+                    "required": p.required,
+                    "default": p.default,
+                    "placeholder": p.placeholder,
+                    "description": p.description,
+                    "options": p.options,
+                }
+                for p in entry.params_schema
+            ],
         })
 
     # ── LLM proxy ──────────────────────────────────────────────────────────────
@@ -305,6 +332,100 @@ class APIIngress:
                 media_type=result.get("content_type", "text/html"),
             )
         return JSONResponse(result)
+
+    # ── Kimodo proxy ───────────────────────────────────────────────────────────
+
+    async def kimodo_proxy(self, request: Request) -> Response:
+        """Route to Kimodo Viser demo via Forge — auto-loads on first request."""
+        path = request.url.path
+        if path == "/kimodo" and request.method == "GET":
+            from starlette.responses import RedirectResponse
+            return RedirectResponse(url="/kimodo/", status_code=307)
+
+        forge = _get_forge()
+        raw_path = request.scope.get("raw_path", b"").decode("ascii", errors="replace")
+        proxy_path = (raw_path or request.url.path).replace("/kimodo", "") or "/"
+        payload: dict[str, Any] = {
+            "method": request.method,
+            "path": proxy_path,
+            "params": dict(request.query_params),
+            "raw": True,
+        }
+        if request.method == "POST":
+            ct = request.headers.get("content-type", "")
+            if "application/json" in ct:
+                try:
+                    payload["body"] = await request.json()
+                except Exception:
+                    pass
+        result = await forge.invoke.remote("kimodo_demo", payload)
+        if isinstance(result, dict) and result.get("raw_response"):
+            return Response(
+                content=base64.b64decode(result["body"]),
+                status_code=result.get("status_code", 200),
+                media_type=result.get("content_type", "text/html"),
+            )
+        return JSONResponse(result)
+
+    async def kimodo_ws_proxy(self, ws):
+        """Proxy WebSocket to Kimodo Viser subprocess at 127.0.0.1:18470.
+
+        Viser's client computes the WS URL from the page URL:
+        page /kimodo/ → ws://host/kimodo
+        We strip the prefix and proxy to the Viser server root.
+        """
+        import websockets
+        from starlette.websockets import WebSocketDisconnect
+
+        await ws.accept()
+        path = ws.url.path.replace("/kimodo", "") or "/"
+        query = ws.url.query
+        target = f"ws://127.0.0.1:18470{path}"
+        if query:
+            target += f"?{query}"
+
+        logger.info("Kimodo WS proxy: %s -> %s", ws.url.path, target)
+
+        try:
+            async with websockets.connect(target) as backend:
+                async def to_backend():
+                    try:
+                        while True:
+                            msg = await ws.receive()
+                            t = msg.get("type", "")
+                            if t == "websocket.disconnect":
+                                break
+                            if t == "websocket.receive":
+                                txt = msg.get("text")
+                                if txt is not None:
+                                    await backend.send(txt)
+                                bts = msg.get("bytes")
+                                if bts is not None:
+                                    await backend.send(bts)
+                    except WebSocketDisconnect:
+                        pass
+
+                async def to_client():
+                    try:
+                        async for msg in backend:
+                            if isinstance(msg, str):
+                                await ws.send_text(msg)
+                            elif isinstance(msg, bytes):
+                                await ws.send_bytes(msg)
+                    except websockets.exceptions.ConnectionClosed:
+                        pass
+
+                await asyncio.gather(to_backend(), to_client())
+        except (
+            websockets.WebSocketException,
+            ConnectionRefusedError,
+            OSError,
+        ) as e:
+            logger.warning("Kimodo WS proxy failed: %s", e)
+            try:
+                await ws.close(1011)
+            except Exception:
+                pass
 
     # ── ComfyUI proxy ──────────────────────────────────────────────────────────
 
@@ -460,7 +581,8 @@ class APIIngress:
         # Named pipeline — route through Forge's VRAM ledger
         if "pipeline" in body:
             pipeline_id = body["pipeline"]
-            params = body.get("params", {})
+            # Support both "params" (legacy Python) and "inputs" (YAML spec)
+            params = body.get("params", body.get("inputs", {}))
             try:
                 forge = _get_forge()
                 result = await forge.run_pipeline.remote(pipeline_id, params)
@@ -540,6 +662,10 @@ def create_app() -> Starlette:
         # LLM proxy (auto-loads via Forge on first request)
         Route("/llm/{path:path}", ingress.llm_proxy, methods=["GET", "POST", "PUT", "DELETE"]),
         Route("/llm", ingress.llm_proxy, methods=["GET", "POST"]),
+        # Kimodo (proxy Viser 3D motion UI)
+        Route("/kimodo/{path:path}", ingress.kimodo_proxy, methods=["GET", "POST", "PUT", "DELETE"]),
+        Route("/kimodo", ingress.kimodo_proxy, methods=["GET", "POST", "PUT", "DELETE"]),
+        WebSocketRoute("/kimodo", ingress.kimodo_ws_proxy),
         # ComfyUI (proxy all paths — ComfyUI has its own routing)
         Route("/comfyui/{path:path}", ingress.comfyui_proxy, methods=["GET", "POST", "PUT", "DELETE"]),
         Route("/comfyui", ingress.comfyui_proxy, methods=["GET", "POST", "PUT", "DELETE"]),
@@ -562,6 +688,8 @@ def create_app() -> Starlette:
         Route("/studio/api/apps", studio_apps),
         Route("/studio/api/switch", studio_switch, methods=["POST"]),
         Route("/studio/api/release", studio_release, methods=["POST"]),
+        # MCP App Host (widget HTML + tool proxy)
+        Route("/mcp/wan2gp-studio/host", handle_mcp_host, methods=["POST"]),
         # Video Editor (React SPA)
         Route("/editor", editor_page),
         Route("/editor/{path:path}", editor_static),

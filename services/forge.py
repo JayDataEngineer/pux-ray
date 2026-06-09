@@ -646,31 +646,78 @@ class Forge:
 
         Injects a ForgeProxy (instead of bare Wan2GPService) so all
         load/infer calls go through the Forge's VRAM ledger.
+
+        Supports both legacy Python functions and YAML spec-based workflows.
         """
         from gateway.routes.workflows import _WORKFLOW_REGISTRY
         from services.forge_persistence import Persistence
         from services.workflows.base import set_forge_core, clear_forge_core
 
         fn = _WORKFLOW_REGISTRY.get(pipeline_id)
-        if fn is None:
-            return {"status": "error", "error": f"Unknown pipeline: {pipeline_id}"}
+        if fn is not None:
+            # Legacy Python pipeline
+            self._core._persistence_overrides["wan2gp"] = Persistence.PIPELINE_LOCKED
+            set_forge_core(self._core)
+            try:
+                result = await asyncio.to_thread(fn, **params)
+            except TypeError as e:
+                return {"status": "error", "error": f"Invalid parameters: {e}"}
+            except Exception as e:
+                logger.exception("Pipeline %s failed", pipeline_id)
+                return {"status": "error", "error": str(e)}
+            finally:
+                self._core._persistence_overrides.pop("wan2gp", None)
+                clear_forge_core()
+            return result
 
-        # Pipeline-lock wan2gp for the duration of execution
-        self._core._persistence_overrides["wan2gp"] = Persistence.PIPELINE_LOCKED
-        set_forge_core(self._core)
+        # Try YAML spec-based workflow via the workflow engine
+        from services.workflows.spec import load_spec, list_specs
+        spec_names = list_specs()
+        if pipeline_id in spec_names:
+            try:
+                engine = serve.get_deployment_handle(
+                    "workflow_engine", "workflow-engine"
+                )
+                run_info = await engine.start_run.remote(pipeline_id, params, skip_review=True)
+                run_id = run_info["run_id"]
 
-        try:
-            result = await asyncio.to_thread(fn, **params)
-        except TypeError as e:
-            return {"status": "error", "error": f"Invalid parameters: {e}"}
-        except Exception as e:
-            logger.exception("Pipeline %s failed", pipeline_id)
-            return {"status": "error", "error": str(e)}
-        finally:
-            self._core._persistence_overrides.pop("wan2gp", None)
-            clear_forge_core()
+                # Poll until complete (with timeout)
+                import time as _time
+                t0 = _time.monotonic()
+                timeout = 600  # 10 minutes
+                while True:
+                    run_data = await engine.get_run.remote(run_id)
+                    if not run_data:
+                        return {"status": "error", "error": "Run not found"}
+                    status = run_data.get("status")
+                    if status in ("completed", "failed", "cancelled"):
+                        break
+                    if _time.monotonic() - t0 > timeout:
+                        await engine.cancel_run.remote(run_id)
+                        return {"status": "error", "error": f"Pipeline timed out after {timeout}s"}
+                    await asyncio.sleep(2)
 
-        return result
+                # Collect outputs from step states
+                steps_out = {}
+                for sid, ss in (run_data.get("step_states") or {}).items():
+                    steps_out[sid] = {
+                        "status": ss.get("status"),
+                        "outputs": ss.get("outputs"),
+                        "duration_ms": ss.get("duration_ms"),
+                        "error": ss.get("error"),
+                    }
+
+                return {
+                    "status": run_data.get("status"),
+                    "run_id": run_id,
+                    "steps": steps_out,
+                    "artifacts": run_data.get("artifacts"),
+                }
+            except Exception as e:
+                logger.exception("YAML pipeline %s failed", pipeline_id)
+                return {"status": "error", "error": str(e)}
+
+        return {"status": "error", "error": f"Unknown pipeline: {pipeline_id}"}
 
     async def __call__(self, request: Request) -> Response:
         if request.method == "GET":

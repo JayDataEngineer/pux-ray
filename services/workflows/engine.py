@@ -59,6 +59,7 @@ class WorkflowEngine:
         from .steps.external import ExternalWaitStep
         from .steps.python import PythonStepExecutor
         from .steps.mock import MockStepExecutor
+        from .steps.ltx_video import LTXGenerateStep, LTXSpatialUpscaleStep
 
         self.registry.register("forge", ForgeStepExecutor)
         self.registry.register("serve", ServeStepExecutor)
@@ -67,16 +68,19 @@ class WorkflowEngine:
         self.registry.register("external_wait", ExternalWaitStep)
         self.registry.register("python", PythonStepExecutor)
         self.registry.register("mock", MockStepExecutor)
+        self.registry.register("ltx_generate", LTXGenerateStep)
+        self.registry.register("ltx_upscale", LTXSpatialUpscaleStep)
 
     # ------------------------------------------------------------------
     # Run lifecycle
     # ------------------------------------------------------------------
 
-    async def start_run(self, spec_name: str, inputs: dict, manual: bool = False) -> dict:
-        """Create a new workflow run. If manual=True, don't auto-execute steps."""
+    async def start_run(self, spec_name: str, inputs: dict, manual: bool = False,
+                        skip_review: bool = False) -> dict:
+        """Create a new workflow run. If manual=True, don't auto-execute steps.
+        If skip_review=True, skip review pauses (for programmatic API calls)."""
         spec = load_spec(spec_name)
-        if not manual:
-            self._validate_inputs(spec, inputs)
+        self._validate_inputs(spec, inputs)
 
         run_id = uuid.uuid4().hex[:12]
         run = WorkflowRun(
@@ -85,6 +89,9 @@ class WorkflowEngine:
             inputs=inputs,
             step_states={s.id: StepState(step_id=s.id) for s in spec.steps},
         )
+        if skip_review:
+            self._skip_review_runs: set[str] = getattr(self, '_skip_review_runs', set())
+            self._skip_review_runs.add(run_id)
         await self.state_store.create(run)
 
         if not manual:
@@ -353,6 +360,8 @@ class WorkflowEngine:
         finally:
             self._running.pop(run_id, None)
             self._cleanup_wait_events(run_id)
+            _skip_set = getattr(self, '_skip_review_runs', set())
+            _skip_set.discard(run_id)
 
     async def _execute_group(self, run: WorkflowRun, group: list[StepSpec]) -> None:
         """Execute a group of steps concurrently via asyncio.gather.
@@ -468,7 +477,10 @@ class WorkflowEngine:
             # Skip for steps that already manage their own interaction
             # (external_wait steps pause before execution, not after).
             # Also skip when called from execute_single_step (skip_review=True).
-            if step.type != "external_wait" and not skip_review:
+            # Also skip when run was started with skip_review flag (API/programmatic).
+            _skip_set = getattr(self, '_skip_review_runs', set())
+            run_skip = run_id in _skip_set
+            if step.type != "external_wait" and not skip_review and not run_skip:
                 await self.state_store.update_step(
                     run_id, step.id, status="waiting_input", interaction="review",
                 )
@@ -493,6 +505,11 @@ class WorkflowEngine:
     # ------------------------------------------------------------------
 
     def _validate_inputs(self, spec: WorkflowSpec, inputs: dict) -> None:
+        # Fill in defaults for missing optional inputs
+        for name, ispec in spec.inputs.items():
+            if name not in inputs and ispec.default is not None:
+                inputs[name] = ispec.default
+        # Validate required + enum
         for name, ispec in spec.inputs.items():
             if ispec.required and name not in inputs and ispec.default is None:
                 raise ValueError(f"Missing required input: {name}")
