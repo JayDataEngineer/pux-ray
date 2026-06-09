@@ -28,12 +28,19 @@ interface AssetStore {
   assets: Asset[]
   addAsset: (asset: Omit<Asset, 'id' | 'createdAt'>) => Asset
   removeAsset: (id: string) => void
+  renameAsset: (id: string, name: string) => void
   getByType: (type: Asset['type']) => Asset[]
   clear: () => void
 }
 
 let _nextId = 1
+let _nameCounters: Record<string, number> = {}
 function uid(): string { return `asset_${_nextId++}_${Date.now().toString(36)}` }
+export function nextAssetName(service: string, ext: string): string {
+  if (!_nameCounters[service]) _nameCounters[service] = 0
+  _nameCounters[service]++
+  return `${service}_${_nameCounters[service]}.${ext}`
+}
 
 // Load persisted assets on init
 function loadPersisted(): Asset[] {
@@ -66,6 +73,12 @@ export const useAssetStore = create<AssetStore>((set, get) => ({
 
   removeAsset: (id) => set((s) => {
     const updated = s.assets.filter((a) => a.id !== id)
+    persist(updated)
+    return { assets: updated }
+  }),
+
+  renameAsset: (id, name) => set((s) => {
+    const updated = s.assets.map((a) => a.id === id ? { ...a, name } : a)
     persist(updated)
     return { assets: updated }
   }),

@@ -4,7 +4,8 @@ import { Button } from "@/components/ui/button"
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
 import { useAssetStore, CATEGORY_LABEL, CATEGORY_ORDER, type AssetCategory, type Asset } from "@/stores/assets"
 import { useToastStore } from "@/stores/toast"
-import { FolderOpen, Plus, Music, Image, Mic, Volume2, Trash2, ChevronDown, PanelLeftClose, X } from "lucide-react"
+import { FolderOpen, Plus, Music, Image, Mic, Volume2, Trash2, ChevronDown, PanelLeftClose, X, Download, Pencil } from "lucide-react"
+import { useState } from "react"
 
 const ICONS: Record<AssetCategory, typeof Image> = {
   image: Image, music: Music, voice: Mic, sfx: Volume2, video: Image, other: FolderOpen,
@@ -19,8 +20,30 @@ interface AppSidebarProps {
 export function AppSidebar({ open, onToggle, onSelectAsset }: AppSidebarProps) {
   const assets = useAssetStore((s) => s.assets)
   const removeAsset = useAssetStore((s) => s.removeAsset)
+  const renameAsset = useAssetStore((s) => s.renameAsset)
   const addAsset = useAssetStore((s) => s.addAsset)
   const toast = useToastStore((s) => s.addToast)
+  const [renamingId, setRenamingId] = useState<string | null>(null)
+  const [renameValue, setRenameValue] = useState("")
+
+  const handleDownload = (a: Asset) => {
+    const link = document.createElement("a")
+    link.href = a.url
+    link.download = a.name
+    link.click()
+  }
+
+  const startRename = (a: Asset) => {
+    setRenamingId(a.id)
+    setRenameValue(a.name)
+  }
+
+  const commitRename = () => {
+    if (renamingId && renameValue.trim()) {
+      renameAsset(renamingId, renameValue.trim())
+    }
+    setRenamingId(null)
+  }
 
   const handleImport = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
@@ -74,8 +97,12 @@ export function AppSidebar({ open, onToggle, onSelectAsset }: AppSidebarProps) {
                         onClick={() => onSelectAsset?.(a)}
                         draggable onDragStart={(e) => { e.dataTransfer.setData("application/tech-noir-asset", JSON.stringify({url:a.url,type:a.type,name:a.name,id:a.id})) }}>
                         <img src={a.url} alt={a.name} className="w-full aspect-square object-cover" draggable={false} />
-                        <span className="absolute bottom-0 inset-x-0 bg-background/80 px-1.5 py-0.5 text-[9px] truncate">{a.name.slice(0,12)}</span>
-                        <Button variant="ghost" size="icon" className="absolute top-0.5 right-0.5 h-5 w-5 hidden group-hover/item:flex" onClick={(e)=>{e.stopPropagation();removeAsset(a.id)}}><Trash2 className="text-destructive h-3 w-3" /></Button>
+                        <span className="absolute bottom-0 inset-x-0 bg-background/80 px-1.5 py-0.5 text-[9px] truncate">{a.name}</span>
+                        <div className="absolute top-0.5 right-0.5 hidden group-hover/item:flex gap-px">
+                          <Button variant="ghost" size="icon" className="h-5 w-5 bg-background/80" onClick={(e)=>{e.stopPropagation();handleDownload(a)}}><Download className="h-3 w-3" /></Button>
+                          <Button variant="ghost" size="icon" className="h-5 w-5 bg-background/80" onClick={(e)=>{e.stopPropagation();startRename(a)}}><Pencil className="h-3 w-3" /></Button>
+                          <Button variant="ghost" size="icon" className="h-5 w-5 bg-background/80" onClick={(e)=>{e.stopPropagation();removeAsset(a.id)}}><Trash2 className="text-destructive h-3 w-3" /></Button>
+                        </div>
                       </div>
                     ))}
                   </div>
@@ -86,8 +113,22 @@ export function AppSidebar({ open, onToggle, onSelectAsset }: AppSidebarProps) {
                         onClick={() => onSelectAsset?.(a)}
                         draggable onDragStart={(e) => { e.dataTransfer.setData("application/tech-noir-asset", JSON.stringify({url:a.url,type:a.type,name:a.name,id:a.id})) }}>
                         <Icon className="h-3 w-3 shrink-0" />
-                        <span className="flex-1 truncate">{a.name}</span>
-                        <Button variant="ghost" size="icon" className="h-5 w-5 opacity-0 group-hover/item:opacity-100 shrink-0" onClick={(e)=>{e.stopPropagation();removeAsset(a.id)}}><Trash2 className="text-destructive h-3 w-3" /></Button>
+                        {renamingId === a.id ? (
+                          <input className="flex-1 bg-background border border-border rounded px-1 py-0 text-xs outline-none focus:border-primary"
+                            value={renameValue}
+                            onChange={(e) => setRenameValue(e.target.value)}
+                            onBlur={commitRename}
+                            onKeyDown={(e) => { if (e.key === "Enter") commitRename(); if (e.key === "Escape") setRenamingId(null) }}
+                            onClick={(e) => e.stopPropagation()}
+                            autoFocus />
+                        ) : (
+                          <span className="flex-1 truncate">{a.name}</span>
+                        )}
+                        <div className="hidden group-hover/item:flex gap-px">
+                          <Button variant="ghost" size="icon" className="h-5 w-5 shrink-0" onClick={(e)=>{e.stopPropagation();handleDownload(a)}}><Download className="h-3 w-3" /></Button>
+                          <Button variant="ghost" size="icon" className="h-5 w-5 shrink-0" onClick={(e)=>{e.stopPropagation();startRename(a)}}><Pencil className="h-3 w-3" /></Button>
+                          <Button variant="ghost" size="icon" className="h-5 w-5 shrink-0" onClick={(e)=>{e.stopPropagation();removeAsset(a.id)}}><Trash2 className="text-destructive h-3 w-3" /></Button>
+                        </div>
                       </div>
                     ))}
                   </div>
@@ -152,8 +193,12 @@ export function AppSidebar({ open, onToggle, onSelectAsset }: AppSidebarProps) {
                                 onClick={() => onSelectAsset?.(a)}
                                 draggable onDragStart={(e) => { e.dataTransfer.setData("application/tech-noir-asset", JSON.stringify({url:a.url,type:a.type,name:a.name,id:a.id})) }}>
                                 <img src={a.url} alt={a.name} className="w-full aspect-square object-cover" draggable={false} />
-                                <span className="absolute bottom-0 inset-x-0 bg-background/80 px-1.5 py-0.5 text-[9px] truncate">{a.name.slice(0,12)}</span>
-                                <Button variant="ghost" size="icon" className="absolute top-0.5 right-0.5 h-5 w-5 hidden group-hover/item:flex" onClick={(e)=>{e.stopPropagation();removeAsset(a.id)}}><Trash2 className="text-destructive h-3 w-3" /></Button>
+                                <span className="absolute bottom-0 inset-x-0 bg-background/80 px-1.5 py-0.5 text-[9px] truncate">{a.name}</span>
+                                <div className="absolute top-0.5 right-0.5 hidden group-hover/item:flex gap-px">
+                                  <Button variant="ghost" size="icon" className="h-5 w-5 bg-background/80" onClick={(e)=>{e.stopPropagation();handleDownload(a)}}><Download className="h-3 w-3" /></Button>
+                                  <Button variant="ghost" size="icon" className="h-5 w-5 bg-background/80" onClick={(e)=>{e.stopPropagation();startRename(a)}}><Pencil className="h-3 w-3" /></Button>
+                                  <Button variant="ghost" size="icon" className="h-5 w-5 bg-background/80" onClick={(e)=>{e.stopPropagation();removeAsset(a.id)}}><Trash2 className="text-destructive h-3 w-3" /></Button>
+                                </div>
                               </div>
                             ))}
                           </div>
@@ -164,8 +209,22 @@ export function AppSidebar({ open, onToggle, onSelectAsset }: AppSidebarProps) {
                                 onClick={() => onSelectAsset?.(a)}
                                 draggable onDragStart={(e) => { e.dataTransfer.setData("application/tech-noir-asset", JSON.stringify({url:a.url,type:a.type,name:a.name,id:a.id})) }}>
                                 <Icon className="h-3 w-3 shrink-0" />
-                                <span className="flex-1 truncate">{a.name}</span>
-                                <Button variant="ghost" size="icon" className="h-5 w-5 opacity-0 group-hover/item:opacity-100 shrink-0" onClick={(e)=>{e.stopPropagation();removeAsset(a.id)}}><Trash2 className="text-destructive h-3 w-3" /></Button>
+                                {renamingId === a.id ? (
+                                  <input className="flex-1 bg-background border border-border rounded px-1 py-0 text-xs outline-none focus:border-primary"
+                                    value={renameValue}
+                                    onChange={(e) => setRenameValue(e.target.value)}
+                                    onBlur={commitRename}
+                                    onKeyDown={(e) => { if (e.key === "Enter") commitRename(); if (e.key === "Escape") setRenamingId(null) }}
+                                    onClick={(e) => e.stopPropagation()}
+                                    autoFocus />
+                                ) : (
+                                  <span className="flex-1 truncate">{a.name}</span>
+                                )}
+                                <div className="hidden group-hover/item:flex gap-px">
+                                  <Button variant="ghost" size="icon" className="h-5 w-5 shrink-0" onClick={(e)=>{e.stopPropagation();handleDownload(a)}}><Download className="h-3 w-3" /></Button>
+                                  <Button variant="ghost" size="icon" className="h-5 w-5 shrink-0" onClick={(e)=>{e.stopPropagation();startRename(a)}}><Pencil className="h-3 w-3" /></Button>
+                                  <Button variant="ghost" size="icon" className="h-5 w-5 shrink-0" onClick={(e)=>{e.stopPropagation();removeAsset(a.id)}}><Trash2 className="text-destructive h-3 w-3" /></Button>
+                                </div>
                               </div>
                             ))}
                           </div>

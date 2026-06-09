@@ -10,7 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Separator } from "@/components/ui/separator"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog"
 import { useToastStore } from "@/stores/toast"
-import { useAssetStore, type Asset } from "@/stores/assets"
+import { useAssetStore, type Asset, nextAssetName } from "@/stores/assets"
 import { kimodoUrl } from "@/mcp"
 import { callTool, forgeStatus, listTools, type MCPTool } from "@/mcp"
 import { Cpu, HardDrive, PanelLeft, PanelRightClose, Wand2, Loader2, CheckCircle2, XCircle, Clock, ListTodo, X, ExternalLink, Maximize2 } from "lucide-react"
@@ -469,8 +469,9 @@ function AssetsTab({ selectedService, selectedAsset, onCloseAsset, jobs, onAddJo
           const mt = result.media_type || "image/png"
           const isAud = mt.includes("audio")
           const cat = isAud && selectedService.includes("music") ? "music" as const : isAud ? "sfx" as const : "image" as const
+          const ext = mt.includes("png") ? "png" : mt.includes("jpeg") || mt.includes("jpg") ? "jpg" : mt.includes("webp") ? "webp" : mt.includes("wav") ? "wav" : mt.includes("mp3") ? "mp3" : mt.split("/")[1] || "bin"
           addAsset({
-            name: `${jobName} ${new Date().toLocaleTimeString()}`,
+            name: nextAssetName(selectedService, ext),
             type: isAud ? "audio" : "image", category: cat, mediaType: mt,
             url: `data:${mt};base64,${result.data}`,
             sizeBytes: Math.round((result.data as string).length * 0.75), source: "generated",
