@@ -114,7 +114,7 @@ export function WorkspaceLayout() {
           </Button>
         </header>
         <div className="flex flex-1 min-h-0">
-          <div className="flex-1 min-w-0 overflow-auto">
+          <div className="flex-1 min-w-0 overflow-auto scrollbar-thin">
             {tab === "assets"
               ? <AssetsTab selectedService={selectedService} selectedAsset={selectedAsset} onCloseAsset={() => setSelectedAsset(null)} jobs={jobs} onAddJob={(j) => setJobs(j)} nextJobId={nextJobId} />
               : <VideoEditor />
@@ -235,7 +235,7 @@ function ServicesSidebar({ selected, onSelect }: { selected: string; onSelect: (
           </button>
         ))}
       </div>
-      <div className="flex-1 overflow-y-auto p-1.5 space-y-0.5">
+      <div className="flex-1 overflow-y-auto scrollbar-thin p-1.5 space-y-0.5">
         {items.map((item) => {
           const name = "name" in item ? (item as any).name : (item as any).name
           const label = "label" in item ? (item as any).label : name
