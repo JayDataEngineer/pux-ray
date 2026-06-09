@@ -1,10 +1,12 @@
 """VNCCS workflow MCP tools — character sheet, pose edit, and clone pipelines.
 
-All route through the Forge's DAG pipeline runner at /v1/run
-with the pipeline key set to the VNCCS workflow name.
+char_sheet and clone_character route through the Forge pipeline runner.
+pose_edit routes through the DAG workflow engine (vnccs_pose_edit.yaml).
 """
 from __future__ import annotations
 
+import asyncio
+import base64
 from typing import Annotated, Any
 
 from fastmcp import Context
@@ -122,33 +124,42 @@ async def pose_edit(
         description="Base64-encoded character image to re-pose. The character's "
                     "identity and clothing are preserved while matching the target pose.",
     )],
-    pose_image_b64: Annotated[str | None, Field(
-        description="Base64-encoded reference pose image to match. Provide a photo or "
-                    "render of a person in the desired pose (VNCCS_PoseStudio capture mode). "
-                    "If omitted, uses BodyMesh renderer from joint rotations.",
-    )] = None,
-    rotations: Annotated[dict[str, list[float]] | None, Field(
-        description="Joint rotations for BodyMesh mode. Anny joint names -> [x_deg, y_deg, z_deg]. "
-                    "Keys: spine, neck, head, r_shoulder, r_elbow, r_wrist, l_shoulder, l_elbow, "
-                    "l_wrist, r_hip, r_knee, r_ankle, l_hip, l_knee, l_ankle. Only used if "
-                    "pose_image_b64 is not provided.",
-    )] = None,
-    model_rotation_y: Annotated[float, Field(
-        description="Whole-body Y rotation for BodyMesh mode. 0=front, 90=right, 180=back, 270=left.",
-    )] = 0.0,
-    mesh_config: Annotated[dict | None, Field(
-        description="Anny mesh phenotype overrides for BodyMesh mode. Keys: age (0-100), "
-                    "gender (0=female, 1=male), weight (0-1), muscle (0-1), height (0-1), etc.",
-    )] = None,
+    pose_image_b64: Annotated[str, Field(
+        description="Base64-encoded pose reference image (image1 in QWEN). "
+                    "Generate one with Kimodo (motion tab) or upload a reference photo. "
+                    "DWPose extracts the skeleton from this image.",
+    )],
+    prompt: Annotated[str, Field(
+        description="QWEN prompt text. The original VNCCS prompt_template is "
+                    "'Draw character from image2\\n<lighting>\\n<user_prompt>'. "
+                    "Include any lighting or custom instructions here.",
+    )] = "Draw character from image2",
     lighting_prompt: Annotated[str, Field(
-        description="Optional lighting description. Appended to the QWEN prompt after the "
-                    "default 'Draw character from image2' template. Matches VNCCS_PoseStudio "
-                    "prompt_template lighting insertion.",
+        description="Lighting description appended after the main prompt. "
+                    "In the original VNCCS workflow, VNCCS_PoseStudio auto-generated "
+                    "this from the mesh camera angle (e.g. 'soft ambient lighting from "
+                    "above-left, warm rim light'). Manually provide or leave empty.",
     )] = "",
     user_prompt: Annotated[str, Field(
-        description="Override the default QWEN prompt ('Draw character from image2'). "
-                    "Use this for custom instructions.",
+        description="Custom user text appended to the prompt. "
+                    "Matches the <user_prompt> placeholder in the VNCCS prompt_template.",
     )] = "",
+    lora_name: Annotated[str, Field(
+        description="VNCCS PoseStudio LoRA filename. Original workflow uses "
+                    "VNCCS_PoseStudioQIE2511_V1 or V2 from MIUProject/VNCCS_PoseStudio. "
+                    "Selected by VNCCS_ModelSelector + LoraLoaderModelOnly nodes.",
+    )] = "VNCCS/VNCCS_PoseStudioQIE2511_V2.safetensors",
+    lora_strength: Annotated[float, Field(
+        description="PoseStudio LoRA strength (0-2). Original LoraLoaderModelOnly "
+                    "node default is 1.0.",
+    )] = 1.0,
+    sampling_steps: Annotated[int, Field(
+        description="QWEN sampling steps. Original KSampler node uses 4 "
+                    "(lightning LoRA mode).",
+    )] = 4,
+    guide_scale: Annotated[float, Field(
+        description="CFG guidance scale. Original KSampler node uses 1.0.",
+    )] = 1.0,
     seed: Annotated[int, Field(
         description="Random seed for reproducibility. -1 for random.",
     )] = -1,
@@ -156,44 +167,68 @@ async def pose_edit(
 ) -> dict:
     """Re-pose a character using the VNCCS Pose Studio QWEN workflow.
 
-    1:1 match of VNCCS_Utils Pose Studio QWEN ComfyUI workflow (10 nodes):
-      1. VNCCS_PoseStudio -> renders 3D body mesh from joint rotations OR
-         uses a captured pose image as reference (image1)
-      2. DWPose extracts skeleton overlay from the mesh/pose image
-      3. QWEN with PoseStudio LoRA (VNCCS_QIE2511_PoseStudio_ART_V5.9)
-         generates the character in the target pose
-         image1 = pose reference, image2 = character
+    Routes through the DAG workflow engine (vnccs_pose_edit.yaml), NOT through
+    a custom ComfyUI port. The DAG orchestrates:
+      1. DWPose extracts skeleton overlay from the pose reference image
+      2. QWEN-Image-Edit with VNCCS PoseStudio LoRA generates the posed character
+         image1 = pose reference (from Kimodo or upload)
+         image2 = character to re-pose
+         image3 = DWPose skeleton overlay
 
-    Two modes (matching VNCCS_PoseStudio):
-      - Capture mode: provide pose_image_b64 (photo/render of target pose)
-      - Mesh mode: provide rotations dict (Anny joint angles for BodyMesh)
+    Matches the original VNCCS_Utils Pose Studio QWEN ComfyUI workflow:
+      - VNCCS_ModelSelector + LoraLoaderModelOnly -> LoRA selection + strength
+      - VNCCS_PoseStudio -> replaced by Kimodo for pose reference generation
+      - DWPreprocessor -> skeleton extraction
+      - QWEN KSampler -> 4-step lightning generation
 
     Returns base64-encoded image data.
     """
     if ctx is None:
         raise RuntimeError("No MCP context available")
-    client = ctx.lifespan_context.get("forge_client")
-    if client is None:
-        raise RuntimeError("API client not initialized")
+    wf = ctx.lifespan_context.get("workflow_client")
+    if wf is None:
+        raise RuntimeError("Workflow client not initialized")
 
-    params: dict[str, Any] = {
-        "character_image_b64": character_image_b64,
+    # Assemble prompt from pieces (matches VNCCS prompt_template)
+    assembled_prompt = prompt
+    if lighting_prompt:
+        assembled_prompt += f"\n{lighting_prompt}"
+    if user_prompt:
+        assembled_prompt += f"\n{user_prompt}"
+
+    dag_inputs: dict[str, Any] = {
+        "character_image": character_image_b64,
+        "pose_image": pose_image_b64,
+        "prompt": assembled_prompt,
+        "lora_name": lora_name,
+        "lora_strength": lora_strength,
+        "sampling_steps": sampling_steps,
+        "guide_scale": guide_scale,
         "seed": seed,
     }
-    if pose_image_b64:
-        params["pose_image_b64"] = pose_image_b64
-    if rotations:
-        params["rotations"] = rotations
-    if model_rotation_y != 0.0:
-        params["model_rotation_y"] = model_rotation_y
-    if mesh_config:
-        params["mesh_config"] = mesh_config
-    if lighting_prompt:
-        params["lighting_prompt"] = lighting_prompt
-    if user_prompt:
-        params["user_prompt"] = user_prompt
 
-    return await client.invoke({"pipeline": "vnccs/pose-edit", "params": params})
+    # Run through DAG engine
+    run = await wf.run_and_wait("vnccs_pose_edit", dag_inputs)
+
+    if run.get("status") != "completed":
+        # Collect step errors for diagnostics
+        step_errors = []
+        for sid, ss in run.get("step_states", {}).items():
+            if isinstance(ss, dict) and ss.get("status") == "failed":
+                step_errors.append(f"{sid}: {ss.get('error', 'unknown')}")
+        error_detail = "; ".join(step_errors) if step_errors else run.get("error", "Workflow failed")
+        return {"status": "error", "error": error_detail}
+
+    # Fetch the final artifact from pose_transfer step
+    data = await wf.get_artifact_data(
+        "vnccs_pose_edit", run["run_id"], "pose_transfer", "output",
+    )
+
+    return {
+        "status": "ok",
+        "data": base64.b64encode(data).decode(),
+        "media_type": "image/png",
+    }
 
 
 async def clone_character(

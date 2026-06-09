@@ -1,7 +1,7 @@
-"""TTS tools — unified speech synthesis across Kokoro, Qwen3-TTS, and MOSS.
+"""TTS tools — unified speech synthesis across all engines.
 
-- tts_speak: Generate speech from text with voice selection, design, or cloning.
-- tts_voices: List available TTS engines and voice presets.
+- tts_speak: One endpoint for Kokoro, Qwen3-TTS, MOSS VoiceGenerator, eSpeak, IndexTTS.
+- tts_voices: List available TTS engines with per-engine parameter schemas.
 """
 from __future__ import annotations
 
@@ -40,20 +40,65 @@ ENGINES = [
     {
         "id": "kokoro",
         "label": "Kokoro (CPU)",
-        "modes": ["custom_voice"],
-        "cpu": True,
+        "gpu": False,
+        "description": "Fast CPU text-to-speech, multi-voice. Best for quick generation.",
+        "params": [
+            {"name": "text", "type": "textarea", "label": "Text", "required": True},
+            {"name": "voice", "type": "select", "label": "Voice", "default": "af_bella",
+             "options": KOKORO_VOICES},
+        ],
     },
     {
         "id": "qwen3_tts",
         "label": "Qwen3-TTS (GPU)",
-        "modes": ["custom_voice", "voice_design", "voice_clone"],
-        "cpu": False,
+        "gpu": True,
+        "description": "Qwen3-TTS with CUDA graph acceleration. Supports voice design and cloning.",
+        "params": [
+            {"name": "text", "type": "textarea", "label": "Text", "required": True},
+            {"name": "mode", "type": "select", "label": "Mode", "default": "custom_voice",
+             "options": ["custom_voice", "voice_design", "voice_clone"],
+             "description": "custom_voice: preset speaker / voice_design: describe a voice / voice_clone: from reference audio"},
+            {"name": "voice", "type": "select", "label": "Voice", "default": "Aiden",
+             "options": QWEN3_VOICES},
+            {"name": "instruct", "type": "textarea", "label": "Voice Instruction",
+             "placeholder": "A warm female voice with a gentle southern accent..."},
+            {"name": "language", "type": "select", "label": "Language", "default": "English",
+             "options": ["English", "Chinese", "Japanese", "Korean"]},
+        ],
     },
     {
-        "id": "moss_voicegenerator",
-        "label": "MOSS Voice Design (GPU)",
-        "modes": ["voice_design"],
-        "cpu": False,
+        "id": "moss_tts",
+        "label": "MOSS TTS (GPU)",
+        "gpu": True,
+        "description": "MOSS TTS — text-to-speech with voice cloning via reference audio.",
+        "params": [
+            {"name": "text", "type": "textarea", "label": "Text", "required": True},
+            {"name": "instruct", "type": "textarea", "label": "Instruction",
+             "placeholder": "warm, friendly, slightly husky",
+             "description": "Optional emotion/style instruction for the voice."},
+            {"name": "language", "type": "select", "label": "Language", "default": "English",
+             "options": ["English", "Chinese", "Japanese", "Korean"]},
+        ],
+    },
+    {
+        "id": "espeak",
+        "label": "eSpeak (CPU)",
+        "gpu": False,
+        "description": "eSpeak-NG — lightweight phoneme TTS, many languages. Instant CPU inference.",
+        "params": [
+            {"name": "text", "type": "textarea", "label": "Text", "required": True},
+            {"name": "language", "type": "select", "label": "Language", "default": "en",
+             "options": ["en", "fr", "de", "es", "it", "ja", "zh", "ko", "ru", "pt"]},
+        ],
+    },
+    {
+        "id": "index_tts",
+        "label": "IndexTTS (GPU)",
+        "gpu": True,
+        "description": "IndexTTS v2 — high-quality neural TTS with voice cloning.",
+        "params": [
+            {"name": "text", "type": "textarea", "label": "Text", "required": True},
+        ],
     },
 ]
 
@@ -74,7 +119,7 @@ def _forge(ctx: Context) -> Any:
 # ---------------------------------------------------------------------------
 
 async def tts_voices(ctx: Context | None = None) -> dict:
-    """List available TTS engines and voice presets."""
+    """List available TTS engines and per-engine parameter schemas."""
     return {
         "engines": ENGINES,
         "voices": {
@@ -94,18 +139,30 @@ async def tts_speak(
     language: str = "English",
     ctx: Context | None = None,
 ) -> dict:
-    """Generate speech from text.
+    """Generate speech from text using any TTS engine.
 
-    Modes:
-      - custom_voice: Use a preset speaker voice.
-      - voice_design: Generate a voice from a text description (no audio input).
-      - voice_clone: Clone a voice from a reference audio clip (base64).
+    Engines:
+      - kokoro: Fast CPU TTS with 50+ voice presets
+      - qwen3_tts: GPU TTS with custom_voice/voice_design/voice_clone modes
+      - moss_tts: GPU TTS with voice cloning from reference audio
+      - espeak: Ultra-lightweight CPU TTS with 10 languages
+      - index_tts: High-quality GPU TTS for voice cloning
+
+    Args:
+        text: The text to synthesize into speech
+        engine: TTS engine to use (kokoro, qwen3_tts, moss_tts, espeak, index_tts)
+        mode: Qwen3-TTS mode — custom_voice (preset speaker), voice_design (describe a voice), voice_clone (clone from audio)
+        voice: Voice preset name (kokoro/qwen3_tts custom_voice mode)
+        instruct: Voice design instruction text (qwen3_tts voice_design mode, moss_tts emotion/style)
+        ref_audio_b64: Base64-encoded reference audio for voice cloning (qwen3_tts voice_clone mode)
+        language: Language for synthesis (English, Chinese, Japanese, Korean / en, fr, de, etc. for espeak)
     """
     forge = _forge(ctx)
 
     if not text:
         return {"status": "error", "error": "text is required"}
 
+    # ── Kokoro: direct service dispatch (CPU, multi-voice) ────────────────
     if engine == "kokoro":
         return await forge.invoke({
             "service": "kokoro",
@@ -113,6 +170,15 @@ async def tts_speak(
             "voice": voice or "af_bella",
         })
 
+    # ── eSpeak: direct service dispatch (CPU, multi-language) ─────────────
+    if engine == "espeak":
+        return await forge.invoke({
+            "service": "espeak",
+            "text": text,
+            "language": language or "en",
+        })
+
+    # ── Qwen3-TTS: GPU with mode-dependent routing ───────────────────────
     if engine == "qwen3_tts":
         payload: dict[str, Any] = {
             "service": "wan2gp",
@@ -123,8 +189,7 @@ async def tts_speak(
 
         if ref_audio_b64:
             payload["ref_audio_b64"] = ref_audio_b64
-            if not mode:
-                payload["mode"] = "voice_clone"
+            payload["mode"] = "voice_clone"
         elif mode == "voice_design":
             payload["mode"] = "voice_design"
             payload["instruct"] = instruct or ""
@@ -134,12 +199,27 @@ async def tts_speak(
 
         return await forge.invoke(payload)
 
-    if engine == "moss_voicegenerator":
-        payload = {
+    # ── MOSS TTS: GPU voice cloning ──────────────────────────────────────
+    if engine == "moss_tts":
+        payload: dict[str, Any] = {
             "service": "wan2gp",
-            "model": "moss-voicegenerator",
-            "text": instruct or text,
+            "model": "moss-tts",
+            "text": text,
+            "language": language,
         }
+        if instruct:
+            payload["instruction"] = instruct
+        if ref_audio_b64:
+            payload["ref_audio_b64"] = ref_audio_b64
         return await forge.invoke(payload)
 
-    return {"status": "error", "error": f"Unknown engine: {engine}"}
+    # ── IndexTTS: GPU voice cloning ──────────────────────────────────────
+    if engine == "index_tts":
+        return await forge.invoke({
+            "service": "wan2gp",
+            "model": "index_tts/v2",
+            "text": text,
+        })
+
+    return {"status": "error", "error": f"Unknown engine: {engine}. "
+            f"Available: kokoro, qwen3_tts, moss_tts, espeak, index_tts"}

@@ -95,3 +95,41 @@ class WorkflowClient:
         )
         resp.raise_for_status()
         return resp.json()
+
+    async def run_and_wait(
+        self, spec_name: str, inputs: dict, timeout: float | None = None,
+    ) -> dict[str, Any]:
+        """Start a non-manual run and poll until completion.
+
+        Returns the final run state dict with step_states and artifacts.
+        """
+        import asyncio
+
+        deadline = (timeout or self.timeout)
+        result = await self.start_run(spec_name, inputs, manual=False)
+        run_id = result["run_id"]
+
+        t0 = asyncio.get_event_loop().time()
+        while True:
+            run = await self.get_run(spec_name, run_id)
+            status = run.get("status")
+            if status in ("completed", "failed", "cancelled"):
+                return run
+            elapsed = asyncio.get_event_loop().time() - t0
+            if elapsed > deadline:
+                await self.cancel_run(spec_name, run_id)
+                return {"status": "failed", "error": "Workflow timed out",
+                        "run_id": run_id}
+            await asyncio.sleep(2.0)
+
+    async def get_artifact_data(
+        self, spec_name: str, run_id: str, step_id: str, filename: str,
+    ) -> bytes:
+        """Download artifact binary data from the workflow engine."""
+        client = await self._get_client()
+        resp = await client.get(
+            f"{self.base_url}/v1/wf/{spec_name}/runs/{run_id}"
+            f"/artifacts/{step_id}/{filename}",
+        )
+        resp.raise_for_status()
+        return resp.content
