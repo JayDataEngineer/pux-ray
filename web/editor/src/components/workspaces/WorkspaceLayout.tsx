@@ -13,7 +13,7 @@ import { useToastStore } from "@/stores/toast"
 import { useAssetStore, type Asset, nextAssetName } from "@/stores/assets"
 import { kimodoUrl } from "@/mcp"
 import { callTool, forgeStatus, listTools, type MCPTool } from "@/mcp"
-import { Cpu, HardDrive, PanelLeft, PanelRightClose, Wand2, Loader2, CheckCircle2, XCircle, Clock, ListTodo, X, ExternalLink, Maximize2 } from "lucide-react"
+import { Cpu, HardDrive, PanelLeft, PanelRightClose, Wand2, Loader2, CheckCircle2, XCircle, Clock, ListTodo, X, Maximize2, ChevronLeft, ChevronRight, Download } from "lucide-react"
 import { AppSidebar } from "./AppSidebar"
 import { VideoEditor } from "./VideoEditor"
 
@@ -106,14 +106,6 @@ export function WorkspaceLayout() {
   const [jobs, setJobs] = useState<JobEntry[]>([])
   const nextJobId = useRef(1)
 
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setSelectedAsset(null)
-    }
-    document.addEventListener("keydown", handler)
-    return () => document.removeEventListener("keydown", handler)
-  }, [])
-
   return (
     <div className="flex h-screen w-full bg-background">
       <AppSidebar open={leftOpen} onToggle={() => setLeftOpen((o) => !o)} onSelectAsset={(a) => { setSelectedService(""); setSelectedAsset(a) }} />
@@ -138,13 +130,14 @@ export function WorkspaceLayout() {
         <div className="flex flex-1 min-h-0">
           <div className="flex-1 min-w-0 overflow-auto scrollbar-thin">
             {tab === "assets"
-              ? <AssetsTab selectedService={selectedService} selectedAsset={selectedAsset} onCloseAsset={() => setSelectedAsset(null)} jobs={jobs} onAddJob={(j) => setJobs(j)} nextJobId={nextJobId} />
+              ? <AssetsTab selectedService={selectedService} jobs={jobs} onAddJob={(j) => setJobs(j)} nextJobId={nextJobId} />
               : <VideoEditor />
             }
           </div>
           {rightOpen && <ServicesSidebar selected={selectedService} onSelect={setSelectedService} />}
         </div>
       </div>
+      <AssetPreviewDialog asset={selectedAsset} onClose={() => setSelectedAsset(null)} onSelect={(a) => setSelectedAsset(a)} />
     </div>
   )
 }
@@ -373,8 +366,90 @@ function KimodoDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (o:
   )
 }
 
-function AssetsTab({ selectedService, selectedAsset, onCloseAsset, jobs, onAddJob, nextJobId }: {
-  selectedService: string; selectedAsset: Asset | null; onCloseAsset: () => void
+function AssetPreviewDialog({ asset, onClose, onSelect }: { asset: Asset | null; onClose: () => void; onSelect: (a: Asset) => void }) {
+  const allAssets = useAssetStore((s) => s.assets)
+  const [idx, setIdx] = useState(-1)
+
+  useEffect(() => {
+    if (asset) {
+      const i = allAssets.findIndex((a) => a.id === asset.id)
+      setIdx(i)
+    }
+  }, [asset, allAssets])
+
+  const hasPrev = idx > 0
+  const hasNext = idx >= 0 && idx < allAssets.length - 1
+
+  const goPrev = () => { if (hasPrev) onSelect(allAssets[idx - 1]) }
+  const goNext = () => { if (hasNext) onSelect(allAssets[idx + 1]) }
+
+  useEffect(() => {
+    if (!asset) return
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === "ArrowLeft") goPrev()
+      else if (e.key === "ArrowRight") goNext()
+      else if (e.key === "Escape") onClose()
+    }
+    window.addEventListener("keydown", handler)
+    return () => window.removeEventListener("keydown", handler)
+  })
+
+  const handleDownload = () => {
+    if (!asset) return
+    const link = document.createElement("a")
+    link.href = asset.url
+    link.download = asset.name
+    link.click()
+  }
+
+  if (!asset) return null
+  const { url, name, mediaType, sizeBytes } = asset
+  const isImage = mediaType.startsWith("image/") || url.startsWith("data:image/")
+
+  return (
+    <Dialog open={!!asset} onOpenChange={(open) => { if (!open) onClose() }}>
+      <DialogContent className="sm:max-w-3xl p-0 gap-0 flex flex-col overflow-hidden">
+        <DialogHeader className="px-4 py-3 border-b flex-row items-center justify-between space-y-0">
+          <DialogTitle className="text-sm font-medium truncate mr-4">{name}</DialogTitle>
+          <div className="flex items-center gap-1 shrink-0">
+            <span className="text-[10px] text-muted-foreground mr-2">
+              {sizeBytes ? `${Math.round(sizeBytes / 1024)} KB` : ""}{mediaType ? ` · ${mediaType}` : ""}
+            </span>
+            <Button variant="ghost" size="icon" className="h-7 w-7" onClick={handleDownload} title="Download">
+              <Download className="h-4 w-4" />
+            </Button>
+          </div>
+        </DialogHeader>
+        <div className="flex-1 min-h-0 relative flex items-center justify-center bg-black/40 p-4">
+          {hasPrev && (
+            <Button variant="ghost" size="icon" className="absolute left-2 z-10 h-9 w-9 rounded-full bg-background/80 hover:bg-background"
+              onClick={goPrev}>
+              <ChevronLeft className="h-5 w-5" />
+            </Button>
+          )}
+          {isImage ? (
+            <img src={url} alt={name} className="max-w-full max-h-[70vh] object-contain rounded-lg select-none" />
+          ) : (
+            <audio src={url} controls className="w-full max-w-lg" />
+          )}
+          {hasNext && (
+            <Button variant="ghost" size="icon" className="absolute right-2 z-10 h-9 w-9 rounded-full bg-background/80 hover:bg-background"
+              onClick={goNext}>
+              <ChevronRight className="h-5 w-5" />
+            </Button>
+          )}
+        </div>
+        <div className="px-4 py-2 border-t flex items-center justify-between text-[10px] text-muted-foreground">
+          <span>{idx + 1} / {allAssets.length}</span>
+          <span>← → to navigate</span>
+        </div>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+function AssetsTab({ selectedService, jobs, onAddJob, nextJobId }: {
+  selectedService: string
   jobs: JobEntry[]
   onAddJob: (j: JobEntry[] | ((prev: JobEntry[]) => JobEntry[])) => void
   nextJobId: React.MutableRefObject<number>
@@ -493,36 +568,6 @@ function AssetsTab({ selectedService, selectedAsset, onCloseAsset, jobs, onAddJo
 
   const running = jobs.filter((j) => j.status === "running")
   const label = currentService?.label || currentTool?.description?.split("—")[0]?.trim() || selectedService
-
-  if (selectedAsset) {
-    const { url, name, mediaType, sizeBytes } = selectedAsset
-    const isImage = mediaType.startsWith("image/") || url.startsWith("data:image/")
-    return (
-      <div className="flex-1 p-6 flex justify-center">
-        <div className="w-full max-w-2xl">
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-base font-semibold">{name}</h2>
-            <Button variant="ghost" size="icon" className="h-7 w-7" onClick={onCloseAsset} title="Close (Esc)">
-              <X className="h-4 w-4" />
-            </Button>
-          </div>
-          <Card>
-            <CardContent className="p-4 flex items-center justify-center min-h-[300px]">
-              {isImage ? (
-                <img src={url} alt={name} className="max-w-full max-h-[70vh] object-contain rounded-lg" />
-              ) : (
-                <audio src={url} controls className="w-full" />
-              )}
-            </CardContent>
-          </Card>
-          <div className="mt-2 text-xs text-muted-foreground">
-            Size: {sizeBytes ? `${Math.round(sizeBytes / 1024)} KB` : "Unknown"}
-            {mediaType ? <> · Type: {mediaType}</> : null}
-          </div>
-        </div>
-      </div>
-    )
-  }
 
   if (!selectedService) {
     return (
