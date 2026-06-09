@@ -64,6 +64,7 @@ const CATEGORY_TO_GENRE: Record<string, string> = {
 
 const SERVICE_GENRE: Record<string, string> = {
   generate: "image", edit: "image", generate_character_sheet: "image",
+  generate_image: "image", pose_edit: "image", char_sheet: "image",
   ace_step: "audio", moss_soundeffect: "audio", generate_sound: "audio", generate_music: "audio",
   kokoro: "voice", espeak: "voice", index_tts: "voice", faster_qwen3_tts: "voice", tts_speak: "voice",
   kimodo: "motion", kimodo_demo: "motion", hy_motion: "motion", gemx: "motion",
@@ -71,9 +72,9 @@ const SERVICE_GENRE: Record<string, string> = {
 }
 
 const SERVICE_LABELS: Record<string, string> = {
-  generate: "Generate",
-  edit: "Edit",
-  generate_character_sheet: "Generate Character Sheet",
+  generate: "Generate", generate_image: "Generate",
+  edit: "Edit", pose_edit: "Edit",
+  generate_character_sheet: "Generate Character Sheet", char_sheet: "Generate Character Sheet",
   tts_speak: "Text to Speech",
   generate_sound: "Sound Effect",
   generate_music: "Music Gen",
