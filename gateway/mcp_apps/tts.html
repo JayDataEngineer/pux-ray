@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: system-ui, sans-serif; padding: 16px; background: #0a0a0a; color: #e5e5e5; font-size: 13px; }
+  .field { margin-bottom: 12px; }
+  label { display: block; font-size: 11px; color: #a3a3a3; margin-bottom: 4px; font-weight: 500; }
+  .desc { font-size: 10px; color: #71717a; margin-bottom: 4px; font-style: italic; }
+  select, input, textarea { width: 100%; padding: 8px; border-radius: 6px; border: 1px solid #333; background: #171717; color: #e5e5e5; font-size: 13px; font-family: inherit; }
+  textarea { min-height: 60px; resize: vertical; }
+  button { padding: 8px 20px; border-radius: 6px; border: none; background: #2563eb; color: #fff; font-size: 13px; cursor: pointer; font-weight: 500; }
+  button:hover { background: #1d4ed8; }
+  button:disabled { opacity: 0.5; cursor: not-allowed; }
+  .result { margin-top: 12px; display: none; }
+  audio { width: 100%; margin-top: 8px; border-radius: 6px; }
+  .error { color: #ef4444; font-size: 12px; }
+  .loading-text { color: #71717a; font-size: 12px; }
+  .badge { display: inline-block; font-size: 10px; padding: 1px 6px; border-radius: 4px; margin-left: 6px; }
+  .badge.gpu { background: #7c3aed; color: #e5e5e5; }
+  .badge.cpu { background: #16a34a; color: #fff; }
+  .hidden { display: none !important; }
+</style>
+</head>
+<body>
+  <div class="field">
+    <label>Engine</label>
+    <select id="engine"><option value="">Loading engines...</option></select>
+  </div>
+  <div id="dynamicFields"></div>
+  <button id="speakBtn" onclick="doSpeak()" disabled>Speak</button>
+  <div id="result" class="result"></div>
+
+<script>
+const bridge = window.__mcp || window.__MCP_BRIDGE || {
+  callTool: async (name, args) => {
+    const resp = await fetch('/mcp/wan2gp-studio/mcp', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Accept': 'application/json, text/event-stream' },
+      body: JSON.stringify({ jsonrpc: '2.0', id: Date.now(), method: 'tools/call', params: { name, arguments: args } }),
+    });
+    const text = await resp.text();
+    const dataLine = text.split('\n').find(l => l.startsWith('data: '));
+    if (dataLine) {
+      const msg = JSON.parse(dataLine.slice(6));
+      const content = msg.result?.content;
+      if (content?.[0]?.type === 'text') return JSON.parse(content[0].text);
+      return msg.result;
+    }
+    return JSON.parse(text).result;
+  }
+};
+
+let engines = [];
+let currentEngine = null;
+
+async function loadEngines() {
+  try {
+    const data = await bridge.callTool('tts_voices', {});
+    engines = data.engines || [];
+    renderEngineSelect();
+  } catch (e) {
+    document.getElementById('engine').innerHTML = '<option value="">Error loading engines</option>';
+  }
+}
+
+function renderEngineSelect() {
+  const sel = document.getElementById('engine');
+  sel.innerHTML = engines.map(e =>
+    `<option value="${e.id}">${e.label} <span class="badge ${e.gpu ? 'gpu' : 'cpu'}">${e.gpu ? 'GPU' : 'CPU'}</span></option>`
+  ).join('');
+  sel.value = engines[0]?.id || '';
+  onEngineChange();
+}
+
+function onEngineChange() {
+  const id = document.getElementById('engine').value;
+  currentEngine = engines.find(e => e.id === id);
+  renderDynamicFields();
+  document.getElementById('speakBtn').disabled = !currentEngine;
+}
+
+function renderDynamicFields() {
+  const container = document.getElementById('dynamicFields');
+  if (!currentEngine) { container.innerHTML = ''; return; }
+
+  // Description
+  let html = currentEngine.description
+    ? `<div class="desc">${currentEngine.description}</div>`
+    : '';
+
+  // Dynamic fields
+  const params = currentEngine.params || [];
+  for (const p of params) {
+    const fieldId = `field-${p.name}`;
+    html += `<div class="field" id="${fieldId}-wrapper">`;
+    html += `<label>${p.label}${p.required ? ' *' : ''}</label>`;
+    if (p.description) html += `<div class="desc">${p.description}</div>`;
+
+    if (p.type === 'select') {
+      html += `<select id="${fieldId}">`;
+      for (const opt of (p.options || [])) {
+        const sel = opt === p.default ? ' selected' : '';
+        html += `<option value="${opt}"${sel}>${opt}</option>`;
+      }
+      html += '</select>';
+    } else if (p.type === 'textarea') {
+      html += `<textarea id="${fieldId}" placeholder="${p.placeholder || ''}">${p.default || ''}</textarea>`;
+    } else {
+      html += `<input type="${p.type}" id="${fieldId}" placeholder="${p.placeholder || ''}" value="${p.default || ''}">`;
+    }
+
+    html += '</div>';
+  }
+
+  container.innerHTML = html;
+
+  // Apply show_when conditions after render
+  applyFieldConditions();
+}
+
+function applyFieldConditions() {
+  if (!currentEngine) return;
+  const params = currentEngine.params || [];
+  for (const p of params) {
+    const wrapper = document.getElementById(`field-${p.name}-wrapper`);
+    if (!wrapper) continue;
+
+    if (p.show_when) {
+      let visible = true;
+      for (const [key, val] of Object.entries(p.show_when)) {
+        const depField = document.getElementById(`field-${key}`);
+        const currentVal = depField ? depField.value : null;
+        if (currentVal !== val) { visible = false; break; }
+      }
+      wrapper.classList.toggle('hidden', !visible);
+    }
+  }
+
+  // Re-attach change listeners for conditional fields
+  for (const p of params) {
+    if (p.show_when) {
+      const depKeys = Object.keys(p.show_when);
+      for (const key of depKeys) {
+        const depField = document.getElementById(`field-${key}`);
+        if (depField && !depField.dataset.conditionalBound) {
+          depField.dataset.conditionalBound = '1';
+          depField.addEventListener('change', applyFieldConditions);
+        }
+      }
+    }
+  }
+}
+
+async function doSpeak() {
+  if (!currentEngine) return;
+  const result = document.getElementById('result');
+  result.style.display = 'block';
+  result.innerHTML = '<span class="loading-text">Synthesizing...</span>';
+  document.getElementById('speakBtn').disabled = true;
+
+  try {
+    // Collect all dynamic field values
+    const args = { engine: currentEngine.id };
+    const params = currentEngine.params || [];
+    for (const p of params) {
+      const field = document.getElementById(`field-${p.name}`);
+      if (field) args[p.name] = field.value;
+    }
+
+    const resp = await bridge.callTool('tts_speak', args);
+
+    if (resp.error || resp.status === 'error') {
+      throw new Error(resp.error || resp.result?.error || 'Unknown error');
+    }
+
+    const audio = resp.audio_url;
+    if (audio) {
+      result.innerHTML = `<audio controls autoplay src="${audio}"></audio>`;
+    } else {
+      // Try to extract audio from nested result
+      const nestedUrl = resp.result?.audio_url || resp.result?.url;
+      const nestedData = resp.result?.data;
+      if (nestedUrl) {
+        result.innerHTML = `<audio controls autoplay src="${nestedUrl}"></audio>`;
+      } else if (nestedData) {
+        const fmt = resp.result?.format || 'wav';
+        const mime = `audio/${fmt === 'opus' ? 'ogg' : fmt}`;
+        result.innerHTML = `<audio controls autoplay src="data:${mime};base64,${nestedData}"></audio>`;
+      } else {
+        result.innerHTML = `<pre style="font-size:11px;color:#71717a;max-height:200px;overflow:auto">${JSON.stringify(resp, null, 2)}</pre>`;
+      }
+    }
+  } catch (e) {
+    result.innerHTML = `<span class="error">${e.message}</span>`;
+  } finally {
+    document.getElementById('speakBtn').disabled = false;
+  }
+}
+
+document.getElementById('engine').addEventListener('change', onEngineChange);
+
+// Load engines on startup
+loadEngines();
+</script>
+</body>
+</html>

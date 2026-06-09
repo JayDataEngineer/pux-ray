@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: system-ui, sans-serif; background: #18181b; color: #e4e4e7; font-size: 13px; padding: 12px; }
+  h2 { font-size: 14px; font-weight: 600; margin-bottom: 8px; }
+  select, button, input, textarea { font-family: inherit; font-size: 12px; }
+  select { width: 100%; padding: 6px 8px; background: #27272a; color: #e4e4e7; border: 1px solid #3f3f46; border-radius: 6px; margin-bottom: 8px; }
+  button { padding: 6px 12px; background: #2563eb; color: white; border: none; border-radius: 6px; cursor: pointer; margin-right: 4px; }
+  button:disabled { opacity: 0.5; cursor: not-allowed; }
+  button.secondary { background: #3f3f46; }
+  button.danger { background: #dc2626; }
+  .steps { margin-top: 8px; }
+  .step { display: flex; align-items: center; gap: 8px; padding: 6px 0; border-bottom: 1px solid #27272a; }
+  .step:last-child { border-bottom: none; }
+  .badge { font-size: 10px; padding: 2px 6px; border-radius: 4px; font-weight: 500; }
+  .badge.completed { background: #16a34a; color: white; }
+  .badge.pending { background: #3f3f46; color: #a1a1aa; }
+  .badge.running { background: #2563eb; color: white; }
+  .badge.failed { background: #dc2626; color: white; }
+  .deps { font-size: 10px; color: #71717a; }
+  .actions { margin-top: 8px; display: flex; gap: 4px; flex-wrap: wrap; }
+  .run-info { margin-top: 8px; font-size: 11px; color: #71717a; }
+  code { color: #a1a1aa; }
+  .inputs { margin-top: 8px; }
+  .inputs label { display: block; font-size: 11px; color: #71717a; margin-bottom: 2px; }
+  .inputs input { width: 100%; padding: 4px 8px; background: #27272a; border: 1px solid #3f3f46; border-radius: 4px; color: #e4e4e7; margin-bottom: 6px; }
+  .loading { text-align: center; padding: 16px; color: #71717a; }
+</style>
+</head>
+<body>
+  <h2>Workflow Runner</h2>
+  <select id="specSelect"><option value="">Loading pipelines...</option></select>
+  <div id="specDetail"></div>
+  <div id="inputsArea" class="inputs" style="display:none"></div>
+  <div class="actions">
+    <button id="startBtn" disabled>Start Run</button>
+    <button id="refreshBtn" class="secondary" style="display:none">Refresh</button>
+    <button id="newRunBtn" class="secondary" style="display:none">New Run</button>
+  </div>
+  <div id="stepsArea" class="steps" style="display:none"></div>
+  <div id="runInfo" class="run-info" style="display:none"></div>
+
+<script>
+const bridge = window.__MCP_BRIDGE || {
+  callTool: async (name, args) => {
+    const resp = await fetch('/mcp/wan2gp-studio/mcp', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Accept': 'application/json, text/event-stream' },
+      body: JSON.stringify({ jsonrpc: '2.0', id: Date.now(), method: 'tools/call', params: { name, arguments: args } }),
+    });
+    const text = await resp.text();
+    const dataLine = text.split('\n').find(l => l.startsWith('data: '));
+    const msg = JSON.parse(dataLine.slice(6));
+    const content = msg.result?.content;
+    if (content?.[0]?.type === 'text') return JSON.parse(content[0].text);
+    return msg.result;
+  }
+};
+
+const specSelect = document.getElementById('specSelect');
+const specDetail = document.getElementById('specDetail');
+const inputsArea = document.getElementById('inputsArea');
+const startBtn = document.getElementById('startBtn');
+const refreshBtn = document.getElementById('refreshBtn');
+const newRunBtn = document.getElementById('newRunBtn');
+const stepsArea = document.getElementById('stepsArea');
+const runInfo = document.getElementById('runInfo');
+let currentRunId = null;
+let currentSpec = null;
+
+async function loadSpecs() {
+  const data = await bridge.callTool('workflow_list_specs', {});
+  const specs = Array.isArray(data) ? data : (data?.data || []);
+  specSelect.innerHTML = '';
+  specs.forEach(s => {
+    const opt = document.createElement('option');
+    opt.value = s.name;
+    opt.textContent = `${s.name} (${s.steps} steps)`;
+    specSelect.appendChild(opt);
+  });
+  if (specs.length > 0) {
+    startBtn.disabled = false;
+    loadSpecDetail(specs[0].name);
+  }
+}
+
+async function loadSpecDetail(name) {
+  currentSpec = name;
+  currentRunId = null;
+  const spec = await bridge.callTool('workflow_get_spec', { spec_name: name });
+  specDetail.innerHTML = `<p style="color:#a1a1aa;font-size:11px;margin-bottom:4px">${spec.description || ''}</p>`;
+  // Input fields
+  const inputs = spec.inputs || {};
+  inputsArea.innerHTML = '';
+  if (Object.keys(inputs).length > 0) {
+    inputsArea.style.display = 'block';
+    for (const [key, schema] of Object.entries(inputs)) {
+      inputsArea.innerHTML += `<label>${key}</label><input id="input-${key}" placeholder="${key}" />`;
+    }
+  } else {
+    inputsArea.style.display = 'none';
+  }
+  // Steps preview
+  stepsArea.style.display = 'none';
+  refreshBtn.style.display = 'none';
+  newRunBtn.style.display = 'none';
+  runInfo.style.display = 'none';
+  startBtn.style.display = '';
+  startBtn.disabled = false;
+}
+
+async function startRun() {
+  if (!currentSpec) return;
+  startBtn.disabled = true;
+  const inputs = {};
+  inputsArea.querySelectorAll('input').forEach(inp => {
+    const key = inp.id.replace('input-', '');
+    if (inp.value) inputs[key] = inp.value;
+  });
+  const result = await bridge.callTool('workflow_start_run', { spec_name: currentSpec, inputs, manual: true });
+  if (result.run_id) {
+    currentRunId = result.run_id;
+    startBtn.style.display = 'none';
+    refreshBtn.style.display = '';
+    newRunBtn.style.display = '';
+    await refreshRun();
+  } else {
+    specDetail.innerHTML += `<p style="color:#dc2626;font-size:11px">Error: ${result.error || 'Failed to start'}</p>`;
+    startBtn.disabled = false;
+  }
+}
+
+async function refreshRun() {
+  if (!currentSpec || !currentRunId) return;
+  const run = await bridge.callTool('workflow_get_run', { spec_name: currentSpec, run_id: currentRunId });
+  renderSteps(run);
+  runInfo.style.display = 'block';
+  runInfo.innerHTML = `Run: <code>${currentRunId}</code> | Status: ${run.status || 'unknown'}`;
+}
+
+async function executeStep(stepId) {
+  if (!currentSpec || !currentRunId) return;
+  stepsArea.querySelectorAll('button').forEach(b => b.disabled = true);
+  await bridge.callTool('workflow_execute_step', { spec_name: currentSpec, run_id: currentRunId, step_id: stepId });
+  await refreshRun();
+}
+
+async function rerunStep(stepId) {
+  if (!currentSpec || !currentRunId) return;
+  stepsArea.querySelectorAll('button').forEach(b => b.disabled = true);
+  await bridge.callTool('workflow_rerun_step', { spec_name: currentSpec, run_id: currentRunId, step_id: stepId });
+  await refreshRun();
+}
+
+function renderSteps(run) {
+  const spec = run.spec || {};
+  const steps = spec.steps || [];
+  const stepStates = {};
+  (run.steps || []).forEach(s => { stepStates[s.id] = s.status; });
+  stepsArea.style.display = 'block';
+  stepsArea.innerHTML = steps.map(step => {
+    const status = stepStates[step.id] || 'pending';
+    return `<div class="step">
+      <span class="badge ${status}">${status}</span>
+      <span>${step.id}</span>
+      ${step.depends_on?.length ? `<span class="deps">← ${step.depends_on.join(', ')}</span>` : ''}
+      <span style="margin-left:auto;display:flex;gap:4px">
+        ${currentRunId ? `<button class="secondary" style="font-size:10px;padding:3px 8px" onclick="executeStep('${step.id}')">Run</button>` : ''}
+        ${status === 'completed' ? `<button class="danger" style="font-size:10px;padding:3px 8px" onclick="rerunStep('${step.id}')">Rerun</button>` : ''}
+      </span>
+    </div>`;
+  }).join('');
+}
+
+specSelect.addEventListener('change', () => loadSpecDetail(specSelect.value));
+startBtn.addEventListener('click', startRun);
+refreshBtn.addEventListener('click', refreshRun);
+newRunBtn.addEventListener('click', () => { currentRunId = null; loadSpecDetail(currentSpec); });
+
+loadSpecs();
+</script>
+</body>
+</html>
