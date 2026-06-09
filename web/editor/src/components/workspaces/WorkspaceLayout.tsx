@@ -55,18 +55,22 @@ function ttsVisibleFields(engine: string, allFields: FieldDef[]): FieldDef[] {
 
 const GENRE_ORDER = ["image", "audio", "voice", "motion", "3d"]
 
-const GENRE_ICONS: Record<string, string> = { image: "◎", audio: "♪", voice: "🎤", motion: "↝", "3d": "◆" }
+const GENRE_ORDER = ["image", "audio", "motion", "3d"]
+
+const GENRE_ICONS: Record<string, string> = { image: "◎", audio: "♪", motion: "↝", "3d": "◆" }
 
 // Map backend category → genre for sidebar grouping
 const CATEGORY_TO_GENRE: Record<string, string> = {
-  tts: "voice", asr: "voice", audio: "audio", motion: "motion", "3d": "3d",
+  audio: "audio", motion: "motion", "3d": "3d",
 }
 
 const SERVICE_GENRE: Record<string, string> = {
   generate: "image", edit: "image", generate_character_sheet: "image",
   generate_image: "image", pose_edit: "image", char_sheet: "image",
-  ace_step: "audio", moss_soundeffect: "audio", generate_sound: "audio", generate_music: "audio",
-  kokoro: "voice", espeak: "voice", index_tts: "voice", faster_qwen3_tts: "voice", tts_speak: "voice",
+  generate_music: "audio", ace_step: "audio",
+  generate_sound: "audio", moss_soundeffect: "audio",
+  tts_speak: "audio",
+  moss_voicegenerator: "audio", moss_tts: "audio",
   kimodo: "motion", kimodo_demo: "motion", hy_motion: "motion", gemx: "motion",
   trellis: "3d", anigen: "3d", body_mesh: "3d",
 }
@@ -75,15 +79,10 @@ const SERVICE_LABELS: Record<string, string> = {
   generate: "Generate", generate_image: "Generate",
   edit: "Edit", pose_edit: "Edit",
   generate_character_sheet: "Character Sheet", char_sheet: "Character Sheet",
+  generate_music: "Music", ace_step: "Music",
+  generate_sound: "Sound Effect", moss_soundeffect: "Sound Effect",
   tts_speak: "Text to Speech",
-  generate_sound: "Sound Effect",
-  generate_music: "Music Gen",
-  ace_step: "ACE-Step",
-  moss_soundeffect: "MOSS SFX",
-  kokoro: "Kokoro TTS",
-  espeak: "eSpeak TTS",
-  index_tts: "IndexTTS",
-  faster_qwen3_tts: "Qwen3 TTS",
+  moss_voicegenerator: "Voice Creator", moss_tts: "Voice Creator",
   kimodo: "Kimodo Motion",
   kimodo_demo: "Kimodo Demo",
   hy_motion: "HY-Motion",
@@ -97,6 +96,7 @@ const SERVICE_LABELS: Record<string, string> = {
 const HIDDEN_SERVICES = new Set([
   "z_image", "wan2gp", "comfyui", "llm", "faster_whisper", "vibevoice_asr",
   "see_through", "nvidia_upscale", "dwpose", "lance", "kohya", "avatar",
+  "kokoro", "espeak", "index_tts", "faster_qwen3_tts",
 ])
 
 function extractCommonParams(desc: string): FieldDef[] {
@@ -261,11 +261,18 @@ function ServicesSidebar({ selected, onSelect }: { selected: string; onSelect: (
     return CATEGORY_TO_GENRE[cat] || ""
   }
 
-  // Group by genre
-  const grouped = GENRE_ORDER.map((genre) => ({
-    genre,
-    items: allItems.filter((s) => getGenre(s) === genre),
-  })).filter((g) => g.items.length > 0)
+  // Group by genre, deduplicate by label
+  const grouped = GENRE_ORDER.map((genre) => {
+    const genreItems = allItems.filter((s) => getGenre(s) === genre)
+    const seen = new Set<string>()
+    const unique = genreItems.filter((item) => {
+      const label = getLabel(item)
+      if (seen.has(label)) return false
+      seen.add(label)
+      return true
+    })
+    return { genre, items: unique }
+  }).filter((g) => g.items.length > 0)
 
   return (
     <div className="w-56 border-l bg-sidebar text-sidebar-foreground flex flex-col shrink-0">
