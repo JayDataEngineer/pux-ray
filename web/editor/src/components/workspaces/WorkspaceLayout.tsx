@@ -74,7 +74,7 @@ const SERVICE_GENRE: Record<string, string> = {
 const SERVICE_LABELS: Record<string, string> = {
   generate: "Generate", generate_image: "Generate",
   edit: "Edit", pose_edit: "Edit",
-  generate_character_sheet: "Generate Character Sheet", char_sheet: "Generate Character Sheet",
+  generate_character_sheet: "Character Sheet", char_sheet: "Character Sheet",
   tts_speak: "Text to Speech",
   generate_sound: "Sound Effect",
   generate_music: "Music Gen",
