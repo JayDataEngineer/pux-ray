@@ -72,7 +72,7 @@ _MODEL_PRESETS: dict[str, dict] = {
 _MODEL_CHOICES = list(_MODEL_PRESETS.keys())
 
 
-async def generate_image(
+async def generate(
     model: Annotated[str, Field(
         description=f"Model to use.",
         enum=_MODEL_CHOICES,

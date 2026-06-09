@@ -55,12 +55,34 @@ function ttsVisibleFields(engine: string, allFields: FieldDef[]): FieldDef[] {
 
 const GENRE_ORDER = ["image", "audio", "voice", "motion"]
 
+const GENRE_ICONS: Record<string, string> = { image: "◎", audio: "♪", voice: "🎤", motion: "↝" }
+
 const SERVICE_GENRE: Record<string, string> = {
   ace_step: "audio", moss_soundeffect: "audio",
   kokoro: "voice", espeak: "voice", index_tts: "voice", faster_qwen3_tts: "voice",
   generate_sound: "audio", generate_music: "audio", tts_speak: "voice",
-  generate_image: "image", char_sheet: "image", pose_edit: "image", clone_character: "image",
+  generate: "image", generate_character_sheet: "image", edit: "image", clone_character: "image",
   kimodo: "motion", kimodo_demo: "motion", hy_motion: "motion", gemx: "motion",
+}
+
+const SERVICE_LABELS: Record<string, string> = {
+  generate: "Generate",
+  edit: "Edit",
+  generate_character_sheet: "Generate Character Sheet",
+  clone_character: "Clone Character",
+  tts_speak: "Text to Speech",
+  generate_sound: "Sound Effect",
+  generate_music: "Music Gen",
+  ace_step: "ACE-Step Music",
+  moss_soundeffect: "MOSS SFX",
+  kokoro: "Kokoro TTS",
+  espeak: "eSpeak TTS",
+  index_tts: "IndexTTS",
+  faster_qwen3_tts: "Qwen3 TTS",
+  kimodo: "Kimodo Motion",
+  kimodo_demo: "Kimodo Demo",
+  hy_motion: "HY-Motion",
+  gemx: "GEM-X Pose",
 }
 
 // Services covered by a dedicated MCP tool — hide from sidebar to avoid duplicates
@@ -209,7 +231,6 @@ function GpuStatus() {
 function ServicesSidebar({ selected, onSelect }: { selected: string; onSelect: (n: string) => void }) {
   const [tools, setTools] = useState<MCPTool[]>([])
   const [services, setServices] = useState<{ name: string; label: string; category: string }[]>([])
-  const [genre, setGenre] = useState("image")
 
   useEffect(() => {
     listTools().then(setTools).catch(() => {})
@@ -220,33 +241,67 @@ function ServicesSidebar({ selected, onSelect }: { selected: string; onSelect: (
     ...tools.filter((t) => !["run","list_models","list_services","get_service","forge_status","load_service","unload_services","tts_voices","chat","transcribe","llm_configure"].includes(t.name) && !t.name.startsWith("workflow_")),
     ...services.filter((s) => !tools.find((t) => t.name === s.name) && !COVERED_SERVICES.has(s.name)),
   ]
-  const items = allItems.filter((s) => SERVICE_GENRE[("name" in s ? (s as any).name : (s as any).name)] === genre)
+
+  const getLabel = (item: MCPTool | { name: string; label: string }) => {
+    const name = ("name" in item) ? (item as any).name : ""
+    if (SERVICE_LABELS[name]) return SERVICE_LABELS[name]
+    if ("label" in item && (item as any).label && (item as any).label !== name) return (item as any).label
+    return name.replace(/_/g, " ").replace(/\b\w/g, (c: string) => c.toUpperCase())
+  }
+
+  // Group by genre
+  const grouped = GENRE_ORDER.map((genre) => ({
+    genre,
+    items: allItems.filter((s) => SERVICE_GENRE[("name" in s ? (s as any).name : (s as any).name)] === genre),
+  })).filter((g) => g.items.length > 0)
+
+  // Also add items with no genre mapping
+  const ungrouped = allItems.filter((s) => {
+    const name = ("name" in s ? (s as any).name : (s as any).name) as string
+    return !SERVICE_GENRE[name]
+  })
 
   return (
     <div className="w-56 border-l bg-sidebar text-sidebar-foreground flex flex-col shrink-0">
       <div className="p-2 border-b">
         <span className="text-xs font-semibold">Services</span>
       </div>
-      <div className="flex border-b text-xs">
-        {GENRE_ORDER.map((g) => (
-          <button key={g} onClick={() => setGenre(g)}
-            className={`flex-1 py-1.5 text-center font-medium transition-colors ${genre === g ? "bg-sidebar-accent text-sidebar-accent-foreground" : "text-sidebar-foreground/60 hover:text-sidebar-foreground"}`}>
-            {g}
-          </button>
+      <div className="flex-1 overflow-y-auto scrollbar-thin p-1.5">
+        {grouped.map(({ genre, items }) => (
+          <div key={genre} className="mb-2">
+            <div className="flex items-center gap-1.5 px-1.5 py-1 text-[10px] font-semibold uppercase tracking-wider text-sidebar-foreground/40">
+              <span>{GENRE_ICONS[genre]}</span>
+              <span>{genre}</span>
+            </div>
+            {items.map((item) => {
+              const name = ("name" in item ? (item as any).name : (item as any).name) as string
+              const label = getLabel(item)
+              return (
+                <button key={name} onClick={() => onSelect(name)}
+                  className={`w-full flex items-center gap-2 px-2 py-1.5 rounded text-xs text-left transition-colors ${selected === name ? "bg-sidebar-accent text-sidebar-accent-foreground" : "hover:bg-sidebar-accent/50"}`}>
+                  <Wand2 className="h-3 w-3 shrink-0 opacity-50" />
+                  <span className="truncate">{label}</span>
+                </button>
+              )
+            })}
+          </div>
         ))}
-      </div>
-      <div className="flex-1 overflow-y-auto scrollbar-thin p-1.5 space-y-0.5">
-        {items.map((item) => {
-          const name = "name" in item ? (item as any).name : (item as any).name
-          const label = "label" in item ? (item as any).label : name
-          return (
-            <button key={name} onClick={() => onSelect(name)}
-              className={`w-full flex items-center gap-2 px-2 py-1.5 rounded text-xs text-left transition-colors ${selected === name ? "bg-sidebar-accent text-sidebar-accent-foreground" : "hover:bg-sidebar-accent/50"}`}>
-              <Wand2 className="h-3 w-3 shrink-0" />
-              <span className="truncate">{label}</span>
-            </button>
-          )
-        })}
+        {ungrouped.length > 0 && (
+          <div className="mb-2">
+            <div className="px-1.5 py-1 text-[10px] font-semibold uppercase tracking-wider text-sidebar-foreground/40">Other</div>
+            {ungrouped.map((item) => {
+              const name = ("name" in item ? (item as any).name : (item as any).name) as string
+              const label = getLabel(item)
+              return (
+                <button key={name} onClick={() => onSelect(name)}
+                  className={`w-full flex items-center gap-2 px-2 py-1.5 rounded text-xs text-left transition-colors ${selected === name ? "bg-sidebar-accent text-sidebar-accent-foreground" : "hover:bg-sidebar-accent/50"}`}>
+                  <Wand2 className="h-3 w-3 shrink-0 opacity-50" />
+                  <span className="truncate">{label}</span>
+                </button>
+              )
+            })}
+          </div>
+        )}
       </div>
     </div>
   )
@@ -505,7 +560,7 @@ function AssetsTab({ selectedService, selectedAsset, onCloseAsset, jobs, onAddJo
               <div key={f.name} className="space-y-1" onDragOver={(e) => e.preventDefault()} onDrop={handleDrop}>
                 <div className="flex items-center gap-1">
                   <Label className="text-xs text-muted-foreground capitalize">{f.label}</Label>
-                  {selectedService === "pose_edit" && f.name === "pose_image_b64" && (
+                  {selectedService === "edit" && f.name === "pose_image_b64" && (
                     <button type="button"
                       onClick={() => setKimodoOpen(true)}
                       className="inline-flex items-center gap-1 text-[10px] text-primary hover:underline ml-auto">

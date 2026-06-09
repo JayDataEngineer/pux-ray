@@ -13,7 +13,7 @@ from fastmcp import Context
 from pydantic import Field
 
 
-async def char_sheet(
+async def generate_character_sheet(
     prompt: Annotated[str, Field(
         description="Text description override. If provided, this is used as the "
                     "full prompt instead of building one from the character attributes.",
@@ -119,72 +119,82 @@ async def char_sheet(
     return await client.invoke({"pipeline": "vnccs/char-sheet", "params": params})
 
 
-async def pose_edit(
-    character_image_b64: Annotated[str, Field(
-        description="Base64-encoded character image to re-pose. The character's "
-                    "identity and clothing are preserved while matching the target pose.",
-    )],
-    pose_image_b64: Annotated[str, Field(
-        description="Base64-encoded pose reference image (image1 in QWEN). "
-                    "Generate one with Kimodo (motion tab) or upload a reference photo. "
-                    "DWPose extracts the skeleton from this image.",
+async def edit(
+    image_b64: Annotated[str, Field(
+        description="Base64-encoded source image to edit. The character's "
+                    "identity and appearance are preserved.",
     )],
     prompt: Annotated[str, Field(
-        description="QWEN prompt text. The original VNCCS prompt_template is "
-                    "'Draw character from image2\\n<lighting>\\n<user_prompt>'. "
-                    "Include any lighting or custom instructions here.",
+        description="Edit instruction. Describe what to change. "
+                    "For pose edits: 'Draw character from image2'. "
+                    "For general edits: describe the desired change.",
     )] = "Draw character from image2",
+    pose_image_b64: Annotated[str | None, Field(
+        description="Base64-encoded pose reference image. When provided, uses "
+                    "the VNCCS Pose Studio pipeline (DWPose skeleton extraction + "
+                    "QWEN with PoseStudio LoRA). When omitted, performs a standard "
+                    "QWEN image edit using just the prompt. Generate a pose image "
+                    "with Kimodo (motion tab) or upload a reference photo.",
+    )] = None,
     lighting_prompt: Annotated[str, Field(
-        description="Lighting description appended after the main prompt. "
-                    "In the original VNCCS workflow, VNCCS_PoseStudio auto-generated "
-                    "this from the mesh camera angle (e.g. 'soft ambient lighting from "
-                    "above-left, warm rim light'). Manually provide or leave empty.",
+        description="Lighting description appended after the main prompt.",
     )] = "",
     user_prompt: Annotated[str, Field(
-        description="Custom user text appended to the prompt. "
-                    "Matches the <user_prompt> placeholder in the VNCCS prompt_template.",
+        description="Custom user text appended to the prompt.",
     )] = "",
     lora_name: Annotated[str, Field(
-        description="VNCCS PoseStudio LoRA filename. Original workflow uses "
-                    "VNCCS_PoseStudioQIE2511_V1 or V2 from MIUProject/VNCCS_PoseStudio. "
-                    "Selected by VNCCS_ModelSelector + LoraLoaderModelOnly nodes.",
+        description="VNCCS PoseStudio LoRA filename (only used when pose_image_b64 is provided).",
     )] = "VNCCS/VNCCS_PoseStudioQIE2511_V2.safetensors",
     lora_strength: Annotated[float, Field(
-        description="PoseStudio LoRA strength (0-2). Original LoraLoaderModelOnly "
-                    "node default is 1.0.",
+        description="PoseStudio LoRA strength (0-2). Only used with pose_image_b64.",
     )] = 1.0,
     sampling_steps: Annotated[int, Field(
-        description="QWEN sampling steps. Original KSampler node uses 4 "
-                    "(lightning LoRA mode).",
+        description="QWEN sampling steps.",
     )] = 4,
     guide_scale: Annotated[float, Field(
-        description="CFG guidance scale. Original KSampler node uses 1.0.",
+        description="CFG guidance scale.",
     )] = 1.0,
     seed: Annotated[int, Field(
         description="Random seed for reproducibility. -1 for random.",
     )] = -1,
     ctx: Context | None = None,
 ) -> dict:
-    """Re-pose a character using the VNCCS Pose Studio QWEN workflow.
+    """Edit an image — dynamically selects the best pipeline.
 
-    Routes through the DAG workflow engine (vnccs_pose_edit.yaml), NOT through
-    a custom ComfyUI port. The DAG orchestrates:
-      1. DWPose extracts skeleton overlay from the pose reference image
-      2. QWEN-Image-Edit with VNCCS PoseStudio LoRA generates the posed character
-         image1 = pose reference (from Kimodo or upload)
-         image2 = character to re-pose
-         image3 = DWPose skeleton overlay
+    When a pose/mannequin/mesh reference image is provided (pose_image_b64),
+    uses the VNCCS Pose Studio pipeline for accurate character re-posing with
+    skeleton extraction and PoseStudio LoRA.
 
-    Matches the original VNCCS_Utils Pose Studio QWEN ComfyUI workflow:
-      - VNCCS_ModelSelector + LoraLoaderModelOnly -> LoRA selection + strength
-      - VNCCS_PoseStudio -> replaced by Kimodo for pose reference generation
-      - DWPreprocessor -> skeleton extraction
-      - QWEN KSampler -> 4-step lightning generation
+    When no pose reference is provided, performs a standard QWEN image edit
+    using just the text prompt — ideal for style changes, outfit swaps,
+    background edits, and general image-to-image modifications.
 
     Returns base64-encoded image data.
     """
     if ctx is None:
         raise RuntimeError("No MCP context available")
+
+    # ── No pose reference: plain QWEN image edit ──
+    if not pose_image_b64:
+        client = ctx.lifespan_context.get("forge_client")
+        if client is None:
+            raise RuntimeError("API client not initialized")
+
+        assembled_prompt = prompt
+        if user_prompt:
+            assembled_prompt += f"\n{user_prompt}"
+
+        return await client.invoke({
+            "service": "wan2gp",
+            "model": "qwen-image-edit",
+            "input_prompt": assembled_prompt,
+            "image_b64": image_b64,
+            "sampling_steps": sampling_steps,
+            "guide_scale": guide_scale,
+            "seed": seed,
+        })
+
+    # ── Pose reference provided: VNCCS Pose Studio pipeline ──
     wf = ctx.lifespan_context.get("workflow_client")
     if wf is None:
         raise RuntimeError("Workflow client not initialized")
@@ -197,7 +207,7 @@ async def pose_edit(
         assembled_prompt += f"\n{user_prompt}"
 
     dag_inputs: dict[str, Any] = {
-        "character_image": character_image_b64,
+        "character_image": image_b64,
         "pose_image": pose_image_b64,
         "prompt": assembled_prompt,
         "lora_name": lora_name,
