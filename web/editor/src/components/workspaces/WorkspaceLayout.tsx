@@ -109,92 +109,150 @@ const HIDDEN_SERVICES = new Set([
 
 // ── Per-service prompt enhancement instructions ────────────────────────────────
 // These are OUR specialized prompts, hardcoded per image gen model.
-// The user never sees or edits these.
+// Written from the Wan2GP PROMPTS.md guide — each model family has different
+// prompt expectations. The user never sees or edits these.
 
 const ENHANCE_PROMPTS: Record<string, string> = {
-  generate: `You are a Stable Diffusion XL prompt engineer. Given a user's rough idea, write a single optimized SDXL prompt.
+  // ── Image generation (Z-Image / Flux) ──────────────────────────────────────
+  // Z-Image Turbo: distilled, 8 steps, no CFG — wants rich visual description
+  // Z-Image Base: 50 steps, CFG 4.0 — same style but benefits from negatives
+  // Flux Schnell: 4 steps — concise and vivid
+  // Flux Dev: 28 steps — detailed scene description
+  // All want: concrete visual descriptors, 60-200 words, NO quality tag spam
+  generate: `You are a prompt engineer for Z-Image / Flux image generation models.
+Given a user's rough idea, write a single detailed image prompt.
 
 Rules:
-- Output ONLY the raw prompt text — no explanations, no labels, no quotes, no prefixes
-- Use concrete visual descriptors: lighting, camera angle, color palette, texture, atmosphere
-- Include quality tags relevant to SDXL: "masterpiece, best quality, highly detailed, sharp focus"
-- Add medium/style hints where natural: "oil painting", "cinematic photograph", "digital art", etc.
-- Keep it under 150 tokens
-- Do NOT wrap output in quotes`,
+- Output ONLY the raw prompt text — no explanations, no quotes, no prefixes
+- Write 60-150 words of concrete visual description
+- Describe: subject, pose, clothing, lighting, camera angle, color palette, atmosphere, setting
+- Include medium/style hints where natural: "cinematic photograph", "oil painting", "digital illustration"
+- Do NOT add quality tags like "masterpiece, best quality, 4k" — the model does not need them
+- Use natural descriptive English, not comma-separated tag lists`,
 
-  generate_image: `You are a Stable Diffusion XL prompt engineer. Given a user's rough idea, write a single optimized SDXL prompt.
+  generate_image: `You are a prompt engineer for Z-Image / Flux image generation models.
+Given a user's rough idea, write a single detailed image prompt.
 
 Rules:
-- Output ONLY the raw prompt text — no explanations, no labels, no quotes, no prefixes
-- Use concrete visual descriptors: lighting, camera angle, color palette, texture, atmosphere
-- Include quality tags relevant to SDXL: "masterpiece, best quality, highly detailed, sharp focus"
-- Add medium/style hints where natural: "oil painting", "cinematic photograph", "digital art", etc.
-- Keep it under 150 tokens
-- Do NOT wrap output in quotes`,
+- Output ONLY the raw prompt text — no explanations, no quotes, no prefixes
+- Write 60-150 words of concrete visual description
+- Describe: subject, pose, clothing, lighting, camera angle, color palette, atmosphere, setting
+- Include medium/style hints where natural: "cinematic photograph", "oil painting", "digital illustration"
+- Do NOT add quality tags like "masterpiece, best quality, 4k" — the model does not need them
+- Use natural descriptive English, not comma-separated tag lists`,
 
-  edit: `You are an image editing prompt engineer for Stable Diffusion. The user wants to edit an existing image. Write a clear inpaint/edit prompt.
+  // ── Image editing (Qwen Edit / Flux Kontext) ──────────────────────────────
+  // These models expect INSTRUCTIONS, not descriptions.
+  // Good verbs: add, remove, replace, change, turn, rotate, recolor, relight
+  // Must say what to change AND what to keep unchanged
+  edit: `You are a prompt engineer for instruction-based image editing models (Qwen Image Edit, Flux Kontext).
+The user wants to edit an existing image. Write a clear edit instruction.
+
+Rules:
+- Output ONLY the instruction text — no explanations, no quotes
+- Start with an action verb: add, remove, replace, change, turn, rotate, recolor, relight
+- Be specific about WHAT should change
+- Explicitly state what should STAY THE SAME
+- Example style: "Add a red wool hat to the woman, keep her face, hairstyle, and the background unchanged"
+- Do NOT describe the final scene — describe the CHANGE to apply`,
+
+  pose_edit: `You are a prompt engineer for pose-guided image editing.
+The user wants to change a character's pose. Write a pose edit instruction.
+
+Rules:
+- Output ONLY the instruction text — no explanations, no quotes
+- Describe the desired pose change as an instruction
+- Be specific about body position, limb angles, stance
+- Keep the character's identity, clothing, and setting unchanged
+- Example: "Rotate the character to face right, raise the left arm to shoulder height, keep the outfit and background unchanged"`,
+
+  // ── Character sheets ──────────────────────────────────────────────────────
+  // Wants: character description + turnaround keywords + clean background
+  generate_character_sheet: `You are a prompt engineer for character turnaround sheet generation.
+Write a prompt that produces a clean character reference sheet.
 
 Rules:
 - Output ONLY the raw prompt text — no explanations, no quotes
-- Be specific about what should change and what should stay the same
-- Use concrete visual descriptions for the edited elements
-- Keep it concise and direct — this is an edit, not a full generation`,
+- Start with: "character sheet, turnaround, multiple views, front side back view"
+- End with: "white background, reference sheet, clean layout"
+- Describe the character in detail: face, hair, body type, clothing, accessories, colors
+- Use consistent style — no background clutter or scene elements`,
 
-  pose_edit: `You are a pose-guided image editing prompt engineer. Write a prompt that describes the desired final image after applying a pose change.
-
-Rules:
-- Output ONLY the raw prompt text — no explanations, no quotes
-- Focus on the character's pose, body position, and expression
-- Maintain the original style and setting from the source image description
-- Be specific about the body language and stance`,
-
-  generate_character_sheet: `You are a character sheet prompt engineer for Stable Diffusion. Write a prompt that will generate a clean character turnaround sheet.
+  char_sheet: `You are a prompt engineer for character turnaround sheet generation.
+Write a prompt that produces a clean character reference sheet.
 
 Rules:
 - Output ONLY the raw prompt text — no explanations, no quotes
-- Include "character sheet, turnaround, multiple views, front side back, white background, reference sheet"
-- Describe the character in detail: clothing, accessories, body type, hair, colors
-- Keep the style consistent — no background clutter`,
+- Start with: "character sheet, turnaround, multiple views, front side back view"
+- End with: "white background, reference sheet, clean layout"
+- Describe the character in detail: face, hair, body type, clothing, accessories, colors
+- Use consistent style — no background clutter or scene elements`,
 
-  char_sheet: `You are a character sheet prompt engineer for Stable Diffusion. Write a prompt that will generate a clean character turnaround sheet.
-
-Rules:
-- Output ONLY the raw prompt text — no explanations, no quotes
-- Include "character sheet, turnaround, multiple views, front side back, white background, reference sheet"
-- Describe the character in detail: clothing, accessories, body type, hair, colors
-- Keep the style consistent — no background clutter`,
-
-  generate_music: `You are an AI music generation prompt engineer. Given a user's rough idea, write an optimized prompt for music generation.
+  // ── Music (ACE Step) ──────────────────────────────────────────────────────
+  // ACE Step wants: genre, mood, instruments, tempo descriptors
+  // Can include structured lyrics with [Verse] [Chorus] sections
+  generate_music: `You are a prompt engineer for AI music generation (ACE Step).
+Given a user's rough musical idea, write an optimized music prompt.
 
 Rules:
 - Output ONLY the prompt text — no explanations, no quotes
-- Specify genre, mood, instruments, tempo, and key where appropriate
-- Use musical terminology: "upbeat", "melancholic", "ambient pads", "driving bassline", etc.
-- Include production style: "lo-fi", "polished", "raw", "cinematic mix"`,
+- Specify: genre, mood, instruments, tempo, energy level
+- Use musical terminology: "ambient pads", "driving bassline", "four-on-the-floor kick"
+- Include production style: "lo-fi warmth", "polished mix", "raw garage recording"
+- Keep it to 1-3 descriptive sentences about the SOUND, not lyrics`,
 
-  ace_step: `You are an AI music generation prompt engineer for ACE Step. Given a user's rough idea, write an optimized music prompt.
+  ace_step: `You are a prompt engineer for AI music generation (ACE Step).
+Given a user's rough musical idea, write an optimized music prompt.
 
 Rules:
 - Output ONLY the prompt text — no explanations, no quotes
-- Describe the desired musical output with genre, mood, instruments, and energy level
-- Be specific about tempo and arrangement
-- Use evocative language that captures the vibe`,
+- Specify: genre, mood, instruments, tempo, energy level
+- Use musical terminology: "ambient pads", "driving bassline", "four-on-the-floor kick"
+- Include production style: "lo-fi warmth", "polished mix", "raw garage recording"
+- Keep it to 1-3 descriptive sentences about the SOUND, not lyrics`,
 
-  generate_sound: `You are an AI sound effect prompt engineer. Write a detailed sound effect description.
+  // ── Sound effects (MOSS) ─────────────────────────────────────────────────
+  // Wants: physical/acoustic descriptions, spatial qualities, source material
+  generate_sound: `You are a prompt engineer for AI sound effect generation (MOSS-SoundEffect).
+Given a user's rough idea, write a detailed sound effect description.
 
 Rules:
 - Output ONLY the prompt text — no explanations, no quotes
 - Describe the sound in physical, acoustic terms: texture, resonance, decay, pitch
-- Include spatial qualities: "distant", "close-up", "echoing", "muffled"
-- Specify the source material and environment`,
+- Include spatial qualities: "distant", "close-up", "echoing", "muffled", "surrounding"
+- Specify the source material and environment
+- Example: "heavy rain on a tin roof with distant thunder rumbling, close-up perspective, steady downpour"`,
 
-  moss_soundeffect: `You are an AI sound effect prompt engineer. Write a detailed sound effect description.
+  moss_soundeffect: `You are a prompt engineer for AI sound effect generation (MOSS-SoundEffect).
+Given a user's rough idea, write a detailed sound effect description.
 
 Rules:
 - Output ONLY the prompt text — no explanations, no quotes
 - Describe the sound in physical, acoustic terms: texture, resonance, decay, pitch
-- Include spatial qualities: "distant", "close-up", "echoing", "muffled"
-- Specify the source material and environment`,
+- Include spatial qualities: "distant", "close-up", "echoing", "muffled", "surrounding"
+- Specify the source material and environment
+- Example: "heavy rain on a tin roof with distant thunder rumbling, close-up perspective, steady downpour"`,
+
+  // ── Voice/TTS ─────────────────────────────────────────────────────────────
+  // TTS text is speech content — enhance means clean up the script, not rewrite it
+  tts_speak: `You are a speech writer. The user provided rough text for text-to-speech.
+Clean it up into natural, well-punctuated spoken text.
+
+Rules:
+- Output ONLY the speech text — no explanations, no quotes
+- Fix grammar, punctuation, and flow
+- Make it sound natural when read aloud
+- Keep the original meaning and intent
+- Do NOT change the language`,
+
+  voice_creator: `You are a voice description writer. The user provided a rough voice description.
+Rewrite it into a clear, detailed voice characteristic description.
+
+Rules:
+- Output ONLY the voice description text — no explanations, no quotes
+- Describe: pitch, timbre, pace, accent, age range, gender quality
+- Include emotion/style: "warm", "authoritative", "gentle", "husky", "bright"
+- Be specific about vocal qualities that help synthesize the voice`,
 }
 
 // Fallback for any service not listed above
