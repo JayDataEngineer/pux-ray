@@ -1,6 +1,6 @@
 import type { EnhanceModel } from "@/stores/enhancement"
 
-export async function enhancePrompt(model: EnhanceModel, prompt: string): Promise<string> {
+export async function enhancePrompt(model: EnhanceModel, systemPrompt: string, prompt: string): Promise<string> {
   const baseUrl = model.baseUrl.replace(/\/+$/, "")
   const url = `${baseUrl}/chat/completions`
 
@@ -13,7 +13,7 @@ export async function enhancePrompt(model: EnhanceModel, prompt: string): Promis
     body: JSON.stringify({
       model: model.model,
       messages: [
-        { role: "system", content: model.systemPrompt },
+        { role: "system", content: systemPrompt },
         { role: "user", content: prompt },
       ],
       max_tokens: 1024,

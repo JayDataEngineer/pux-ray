@@ -2,10 +2,9 @@ import { useState } from "react"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { Textarea } from "@/components/ui/textarea"
 import { Label } from "@/components/ui/label"
 import { Badge } from "@/components/ui/badge"
-import { useEnhanceStore, DEFAULT_SYSTEM_PROMPT, type EnhanceModel } from "@/stores/enhancement"
+import { useEnhanceStore, type EnhanceModel } from "@/stores/enhancement"
 import { useToastStore } from "@/stores/toast"
 import { Sparkles, Plus, Trash2, Check, Pencil, X } from "lucide-react"
 
@@ -29,11 +28,10 @@ export function EnhanceConfigDialog({ open, onOpenChange }: EnhanceConfigDialogP
     baseUrl: "",
     apiKey: "",
     model: "",
-    systemPrompt: DEFAULT_SYSTEM_PROMPT,
   })
 
   const resetForm = () => {
-    setForm({ name: "", baseUrl: "https://api.openai.com/v1", apiKey: "", model: "gpt-4o-mini", systemPrompt: DEFAULT_SYSTEM_PROMPT })
+    setForm({ name: "", baseUrl: "https://api.openai.com/v1", apiKey: "", model: "gpt-4o-mini" })
     setEditingId(null)
   }
 
@@ -43,12 +41,12 @@ export function EnhanceConfigDialog({ open, onOpenChange }: EnhanceConfigDialogP
 
   const startEdit = (m: EnhanceModel) => {
     setEditingId(m.id)
-    setForm({ name: m.name, baseUrl: m.baseUrl, apiKey: m.apiKey, model: m.model, systemPrompt: m.systemPrompt })
+    setForm({ name: m.name, baseUrl: m.baseUrl, apiKey: m.apiKey, model: m.model })
   }
 
   const handleSave = () => {
     if (!form.name.trim() || !form.baseUrl.trim() || !form.apiKey.trim() || !form.model.trim()) {
-      toast("error", "All fields except System Prompt are required")
+      toast("error", "All fields are required")
       return
     }
     if (editingId) {
@@ -75,7 +73,7 @@ export function EnhanceConfigDialog({ open, onOpenChange }: EnhanceConfigDialogP
             AI Prompt Enhancement
           </DialogTitle>
           <DialogDescription>
-            Configure OpenAI-compatible models to enhance your generation prompts.
+            Add an OpenAI-compatible endpoint to power prompt enhancement. Enhancement prompts are configured automatically per service.
           </DialogDescription>
         </DialogHeader>
 
@@ -83,7 +81,7 @@ export function EnhanceConfigDialog({ open, onOpenChange }: EnhanceConfigDialogP
           {/* Existing models */}
           {models.length > 0 && (
             <div className="space-y-2">
-              <Label className="text-xs text-muted-foreground">Configured Models</Label>
+              <Label className="text-xs text-muted-foreground">Endpoints</Label>
               {models.map((m) => (
                 <div key={m.id}
                   className={`flex items-center gap-2 rounded-md border px-3 py-2 transition-colors ${
@@ -113,7 +111,7 @@ export function EnhanceConfigDialog({ open, onOpenChange }: EnhanceConfigDialogP
           {editingId !== null || models.length === 0 ? (
             <div className="space-y-3 rounded-md border border-dashed p-3">
               <div className="flex items-center justify-between">
-                <Label className="text-xs font-semibold">{editingId ? "Edit Model" : "Add Model"}</Label>
+                <Label className="text-xs font-semibold">{editingId ? "Edit Endpoint" : "Add Endpoint"}</Label>
                 {editingId && (
                   <Button variant="ghost" size="icon" className="h-5 w-5" onClick={handleCancel}>
                     <X className="h-3 w-3" />
@@ -145,17 +143,10 @@ export function EnhanceConfigDialog({ open, onOpenChange }: EnhanceConfigDialogP
                   onChange={(e) => setForm((f) => ({ ...f, model: e.target.value }))} className="h-8 text-xs" />
               </div>
 
-              <div className="space-y-1">
-                <Label className="text-xs text-muted-foreground">Enhancement System Prompt</Label>
-                <Textarea rows={4} value={form.systemPrompt}
-                  onChange={(e) => setForm((f) => ({ ...f, systemPrompt: e.target.value }))}
-                  className="text-xs" placeholder={DEFAULT_SYSTEM_PROMPT} />
-              </div>
-
               <div className="flex gap-2 pt-1">
                 <Button size="sm" className="h-7 text-xs" onClick={handleSave}>
                   <Check className="h-3 w-3 mr-1" />
-                  {editingId ? "Update" : "Add Model"}
+                  {editingId ? "Update" : "Add Endpoint"}
                 </Button>
                 {editingId && (
                   <Button variant="outline" size="sm" className="h-7 text-xs" onClick={handleCancel}>Cancel</Button>
@@ -164,7 +155,7 @@ export function EnhanceConfigDialog({ open, onOpenChange }: EnhanceConfigDialogP
             </div>
           ) : (
             <Button variant="outline" size="sm" className="w-full h-8 text-xs" onClick={startAdd}>
-              <Plus className="h-3 w-3 mr-1" /> Add Model
+              <Plus className="h-3 w-3 mr-1" /> Add Endpoint
             </Button>
           )}
         </div>

@@ -6,7 +6,6 @@ export interface EnhanceModel {
   baseUrl: string       // e.g. "https://api.openai.com/v1"
   apiKey: string
   model: string         // e.g. "gpt-4o-mini"
-  systemPrompt: string  // enhancement instruction
 }
 
 interface EnhancementStore {
@@ -21,15 +20,6 @@ interface EnhancementStore {
 
 let _nextId = 1
 function uid(): string { return `em_${_nextId++}_${Date.now().toString(36)}` }
-
-const DEFAULT_SYSTEM_PROMPT = `You are an expert prompt engineer for AI image generation models. Given a user's basic prompt, enhance it into a detailed, vivid prompt that will produce better results. 
-
-Rules:
-- Keep the core intent and subject of the original prompt
-- Add specific details about lighting, composition, style, mood, atmosphere, and technical quality
-- Use concise but descriptive language
-- Output ONLY the enhanced prompt text, nothing else — no explanations, no quotes, no prefixes
-- Aim for 2-4 sentences maximum`
 
 function loadPersisted(): { models: EnhanceModel[]; activeId: string | null } {
   try {
@@ -84,5 +74,3 @@ export const useEnhanceStore = create<EnhancementStore>((set, get) => {
     },
   }
 })
-
-export { DEFAULT_SYSTEM_PROMPT }

@@ -107,6 +107,114 @@ const HIDDEN_SERVICES = new Set([
   "moss_voicegenerator", "moss_tts",
 ])
 
+// ── Per-service prompt enhancement instructions ────────────────────────────────
+// These are OUR specialized prompts, hardcoded per image gen model.
+// The user never sees or edits these.
+
+const ENHANCE_PROMPTS: Record<string, string> = {
+  generate: `You are a Stable Diffusion XL prompt engineer. Given a user's rough idea, write a single optimized SDXL prompt.
+
+Rules:
+- Output ONLY the raw prompt text — no explanations, no labels, no quotes, no prefixes
+- Use concrete visual descriptors: lighting, camera angle, color palette, texture, atmosphere
+- Include quality tags relevant to SDXL: "masterpiece, best quality, highly detailed, sharp focus"
+- Add medium/style hints where natural: "oil painting", "cinematic photograph", "digital art", etc.
+- Keep it under 150 tokens
+- Do NOT wrap output in quotes`,
+
+  generate_image: `You are a Stable Diffusion XL prompt engineer. Given a user's rough idea, write a single optimized SDXL prompt.
+
+Rules:
+- Output ONLY the raw prompt text — no explanations, no labels, no quotes, no prefixes
+- Use concrete visual descriptors: lighting, camera angle, color palette, texture, atmosphere
+- Include quality tags relevant to SDXL: "masterpiece, best quality, highly detailed, sharp focus"
+- Add medium/style hints where natural: "oil painting", "cinematic photograph", "digital art", etc.
+- Keep it under 150 tokens
+- Do NOT wrap output in quotes`,
+
+  edit: `You are an image editing prompt engineer for Stable Diffusion. The user wants to edit an existing image. Write a clear inpaint/edit prompt.
+
+Rules:
+- Output ONLY the raw prompt text — no explanations, no quotes
+- Be specific about what should change and what should stay the same
+- Use concrete visual descriptions for the edited elements
+- Keep it concise and direct — this is an edit, not a full generation`,
+
+  pose_edit: `You are a pose-guided image editing prompt engineer. Write a prompt that describes the desired final image after applying a pose change.
+
+Rules:
+- Output ONLY the raw prompt text — no explanations, no quotes
+- Focus on the character's pose, body position, and expression
+- Maintain the original style and setting from the source image description
+- Be specific about the body language and stance`,
+
+  generate_character_sheet: `You are a character sheet prompt engineer for Stable Diffusion. Write a prompt that will generate a clean character turnaround sheet.
+
+Rules:
+- Output ONLY the raw prompt text — no explanations, no quotes
+- Include "character sheet, turnaround, multiple views, front side back, white background, reference sheet"
+- Describe the character in detail: clothing, accessories, body type, hair, colors
+- Keep the style consistent — no background clutter`,
+
+  char_sheet: `You are a character sheet prompt engineer for Stable Diffusion. Write a prompt that will generate a clean character turnaround sheet.
+
+Rules:
+- Output ONLY the raw prompt text — no explanations, no quotes
+- Include "character sheet, turnaround, multiple views, front side back, white background, reference sheet"
+- Describe the character in detail: clothing, accessories, body type, hair, colors
+- Keep the style consistent — no background clutter`,
+
+  generate_music: `You are an AI music generation prompt engineer. Given a user's rough idea, write an optimized prompt for music generation.
+
+Rules:
+- Output ONLY the prompt text — no explanations, no quotes
+- Specify genre, mood, instruments, tempo, and key where appropriate
+- Use musical terminology: "upbeat", "melancholic", "ambient pads", "driving bassline", etc.
+- Include production style: "lo-fi", "polished", "raw", "cinematic mix"`,
+
+  ace_step: `You are an AI music generation prompt engineer for ACE Step. Given a user's rough idea, write an optimized music prompt.
+
+Rules:
+- Output ONLY the prompt text — no explanations, no quotes
+- Describe the desired musical output with genre, mood, instruments, and energy level
+- Be specific about tempo and arrangement
+- Use evocative language that captures the vibe`,
+
+  generate_sound: `You are an AI sound effect prompt engineer. Write a detailed sound effect description.
+
+Rules:
+- Output ONLY the prompt text — no explanations, no quotes
+- Describe the sound in physical, acoustic terms: texture, resonance, decay, pitch
+- Include spatial qualities: "distant", "close-up", "echoing", "muffled"
+- Specify the source material and environment`,
+
+  moss_soundeffect: `You are an AI sound effect prompt engineer. Write a detailed sound effect description.
+
+Rules:
+- Output ONLY the prompt text — no explanations, no quotes
+- Describe the sound in physical, acoustic terms: texture, resonance, decay, pitch
+- Include spatial qualities: "distant", "close-up", "echoing", "muffled"
+- Specify the source material and environment`,
+}
+
+// Fallback for any service not listed above
+const ENHANCE_FALLBACK = `You are an AI prompt enhancement assistant. Given a user's rough prompt, rewrite it into a more detailed, effective version.
+
+Rules:
+- Output ONLY the enhanced prompt text — no explanations, no quotes, no prefixes
+- Keep the core intent of the original prompt
+- Add specific, vivid details relevant to the generation type
+- Be concise but descriptive`
+
+// Fields that are "prompt-like" and should get an enhance button
+const ENHANCEABLE_FIELDS = new Set([
+  "prompt", "text", "negative_prompt", "instruct", "lyrics",
+])
+
+function getEnhancePrompt(service: string): string {
+  return ENHANCE_PROMPTS[service] || ENHANCE_FALLBACK
+}
+
 function extractCommonParams(desc: string): FieldDef[] {
   if (!desc.toLowerCase().includes("common:")) return []
   return COMMON_PARAMS.map((n) => ({
@@ -501,7 +609,8 @@ function AssetsTab({ selectedService, jobs, onAddJob, nextJobId }: {
     }
     setEnhancingField(fieldName)
     try {
-      const enhanced = await enhancePrompt(model, currentVal)
+      const systemPrompt = getEnhancePrompt(selectedService)
+      const enhanced = await enhancePrompt(model, systemPrompt, currentVal)
       setValues((p) => ({ ...p, [fieldName]: enhanced }))
       toast("success", "Prompt enhanced")
     } catch (e) {
@@ -509,7 +618,7 @@ function AssetsTab({ selectedService, jobs, onAddJob, nextJobId }: {
     } finally {
       setEnhancingField(null)
     }
-  }, [enhanceActiveModel, values, toast])
+  }, [enhanceActiveModel, values, toast, selectedService])
 
   useEffect(() => {
     listTools().then(setTools).catch(() => {})
@@ -654,7 +763,7 @@ function AssetsTab({ selectedService, jobs, onAddJob, nextJobId }: {
               <div key={f.name} className="space-y-1" onDragOver={(e) => e.preventDefault()} onDrop={handleDrop}>
                 <div className="flex items-center gap-1">
                   <Label className="text-xs text-muted-foreground capitalize">{f.label}</Label>
-                  {(f.type === "text" || f.type === "textarea") && (
+                  {(f.type === "text" || f.type === "textarea") && ENHANCEABLE_FIELDS.has(f.name) && (
                     <button type="button"
                       onClick={() => handleEnhance(f.name)}
                       disabled={enhancingField === f.name || !String(values[f.name] ?? "").trim()}
