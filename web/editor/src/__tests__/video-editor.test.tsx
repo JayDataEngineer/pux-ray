@@ -21,10 +21,12 @@ describe('VideoEditor — rendering', () => {
 
   it('renders play/pause button', () => {
     render(<VideoEditor />)
-    const playBtn = screen.getByRole('button', { name: '' }) // Play button has no aria-label, find by icon
-    // There are multiple buttons — find the round one
+    // Multiple icon buttons exist — just verify the Play SVG icon renders
     const buttons = screen.getAllByRole('button')
     expect(buttons.length).toBeGreaterThan(0)
+    // Verify the Play icon specifically is rendered
+    const playIcon = document.querySelector('.lucide-play')
+    expect(playIcon).toBeTruthy()
   })
 
   it('renders Add Keyframe button', () => {

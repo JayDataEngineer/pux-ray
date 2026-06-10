@@ -343,32 +343,38 @@ function KimodoDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (o:
   const [loading, setLoading] = useState(false)
   const [loaded, setLoaded] = useState(false)
 
-  const handleOpen = useCallback(async (willOpen: boolean) => {
-    if (willOpen && !loaded) {
-      setLoading(true)
-      try {
-        // Load kimodo_demo on GPU via Forge
-        const res = await fetch('/forge', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ action: 'preload', service: 'kimodo_demo' }),
-        })
+  // Trigger preload when dialog opens programmatically (from sidebar link)
+  useEffect(() => {
+    if (!open || loaded || loading) return
+    let cancelled = false
+    setLoading(true)
+    fetch('/forge', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'preload', service: 'kimodo_demo' }),
+    })
+      .then((res) => {
         if (!res.ok) throw new Error('Failed to load Kimodo')
-        setLoaded(true)
-      } catch (e) {
+        if (!cancelled) setLoaded(true)
+      })
+      .catch((e) => {
         console.error('Kimodo load failed:', e)
-      } finally {
-        setLoading(false)
-      }
-    }
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false)
+      })
+    return () => { cancelled = true }
+  }, [open, loaded, loading])
+
+  const handleClose = useCallback((willOpen: boolean) => {
     onOpenChange(willOpen)
-  }, [loaded, onOpenChange])
+  }, [onOpenChange])
 
   // The full Kimodo URL — same origin, proxied through ingress
   const url = kimodoUrl()
 
   return (
-    <Dialog open={open} onOpenChange={handleOpen}>
+    <Dialog open={open} onOpenChange={handleClose}>
       <DialogContent
         showCloseButton={true}
         className="sm:max-w-[95vw] w-full h-[90vh] max-h-[90vh] p-0 gap-0 flex flex-col overflow-hidden"
@@ -389,7 +395,7 @@ function KimodoDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (o:
               <span className="text-xs">Loading Kimodo on GPU…</span>
               <span className="text-[10px] text-muted-foreground/60">This takes ~60s on first load</span>
             </div>
-          ) : loaded || open ? (
+          ) : loaded ? (
             <iframe
               src={url}
               className="w-full h-full border-0"

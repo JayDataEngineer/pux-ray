@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from "react"
+import { useAudioPlayback } from "@/hooks/useAudioPlayback"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
@@ -74,6 +75,14 @@ export function VideoEditor() {
     if (playback.isPlaying) { setPlayback({ isPlaying: false }); return }
     if (playback.currentTime >= total) setPlayback({ currentTime: 0, isPlaying: true })
     else setPlayback({ isPlaying: true })
+  }
+
+  // Seek to a time based on mouse position on the timeline
+  const seekFromMouseEvent = (e: React.MouseEvent<HTMLElement>) => {
+    const rect = e.currentTarget.getBoundingClientRect()
+    const relX = e.clientX - rect.left
+    const t = Math.max(0, Math.min(total, relX / PPS))
+    setPlayback({ currentTime: t })
   }
 
   const onDrop = (e: React.DragEvent) => {
@@ -190,8 +199,7 @@ export function VideoEditor() {
       <div className="border-t bg-background shrink-0">
         <div className="flex" style={{ height: RULER_H }}>
           <div className="w-24 shrink-0 border-r px-2 flex items-center text-[10px] font-medium text-muted-foreground">Track</div>
-          <div className="flex-1 relative overflow-hidden">
-            <div className="absolute inset-0 flex">
+          <div className="flex-1 relative overflow-hidden cursor-pointer" onClick={seekFromMouseEvent}>
               {Array.from({ length: Math.ceil(total) + 1 }).map((_, i) => (
                 <div key={i} className="flex items-end border-l border-border/20 shrink-0" style={{ width: PPS }}>
                   <span className="text-[9px] text-muted-foreground/40 pl-0.5 leading-none">{i}s</span>
@@ -209,9 +217,10 @@ export function VideoEditor() {
               <tr.icon className="h-3 w-3" style={{ color: tr.color }} />
               <span className="text-[10px] font-medium truncate">{tr.label}</span>
             </div>
-            <div className="flex-1 relative overflow-hidden" style={tr.id !== "video" ? { background: `${tr.color}08` } : {}}>
+            <div className="flex-1 relative overflow-hidden cursor-pointer" style={tr.id !== "video" ? { background: `${tr.color}08` } : {}}
+              onClick={(e) => { if ((e.target as HTMLElement).closest('[data-seg]')) return; seekFromMouseEvent(e) }}>
               {tr.id === "video" ? segments.map((seg) => (
-                <div key={seg.id} onClick={() => setSelected(seg.id)}
+                <div key={seg.id} data-seg={seg.id} onClick={() => setSelected(seg.id)}
                   className={`absolute top-0.5 bottom-0.5 rounded cursor-pointer overflow-hidden border transition-colors ${seg.id === selectedId ? "border-primary ring-1 ring-primary/30" : "border-border/40 hover:border-primary/40"}`}
                   style={{ left: seg.start * PPS, width: Math.max(seg.duration * PPS, 4), background: `${tr.color}22` }}>
                   {seg.thumbnailUrl && <img src={seg.thumbnailUrl} alt="" className="absolute inset-0 w-full h-full object-cover opacity-25" />}
