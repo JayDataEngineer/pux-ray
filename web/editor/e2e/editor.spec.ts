@@ -31,16 +31,19 @@ test.describe('Smoke — App loads', () => {
     await expect(page.getByRole('button', { name: 'Video' })).toBeVisible()
   })
 
-  test('switches to Video tab and shows Add Keyframe button', async ({ page }) => {
+  test('switches to Video tab and shows inspector immediately', async ({ page }) => {
+    await gotoEditor(page)
+    await switchToVideo(page)
+    // Inspector auto-creates a segment and shows controls
+    await expect(page.getByRole('button', { name: 'Model' })).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Prompts' })).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Timing' })).toBeVisible()
+  })
+
+  test('shows the Add Keyframe button', async ({ page }) => {
     await gotoEditor(page)
     await switchToVideo(page)
     await expect(page.getByRole('button', { name: /Add Keyframe/ })).toBeVisible()
-  })
-
-  test('shows the empty state prompt', async ({ page }) => {
-    await gotoEditor(page)
-    await switchToVideo(page)
-    await expect(page.getByText('Drop images or audio from the asset sidebar')).toBeVisible()
   })
 })
 
@@ -54,39 +57,35 @@ test.describe('Timeline — Add & Select Keyframes', () => {
     await switchToVideo(page)
   })
 
-  test('click Add Keyframe creates a segment on timeline', async ({ page }) => {
-    await clickButton(page, /Add Keyframe/)
+  test('auto-creates a segment on Video tab switch', async ({ page }) => {
     await expect(page.locator('[data-seg]')).toHaveCount(1)
   })
 
-  test('click Add Keyframe twice creates two segments', async ({ page }) => {
-    await clickButton(page, /Add Keyframe/)
+  test('click Add Keyframe creates another segment', async ({ page }) => {
+    // One auto-created
+    await expect(page.locator('[data-seg]')).toHaveCount(1)
     await clickButton(page, /Add Keyframe/)
     await expect(page.locator('[data-seg]')).toHaveCount(2)
   })
 
   test('clicking a segment selects it and shows inspector', async ({ page }) => {
-    await clickButton(page, /Add Keyframe/)
     await page.locator('[data-seg]').first().click()
-
-    // Inspector should show section headers
     await expect(page.getByText('Prompts')).toBeVisible()
     await expect(page.getByText('Timing')).toBeVisible()
   })
 
   test('inspector shows all fields for selected segment', async ({ page }) => {
-    await clickButton(page, /Add Keyframe/)
     await page.locator('[data-seg]').first().click()
-
     await expect(page.getByText('Resolution & Frames')).toBeVisible()
     await expect(page.getByText('Generation')).toBeVisible()
   })
 
-  test('delete button removes the segment', async ({ page }) => {
-    await clickButton(page, /Add Keyframe/)
+  test('delete button removes the segment (auto-creates new one)', async ({ page }) => {
     await page.locator('[data-seg]').first().click()
     await page.locator('button .lucide-trash-2').first().click()
-    await expect(page.locator('[data-seg]')).toHaveCount(0)
+    // Auto-create effect kicks in and adds a new segment
+    await page.waitForTimeout(500)
+    await expect(page.locator('[data-seg]')).toHaveCount(1)
   })
 })
 
@@ -98,7 +97,6 @@ test.describe('Timeline — Drag segments', () => {
   test.beforeEach(async ({ page }) => {
     await gotoEditor(page)
     await switchToVideo(page)
-    await clickButton(page, /Add Keyframe/)
   })
 
   test('segment has visible drag handles', async ({ page }) => {
@@ -115,14 +113,12 @@ test.describe('Timeline — Drag segments', () => {
     const bodyBox = await dragBody.boundingBox()
     expect(bodyBox).toBeTruthy()
 
-    // Drag right
     await page.mouse.move(bodyBox!.x + bodyBox!.width / 2, bodyBox!.y + bodyBox!.height / 2)
     await page.mouse.down()
     await page.mouse.move(bodyBox!.x + bodyBox!.width / 2 + 100, bodyBox!.y + bodyBox!.height / 2, { steps: 5 })
     await page.mouse.up()
 
     const newBox = await seg.boundingBox()
-    // Should have moved at least a few pixels
     expect(newBox!.x).toBeGreaterThanOrEqual(initialBox!.x - 1)
   })
 
@@ -155,15 +151,13 @@ test.describe('Timeline — Drag segments', () => {
     const handleBox = await leftHandle.boundingBox()
     expect(handleBox).toBeTruthy()
 
-    // Drag left by 80px
     await page.mouse.move(handleBox!.x + handleBox!.width / 2, handleBox!.y + handleBox!.height / 2)
     await page.mouse.down()
     await page.mouse.move(handleBox!.x + handleBox!.width / 2 - 80, handleBox!.y + handleBox!.height / 2, { steps: 10 })
     await page.mouse.up()
 
     const newBox = await seg.boundingBox()
-    // Width should grow (we shrunk the left edge)
-    expect(newBox!.width).toBeGreaterThan(initialBox!.width - 1) // allow 1px rounding
+    expect(newBox!.width).toBeGreaterThan(initialBox!.width - 1)
   })
 })
 
@@ -175,7 +169,6 @@ test.describe('Playback controls', () => {
   test.beforeEach(async ({ page }) => {
     await gotoEditor(page)
     await switchToVideo(page)
-    await clickButton(page, /Add Keyframe/)
   })
 
   test('play button exists and is clickable', async ({ page }) => {
@@ -190,7 +183,6 @@ test.describe('Playback controls', () => {
   })
 
   test('time display shows current and total time', async ({ page }) => {
-    // The time span is a single element like "0:00.00 / 0:05.00"
     const timeDisplay = page.locator('.tabular-nums')
     await expect(timeDisplay).toContainText('0:00.00')
     await expect(timeDisplay).toContainText('0:05.00')
@@ -200,7 +192,6 @@ test.describe('Playback controls', () => {
     const playhead = page.locator('.bg-red-500').first()
     await expect(playhead).toBeVisible()
 
-    // Click on the ruler area at x offset
     const ruler = page.locator('.cursor-pointer').first()
     const rulerBox = await ruler.boundingBox()
     if (rulerBox && rulerBox.width > 100) {
@@ -221,35 +212,41 @@ test.describe('Controls', () => {
     await switchToVideo(page)
   })
 
-  test('Generate All button is disabled with no segments', async ({ page }) => {
+  test('Generate All button is enabled with auto-created segment', async ({ page }) => {
     const btn = page.getByRole('button', { name: /Generate All/ })
-    await expect(btn).toBeDisabled()
+    await expect(btn).toBeEnabled()
   })
 
-  test('Export button is disabled with no segments', async ({ page }) => {
+  test('Export button is enabled with auto-created segment', async ({ page }) => {
     const btn = page.getByRole('button', { name: /Export/ })
-    await expect(btn).toBeDisabled()
+    await expect(btn).toBeEnabled()
   })
 
   test('zoom in increases scale', async ({ page }) => {
-    await clickButton(page, /Add Keyframe/)
     const zoomIn = page.locator('.lucide-zoom-in').first().locator('..')
     await zoomIn.click()
     await expect(page.getByText('125%')).toBeVisible()
   })
 
   test('zoom out decreases scale', async ({ page }) => {
-    await clickButton(page, /Add Keyframe/)
     const zoomOut = page.locator('.lucide-zoom-out').first().locator('..')
     await zoomOut.click()
     await expect(page.getByText('80%')).toBeVisible()
   })
 
-  test('track labels are visible', async ({ page }) => {
+  test('track labels are visible — Video track always present, audio tracks dynamic', async ({ page }) => {
+    // Video track is always present
     await expect(page.getByText('Video').first()).toBeVisible()
-    await expect(page.getByText('Voice').first()).toBeVisible()
-    await expect(page.getByText('SFX').first()).toBeVisible()
-    await expect(page.getByText('Music').first()).toBeVisible()
+    // Audio tracks are dynamic — no fixed Voice/SFX/Music anymore
+    // "Add Track" button allows adding audio tracks
+    await expect(page.getByRole('button', { name: /Add Track/ })).toBeVisible()
+  })
+
+  test('Services sidebar is hidden on Video tab', async ({ page }) => {
+    // The Services sidebar header should NOT be visible on Video tab
+    const servicesHeader = page.getByText('Services').first()
+    const isVisible = await servicesHeader.isVisible().catch(() => false)
+    expect(isVisible).toBe(false)
   })
 })
 
@@ -261,8 +258,7 @@ test.describe('Inspector — Edit properties', () => {
   test.beforeEach(async ({ page }) => {
     await gotoEditor(page)
     await switchToVideo(page)
-    await clickButton(page, /Add Keyframe/)
-    await page.locator('[data-seg]').first().click()
+    // Segment is auto-selected, inspector is visible
   })
 
   test('can type a prompt', async ({ page }) => {
@@ -287,5 +283,9 @@ test.describe('Inspector — Edit properties', () => {
     const widthInput = page.locator('text=Width', { exact: true }).locator('..').locator('input')
     await widthInput.fill('1024')
     await expect(widthInput).toHaveValue('1024')
+  })
+
+  test('Video Length field is visible', async ({ page }) => {
+    await expect(page.getByText('Video Length (seconds)')).toBeVisible()
   })
 })
