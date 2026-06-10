@@ -1,7 +1,7 @@
 import { create } from 'zustand'
 import type { WorkflowRun, WorkflowSpec } from '../types'
 import type { TimelineSegment, AudioCue, AudioTrackDef, TimelineViewport, PlaybackState, DragState } from '../types/timeline'
-import { AUDIO_TRACKS, DEFAULT_SEGMENT_PARAMS } from '../types/timeline'
+import { TRACK_COLORS, DEFAULT_SEGMENT_PARAMS } from '../types/timeline'
 
 let _nextId = 1
 function uid(): string {
@@ -56,16 +56,14 @@ function getArtifactAudio(run: WorkflowRun, stepId: string): string | null {
   return null
 }
 
-const AUDIO_STEP_MAP: Record<string, string> = {
-  voice: 'voice',
-  sound_fx: 'sfx',
-  music: 'music',
-}
+
 
 interface TimelineStore {
   segments: TimelineSegment[]
   audioCues: AudioCue[]
   audioTracks: AudioTrackDef[]
+  addAudioTrack: (label?: string) => AudioTrackDef
+  removeAudioTrack: (id: string) => void
   viewport: TimelineViewport
   playback: PlaybackState
   drag: DragState
@@ -118,7 +116,7 @@ const DEFAULT_DRAG: DragState = {
 export const useTimelineStore = create<TimelineStore>((set, get) => ({
   segments: [],
   audioCues: [],
-  audioTracks: [...AUDIO_TRACKS],
+  audioTracks: [],
   viewport: { ...DEFAULT_VIEWPORT },
   playback: { ...DEFAULT_PLAYBACK },
   drag: { ...DEFAULT_DRAG },
@@ -143,6 +141,7 @@ export const useTimelineStore = create<TimelineStore>((set, get) => ({
       trimStart: 0,
       sourceStepId: null,
       status: 'empty',
+      error: null,
       ...partial,
     }
     set((s) => {
@@ -180,6 +179,26 @@ export const useTimelineStore = create<TimelineStore>((set, get) => ({
     pushHistory(segments, s.audioCues)
     return { segments, playback: { ...s.playback, totalDuration } }
   }),
+
+  addAudioTrack: (label) => {
+    const state = get()
+    const idx = state.audioTracks.length
+    const color = TRACK_COLORS[idx % TRACK_COLORS.length]
+    const track: AudioTrackDef = {
+      id: uid(),
+      label: label || `Audio ${idx + 1}`,
+      color,
+      height: 48,
+    }
+    set((s) => ({ audioTracks: [...s.audioTracks, track] }))
+    return track
+  },
+
+  removeAudioTrack: (id) => set((s) => ({
+    audioTracks: s.audioTracks.filter((t) => t.id !== id),
+    audioCues: s.audioCues.filter((c) => c.track !== id),
+    selectedAudioCueId: s.selectedAudioCueId && s.audioCues.find(c => c.id === s.selectedAudioCueId)?.track === id ? null : s.selectedAudioCueId,
+  })),
 
   addAudioCue: (cue) => {
     const full: AudioCue = { ...cue, id: uid() }
@@ -242,16 +261,27 @@ export const useTimelineStore = create<TimelineStore>((set, get) => ({
       cursor = defaultDuration
     }
 
-    // Audio cues from pipeline steps
-    for (const [stepId, trackId] of Object.entries(AUDIO_STEP_MAP)) {
-      const state = run.step_states[stepId]
-      if (state?.status !== 'completed') continue
+    // Audio cues from pipeline steps — create tracks dynamically
+    const audioStepIds = ['voice', 'sound_fx', 'music']
+    const createdTracks: AudioTrackDef[] = []
+    for (const stepId of audioStepIds) {
+      const stepState = run.step_states[stepId]
+      if (stepState?.status !== 'completed') continue
       const audioUrl = getArtifactAudio(run, stepId)
       if (!audioUrl) continue
 
+      const tIdx = createdTracks.length
+      const track: AudioTrackDef = {
+        id: uid(),
+        label: stepId.replace(/_/g, ' '),
+        color: TRACK_COLORS[tIdx % TRACK_COLORS.length],
+        height: 48,
+      }
+      createdTracks.push(track)
+
       audioCues.push({
         id: uid(),
-        track: trackId,
+        track: track.id,
         start: 0,
         duration: defaultDuration,
         label: stepId.replace(/_/g, ' '),
@@ -266,6 +296,7 @@ export const useTimelineStore = create<TimelineStore>((set, get) => ({
     set({
       segments,
       audioCues,
+      audioTracks: createdTracks,
       viewport: { ...DEFAULT_VIEWPORT },
       playback: { isPlaying: false, currentTime: 0, totalDuration },
       drag: { ...DEFAULT_DRAG },
@@ -277,6 +308,7 @@ export const useTimelineStore = create<TimelineStore>((set, get) => ({
   reset: () => set({
     segments: [],
     audioCues: [],
+    audioTracks: [],
     viewport: { ...DEFAULT_VIEWPORT },
     playback: { ...DEFAULT_PLAYBACK },
     drag: { ...DEFAULT_DRAG },
