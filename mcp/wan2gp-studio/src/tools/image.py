@@ -11,12 +11,13 @@ from pydantic import Field
 # ── Model presets ──────────────────────────────────────────────────────────────
 
 _MODEL_PRESETS: dict[str, dict] = {
+    # ── Z-Image family ──────────────────────────────────────────────────────
     "z_image": {
         "label": "Z-Image Turbo",
         "quality": "turbo",
         "width": 1024, "height": 1024,
         "sampling_steps": 8, "guide_scale": 0.0,
-        "description": "Fast distilled model, 8 steps, no CFG. Best for photorealism.",
+        "description": "Z-Image Turbo 6B — distilled, 8 steps, no CFG. Best for photorealism & speed.",
     },
     "z_image_base": {
         "label": "Z-Image Base",
@@ -24,48 +25,92 @@ _MODEL_PRESETS: dict[str, dict] = {
         "width": 1024, "height": 1024,
         "sampling_steps": 50, "guide_scale": 4.0,
         "negative_prompt": "blurry, low quality, deformed, bad anatomy, extra fingers, watermark, cropped",
-        "description": "Full model, 50 steps, CFG 4.0. Best for creative work and fine-tuning.",
+        "description": "Z-Image Base 6B — full model, 50 steps, CFG 4.0. Best for creative work, fine-tuning, max diversity.",
     },
+    # ── Anima (anime/illustration) ──────────────────────────────────────────
     "anima_base": {
         "label": "Anima",
         "quality": "standard",
         "width": 1024, "height": 1024,
         "sampling_steps": 30, "guide_scale": 4.0,
-        "description": "Anime-focused 2B model, 30 steps, CFG 4.0.",
+        "description": "Anima Base 2B — anime/illustration focused, Cosmos architecture. 30 steps, CFG 4.0.",
+    },
+    # ── Flux 1 family ───────────────────────────────────────────────────────
+    "flux": {
+        "label": "Flux 1 Dev",
+        "width": 1280, "height": 720,
+        "description": "FLUX.1 Dev 12B — full rectified flow transformer.",
     },
     "flux_schnell": {
-        "label": "Flux Schnell",
-        "width": 1024, "height": 1024,
+        "label": "Flux 1 Schnell",
+        "width": 1280, "height": 720,
         "sampling_steps": 4, "guide_scale": 1.0,
-        "description": "Fast Flux variant, 4 steps.",
+        "description": "FLUX.1 Schnell 12B — distilled, 4 steps.",
     },
-    "flux_dev": {
-        "label": "Flux Dev",
+    "flux_chroma": {
+        "label": "Flux Chroma HD",
+        "width": 1280, "height": 720,
+        "sampling_steps": 20, "guide_scale": 3.0,
+        "description": "FLUX.1 Chroma 1 HD 8.9B — strong base for finetuning.",
+    },
+    "flux_chroma_radiance": {
+        "label": "Flux Chroma Radiance",
+        "width": 1280, "height": 720,
+        "sampling_steps": 20, "guide_scale": 3.0,
+        "description": "FLUX.1 Chroma Radiance 8.9B — improved base for finetuning.",
+    },
+    # ── Flux 2 family ───────────────────────────────────────────────────────
+    "flux2_dev": {
+        "label": "Flux 2 Dev",
         "width": 1024, "height": 1024,
-        "sampling_steps": 28, "guide_scale": 3.5,
-        "description": "Full Flux model, 28 steps.",
+        "sampling_steps": 30, "embedded_guidance_scale": 4,
+        "description": "FLUX.2 Dev 32B — latest rectified flow transformer.",
     },
     "flux2_klein_4b": {
-        "label": "FLUX-Klein 4B",
+        "label": "Flux 2 Klein 4B",
         "width": 1024, "height": 1024,
-        "steps": 4,
-        "embedded_guidance_scale": 1,
-        "description": "FLUX.2 Klein 4B, 4 steps, embedded guidance.",
+        "sampling_steps": 4, "embedded_guidance_scale": 1,
+        "description": "FLUX.2 Klein 4B — distilled, 4 steps, fast.",
     },
-    "trellis": {
-        "label": "TRELLIS 3D",
-        "steps": 12, "guidance": 7.5,
-        "resolution": "1024_cascade",
-        "description": "Image-to-3D mesh generation.",
+    "flux2_klein_9b": {
+        "label": "Flux 2 Klein 9B",
+        "width": 1024, "height": 1024,
+        "sampling_steps": 4, "embedded_guidance_scale": 1,
+        "description": "FLUX.2 Klein 9B — distilled, 4 steps, higher quality.",
     },
-    "anigen": {
-        "label": "AniGen 3D",
-        "description": "Anime image-to-rigged-3D generation.",
+    "flux2_klein_base_4b": {
+        "label": "Flux 2 Klein Base 4B",
+        "width": 1024, "height": 1024,
+        "description": "FLUX.2 Klein Base 4B — full model for finetuning.",
     },
-    "qwen_image_edit": {
-        "label": "Qwen Image Edit",
-        "sampling_steps": 4, "guide_scale": 1.0,
-        "description": "Image-to-image editing via Qwen.",
+    "flux2_klein_base_9b": {
+        "label": "Flux 2 Klein Base 9B",
+        "width": 1024, "height": 1024,
+        "description": "FLUX.2 Klein Base 9B — full model for finetuning.",
+    },
+    # ── Qwen Image family ──────────────────────────────────────────────────
+    "qwen_image_20B": {
+        "label": "Qwen Image 20B",
+        "width": 1328, "height": 1328,
+        "description": "Qwen Image 20B — excellent long text rendering in images.",
+    },
+    "qwen_image_2512_20B": {
+        "label": "Qwen Image 2512 20B",
+        "width": 1328, "height": 1328,
+        "description": "Qwen Image 2512 — enhanced realism, finer details, improved text rendering.",
+    },
+    # ── HiDream family ──────────────────────────────────────────────────────
+    "hidream_o1": {
+        "label": "HiDream O1 Full",
+        "width": 1920, "height": 1088,
+        "sampling_steps": 50, "guide_scale": 5.0,
+        "description": "HiDream O1 Image Full 10B — unified text+pixel token space.",
+    },
+    "hidream_o1_dev": {
+        "label": "HiDream O1 Dev",
+        "width": 1920, "height": 1088,
+        "sampling_steps": 28, "guide_scale": 0.0,
+        "description": "HiDream O1 Image Dev 10B — distilled, fewer steps.",
     },
 }
 
@@ -105,7 +150,7 @@ async def generate(
     )] = None,
     ctx: Context | None = None,
 ) -> dict:
-    """Generate an image using Z-Image, Flux, AniGen, or TRELLIS.
+    """Generate an image using Z-Image, Flux, Anima, Qwen Image, or HiDream.
 
     Sensible defaults are applied per model. Use advanced=True to override
     individual parameters like sampling_steps, guide_scale, or quality.

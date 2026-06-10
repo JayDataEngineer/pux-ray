@@ -63,9 +63,9 @@ function ttsVisibleFields(engine: string, allFields: FieldDef[]): FieldDef[] {
   return allFields.filter((f) => visible.includes(f.name))
 }
 
-const GENRE_ORDER = ["image", "audio", "motion", "3d"]
+const GENRE_ORDER = ["image", "audio"]
 
-const GENRE_ICONS: Record<string, string> = { image: "◎", audio: "♪", motion: "↝", "3d": "◆" }
+const GENRE_ICONS: Record<string, string> = { image: "◎", audio: "♪" }
 
 // Map backend category → genre for sidebar grouping
 const CATEGORY_TO_GENRE: Record<string, string> = {
@@ -106,6 +106,9 @@ const HIDDEN_SERVICES = new Set([
   "see_through", "nvidia_upscale", "dwpose", "lance", "kohya", "avatar",
   "kokoro", "espeak", "index_tts", "faster_qwen3_tts",
   "moss_voicegenerator", "moss_tts",
+  "clone_character", "list_pipelines",
+  "kimodo", "kimodo_demo", "hy_motion", "hy_motion_lite", "gemx",
+  "trellis", "anigen", "body_mesh", "pixal3d",
 ])
 
 
@@ -318,6 +321,15 @@ function ServicesSidebar({ selected, onSelect }: { selected: string; onSelect: (
             })}
           </div>
         ))}
+      </div>
+      <div className="p-2 border-t">
+        <button
+          onClick={() => window.open(kimodoUrl(), "_blank")}
+          className="w-full flex items-center gap-2 px-2 py-1.5 rounded text-xs text-left transition-colors hover:bg-sidebar-accent/50 text-sidebar-foreground/60"
+        >
+          <span className="text-sm">↝</span>
+          <span className="truncate">Kimodo Motion Studio</span>
+        </button>
       </div>
     </div>
   )
