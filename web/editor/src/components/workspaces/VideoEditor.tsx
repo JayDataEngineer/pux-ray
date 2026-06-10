@@ -47,6 +47,14 @@ interface DragInfo {
   startSegWidth: number
 }
 
+interface CueDragInfo {
+  mode: DragMode
+  cueId: string
+  startMouseX: number
+  startCueLeft: number
+  startCueWidth: number
+}
+
 // ── Compile timeline into backend payload ─────────────────────────────────────
 function buildPayload(seg: TimelineSegment, _allSegments?: TimelineSegment[]) {
   return {
@@ -148,6 +156,7 @@ export function VideoEditor() {
 
   // ── Drag / Resize ──────────────────────────────────────────────────────────
   const dragRef = useRef<DragInfo | null>(null)
+  const cueDragRef = useRef<CueDragInfo | null>(null)
 
   const onSegmentPointerDown = useCallback((
     e: React.PointerEvent<HTMLDivElement>,
@@ -173,6 +182,31 @@ export function VideoEditor() {
 
     setSelected(segId)
   }, [pps, setSelected])
+
+  const onCuePointerDown = useCallback((
+    e: React.PointerEvent<HTMLDivElement>,
+    cueId: string,
+    mode: DragMode,
+  ) => {
+    if (e.button !== 0) return
+    e.stopPropagation()
+    e.preventDefault()
+
+    const cue = useTimelineStore.getState().audioCues.find(c => c.id === cueId)
+    if (!cue) return
+
+    ;(e.target as HTMLElement).setPointerCapture?.(e.pointerId)
+
+    cueDragRef.current = {
+      mode,
+      cueId,
+      startMouseX: e.clientX,
+      startCueLeft: cue.start * pps,
+      startCueWidth: cue.duration * pps,
+    }
+
+    setSelectedAudioCue(cueId)
+  }, [pps, setSelectedAudioCue])
 
   useEffect(() => {
     const onMove = (e: PointerEvent) => {
@@ -200,10 +234,36 @@ export function VideoEditor() {
         updateSegment(drag.segmentId, { duration: newWidth / pps })
       }
     }
-    const onUp = () => { dragRef.current = null }
+    const onCueMove = (e: PointerEvent) => {
+      const drag = cueDragRef.current
+      if (!drag) return
+      const dx = e.clientX - drag.startMouseX
+      const minDurPx = 0.5 * pps
+
+      const cue = useTimelineStore.getState().audioCues.find(c => c.id === drag.cueId)
+      if (!cue) return
+
+      if (drag.mode === "move") {
+        let newStart = drag.startCueLeft / pps + dx / pps
+        newStart = Math.max(0, newStart)
+        updateAudioCue(drag.cueId, { start: newStart })
+      } else if (drag.mode === "resize-left") {
+        let newLeft = drag.startCueLeft + dx
+        let newWidth = drag.startCueWidth - dx
+        if (newWidth < minDurPx) { newWidth = minDurPx; newLeft = drag.startCueLeft + drag.startCueWidth - minDurPx }
+        if (newLeft < 0) { newLeft = 0; newWidth = drag.startCueLeft + drag.startCueWidth }
+        updateAudioCue(drag.cueId, { start: newLeft / pps, duration: newWidth / pps })
+      } else if (drag.mode === "resize-right") {
+        let newWidth = drag.startCueWidth + dx
+        if (newWidth < minDurPx) newWidth = minDurPx
+        updateAudioCue(drag.cueId, { duration: newWidth / pps })
+      }
+    }
+    const onUp = () => { dragRef.current = null; cueDragRef.current = null }
     window.addEventListener("pointermove", onMove)
+    window.addEventListener("pointermove", onCueMove)
     window.addEventListener("pointerup", onUp)
-    return () => { window.removeEventListener("pointermove", onMove); window.removeEventListener("pointerup", onUp) }
+    return () => { window.removeEventListener("pointermove", onMove); window.removeEventListener("pointermove", onCueMove); window.removeEventListener("pointerup", onUp) }
   }, [pps, updateSegment])
 
   // ── Drop from asset sidebar ────────────────────────────────────────────────
@@ -1180,30 +1240,44 @@ export function VideoEditor() {
                           : `linear-gradient(135deg, ${track.color}18, ${track.color}0a)`,
                       }}
                       onClick={(e) => { e.stopPropagation(); setSelectedAudioCue(cue.id) }}>
-                      {/* Waveform preview */}
-                      <div className="absolute inset-0 flex items-center px-1 pointer-events-none">
-                        {cue.waveformPeaks ? (
-                          <div className="flex items-center w-full h-full gap-px">
-                            {cue.waveformPeaks.map((peak, i) => (
-                              <div key={i} className="flex-1 bg-white/10 rounded-sm min-w-[1px]"
-                                style={{ height: `${Math.max(8, peak * 80)}%` }} />
-                            ))}
-                          </div>
-                        ) : (
-                          <div className="flex items-center w-full h-full gap-px">
-                            {Array.from({ length: 30 }).map((_, i) => (
-                              <div key={i} className="flex-1 rounded-sm min-w-[1px]"
-                                style={{
-                                  height: `${12 + Math.sin(i * 0.5) * 20 + Math.random() * 15}%`,
-                                  background: `${track.color}15`,
-                                }} />
-                            ))}
-                          </div>
-                        )}
+
+                      {/* Left resize handle */}
+                      <div className="absolute top-0 left-0 bottom-0 z-20 cursor-ew-resize group" style={{ width: HANDLE_W }}
+                        onPointerDown={(e) => onCuePointerDown(e, cue.id, "resize-left")}>
+                        <div className="absolute left-[3px] top-1/2 -translate-y-1/2 w-[2px] h-5 rounded-full bg-transparent group-hover:bg-white/40 transition-colors" />
                       </div>
-                      {/* Label */}
-                      <div className="absolute inset-0 z-10 flex items-center px-2">
-                        <span className="text-[9px] text-white/50 truncate">{cue.label}</span>
+
+                      {/* Right resize handle */}
+                      <div className="absolute top-0 right-0 bottom-0 z-20 cursor-ew-resize group" style={{ width: HANDLE_W }}
+                        onPointerDown={(e) => onCuePointerDown(e, cue.id, "resize-right")}>
+                        <div className="absolute right-[3px] top-1/2 -translate-y-1/2 w-[2px] h-5 rounded-full bg-transparent group-hover:bg-white/40 transition-colors" />
+                      </div>
+
+                      {/* Cue body — drag to move */}
+                      <div className="absolute inset-0 z-10 cursor-grab active:cursor-grabbing flex items-center px-3 gap-1.5"
+                        onPointerDown={(e) => onCuePointerDown(e, cue.id, "move")}>
+                        {/* Waveform preview */}
+                        <div className="absolute inset-0 flex items-center px-1 pointer-events-none">
+                          {cue.waveformPeaks ? (
+                            <div className="flex items-center w-full h-full gap-px">
+                              {cue.waveformPeaks.map((peak, i) => (
+                                <div key={i} className="flex-1 bg-white/10 rounded-sm min-w-[1px]"
+                                  style={{ height: `${Math.max(8, peak * 80)}%` }} />
+                              ))}
+                            </div>
+                          ) : (
+                            <div className="flex items-center w-full h-full gap-px">
+                              {Array.from({ length: 30 }).map((_, i) => (
+                                <div key={i} className="flex-1 rounded-sm min-w-[1px]"
+                                  style={{
+                                    height: `${12 + Math.sin(i * 0.5) * 20 + Math.random() * 15}%`,
+                                    background: `${track.color}15`,
+                                  }} />
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                        <span className="relative z-10 text-[9px] text-white/50 truncate">{cue.label}</span>
                       </div>
                     </div>
                   )
