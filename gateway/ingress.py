@@ -28,7 +28,7 @@ from gateway.dashboard import dashboard_page, dashboard_gpu_current, dashboard_g
 from gateway.pipeline import PipelineSpec, execute_pipeline
 from gateway.playground import playground_page, playground_services
 from gateway.poser import poser_presets, poser_preset_render
-from gateway.routes.editor import editor_page, editor_static
+from gateway.routes.editor import editor_page, editor_static, lora_list
 from gateway.routes.workflows import (
     list_workflows, get_workflow, execute_workflow,
 )
@@ -690,6 +690,8 @@ def create_app() -> Starlette:
         Route("/studio/api/release", studio_release, methods=["POST"]),
         # MCP App Host (widget HTML + tool proxy)
         Route("/mcp/wan2gp-studio/host", handle_mcp_host, methods=["POST"]),
+        # LoRA listing (for editor LoRA picker)
+        Route("/v1/loras", lora_list),
         # Video Editor (React SPA)
         Route("/editor", editor_page),
         Route("/editor/{path:path}", editor_static),

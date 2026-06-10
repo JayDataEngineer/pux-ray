@@ -9,11 +9,44 @@ import logging
 from pathlib import Path
 
 from starlette.requests import Request
-from starlette.responses import HTMLResponse, Response
+from starlette.responses import HTMLResponse, JSONResponse, Response
 
 logger = logging.getLogger(__name__)
 
 _EDITOR_DIR = Path(__file__).resolve().parents[1] / "editor"
+_LORAS_DIR = Path(__file__).resolve().parents[2] / "opt" / "wan2gp" / "loras"
+
+# Map frontend model IDs to the lora subdirectory on disk
+_MODEL_TO_LORA_DIR: dict[str, str] = {
+    "wan/t2v_1.3B": "wan_1.3B",
+    "wan/t2v": "wan_5B",
+    "wan/i2v": "wan_i2v",
+    "ltx2": "ltx2",
+    "ltx2_19B": "ltx2",
+    "ltxv_098_13b": "ltxv",
+}
+
+
+async def lora_list(request: Request) -> JSONResponse:
+    """GET /v1/loras?model=ltx2 — list available LoRA files for a model."""
+    model = request.query_params.get("model", "")
+    lora_dir_name = _MODEL_TO_LORA_DIR.get(model, model)
+    lora_dir = _LORAS_DIR / lora_dir_name
+
+    if not lora_dir.exists() or not lora_dir.is_dir():
+        return JSONResponse({"model": model, "loras": []})
+
+    # Prevent directory traversal
+    try:
+        lora_dir.resolve().relative_to(_LORAS_DIR.resolve())
+    except ValueError:
+        return JSONResponse({"error": "invalid model"}, status_code=400)
+
+    files = sorted(
+        f.name for f in lora_dir.iterdir()
+        if f.is_file() and f.suffix in (".safetensors", ".pt", ".bin")
+    )
+    return JSONResponse({"model": model, "loras": files})
 
 _MIME_TYPES = {
     ".html": "text/html",
