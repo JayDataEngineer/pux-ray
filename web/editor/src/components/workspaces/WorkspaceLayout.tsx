@@ -343,12 +343,21 @@ function KimodoDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (o:
   const [loading, setLoading] = useState(false)
   const [loaded, setLoaded] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // Refs to avoid re-creating preload callback on state changes (prevents race)
+  const loadingRef = useRef(false)
+  const loadedRef = useRef(false)
 
-  const preload = useCallback(() => {
-    if (loaded || loading) return
+  // Trigger preload when dialog opens — uses refs so the effect doesn't
+  // re-run on state updates from the fetch itself.
+  useEffect(() => {
+    if (!open) { setError(null); return }
+    if (loadedRef.current || loadingRef.current) return
+
     let cancelled = false
+    loadingRef.current = true
     setLoading(true)
     setError(null)
+
     fetch('/forge', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -361,24 +370,16 @@ function KimodoDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (o:
         }
         const body = await res.json().catch(() => ({}))
         if (body.status === 'error') throw new Error(body.error || 'Failed to load')
-        if (!cancelled) setLoaded(true)
+        if (!cancelled) { loadedRef.current = true; setLoaded(true) }
       })
       .catch((e) => {
         if (!cancelled) setError(e.message || 'Failed to load Kimodo')
       })
       .finally(() => {
-        if (!cancelled) setLoading(false)
+        if (!cancelled) { loadingRef.current = false; setLoading(false) }
       })
     return () => { cancelled = true }
-  }, [loaded, loading])
-
-  // Trigger preload when dialog opens
-  useEffect(() => {
-    if (!open) { setError(null); return }
-    if (loaded || loading) return
-    const cancel = preload()
-    return cancel
-  }, [open, loaded, loading, preload])
+  }, [open]) // intentionally only depends on `open`
 
   const handleClose = useCallback((willOpen: boolean) => {
     onOpenChange(willOpen)
@@ -420,7 +421,7 @@ function KimodoDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (o:
                 variant="outline"
                 size="sm"
                 className="mt-2"
-                onClick={() => { setError(null); setLoaded(false); }}
+                onClick={() => { setError(null); setLoaded(false); loadedRef.current = false; }}
               >
                 Retry
               </Button>
