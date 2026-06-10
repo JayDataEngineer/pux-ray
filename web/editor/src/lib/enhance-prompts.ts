@@ -344,12 +344,28 @@ Output ONLY the enhanced prompt — no explanations, no quotes, no prefixes.
 // ═══════════════════════════════════════════════════════════════════════════════
 
 const GENERATE_MODEL_PROMPTS: Record<string, string> = {
+  // Z-Image family
   z_image: Z_IMAGE_TURBO_ENHANCE,
   z_image_base: Z_IMAGE_BASE_ENHANCE,
+  // Anima
   anima_base: ANIMA_ENHANCE,
+  // Flux 1 family
+  flux: FLUX_1_DEV_ENHANCE,
   flux_schnell: FLUX_SCHNELL_ENHANCE,
-  flux_dev: FLUX_DEV_ENHANCE,
+  flux_chroma: FLUX_CHROMA_ENHANCE,
+  flux_chroma_radiance: FLUX_CHROMA_ENHANCE,
+  // Flux 2 family
+  flux2_dev: FLUX_2_DEV_ENHANCE,
   flux2_klein_4b: FLUX_KLEIN_ENHANCE,
+  flux2_klein_9b: FLUX_2_KLEIN_9B_ENHANCE,
+  flux2_klein_base_4b: FLUX_2_KLEIN_BASE_ENHANCE,
+  flux2_klein_base_9b: FLUX_2_KLEIN_BASE_ENHANCE,
+  // Qwen Image family
+  qwen_image_20B: QWEN_IMAGE_ENHANCE,
+  qwen_image_2512_20B: QWEN_IMAGE_ENHANCE,
+  // HiDream family
+  hidream_o1: HIDREAM_ENHANCE,
+  hidream_o1_dev: HIDREAM_ENHANCE,
 }
 
 const SERVICE_ENHANCE_MAP: Record<string, string> = {
