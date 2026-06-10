@@ -13,7 +13,7 @@ import { useToastStore } from "@/stores/toast"
 import { useAssetStore, type Asset, nextAssetName } from "@/stores/assets"
 import { useEnhanceStore } from "@/stores/enhancement"
 import { enhancePrompt } from "@/lib/enhance"
-import { getEnhancePrompt, ENHANCEABLE_FIELDS } from "@/lib/enhance-prompts"
+import { getEnhancePrompt } from "@/lib/enhance-prompts"
 import { EnhanceConfigDialog } from "@/components/EnhanceConfigDialog"
 import { kimodoUrl } from "@/mcp"
 import { callTool, forgeStatus, listTools, type MCPTool } from "@/mcp"
@@ -498,34 +498,58 @@ function AssetsTab({ selectedService, jobs, onAddJob, nextJobId }: {
   const [values, setValues] = useState<Record<string, unknown>>({})
   const [generating, setGenerating] = useState(false)
   const [fields, setFields] = useState<FieldDef[]>([])
-  const [enhancingField, setEnhancingField] = useState<string | null>(null)
+  const [enhancing, setEnhancing] = useState(false)
   const prevServiceRef = useRef("")
 
   const enhanceActiveModel = useEnhanceStore((s) => s.activeModel)
 
-  const handleEnhance = useCallback(async (fieldName: string) => {
+  const handleEnhance = useCallback(async () => {
     const model = enhanceActiveModel()
-    const currentVal = String(values[fieldName] ?? "").trim()
     if (!model) {
       toast("error", "No AI model configured. Click the ✨ icon in the header to set one up.")
       return
     }
-    if (!currentVal) {
+
+    // Find prompt and negative_prompt fields
+    const promptField = fields.find((f) => f.name === "prompt" || f.name === "text")
+    const negField = fields.find((f) => f.name === "negative_prompt")
+    const promptVal = String(promptField ? (values[promptField.name] ?? "") : "").trim()
+
+    if (!promptVal) {
       toast("error", "Enter a prompt first, then enhance it.")
       return
     }
-    setEnhancingField(fieldName)
+
+    setEnhancing(true)
     try {
+      // Enhance positive prompt
       const systemPrompt = getEnhancePrompt(selectedService, values)
-      const enhanced = await enhancePrompt(model, systemPrompt, currentVal)
-      setValues((p) => ({ ...p, [fieldName]: enhanced }))
+      const enhanced = await enhancePrompt(model, systemPrompt, promptVal)
+      const updates: Record<string, unknown> = {}
+      if (promptField) updates[promptField.name] = enhanced
+
+      // Enhance negative prompt if the field exists and the model supports negatives
+      if (negField && values[negField.name] !== undefined) {
+        const negVal = String(values[negField.name] ?? "").trim()
+        if (negVal) {
+          try {
+            const negSystemPrompt = getEnhancePrompt(selectedService, { ...values, _field: "negative_prompt" })
+            const enhancedNeg = await enhancePrompt(model, negSystemPrompt, negVal)
+            updates[negField.name] = enhancedNeg
+          } catch {
+            // Negative prompt enhancement is best-effort — don't fail the whole thing
+          }
+        }
+      }
+
+      setValues((p) => ({ ...p, ...updates }))
       toast("success", "Prompt enhanced")
     } catch (e) {
       toast("error", e instanceof Error ? e.message : "Enhancement failed")
     } finally {
-      setEnhancingField(null)
+      setEnhancing(false)
     }
-  }, [enhanceActiveModel, values, toast, selectedService])
+  }, [enhanceActiveModel, values, fields, toast, selectedService])
 
   useEffect(() => {
     listTools().then(setTools).catch(() => {})
@@ -653,6 +677,14 @@ function AssetsTab({ selectedService, jobs, onAddJob, nextJobId }: {
               <h2 className="text-base font-semibold">{label}</h2>
               {selectedService && <Badge variant="outline" className="text-[10px]">{selectedService}</Badge>}
             </div>
+            {fields.some((f) => f.name === "prompt" || f.name === "text") && (
+              <Button variant="outline" size="sm" className="w-full h-8 text-xs gap-2"
+                disabled={enhancing || generating || !String(values[fields.find((f) => f.name === "prompt" || f.name === "text")?.name ?? ""] ?? "").trim()}
+                onClick={handleEnhance}>
+                {enhancing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
+                {enhancing ? "Enhancing…" : "Enhance Prompt"}
+              </Button>
+            )}
             {(selectedService === "tts_speak"
               ? ttsVisibleFields(String(values.engine || "kokoro"), fields)
               : fields
@@ -672,20 +704,6 @@ function AssetsTab({ selectedService, jobs, onAddJob, nextJobId }: {
               <div key={f.name} className="space-y-1" onDragOver={(e) => e.preventDefault()} onDrop={handleDrop}>
                 <div className="flex items-center gap-1">
                   <Label className="text-xs text-muted-foreground capitalize">{f.label}</Label>
-                  {(f.type === "text" || f.type === "textarea") && ENHANCEABLE_FIELDS.has(f.name) && (
-                    <button type="button"
-                      onClick={() => handleEnhance(f.name)}
-                      disabled={enhancingField === f.name || !String(values[f.name] ?? "").trim()}
-                      className="inline-flex items-center gap-1 text-[10px] text-primary hover:underline ml-auto disabled:opacity-40 disabled:cursor-not-allowed"
-                      title="Enhance with AI">
-                      {enhancingField === f.name ? (
-                        <Loader2 className="h-3 w-3 animate-spin" />
-                      ) : (
-                        <Sparkles className="h-3 w-3" />
-                      )}
-                      {enhancingField === f.name ? "Enhancing…" : "Enhance"}
-                    </button>
-                  )}
                   {selectedService === "edit" && f.name === "pose_image_b64" && (
                     <button type="button"
                       onClick={() => setKimodoOpen(true)}
