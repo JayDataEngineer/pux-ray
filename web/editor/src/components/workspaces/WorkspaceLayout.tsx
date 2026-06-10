@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from "react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
+import { LoraPicker } from "@/components/LoraPicker"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
@@ -801,6 +802,13 @@ function AssetsTab({ selectedService, jobs, onAddJob, nextJobId, onOpenKimodo }:
                       className="h-4 w-4 rounded border-border text-primary focus:ring-primary" />
                     <span className="text-xs text-muted-foreground">{values[f.name] ? "Yes" : "No"}</span>
                   </label>
+                ) : f.name === "loras_selected" ? (
+                  <LoraPicker
+                    model={String(values.model || "")}
+                    value={String(values[f.name] ?? "")}
+                    onChange={(v) => setValues((p) => ({ ...p, [f.name]: v }))}
+                    variant="light"
+                  />
                 ) : (
                   <Input value={String(values[f.name] ?? f.default ?? "")}
                     onChange={(e) => setValues((p) => ({ ...p, [f.name]: e.target.value }))}
