@@ -14,6 +14,8 @@ export interface TimelineSegment {
   trimStart: number
   sourceStepId: string | null
   status: 'empty' | 'pending' | 'generating' | 'ready' | 'failed'
+  /** Last error message if status is 'failed' */
+  error: string | null
 }
 
 export interface SegmentParams {
@@ -37,6 +39,16 @@ export interface SegmentParams {
   loras: string
   /** Perturbation mode: 0=off, 1=skip layer, 2=skip self-attn */
   perturbationSwitch: number
+  /** Camera pan X offset (-1 to 1) */
+  cameraPanX: number
+  /** Camera pan Y offset (-1 to 1) */
+  cameraPanY: number
+  /** Camera zoom (1.0 = none, >1 = zoom in) */
+  cameraZoom: number
+  /** Resize/fit method: stretch, fit, crop, pad */
+  resizeMethod: 'stretch' | 'fit' | 'crop' | 'pad'
+  /** Use distilled mode (loads distilled LoRA, fewer steps) */
+  distilledMode: boolean
 }
 
 /** An audio cue placed at a specific time on a named track */
@@ -82,18 +94,22 @@ export interface DragState {
   ghostOrder: number
 }
 
-export const AUDIO_TRACKS: AudioTrackDef[] = [
-  { id: 'voice', label: 'Voice', color: '#4ade80', height: 48 },
-  { id: 'sfx', label: 'SFX', color: '#facc15', height: 48 },
-  { id: 'music', label: 'Music', color: '#fb923c', height: 48 },
+/** Colors for auto-assigned audio tracks */
+export const TRACK_COLORS = [
+  '#4ade80', '#facc15', '#fb923c', '#60a5fa', '#f472b6',
+  '#a78bfa', '#34d399', '#fbbf24', '#f87171', '#38bdf8',
 ]
 
-/** Available Wan2GP video models */
+/** Available video models */
 export const VIDEO_MODELS = [
+  // ── Wan Video (text-to-video, image-to-video) ──
   { id: 'wan/t2v_1.3B', label: 'Wan 1.3B (fast)', defaultFrames: 81, defaultFps: 16, defaultWidth: 1280, defaultHeight: 720 },
   { id: 'wan/t2v', label: 'Wan 14B (quality)', defaultFrames: 81, defaultFps: 16, defaultWidth: 1280, defaultHeight: 720 },
   { id: 'wan/i2v', label: 'Wan I2V 14B', defaultFrames: 81, defaultFps: 16, defaultWidth: 1280, defaultHeight: 720 },
-  { id: 'ltx2', label: 'LTX Video', defaultFrames: 121, defaultFps: 24, defaultWidth: 768, defaultHeight: 512 },
+  // ── LTX-Video (Director prompt relay, FFLF, audio conditioning) ──
+  { id: 'ltx2', label: 'LTX 2.3 22B (dev)', defaultFrames: 121, defaultFps: 24, defaultWidth: 768, defaultHeight: 512 },
+  { id: 'ltx2_19B', label: 'LTX 2.0 19B (dev)', defaultFrames: 121, defaultFps: 24, defaultWidth: 768, defaultHeight: 512 },
+  { id: 'ltxv_098_13b', label: 'LTX-Video 0.9.8 13B', defaultFrames: 97, defaultFps: 24, defaultWidth: 768, defaultHeight: 512 },
 ] as const
 
 export const DEFAULT_SEGMENT_PARAMS: SegmentParams = {
@@ -111,4 +127,9 @@ export const DEFAULT_SEGMENT_PARAMS: SegmentParams = {
   spatialUpscale: false,
   loras: '',
   perturbationSwitch: 0,
+  cameraPanX: 0,
+  cameraPanY: 0,
+  cameraZoom: 1.0,
+  resizeMethod: 'fit',
+  distilledMode: false,
 }
