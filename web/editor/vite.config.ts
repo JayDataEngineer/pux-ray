@@ -1,3 +1,4 @@
+/// <reference types="vitest" />
 import { defineConfig } from 'vite'
 import tailwindcss from '@tailwindcss/vite'
 import react from '@vitejs/plugin-react'
@@ -42,5 +43,12 @@ export default defineConfig({
     host: '0.0.0.0',
     port: 4173,
     proxy: proxyConfig,
+  },
+  test: {
+    environment: 'happy-dom',
+    globals: true,
+    setupFiles: ['./src/__tests__/setup.ts'],
+    include: ['src/__tests__/**/*.test.{ts,tsx}'],
+    css: false,
   },
 })

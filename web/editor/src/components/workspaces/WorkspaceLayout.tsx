@@ -129,6 +129,7 @@ export function WorkspaceLayout() {
   const [selectedAsset, setSelectedAsset] = useState<Asset | null>(null)
   const [jobs, setJobs] = useState<JobEntry[]>([])
   const [enhanceConfigOpen, setEnhanceConfigOpen] = useState(false)
+  const [kimodoOpen, setKimodoOpen] = useState(false)
   const nextJobId = useRef(1)
 
   const enhanceActiveModel = useEnhanceStore((s) => s.activeModel)
@@ -162,14 +163,15 @@ export function WorkspaceLayout() {
         <div className="flex flex-1 min-h-0">
           <div className="flex-1 min-w-0 overflow-auto scrollbar-thin">
             {tab === "assets"
-              ? <AssetsTab selectedService={selectedService} jobs={jobs} onAddJob={(j) => setJobs(j)} nextJobId={nextJobId} />
+              ? <AssetsTab selectedService={selectedService} jobs={jobs} onAddJob={(j) => setJobs(j)} nextJobId={nextJobId} onOpenKimodo={() => setKimodoOpen(true)} />
               : <VideoEditor />
             }
           </div>
-          {rightOpen && <ServicesSidebar selected={selectedService} onSelect={setSelectedService} />}
+          {rightOpen && <ServicesSidebar selected={selectedService} onSelect={setSelectedService} onOpenKimodo={() => setKimodoOpen(true)} />}
         </div>
       </div>
       <AssetPreviewDialog asset={selectedAsset} onClose={() => setSelectedAsset(null)} onSelect={(a) => setSelectedAsset(a)} />
+      <KimodoDialog open={kimodoOpen} onOpenChange={setKimodoOpen} />
       <EnhanceConfigDialog open={enhanceConfigOpen} onOpenChange={setEnhanceConfigOpen} />
     </div>
   )
@@ -254,7 +256,7 @@ function GpuStatus() {
   )
 }
 
-function ServicesSidebar({ selected, onSelect }: { selected: string; onSelect: (n: string) => void }) {
+function ServicesSidebar({ selected, onSelect, onOpenKimodo }: { selected: string; onSelect: (n: string) => void; onOpenKimodo: () => void }) {
   const [tools, setTools] = useState<MCPTool[]>([])
   const [services, setServices] = useState<{ name: string; label: string; category: string }[]>([])
 
@@ -324,7 +326,7 @@ function ServicesSidebar({ selected, onSelect }: { selected: string; onSelect: (
       </div>
       <div className="p-2 border-t">
         <button
-          onClick={() => window.open(kimodoUrl(), "_blank")}
+          onClick={onOpenKimodo}
           className="w-full flex items-center gap-2 px-2 py-1.5 rounded text-xs text-left transition-colors hover:bg-sidebar-accent/50 text-sidebar-foreground/60"
         >
           <span className="text-sm">↝</span>
@@ -484,14 +486,14 @@ function AssetPreviewDialog({ asset, onClose, onSelect }: { asset: Asset | null;
   )
 }
 
-function AssetsTab({ selectedService, jobs, onAddJob, nextJobId }: {
+function AssetsTab({ selectedService, jobs, onAddJob, nextJobId, onOpenKimodo }: {
   selectedService: string
   jobs: JobEntry[]
   onAddJob: (j: JobEntry[] | ((prev: JobEntry[]) => JobEntry[])) => void
   nextJobId: React.MutableRefObject<number>
+  onOpenKimodo: () => void
 }) {
   const toast = useToastStore((s) => s.addToast)
-  const [kimodoOpen, setKimodoOpen] = useState(false)
   const addAsset = useAssetStore((s) => s.addAsset)
   const [tools, setTools] = useState<MCPTool[]>([])
   const [services, setServices] = useState<{ name: string; label: string; category: string }[]>([])
@@ -706,7 +708,7 @@ function AssetsTab({ selectedService, jobs, onAddJob, nextJobId }: {
                   <Label className="text-xs text-muted-foreground capitalize">{f.label}</Label>
                   {selectedService === "edit" && f.name === "pose_image_b64" && (
                     <button type="button"
-                      onClick={() => setKimodoOpen(true)}
+                      onClick={onOpenKimodo}
                       className="inline-flex items-center gap-1 text-[10px] text-primary hover:underline ml-auto">
                       <Maximize2 className="h-3 w-3" /> Open Kimodo Studio
                     </button>
@@ -772,7 +774,6 @@ function AssetsTab({ selectedService, jobs, onAddJob, nextJobId }: {
         </Card>
       </div>
     </div>
-    <KimodoDialog open={kimodoOpen} onOpenChange={setKimodoOpen} />
     </>
   )
 }
