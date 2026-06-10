@@ -149,6 +149,7 @@ export const useTimelineStore = create<TimelineStore>((set, get) => ({
       sourceStepId: null,
       status: 'empty',
       error: null,
+      controlVideoUrl: null,
       ...partial,
     }
     set((s) => {

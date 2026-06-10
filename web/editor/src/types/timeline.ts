@@ -16,6 +16,8 @@ export interface TimelineSegment {
   status: 'empty' | 'pending' | 'generating' | 'ready' | 'failed'
   /** Last error message if status is 'failed' */
   error: string | null
+  /** Control video URL for IC-LoRA conditioning (pose/depth/canny transfer) */
+  controlVideoUrl: string | null
 }
 
 export interface SegmentParams {
@@ -33,12 +35,20 @@ export interface SegmentParams {
   epsilon: number
   /** Control strength for video conditioning */
   denoisingStrength: number
+  /** Start image / source strength (lower = more motion freedom) */
+  inputVideoStrength: number
   /** Spatial 2x upscale after generation */
   spatialUpscale: boolean
   /** Comma-separated LoRA filenames */
   loras: string
   /** Perturbation mode: 0=off, 1=skip layer, 2=skip self-attn */
   perturbationSwitch: number
+  /** Which transformer layers to perturb */
+  perturbationLayers: number[]
+  /** Perturbation start percentage (0-100) */
+  perturbationStartPerc: number
+  /** Perturbation end percentage (0-100) */
+  perturbationEndPerc: number
   /** Camera pan X offset (-1 to 1) */
   cameraPanX: number
   /** Camera pan Y offset (-1 to 1) */
@@ -49,7 +59,97 @@ export interface SegmentParams {
   resizeMethod: 'stretch' | 'fit' | 'crop' | 'pad'
   /** Use distilled mode (loads distilled LoRA, fewer steps) */
   distilledMode: boolean
+
+  // ── Advanced guidance ──
+  /** APG (Adaptive Projected Guidance) — dev only */
+  apgSwitch: boolean
+  /** CFG Star rescaling — dev only */
+  cfgStarSwitch: boolean
+  /** NAG scale — distilled only */
+  nagScale: number
+  /** NAG tau — distilled only */
+  nagTau: number
+  /** NAG alpha — distilled only */
+  nagAlpha: number
+  /** Alt/modality guidance scale — dev only */
+  altGuideScale: number
+  /** Alt guidance rescale — dev only */
+  altScale: number
+  /** Audio guidance scale — dev only */
+  audioGuideScale: number
+  /** Audio CFG scale */
+  audioCfgScale: number
+  /** Sample solver: euler, res2s (22B dev only) */
+  sampleSolver: string
+
+  // ── Self-Refiner ──
+  /** Enable self refiner */
+  selfRefinerSetting: number
+  /** Refiner plan string e.g. "2-8:3" */
+  selfRefinerPlan: string
+  /** Frame uncertainty threshold */
+  selfRefinerFUncertainty: number
+  /** Certain percentage threshold */
+  selfRefinerCertainPercentage: number
+
+  // ── Sliding window ──
+  /** Enable sliding window for long videos */
+  slidingWindow: boolean
+  /** Window size in frames (default 241) */
+  slidingWindowSize: number
+  /** Overlap between windows (default 9) */
+  slidingWindowOverlap: number
+
+  // ── Control video / IC-LoRA (distilled only) ──
+  /** Control video mode: "" | "PVG" | "OVG" | "DVG" | "EVG" | "VG" | "V&G" | "KFI" */
+  videoPromptType: string
+  /** Masking strength for control video */
+  maskingStrength: number
+  /** Mask preprocessing: "" | "A" | "NA" | "XA" | "XNA" */
+  maskingSource: string
+  /** Outpainting enabled */
+  outpaintingEnabled: boolean
+  /** Outpaint ratio e.g. "16:9" */
+  outpaintingRatio: string
+
+  // ── Audio conditioning ──
+  /** Audio prompt type: "" | "A" | "A1OF" | "K" | "2" */
+  audioPromptType: string
+
+  // ── Prompt enhancement ──
+  /** Use built-in LTX2 prompt enhancer */
+  enhancePrompt: boolean
 }
+
+/** Control video modes for IC-LoRA (distilled only) */
+export const CONTROL_VIDEO_MODES = [
+  { id: '', label: 'None' },
+  { id: 'VG', label: 'Raw Control Video' },
+  { id: 'PVG', label: 'Transfer Human Motion' },
+  { id: 'OVG', label: 'Transfer Motion + Pose Alignment' },
+  { id: 'DVG', label: 'Transfer Depth' },
+  { id: 'EVG', label: 'Transfer Canny Edges' },
+  { id: 'V&G', label: 'SDR → HDR (22B distilled only)' },
+  { id: 'KFI', label: 'Inject Frames' },
+] as const
+
+/** Audio conditioning modes */
+export const AUDIO_PROMPT_MODES = [
+  { id: '', label: 'Text Only (video + optional soundtrack)' },
+  { id: 'A', label: 'Audio-Driven (video from soundtrack)' },
+  { id: 'A1OF', label: 'Reference Voice + ID-LoRA (dev)' },
+  { id: 'K', label: 'Control Video Audio (distilled)' },
+  { id: '2', label: 'Generate Audio from Video (distilled)' },
+] as const
+
+/** Mask preprocessing modes */
+export const MASK_MODES = [
+  { id: '', label: 'None' },
+  { id: 'A', label: 'Auto Mask' },
+  { id: 'NA', label: 'No Auto Mask' },
+  { id: 'XA', label: 'Extended Auto' },
+  { id: 'XNA', label: 'Extended No Auto' },
+] as const
 
 /** An audio cue placed at a specific time on a named track */
 export interface AudioCue {
@@ -124,12 +224,52 @@ export const DEFAULT_SEGMENT_PARAMS: SegmentParams = {
   guidePhases: 2,
   epsilon: 0.001,
   denoisingStrength: 1.0,
+  inputVideoStrength: 1.0,
   spatialUpscale: false,
   loras: '',
   perturbationSwitch: 0,
+  perturbationLayers: [28],
+  perturbationStartPerc: 0,
+  perturbationEndPerc: 100,
   cameraPanX: 0,
   cameraPanY: 0,
   cameraZoom: 1.0,
   resizeMethod: 'fit',
   distilledMode: false,
+
+  // Advanced guidance
+  apgSwitch: false,
+  cfgStarSwitch: false,
+  nagScale: 1.0,
+  nagTau: 3.5,
+  nagAlpha: 0.5,
+  altGuideScale: 1.0,
+  altScale: 0.0,
+  audioGuideScale: 1.0,
+  audioCfgScale: 1.0,
+  sampleSolver: 'euler',
+
+  // Self-Refiner
+  selfRefinerSetting: 0,
+  selfRefinerPlan: '',
+  selfRefinerFUncertainty: 0.1,
+  selfRefinerCertainPercentage: 0.999,
+
+  // Sliding window
+  slidingWindow: false,
+  slidingWindowSize: 241,
+  slidingWindowOverlap: 9,
+
+  // Control video
+  videoPromptType: '',
+  maskingStrength: 0.0,
+  maskingSource: '',
+  outpaintingEnabled: false,
+  outpaintingRatio: '',
+
+  // Audio
+  audioPromptType: '',
+
+  // Prompt enhancement
+  enhancePrompt: false,
 }

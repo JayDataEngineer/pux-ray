@@ -9,7 +9,7 @@ import { useToastStore } from "@/stores/toast"
 import { useTimelineStore } from "@/stores/timeline"
 import { useAssetStore } from "@/stores/assets"
 import { callTool } from "@/mcp"
-import { VIDEO_MODELS } from "@/types/timeline"
+import { VIDEO_MODELS, CONTROL_VIDEO_MODES, AUDIO_PROMPT_MODES, MASK_MODES } from "@/types/timeline"
 import type { TimelineSegment } from "@/types/timeline"
 import {
   Play, Pause, SkipBack, Plus, Trash2,
@@ -57,27 +57,53 @@ interface CueDragInfo {
 
 // ── Compile timeline into backend payload ─────────────────────────────────────
 function buildPayload(seg: TimelineSegment, _allSegments?: TimelineSegment[]) {
+  const p = seg.params
   return {
     service: "wan2gp",
     params: {
-      model: seg.params.model,
+      model: p.model,
       image_b64: seg.firstFrameB64 || undefined,
       image_end_b64: seg.lastFrameB64 || undefined,
       input_prompt: seg.prompt || "animate",
       n_prompt: seg.negativePrompt || undefined,
-      seed: seg.params.seed,
-      frame_num: seg.params.frames,
-      fps: seg.params.fps,
-      width: seg.params.width,
-      height: seg.params.height,
-      guide_scale: seg.params.guideScale,
-      sampling_steps: seg.params.samplingSteps,
-      guide_phases: seg.params.guidePhases || undefined,
-      epsilon: seg.params.epsilon !== 0.001 ? seg.params.epsilon : undefined,
-      denoising_strength: seg.params.denoisingStrength !== 1.0 ? seg.params.denoisingStrength : undefined,
-      spatial_upscale: seg.params.spatialUpscale ? "true" : undefined,
-      loras_selected: seg.params.loras || undefined,
-      perturbation_switch: seg.params.perturbationSwitch || undefined,
+      seed: p.seed,
+      frame_num: p.frames,
+      fps: p.fps,
+      width: p.width,
+      height: p.height,
+      guide_scale: p.guideScale,
+      sampling_steps: p.samplingSteps,
+      guide_phases: p.guidePhases || undefined,
+      input_video_strength: p.inputVideoStrength !== 1.0 ? p.inputVideoStrength : undefined,
+      perturbation_switch: p.perturbationSwitch || undefined,
+      perturbation_layers: p.perturbationSwitch ? p.perturbationLayers : undefined,
+      perturbation_start: p.perturbationSwitch ? p.perturbationStartPerc / 100 : undefined,
+      perturbation_end: p.perturbationSwitch ? p.perturbationEndPerc / 100 : undefined,
+      apg_switch: p.apgSwitch ? 1 : undefined,
+      cfg_star_switch: p.cfgStarSwitch ? 1 : undefined,
+      alt_guide_scale: p.altGuideScale !== 1.0 ? p.altGuideScale : undefined,
+      alt_scale: p.altScale !== 0.0 ? p.altScale : undefined,
+      audio_guidance_scale: p.audioGuideScale !== 1.0 ? p.audioGuideScale : undefined,
+      audio_cfg_scale: p.audioCfgScale !== 1.0 ? p.audioCfgScale : undefined,
+      NAG_scale: p.nagScale !== 1.0 ? p.nagScale : undefined,
+      NAG_tau: p.nagTau !== 3.5 ? p.nagTau : undefined,
+      NAG_alpha: p.nagAlpha !== 0.5 ? p.nagAlpha : undefined,
+      sample_solver: p.sampleSolver !== 'euler' ? p.sampleSolver : undefined,
+      self_refiner_setting: p.selfRefinerSetting || undefined,
+      self_refiner_plan: p.selfRefinerPlan || undefined,
+      self_refiner_f_uncertainty: p.selfRefinerSetting ? p.selfRefinerFUncertainty : undefined,
+      self_refiner_certain_percentage: p.selfRefinerSetting ? p.selfRefinerCertainPercentage : undefined,
+      video_prompt_type: p.videoPromptType || undefined,
+      denoising_strength: p.videoPromptType ? p.denoisingStrength : (p.denoisingStrength !== 1.0 ? p.denoisingStrength : undefined),
+      masking_strength: p.maskingStrength !== 0.0 ? p.maskingStrength : undefined,
+      masking_source: p.maskingSource || undefined,
+      audio_prompt_type: p.audioPromptType || undefined,
+      loras_selected: p.loras || undefined,
+      enhance_prompt: p.enhancePrompt ? "true" : undefined,
+      ...(p.slidingWindow ? {
+        sliding_window_size: p.slidingWindowSize,
+        sliding_window_overlap: p.slidingWindowOverlap,
+      } : {}),
     }
   }
 }
@@ -693,6 +719,15 @@ export function VideoEditor() {
                       className="text-xs min-h-[40px] bg-white/5 border-white/10 text-white/80 placeholder:text-white/20 resize-none rounded-md focus:border-[#6366f1]/50"
                       placeholder="What to avoid..." />
                   </div>
+                  {isLtx && (
+                    <div className="flex items-center justify-between">
+                      <Label className="text-[9px] font-medium text-white/30 uppercase tracking-wider">Auto-Enhance Prompt</Label>
+                      <button className="text-white/40 hover:text-white/70"
+                        onClick={() => updateSegment(sel.id, { params: { ...sel.params, enhancePrompt: !sel.params.enhancePrompt } })}>
+                        {sel.params.enhancePrompt ? <ToggleRight className="h-5 w-5 text-[#6366f1]" /> : <ToggleLeft className="h-5 w-5" />}
+                      </button>
+                    </div>
+                  )}
                 </div>
               </InspectorSection>
 
@@ -871,6 +906,18 @@ export function VideoEditor() {
                       </div>
                     )}
                   </div>
+                  {/* Start image strength */}
+                  {isLtx && sel.firstFrameB64 && (
+                    <InspectorField label="Start Image Strength">
+                      <div className="flex items-center gap-2">
+                        <input type="range" min={0} max={1} step={0.05} value={sel.params.inputVideoStrength}
+                          onChange={(e) => updateSegment(sel.id, { params: { ...sel.params, inputVideoStrength: Number(e.target.value) } })}
+                          className="flex-1 h-1 appearance-none bg-white/10 rounded-full accent-[#6366f1] [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white/70" />
+                        <span className="text-[10px] font-mono text-white/40 w-8">{sel.params.inputVideoStrength.toFixed(2)}</span>
+                      </div>
+                      <div className="text-[9px] text-white/15 mt-0.5">Lower = more motion freedom</div>
+                    </InspectorField>
+                  )}
                 </div>
               </InspectorSection>
 
@@ -965,7 +1012,271 @@ export function VideoEditor() {
               </InspectorSection>
               )}
 
-              {/* ── Audio Conditioning ── */}
+              {/* ── Guidance (LTX only) ── */}
+              {isLtx && (
+              <InspectorSection title="Guidance" icon={<Sliders className="h-3 w-3" />} defaultOpen={false}>
+                {sel.params.distilledMode ? (
+                  // NAG — distilled only
+                  <div className="space-y-2">
+                    <div className="text-[9px] text-white/25">Negative Attention Guidance (NAG)</div>
+                    <div className="grid grid-cols-3 gap-2">
+                      <InspectorField label="NAG Scale">
+                        <Input type="number" value={sel.params.nagScale} step={0.1} min={0} max={10}
+                          onChange={(e) => updateSegment(sel.id, { params: { ...sel.params, nagScale: Number(e.target.value) } })}
+                          className="h-7 text-xs bg-white/5 border-white/10 text-white/80 rounded-md" />
+                      </InspectorField>
+                      <InspectorField label="NAG Tau">
+                        <Input type="number" value={sel.params.nagTau} step={0.5} min={0} max={10}
+                          onChange={(e) => updateSegment(sel.id, { params: { ...sel.params, nagTau: Number(e.target.value) } })}
+                          className="h-7 text-xs bg-white/5 border-white/10 text-white/80 rounded-md" />
+                      </InspectorField>
+                      <InspectorField label="NAG Alpha">
+                        <Input type="number" value={sel.params.nagAlpha} step={0.1} min={0} max={1}
+                          onChange={(e) => updateSegment(sel.id, { params: { ...sel.params, nagAlpha: Number(e.target.value) } })}
+                          className="h-7 text-xs bg-white/5 border-white/10 text-white/80 rounded-md" />
+                      </InspectorField>
+                    </div>
+                  </div>
+                ) : (
+                  // Dev guidance modes
+                  <div className="space-y-2">
+                    <div className="grid grid-cols-2 gap-2">
+                      <div className="flex items-center justify-between">
+                        <Label className="text-[9px] font-medium text-white/30 uppercase tracking-wider">APG</Label>
+                        <button className="text-white/40 hover:text-white/70"
+                          onClick={() => updateSegment(sel.id, { params: { ...sel.params, apgSwitch: !sel.params.apgSwitch, cfgStarSwitch: sel.params.apgSwitch ? sel.params.cfgStarSwitch : false } })}>
+                          {sel.params.apgSwitch ? <ToggleRight className="h-5 w-5 text-[#6366f1]" /> : <ToggleLeft className="h-5 w-5" />}
+                        </button>
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <Label className="text-[9px] font-medium text-white/30 uppercase tracking-wider">CFG Star</Label>
+                        <button className="text-white/40 hover:text-white/70"
+                          onClick={() => updateSegment(sel.id, { params: { ...sel.params, cfgStarSwitch: !sel.params.cfgStarSwitch, apgSwitch: sel.params.cfgStarSwitch ? sel.params.apgSwitch : false } })}>
+                          {sel.params.cfgStarSwitch ? <ToggleRight className="h-5 w-5 text-[#6366f1]" /> : <ToggleLeft className="h-5 w-5" />}
+                        </button>
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2">
+                      <InspectorField label="Alt Guide Scale">
+                        <Input type="number" value={sel.params.altGuideScale} step={0.5} min={0} max={20}
+                          onChange={(e) => updateSegment(sel.id, { params: { ...sel.params, altGuideScale: Number(e.target.value) } })}
+                          className="h-7 text-xs bg-white/5 border-white/10 text-white/80 rounded-md" />
+                      </InspectorField>
+                      <InspectorField label="Alt Rescale">
+                        <Input type="number" value={sel.params.altScale} step={0.1} min={0} max={1}
+                          onChange={(e) => updateSegment(sel.id, { params: { ...sel.params, altScale: Number(e.target.value) } })}
+                          className="h-7 text-xs bg-white/5 border-white/10 text-white/80 rounded-md" />
+                      </InspectorField>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2">
+                      <InspectorField label="Audio Guide">
+                        <Input type="number" value={sel.params.audioGuideScale} step={0.5} min={0} max={20}
+                          onChange={(e) => updateSegment(sel.id, { params: { ...sel.params, audioGuideScale: Number(e.target.value) } })}
+                          className="h-7 text-xs bg-white/5 border-white/10 text-white/80 rounded-md" />
+                      </InspectorField>
+                      <InspectorField label="Audio CFG">
+                        <Input type="number" value={sel.params.audioCfgScale} step={0.5} min={0} max={20}
+                          onChange={(e) => updateSegment(sel.id, { params: { ...sel.params, audioCfgScale: Number(e.target.value) } })}
+                          className="h-7 text-xs bg-white/5 border-white/10 text-white/80 rounded-md" />
+                      </InspectorField>
+                    </div>
+                    {sel.params.model === 'ltx2' && (
+                      <InspectorField label="Sample Solver">
+                        <Select value={sel.params.sampleSolver} onValueChange={(v) => updateSegment(sel.id, { params: { ...sel.params, sampleSolver: v } })}>
+                          <SelectTrigger className="h-7 text-xs bg-white/5 border-white/10 text-white/80 rounded-md">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="euler">Euler (standard)</SelectItem>
+                            <SelectItem value="res2s">HQ Res2s (slower, higher quality)</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </InspectorField>
+                    )}
+                  </div>
+                )}
+              </InspectorSection>
+              )}
+
+              {/* ── Perturbation Detail (LTX dev only, when enabled) ── */}
+              {isLtx && !sel.params.distilledMode && sel.params.perturbationSwitch > 0 && (
+              <InspectorSection title="Perturbation Detail" icon={<Sliders className="h-3 w-3" />} defaultOpen={false}>
+                <div className="space-y-2">
+                  <InspectorField label="Layers (comma-separated)">
+                    <Input type="text" value={sel.params.perturbationLayers.join(",")}
+                      onChange={(e) => updateSegment(sel.id, { params: { ...sel.params, perturbationLayers: e.target.value.split(",").map(Number).filter(n => !isNaN(n)) } })}
+                      className="h-7 text-xs bg-white/5 border-white/10 text-white/80 rounded-md font-mono" />
+                  </InspectorField>
+                  <div className="grid grid-cols-2 gap-2">
+                    <InspectorField label="Start %">
+                      <Input type="number" value={sel.params.perturbationStartPerc} min={0} max={100}
+                        onChange={(e) => updateSegment(sel.id, { params: { ...sel.params, perturbationStartPerc: Number(e.target.value) } })}
+                        className="h-7 text-xs bg-white/5 border-white/10 text-white/80 rounded-md" />
+                    </InspectorField>
+                    <InspectorField label="End %">
+                      <Input type="number" value={sel.params.perturbationEndPerc} min={0} max={100}
+                        onChange={(e) => updateSegment(sel.id, { params: { ...sel.params, perturbationEndPerc: Number(e.target.value) } })}
+                        className="h-7 text-xs bg-white/5 border-white/10 text-white/80 rounded-md" />
+                    </InspectorField>
+                  </div>
+                </div>
+              </InspectorSection>
+              )}
+
+              {/* ── Self-Refiner (LTX only) ── */}
+              {isLtx && (
+              <InspectorSection title="Self-Refiner" icon={<Sliders className="h-3 w-3" />} defaultOpen={false}>
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <Label className="text-[9px] font-medium text-white/30 uppercase tracking-wider">Enable Refiner</Label>
+                    <button className="text-white/40 hover:text-white/70"
+                      onClick={() => updateSegment(sel.id, { params: { ...sel.params, selfRefinerSetting: sel.params.selfRefinerSetting ? 0 : 1 } })}>
+                      {sel.params.selfRefinerSetting ? <ToggleRight className="h-5 w-5 text-[#6366f1]" /> : <ToggleLeft className="h-5 w-5" />}
+                    </button>
+                  </div>
+                  {sel.params.selfRefinerSetting > 0 && (
+                    <>
+                      <InspectorField label="Plan (e.g. 2-8:3)">
+                        <Input type="text" value={sel.params.selfRefinerPlan}
+                          onChange={(e) => updateSegment(sel.id, { params: { ...sel.params, selfRefinerPlan: e.target.value } })}
+                          className="h-7 text-xs bg-white/5 border-white/10 text-white/80 rounded-md font-mono"
+                          placeholder="2-8:3,10-14:2" />
+                      </InspectorField>
+                      <div className="grid grid-cols-2 gap-2">
+                        <InspectorField label="Uncertainty">
+                          <Input type="number" value={sel.params.selfRefinerFUncertainty} step={0.01} min={0} max={1}
+                            onChange={(e) => updateSegment(sel.id, { params: { ...sel.params, selfRefinerFUncertainty: Number(e.target.value) } })}
+                            className="h-7 text-xs bg-white/5 border-white/10 text-white/80 rounded-md" />
+                        </InspectorField>
+                        <InspectorField label="Certainty %">
+                          <Input type="number" value={sel.params.selfRefinerCertainPercentage} step={0.001} min={0} max={1}
+                            onChange={(e) => updateSegment(sel.id, { params: { ...sel.params, selfRefinerCertainPercentage: Number(e.target.value) } })}
+                            className="h-7 text-xs bg-white/5 border-white/10 text-white/80 rounded-md" />
+                        </InspectorField>
+                      </div>
+                    </>
+                  )}
+                </div>
+              </InspectorSection>
+              )}
+
+              {/* ── Sliding Window (LTX only) ── */}
+              {isLtx && (
+              <InspectorSection title="Sliding Window" icon={<Film className="h-3 w-3" />} defaultOpen={false}>
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <Label className="text-[9px] font-medium text-white/30 uppercase tracking-wider">Enable (long videos)</Label>
+                    <button className="text-white/40 hover:text-white/70"
+                      onClick={() => updateSegment(sel.id, { params: { ...sel.params, slidingWindow: !sel.params.slidingWindow } })}>
+                      {sel.params.slidingWindow ? <ToggleRight className="h-5 w-5 text-[#6366f1]" /> : <ToggleLeft className="h-5 w-5" />}
+                    </button>
+                  </div>
+                  {sel.params.slidingWindow && (
+                    <div className="grid grid-cols-2 gap-2">
+                      <InspectorField label="Window Size">
+                        <Input type="number" value={sel.params.slidingWindowSize} step={8} min={5} max={501}
+                          onChange={(e) => updateSegment(sel.id, { params: { ...sel.params, slidingWindowSize: Number(e.target.value) } })}
+                          className="h-7 text-xs bg-white/5 border-white/10 text-white/80 rounded-md" />
+                      </InspectorField>
+                      <InspectorField label="Overlap">
+                        <Input type="number" value={sel.params.slidingWindowOverlap} step={8} min={1} max={97}
+                          onChange={(e) => updateSegment(sel.id, { params: { ...sel.params, slidingWindowOverlap: Number(e.target.value) } })}
+                          className="h-7 text-xs bg-white/5 border-white/10 text-white/80 rounded-md" />
+                      </InspectorField>
+                    </div>
+                  )}
+                </div>
+              </InspectorSection>
+              )}
+
+              {/* ── Control Video / IC-LoRA (LTX distilled only) ── */}
+              {isLtx && sel.params.distilledMode && (
+              <InspectorSection title="Control Video (IC-LoRA)" icon={<Film className="h-3 w-3" />} defaultOpen={false}>
+                <div className="space-y-2">
+                  <InspectorField label="Control Mode">
+                    <Select value={sel.params.videoPromptType} onValueChange={(v) => updateSegment(sel.id, { params: { ...sel.params, videoPromptType: v } })}>
+                      <SelectTrigger className="h-7 text-xs bg-white/5 border-white/10 text-white/80 rounded-md">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {CONTROL_VIDEO_MODES.map(m => (
+                          <SelectItem key={m.id} value={m.id}>{m.label}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </InspectorField>
+                  {sel.params.videoPromptType && (
+                    <>
+                      <div className="grid grid-cols-2 gap-2">
+                        <InspectorField label="Control Strength">
+                          <Input type="number" value={sel.params.denoisingStrength} step={0.1} min={0} max={1}
+                            onChange={(e) => updateSegment(sel.id, { params: { ...sel.params, denoisingStrength: Number(e.target.value) } })}
+                            className="h-7 text-xs bg-white/5 border-white/10 text-white/80 rounded-md" />
+                        </InspectorField>
+                        <InspectorField label="Mask Strength">
+                          <Input type="number" value={sel.params.maskingStrength} step={0.1} min={0} max={1}
+                            onChange={(e) => updateSegment(sel.id, { params: { ...sel.params, maskingStrength: Number(e.target.value) } })}
+                            className="h-7 text-xs bg-white/5 border-white/10 text-white/80 rounded-md" />
+                        </InspectorField>
+                      </div>
+                      <InspectorField label="Mask Mode">
+                        <Select value={sel.params.maskingSource} onValueChange={(v) => updateSegment(sel.id, { params: { ...sel.params, maskingSource: v } })}>
+                          <SelectTrigger className="h-7 text-xs bg-white/5 border-white/10 text-white/80 rounded-md">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {MASK_MODES.map(m => (
+                              <SelectItem key={m.id} value={m.id}>{m.label}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </InspectorField>
+                      {/* Outpainting (22B only) */}
+                      {sel.params.model === 'ltx2' && (
+                        <div className="flex items-center justify-between">
+                          <Label className="text-[9px] font-medium text-white/30 uppercase tracking-wider">Spatial Outpainting</Label>
+                          <button className="text-white/40 hover:text-white/70"
+                            onClick={() => updateSegment(sel.id, { params: { ...sel.params, outpaintingEnabled: !sel.params.outpaintingEnabled } })}>
+                            {sel.params.outpaintingEnabled ? <ToggleRight className="h-5 w-5 text-[#6366f1]" /> : <ToggleLeft className="h-5 w-5" />}
+                          </button>
+                        </div>
+                      )}
+                    </>
+                  )}
+                </div>
+              </InspectorSection>
+              )}
+
+              {/* ── Audio Conditioning Mode ── */}
+              {isLtx && (
+              <InspectorSection title="Audio Mode" icon={<Headphones className="h-3 w-3" />} defaultOpen={false}>
+                <div className="space-y-2">
+                  <InspectorField label="Conditioning Mode">
+                    <Select value={sel.params.audioPromptType} onValueChange={(v) => updateSegment(sel.id, { params: { ...sel.params, audioPromptType: v } })}>
+                      <SelectTrigger className="h-7 text-xs bg-white/5 border-white/10 text-white/80 rounded-md">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {AUDIO_PROMPT_MODES.filter(m => {
+                          if (m.id === 'A1OF' && sel.params.distilledMode) return false
+                          if ((m.id === 'K' || m.id === '2') && !sel.params.distilledMode) return false
+                          return true
+                        }).map(m => (
+                          <SelectItem key={m.id} value={m.id}>{m.label}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </InspectorField>
+                  {sel.params.audioPromptType === 'A1OF' && (
+                    <div className="text-[9px] text-[#6366f1]/60 bg-[#6366f1]/5 rounded px-2 py-1.5">
+                      Select an ID-LoRA from the LoRA section above for identity preservation
+                    </div>
+                  )}
+                </div>
+              </InspectorSection>
+              )}
+
+              {/* ── Audio Conditioning (auto-detected) ── */}
               {(() => {
                 const overlapping = audioCues.filter(c =>
                   c.start < sel.start + sel.duration && c.start + c.duration > sel.start
