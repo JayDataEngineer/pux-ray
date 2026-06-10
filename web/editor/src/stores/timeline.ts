@@ -8,6 +8,21 @@ function uid(): string {
   return `seg_${_nextId++}_${Date.now().toString(36)}`
 }
 
+// ── Undo/Redo history ─────────────────────────────────────────────────────────
+const _history: { segments: TimelineSegment[]; audioCues: AudioCue[] }[] = []
+let _historyIdx = -1
+const MAX_HISTORY = 50
+
+function pushHistory(segments: TimelineSegment[], audioCues: AudioCue[]) {
+  _history.splice(_historyIdx + 1)
+  _history.push({
+    segments: segments.map(s => ({ ...s, params: { ...s.params } })),
+    audioCues: audioCues.map(c => ({ ...c })),
+  })
+  if (_history.length > MAX_HISTORY) _history.shift()
+  _historyIdx = _history.length - 1
+}
+
 function getArtifactThumb(run: WorkflowRun, stepId: string): string | null {
   for (const [key, art] of Object.entries(run.artifacts)) {
     if (!key.startsWith(`${stepId}.`)) continue
@@ -61,6 +76,8 @@ interface TimelineStore {
   removeSegment: (id: string) => void
   updateSegment: (id: string, patch: Partial<TimelineSegment>) => void
   reorderSegments: (orderedIds: string[]) => void
+  undo: () => void
+  redo: () => void
 
   addAudioCue: (cue: Omit<AudioCue, 'id'>) => void
   removeAudioCue: (id: string) => void
@@ -117,6 +134,7 @@ export const useTimelineStore = create<TimelineStore>((set, get) => ({
       start: order * 5,
       duration: 5,
       prompt: '',
+      negativePrompt: '',
       thumbnailUrl: null,
       videoUrl: null,
       firstFrameB64: null,
@@ -130,6 +148,7 @@ export const useTimelineStore = create<TimelineStore>((set, get) => ({
     set((s) => {
       const segments = [...s.segments, seg]
       const totalDuration = segments.reduce((t, seg) => Math.max(t, seg.start + seg.duration), 0)
+      pushHistory(segments, s.audioCues)
       return { segments, playback: { ...s.playback, totalDuration } }
     })
     return seg
@@ -137,12 +156,15 @@ export const useTimelineStore = create<TimelineStore>((set, get) => ({
 
   removeSegment: (id) => set((s) => {
     const segments = s.segments.filter((seg) => seg.id !== id).map((seg, i) => ({ ...seg, order: i }))
+    pushHistory(segments, s.audioCues)
     return { segments, selectedSegmentId: s.selectedSegmentId === id ? null : s.selectedSegmentId }
   }),
 
-  updateSegment: (id, patch) => set((s) => ({
-    segments: s.segments.map((seg) => seg.id === id ? { ...seg, ...patch } : seg),
-  })),
+  updateSegment: (id, patch) => set((s) => {
+    const segments = s.segments.map((seg) => seg.id === id ? { ...seg, ...patch } : seg)
+    pushHistory(segments, s.audioCues)
+    return { segments }
+  }),
 
   reorderSegments: (orderedIds) => set((s) => {
     const map = new Map(s.segments.map((seg) => [seg.id, seg]))
@@ -155,6 +177,7 @@ export const useTimelineStore = create<TimelineStore>((set, get) => ({
       return newSeg
     }).filter(Boolean) as TimelineSegment[]
     const totalDuration = segments.reduce((t, seg) => Math.max(t, seg.start + seg.duration), 0)
+    pushHistory(segments, s.audioCues)
     return { segments, playback: { ...s.playback, totalDuration } }
   }),
 
@@ -260,4 +283,18 @@ export const useTimelineStore = create<TimelineStore>((set, get) => ({
     selectedSegmentId: null,
     selectedAudioCueId: null,
   }),
+
+  undo: () => {
+    if (_historyIdx <= 0) return
+    _historyIdx--
+    const snap = _history[_historyIdx]
+    if (snap) set({ segments: snap.segments, audioCues: snap.audioCues })
+  },
+
+  redo: () => {
+    if (_historyIdx >= _history.length - 1) return
+    _historyIdx++
+    const snap = _history[_historyIdx]
+    if (snap) set({ segments: snap.segments, audioCues: snap.audioCues })
+  },
 }))

@@ -23,7 +23,9 @@ describe('TimelineStore — segment CRUD', () => {
     expect(seg.status).toBe('empty')
     expect(seg.prompt).toBe('')
     expect(seg.params.seed).toBe(42)
-    expect(seg.params.fps).toBe(24)
+    expect(seg.params.fps).toBe(16) // Wan 1.3B default
+    expect(seg.params.model).toBe('wan/t2v_1.3B')
+    expect(seg.negativePrompt).toBe('')
 
     const { segments } = useTimelineStore.getState()
     expect(segments).toHaveLength(1)
