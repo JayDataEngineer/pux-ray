@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef, useMemo } from "react"
+import { useState, useEffect, useCallback, useRef } from "react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -17,7 +17,7 @@ import { getEnhancePrompt } from "@/lib/enhance-prompts"
 import { EnhanceConfigDialog } from "@/components/EnhanceConfigDialog"
 import { kimodoUrl } from "@/mcp"
 import { callTool, forgeStatus, listTools, type MCPTool } from "@/mcp"
-import { Cpu, HardDrive, PanelLeft, PanelRightClose, Wand2, Loader2, CheckCircle2, XCircle, Clock, ListTodo, X, Maximize2, ChevronLeft, ChevronRight, Download, Sparkles, AlertTriangle } from "lucide-react"
+import { Cpu, HardDrive, PanelLeft, PanelRightClose, Wand2, Loader2, CheckCircle2, XCircle, Clock, ListTodo, Maximize2, ChevronLeft, ChevronRight, Download, Sparkles, AlertTriangle } from "lucide-react"
 import { AppSidebar } from "./AppSidebar"
 import { VideoEditor } from "./VideoEditor"
 
@@ -407,14 +407,14 @@ function KimodoDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (o:
             <div className="absolute inset-0 flex flex-col items-center justify-center text-muted-foreground gap-2">
               <Loader2 className="h-8 w-8 animate-spin" />
               <span className="text-xs">Loading Kimodo on GPU…</span>
-              <span className="text-[10px] text-muted-foreground/60">This takes ~60s on first load</span>
+              <span className="text-[10px] text-muted-foreground/60">Evicting other models & loading — takes 1–3 min</span>
             </div>
           ) : error ? (
             <div className="absolute inset-0 flex flex-col items-center justify-center text-muted-foreground gap-3 px-8">
               <AlertTriangle className="h-8 w-8 text-destructive" />
               <span className="text-xs text-center max-w-md">Failed to load Kimodo: {error}</span>
               <span className="text-[10px] text-muted-foreground/60 text-center">
-                The GPU may not have enough VRAM. Try unloading other models first.
+                The forge will auto-evict other models to free VRAM. This may fail if the model files are missing or corrupted.
               </span>
               <Button
                 variant="outline"

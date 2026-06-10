@@ -505,8 +505,12 @@ class ForgeCore:
 
         try:
             await self._load_with_cleanup(service, model, quant)
-        except Exception:
-            return {"status": "error", "error": f"Failed to load {service}"}
+        except Exception as exc:
+            logger.exception("Forge: preload %s failed", service)
+            return {"status": "error", "error": f"Failed to load {service}: {exc}"}
+
+        if not self._loaded.get(service):
+            return {"status": "error", "error": f"Failed to load {service}: service reported not loaded after _do_load"}
 
         return {
             "status": "loaded",
