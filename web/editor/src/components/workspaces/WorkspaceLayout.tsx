@@ -651,6 +651,7 @@ function AssetsTab({ selectedService, jobs, onAddJob, nextJobId }: {
   const [generating, setGenerating] = useState(false)
   const [fields, setFields] = useState<FieldDef[]>([])
   const [enhancingField, setEnhancingField] = useState<string | null>(null)
+  const prevServiceRef = useRef("")
 
   const enhanceActiveModel = useEnhanceStore((s) => s.activeModel)
 
@@ -686,7 +687,12 @@ function AssetsTab({ selectedService, jobs, onAddJob, nextJobId }: {
   const currentTool = tools.find((t) => t.name === selectedService)
   const currentService = services.find((s) => s.name === selectedService)
 
+  // Reset fields and values ONLY when selectedService actually changes
+  // (not when currentTool reference changes from tools list refresh)
   useEffect(() => {
+    if (prevServiceRef.current === selectedService) return
+    prevServiceRef.current = selectedService
+
     if (!currentTool && !currentService) return
     if (currentTool && currentTool.inputSchema?.properties) {
       const props_ = currentTool.inputSchema.properties as Record<string, Record<string, unknown>>
@@ -723,15 +729,12 @@ function AssetsTab({ selectedService, jobs, onAddJob, nextJobId }: {
           modeField.options = ["custom_voice", "voice_design", "voice_clone"]
           modeField.default = "custom_voice"
         }
-        // Ensure good defaults for TTS
-        if (!values.engine) values.engine = "kokoro"
-        if (!values.mode) values.mode = "custom_voice"
       }
       const d: Record<string, unknown> = {}
       for (const f of extracted) { if (f.default !== undefined) d[f.name] = f.default }
       setValues(d)
     }
-  }, [selectedService, currentTool])
+  }, [selectedService])
 
   const handleGenerate = async () => {
     if (!currentTool && !currentService) return
