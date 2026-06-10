@@ -99,32 +99,116 @@ async def generate_music(
                     "E.g. 'upbeat electronic dance music with heavy bass', "
                     "'calm piano piece with string accompaniment'.",
     )],
+    model: Annotated[str, Field(
+        description="ACE-Step model variant.",
+        enum=["v1.5", "v1.5 XL", "v1"],
+    )] = "v1.5",
     lyrics: Annotated[str | None, Field(
         description="Optional lyrics for vocal music generation.",
     )] = None,
     duration_seconds: Annotated[float, Field(
         description="Target duration in seconds (5-60).",
     )] = 30.0,
-    seed: Annotated[int | None, Field(
-        description="Random seed for reproducibility.",
-    )] = None,
+    guidance_scale: Annotated[float, Field(
+        description="CFG guidance scale. Higher = more prompt adherence.",
+    )] = 4.5,
+    sampling_steps: Annotated[int, Field(
+        description="Number of denoising steps. More = higher quality, slower.",
+    )] = 30,
+    seed: Annotated[int, Field(
+        description="Random seed for reproducibility. -1 for random.",
+    )] = -1,
     ctx: Context | None = None,
 ) -> dict:
     """Generate music from a text description.
 
-    Uses ACE-Step 1.5 on GPU. Returns {status, data (base64 audio), media_type}.
+    Supports ACE-Step v1, v1.5, and v1.5 XL models.
+    Returns {status, data (base64 audio), media_type}.
     """
     forge = _forge(ctx)
 
+    model_map = {
+        "v1.5": "tts/ace_step_v1_5",
+        "v1.5 XL": "tts/ace_step_v1_5_xl",
+        "v1": "tts/ace_step_v1",
+    }
+
     payload: dict[str, Any] = {
         "service": "wan2gp",
-        "model": "tts/ace_step_v1_5",
+        "model": model_map.get(model, "tts/ace_step_v1_5"),
         "prompt": prompt,
         "duration": duration_seconds,
+        "guide_scale": guidance_scale,
+        "sampling_steps": sampling_steps,
     }
     if lyrics:
         payload["lyrics"] = lyrics
-    if seed is not None:
+    if seed is not None and seed >= 0:
+        payload["seed"] = seed
+
+    return await forge.invoke(payload)
+
+
+async def voice_creator(
+    text: Annotated[str, Field(
+        description="Sample text to speak. Used to audition the generated voice.",
+    )],
+    engine: Annotated[str, Field(
+        description="Voice creation engine.",
+        enum=["moss_voicegenerator", "qwen3_tts"],
+    )] = "moss_voicegenerator",
+    instruct: Annotated[str | None, Field(
+        description="Voice description. E.g. 'warm female voice with a southern accent'.",
+    )] = None,
+    ref_audio_b64: Annotated[str | None, Field(
+        description="Base64-encoded reference audio for voice cloning.",
+    )] = None,
+    language: Annotated[str, Field(
+        description="Language.",
+        enum=["English", "Chinese", "Japanese", "Korean"],
+    )] = "English",
+    seed: Annotated[int, Field(
+        description="Random seed for reproducibility. -1 for random.",
+    )] = -1,
+    ctx: Context | None = None,
+) -> dict:
+    """Create a custom voice using voice design or voice cloning.
+
+    Generates an audio sample with the designed voice. The output can be
+    saved as an asset and used as a reference voice in Text to Speech.
+
+    moss_voicegenerator: Describe or clone a voice on GPU.
+    qwen3_tts: Use Qwen3-TTS voice_design/voice_clone mode.
+    """
+    forge = _forge(ctx)
+
+    if engine == "qwen3_tts":
+        payload: dict[str, Any] = {
+            "service": "wan2gp",
+            "model": "faster_qwen3_tts",
+            "text": text,
+            "language": language,
+        }
+        if ref_audio_b64:
+            payload["mode"] = "voice_clone"
+            payload["ref_audio_b64"] = ref_audio_b64
+        else:
+            payload["mode"] = "voice_design"
+            payload["instruct"] = instruct or ""
+    else:
+        # moss_voicegenerator
+        payload = {
+            "service": "wan2gp",
+            "model": "moss-voicegenerator",
+            "text": text,
+            "language": language,
+        }
+        if instruct:
+            payload["instruct"] = instruct
+        if ref_audio_b64:
+            payload["ref_audio_b64"] = ref_audio_b64
+
+    if seed >= 0:
         payload["seed"] = seed
 
     return await forge.invoke(payload)

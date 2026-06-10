@@ -6,10 +6,11 @@
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import Annotated, Any
 
 from fastmcp import Context
 from loguru import logger
+from pydantic import Field
 
 # ---------------------------------------------------------------------------
 # Voice catalogs
@@ -130,13 +131,33 @@ async def tts_voices(ctx: Context | None = None) -> dict:
 
 
 async def tts_speak(
-    text: str,
-    engine: str = "kokoro",
-    mode: str = "custom_voice",
-    voice: str | None = None,
-    instruct: str | None = None,
-    ref_audio_b64: str | None = None,
-    language: str = "English",
+    text: Annotated[str, Field(
+        description="The text to synthesize into speech.",
+    )],
+    engine: Annotated[str, Field(
+        description="TTS engine to use.",
+        enum=["kokoro", "qwen3_tts", "moss_tts", "espeak", "index_tts"],
+    )] = "kokoro",
+    mode: Annotated[str, Field(
+        description="Qwen3-TTS mode: custom_voice (preset), voice_design (describe), voice_clone (from audio).",
+        enum=["custom_voice", "voice_design", "voice_clone"],
+    )] = "custom_voice",
+    voice: Annotated[str | None, Field(
+        description="Voice preset name. Kokoro: af_bella, af_nova, am_adam, etc. Qwen3: Aiden, Chloe, etc.",
+    )] = None,
+    instruct: Annotated[str | None, Field(
+        description="Voice design instruction (qwen3_tts voice_design mode, moss_tts emotion/style).",
+    )] = None,
+    ref_audio_b64: Annotated[str | None, Field(
+        description="Base64-encoded reference audio for voice cloning.",
+    )] = None,
+    language: Annotated[str, Field(
+        description="Language for synthesis.",
+        enum=["English", "Chinese", "Japanese", "Korean", "en", "fr", "de", "es", "it", "ja", "zh", "ko", "ru", "pt"],
+    )] = "English",
+    seed: Annotated[int, Field(
+        description="Random seed for reproducibility. -1 for random.",
+    )] = -1,
     ctx: Context | None = None,
 ) -> dict:
     """Generate speech from text using any TTS engine.

@@ -68,7 +68,7 @@ const SERVICE_GENRE: Record<string, string> = {
   generate_music: "audio", ace_step: "audio",
   generate_sound: "audio", moss_soundeffect: "audio",
   tts_speak: "audio",
-  moss_voicegenerator: "audio", moss_tts: "audio",
+  voice_creator: "audio",
   kimodo: "motion", kimodo_demo: "motion", hy_motion: "motion", gemx: "motion",
   trellis: "3d", anigen: "3d", body_mesh: "3d",
 }
@@ -80,7 +80,7 @@ const SERVICE_LABELS: Record<string, string> = {
   generate_music: "Music", ace_step: "Music",
   generate_sound: "Sound Effect", moss_soundeffect: "Sound Effect",
   tts_speak: "Text to Speech",
-  moss_voicegenerator: "Voice Creator", moss_tts: "Voice Creator",
+  voice_creator: "Voice Creator",
   kimodo: "Kimodo Motion",
   kimodo_demo: "Kimodo Demo",
   hy_motion: "HY-Motion",
@@ -95,6 +95,7 @@ const HIDDEN_SERVICES = new Set([
   "z_image", "wan2gp", "comfyui", "llm", "faster_whisper", "vibevoice_asr",
   "see_through", "nvidia_upscale", "dwpose", "lance", "kohya", "avatar",
   "kokoro", "espeak", "index_tts", "faster_qwen3_tts",
+  "moss_voicegenerator", "moss_tts",
 ])
 
 function extractCommonParams(desc: string): FieldDef[] {
