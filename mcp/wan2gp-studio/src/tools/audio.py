@@ -73,6 +73,36 @@ async def generate_sound(
     seed: Annotated[int | None, Field(
         description="Random seed for reproducibility.",
     )] = None,
+    max_new_tokens: Annotated[int, Field(
+        description="Maximum tokens to generate. Higher = longer audio. 4096 default.",
+    )] = 4096,
+    text_temperature: Annotated[float, Field(
+        description="Text sampling temperature. Higher = more diverse. 1.0 default.",
+    )] = 1.0,
+    text_top_p: Annotated[float, Field(
+        description="Text nucleus sampling threshold. 0.9 default.",
+    )] = 0.9,
+    text_top_k: Annotated[int, Field(
+        description="Text top-k sampling. 50 default.",
+    )] = 50,
+    text_repetition_penalty: Annotated[float, Field(
+        description="Text repetition penalty. 1.0 = disabled. Higher = less repetition.",
+    )] = 1.0,
+    audio_temperature: Annotated[float, Field(
+        description="Audio sampling temperature. Higher = more diverse. 1.0 default.",
+    )] = 1.0,
+    audio_top_p: Annotated[float, Field(
+        description="Audio nucleus sampling threshold. 0.9 default.",
+    )] = 0.9,
+    audio_top_k: Annotated[int, Field(
+        description="Audio top-k sampling. 50 default.",
+    )] = 50,
+    audio_repetition_penalty: Annotated[float, Field(
+        description="Audio repetition penalty. 1.0 = disabled. Higher = less repetition.",
+    )] = 1.0,
+    n_vq_for_inference: Annotated[int, Field(
+        description="Number of VQ codebooks for inference. Fewer = faster, lower quality. 32 default.",
+    )] = 32,
     ctx: Context | None = None,
 ) -> dict:
     """Generate a sound effect from a text description.
@@ -86,6 +116,16 @@ async def generate_sound(
         "model": "moss/moss-soundeffect",
         "prompt": prompt,
         "duration": duration_seconds,
+        "max_new_tokens": max_new_tokens,
+        "text_temperature": text_temperature,
+        "text_top_p": text_top_p,
+        "text_top_k": text_top_k,
+        "text_repetition_penalty": text_repetition_penalty,
+        "audio_temperature": audio_temperature,
+        "audio_top_p": audio_top_p,
+        "audio_top_k": audio_top_k,
+        "audio_repetition_penalty": audio_repetition_penalty,
+        "n_vq_for_inference": n_vq_for_inference,
     }
     if seed is not None:
         payload["seed"] = seed
