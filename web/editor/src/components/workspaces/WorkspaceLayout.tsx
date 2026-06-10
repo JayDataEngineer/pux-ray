@@ -161,13 +161,14 @@ export function WorkspaceLayout() {
           </Button>
         </header>
         <div className="flex flex-1 min-h-0">
-          <div className="flex-1 min-w-0 overflow-auto scrollbar-thin">
-            {tab === "assets"
-              ? <AssetsTab selectedService={selectedService} jobs={jobs} onAddJob={(j) => setJobs(j)} nextJobId={nextJobId} onOpenKimodo={() => setKimodoOpen(true)} />
-              : <VideoEditor />
-            }
-          </div>
-          {rightOpen && <ServicesSidebar selected={selectedService} onSelect={setSelectedService} onOpenKimodo={() => setKimodoOpen(true)} />}
+          {tab === "assets" ? (
+            <div className="flex-1 min-w-0 overflow-auto scrollbar-thin">
+              <AssetsTab selectedService={selectedService} jobs={jobs} onAddJob={(j) => setJobs(j)} nextJobId={nextJobId} onOpenKimodo={() => setKimodoOpen(true)} />
+            </div>
+          ) : (
+            <VideoEditor />
+          )}
+          {rightOpen && tab === "assets" && <ServicesSidebar selected={selectedService} onSelect={setSelectedService} onOpenKimodo={() => setKimodoOpen(true)} />}
         </div>
       </div>
       <AssetPreviewDialog asset={selectedAsset} onClose={() => setSelectedAsset(null)} onSelect={(a) => setSelectedAsset(a)} />
