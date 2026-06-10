@@ -1123,6 +1123,72 @@ export function VideoEditor() {
             </div>
           </div>
 
+        {/* Audio tracks — dynamic */}
+        {audioTracks.map((track) => {
+          const trackCues = audioCues.filter(c => c.track === track.id)
+          return (
+            <div key={track.id} className="flex border-t border-white/[0.04]" style={{ height: ROW_H }}>
+              <div className="w-[88px] shrink-0 border-r border-white/[0.06] px-2.5 flex items-center gap-1.5 bg-white/[0.02]">
+                <Music className="h-3 w-3" style={{ color: track.color }} />
+                <span className="text-[10px] font-medium text-white/40 truncate">{track.label}</span>
+                <button className="ml-auto text-white/20 hover:text-red-400 shrink-0"
+                  onClick={() => removeAudioTrack(track.id)}>
+                  <Trash2 className="h-2.5 w-2.5" />
+                </button>
+              </div>
+              <div className="flex-1 relative overflow-hidden"
+                style={{ background: "#0a0a0e" }}
+                onClick={(e) => { if (!(e.target as HTMLElement).closest("[data-cue]")) seekFromMouseEvent(e) }}>
+                {trackCues.map((cue) => {
+                  const left = cue.start * pps
+                  const width = Math.max(cue.duration * pps, 8)
+                  const isSelected = cue.id === selectedAudioCueId
+                  return (
+                    <div key={cue.id} data-cue={cue.id}
+                      className={`absolute top-[3px] bottom-[3px] rounded-md cursor-pointer overflow-hidden transition-all duration-100 ${isSelected
+                        ? "ring-2 ring-emerald-400/60 shadow-lg shadow-emerald-400/20 border border-emerald-400/80"
+                        : "border border-white/[0.08] hover:border-white/[0.2]"
+                      }`}
+                      style={{
+                        left, width,
+                        background: isSelected
+                          ? `linear-gradient(135deg, ${track.color}30, ${track.color}18)`
+                          : `linear-gradient(135deg, ${track.color}18, ${track.color}0a)`,
+                      }}
+                      onClick={(e) => { e.stopPropagation(); setSelectedAudioCue(cue.id) }}>
+                      {/* Waveform preview */}
+                      <div className="absolute inset-0 flex items-center px-1 pointer-events-none">
+                        {cue.waveformPeaks ? (
+                          <div className="flex items-center w-full h-full gap-px">
+                            {cue.waveformPeaks.map((peak, i) => (
+                              <div key={i} className="flex-1 bg-white/10 rounded-sm min-w-[1px]"
+                                style={{ height: `${Math.max(8, peak * 80)}%` }} />
+                            ))}
+                          </div>
+                        ) : (
+                          <div className="flex items-center w-full h-full gap-px">
+                            {Array.from({ length: 30 }).map((_, i) => (
+                              <div key={i} className="flex-1 rounded-sm min-w-[1px]"
+                                style={{
+                                  height: `${12 + Math.sin(i * 0.5) * 20 + Math.random() * 15}%`,
+                                  background: `${track.color}15`,
+                                }} />
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                      {/* Label */}
+                      <div className="absolute inset-0 z-10 flex items-center px-2">
+                        <span className="text-[9px] text-white/50 truncate">{cue.label}</span>
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          )
+        })}
+
         {/* Add Keyframe + Add Audio Track Bar */}
         <div className="flex border-t border-white/[0.06]">
           <div className="w-[88px] shrink-0 border-r border-white/[0.06]" />

@@ -242,6 +242,18 @@ test.describe('Controls', () => {
     await expect(page.getByRole('button', { name: /Add Track/ })).toBeVisible()
   })
 
+  test('Add Track creates a visible audio track row', async ({ page }) => {
+    // Only Video track row initially
+    const videoTrack = page.locator('text=Video').first()
+    await expect(videoTrack).toBeVisible()
+    // No audio tracks yet
+    await expect(page.locator('text=Audio 1')).toHaveCount(0)
+    // Click Add Track
+    await clickButton(page, /Add Track/)
+    // Audio 1 track row appears
+    await expect(page.locator('text=Audio 1')).toBeVisible()
+  })
+
   test('Services sidebar is hidden on Video tab', async ({ page }) => {
     // The Services sidebar header should NOT be visible on Video tab
     const servicesHeader = page.getByText('Services').first()
