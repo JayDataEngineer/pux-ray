@@ -138,6 +138,7 @@ async def tts_speak(
         description="TTS engine to use.",
         enum=["kokoro", "qwen3_tts", "moss_tts", "espeak", "index_tts"],
     )] = "kokoro",
+    # ── Qwen3-TTS params ──
     mode: Annotated[str, Field(
         description="Qwen3-TTS mode: custom_voice (preset), voice_design (describe), voice_clone (from audio).",
         enum=["custom_voice", "voice_design", "voice_clone"],
@@ -158,6 +159,37 @@ async def tts_speak(
     seed: Annotated[int, Field(
         description="Random seed for reproducibility. -1 for random.",
     )] = -1,
+    # ── MOSS TTS sampling params (1:1 with MOSS demo) ──
+    max_new_tokens: Annotated[int, Field(
+        description="[MOSS TTS] Maximum number of tokens to generate. Higher = longer audio. 4096 default.",
+    )] = 4096,
+    text_temperature: Annotated[float, Field(
+        description="[MOSS TTS] Text sampling temperature. Higher = more diverse. 1.0 default.",
+    )] = 1.0,
+    text_top_p: Annotated[float, Field(
+        description="[MOSS TTS] Text nucleus sampling threshold. 0.9 default.",
+    )] = 0.9,
+    text_top_k: Annotated[int, Field(
+        description="[MOSS TTS] Text top-k sampling. 50 default.",
+    )] = 50,
+    text_repetition_penalty: Annotated[float, Field(
+        description="[MOSS TTS] Text repetition penalty. 1.0 = disabled. Higher = less repetition.",
+    )] = 1.0,
+    audio_temperature: Annotated[float, Field(
+        description="[MOSS TTS] Audio sampling temperature. Higher = more diverse. 1.0 default.",
+    )] = 1.0,
+    audio_top_p: Annotated[float, Field(
+        description="[MOSS TTS] Audio nucleus sampling threshold. 0.9 default.",
+    )] = 0.9,
+    audio_top_k: Annotated[int, Field(
+        description="[MOSS TTS] Audio top-k sampling. 50 default.",
+    )] = 50,
+    audio_repetition_penalty: Annotated[float, Field(
+        description="[MOSS TTS] Audio repetition penalty. 1.0 = disabled. Higher = less repetition.",
+    )] = 1.0,
+    n_vq_for_inference: Annotated[int, Field(
+        description="[MOSS TTS] Number of VQ codebooks for inference. Fewer = faster, lower quality. 32 default.",
+    )] = 32,
     ctx: Context | None = None,
 ) -> dict:
     """Generate speech from text using any TTS engine.
@@ -165,18 +197,9 @@ async def tts_speak(
     Engines:
       - kokoro: Fast CPU TTS with 50+ voice presets
       - qwen3_tts: GPU TTS with custom_voice/voice_design/voice_clone modes
-      - moss_tts: GPU TTS with voice cloning from reference audio
+      - moss_tts: GPU TTS with full sampling control (1:1 with demo)
       - espeak: Ultra-lightweight CPU TTS with 10 languages
       - index_tts: High-quality GPU TTS for voice cloning
-
-    Args:
-        text: The text to synthesize into speech
-        engine: TTS engine to use (kokoro, qwen3_tts, moss_tts, espeak, index_tts)
-        mode: Qwen3-TTS mode — custom_voice (preset speaker), voice_design (describe a voice), voice_clone (clone from audio)
-        voice: Voice preset name (kokoro/qwen3_tts custom_voice mode)
-        instruct: Voice design instruction text (qwen3_tts voice_design mode, moss_tts emotion/style)
-        ref_audio_b64: Base64-encoded reference audio for voice cloning (qwen3_tts voice_clone mode)
-        language: Language for synthesis (English, Chinese, Japanese, Korean / en, fr, de, etc. for espeak)
     """
     forge = _forge(ctx)
 
@@ -220,18 +243,30 @@ async def tts_speak(
 
         return await forge.invoke(payload)
 
-    # ── MOSS TTS: GPU voice cloning ──────────────────────────────────────
+    # ── MOSS TTS: GPU voice cloning with full sampling control ──────────
     if engine == "moss_tts":
         payload: dict[str, Any] = {
             "service": "wan2gp",
             "model": "moss-tts",
             "text": text,
             "language": language,
+            "max_new_tokens": max_new_tokens,
+            "text_temperature": text_temperature,
+            "text_top_p": text_top_p,
+            "text_top_k": text_top_k,
+            "text_repetition_penalty": text_repetition_penalty,
+            "audio_temperature": audio_temperature,
+            "audio_top_p": audio_top_p,
+            "audio_top_k": audio_top_k,
+            "audio_repetition_penalty": audio_repetition_penalty,
+            "n_vq_for_inference": n_vq_for_inference,
         }
         if instruct:
             payload["instruction"] = instruct
         if ref_audio_b64:
             payload["ref_audio_b64"] = ref_audio_b64
+        if seed >= 0:
+            payload["seed"] = seed
         return await forge.invoke(payload)
 
     # ── IndexTTS: GPU voice cloning ──────────────────────────────────────

@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from "react"
+import { useState, useEffect, useCallback, useRef, useMemo } from "react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -11,9 +11,12 @@ import { Separator } from "@/components/ui/separator"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog"
 import { useToastStore } from "@/stores/toast"
 import { useAssetStore, type Asset, nextAssetName } from "@/stores/assets"
+import { useEnhanceStore } from "@/stores/enhancement"
+import { enhancePrompt } from "@/lib/enhance"
+import { EnhanceConfigDialog } from "@/components/EnhanceConfigDialog"
 import { kimodoUrl } from "@/mcp"
 import { callTool, forgeStatus, listTools, type MCPTool } from "@/mcp"
-import { Cpu, HardDrive, PanelLeft, PanelRightClose, Wand2, Loader2, CheckCircle2, XCircle, Clock, ListTodo, X, Maximize2, ChevronLeft, ChevronRight, Download } from "lucide-react"
+import { Cpu, HardDrive, PanelLeft, PanelRightClose, Wand2, Loader2, CheckCircle2, XCircle, Clock, ListTodo, X, Maximize2, ChevronLeft, ChevronRight, Download, Sparkles } from "lucide-react"
 import { AppSidebar } from "./AppSidebar"
 import { VideoEditor } from "./VideoEditor"
 
@@ -42,7 +45,13 @@ const COMMON_PARAMS = [
 const TTS_ENGINE_VISIBLE_FIELDS: Record<string, string[]> = {
   kokoro: ["text", "engine", "voice"],
   espeak: ["text", "engine", "language"],
-  moss_tts: ["text", "engine", "instruct", "ref_audio_b64", "language"],
+  moss_tts: [
+    "text", "engine", "instruct", "ref_audio_b64", "language", "seed",
+    "max_new_tokens",
+    "text_temperature", "text_top_p", "text_top_k", "text_repetition_penalty",
+    "audio_temperature", "audio_top_p", "audio_top_k", "audio_repetition_penalty",
+    "n_vq_for_inference",
+  ],
   index_tts: ["text", "engine"],
   qwen3_tts: ["text", "engine", "mode", "voice", "instruct", "ref_audio_b64", "language"],
 }
@@ -114,11 +123,15 @@ export function WorkspaceLayout() {
   const [selectedService, setSelectedService] = useState("")
   const [selectedAsset, setSelectedAsset] = useState<Asset | null>(null)
   const [jobs, setJobs] = useState<JobEntry[]>([])
+  const [enhanceConfigOpen, setEnhanceConfigOpen] = useState(false)
   const nextJobId = useRef(1)
+
+  const enhanceActiveModel = useEnhanceStore((s) => s.activeModel)
+  const hasEnhanceModel = !!enhanceActiveModel()
 
   return (
     <div className="flex h-screen w-full bg-background">
-      <AppSidebar open={leftOpen} onToggle={() => setLeftOpen((o) => !o)} onSelectAsset={(a) => { setSelectedService(""); setSelectedAsset(a) }} />
+      <AppSidebar open={leftOpen} onToggle={() => setLeftOpen((o) => !o)} onSelectAsset={(a) => setSelectedAsset(a)} />
       <div className="flex flex-1 flex-col min-w-0">
         <header className="flex items-center h-11 px-4 border-b gap-2 shrink-0">
           <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setLeftOpen((o) => !o)}>
@@ -131,6 +144,10 @@ export function WorkspaceLayout() {
           <Button variant={tab === "video" ? "secondary" : "ghost"} size="sm" className="h-7 text-xs"
             onClick={() => setTab("video")}>Video</Button>
           <div className="flex-1" />
+          <Button variant="ghost" size="icon" className="h-7 w-7 relative" onClick={() => setEnhanceConfigOpen(true)}
+            title="AI Prompt Enhancement">
+            <Sparkles className={`h-4 w-4 ${hasEnhanceModel ? "text-primary" : "text-muted-foreground"}`} />
+          </Button>
           <GpuStatus />
           <JobsButton jobs={jobs} />
           <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setRightOpen((o) => !o)}>
@@ -148,6 +165,7 @@ export function WorkspaceLayout() {
         </div>
       </div>
       <AssetPreviewDialog asset={selectedAsset} onClose={() => setSelectedAsset(null)} onSelect={(a) => setSelectedAsset(a)} />
+      <EnhanceConfigDialog open={enhanceConfigOpen} onOpenChange={setEnhanceConfigOpen} />
     </div>
   )
 }
@@ -466,6 +484,32 @@ function AssetsTab({ selectedService, jobs, onAddJob, nextJobId }: {
   const [values, setValues] = useState<Record<string, unknown>>({})
   const [generating, setGenerating] = useState(false)
   const [fields, setFields] = useState<FieldDef[]>([])
+  const [enhancingField, setEnhancingField] = useState<string | null>(null)
+
+  const enhanceActiveModel = useEnhanceStore((s) => s.activeModel)
+
+  const handleEnhance = useCallback(async (fieldName: string) => {
+    const model = enhanceActiveModel()
+    const currentVal = String(values[fieldName] ?? "").trim()
+    if (!model) {
+      toast("error", "No AI model configured. Click the ✨ icon in the header to set one up.")
+      return
+    }
+    if (!currentVal) {
+      toast("error", "Enter a prompt first, then enhance it.")
+      return
+    }
+    setEnhancingField(fieldName)
+    try {
+      const enhanced = await enhancePrompt(model, currentVal)
+      setValues((p) => ({ ...p, [fieldName]: enhanced }))
+      toast("success", "Prompt enhanced")
+    } catch (e) {
+      toast("error", e instanceof Error ? e.message : "Enhancement failed")
+    } finally {
+      setEnhancingField(null)
+    }
+  }, [enhanceActiveModel, values, toast])
 
   useEffect(() => {
     listTools().then(setTools).catch(() => {})
@@ -610,6 +654,20 @@ function AssetsTab({ selectedService, jobs, onAddJob, nextJobId }: {
               <div key={f.name} className="space-y-1" onDragOver={(e) => e.preventDefault()} onDrop={handleDrop}>
                 <div className="flex items-center gap-1">
                   <Label className="text-xs text-muted-foreground capitalize">{f.label}</Label>
+                  {(f.type === "text" || f.type === "textarea") && (
+                    <button type="button"
+                      onClick={() => handleEnhance(f.name)}
+                      disabled={enhancingField === f.name || !String(values[f.name] ?? "").trim()}
+                      className="inline-flex items-center gap-1 text-[10px] text-primary hover:underline ml-auto disabled:opacity-40 disabled:cursor-not-allowed"
+                      title="Enhance with AI">
+                      {enhancingField === f.name ? (
+                        <Loader2 className="h-3 w-3 animate-spin" />
+                      ) : (
+                        <Sparkles className="h-3 w-3" />
+                      )}
+                      {enhancingField === f.name ? "Enhancing…" : "Enhance"}
+                    </button>
+                  )}
                   {selectedService === "edit" && f.name === "pose_image_b64" && (
                     <button type="button"
                       onClick={() => setKimodoOpen(true)}
