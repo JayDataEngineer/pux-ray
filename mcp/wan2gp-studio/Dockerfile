@@ -36,6 +36,11 @@ COPY pyproject.toml /app/pyproject.toml
 ENV PATH="/app/.venv/bin:$PATH" \
     PYTHONPATH=/app
 
+RUN groupadd -g 1000 appuser && \
+    useradd -u 1000 -g appuser -s /bin/false appuser && \
+    chown -R appuser:appuser /app
+USER 1000
+
 EXPOSE 8002
 
 CMD ["uvicorn", "src.server:app", "--host", "0.0.0.0", "--port", "8002"]
