@@ -63,9 +63,9 @@ function ttsVisibleFields(engine: string, allFields: FieldDef[]): FieldDef[] {
   return allFields.filter((f) => visible.includes(f.name))
 }
 
-const GENRE_ORDER = ["image", "audio"]
+const GENRE_ORDER = ["image", "audio", "motion", "3d", "external"]
 
-const GENRE_ICONS: Record<string, string> = { image: "◎", audio: "♪" }
+const GENRE_ICONS: Record<string, string> = { image: "◎", audio: "♪", motion: "↝", "3d": "⟁", external: "⤴" }
 
 // Map backend category → genre for sidebar grouping
 const CATEGORY_TO_GENRE: Record<string, string> = {
@@ -81,6 +81,7 @@ const SERVICE_GENRE: Record<string, string> = {
   voice_creator: "audio",
   kimodo: "motion", kimodo_demo: "motion", hy_motion: "motion", gemx: "motion",
   trellis: "3d", anigen: "3d", body_mesh: "3d",
+  _kimodo_studio: "external",
 }
 
 const SERVICE_LABELS: Record<string, string> = {
@@ -269,6 +270,8 @@ function ServicesSidebar({ selected, onSelect, onOpenKimodo }: { selected: strin
   const allItems = [
     ...tools.filter((t) => !["run","list_models","list_services","get_service","forge_status","load_service","unload_services","tts_voices","chat","transcribe","llm_configure"].includes(t.name) && !t.name.startsWith("workflow_")),
     ...services.filter((s) => !tools.find((t) => t.name === s.name) && !HIDDEN_SERVICES.has(s.name)),
+    // External links
+    { name: "_kimodo_studio", label: "Kimodo Motion Studio", category: "external" } as { name: string; label: string; category: string },
   ]
 
   const getLabel = (item: MCPTool | { name: string; label: string }) => {
@@ -314,25 +317,17 @@ function ServicesSidebar({ selected, onSelect, onOpenKimodo }: { selected: strin
             {items.map((item) => {
               const name = ("name" in item ? (item as any).name : (item as any).name) as string
               const label = getLabel(item)
+              const isKimodo = name === "_kimodo_studio"
               return (
-                <button key={name} onClick={() => onSelect(name)}
+                <button key={name} onClick={() => isKimodo ? onOpenKimodo() : onSelect(name)}
                   className={`w-full flex items-center gap-2 px-2 py-1.5 rounded text-xs text-left transition-colors ${selected === name ? "bg-sidebar-accent text-sidebar-accent-foreground" : "hover:bg-sidebar-accent/50"}`}>
-                  <Wand2 className="h-3 w-3 shrink-0 opacity-50" />
+                  {isKimodo ? <span className="text-sm shrink-0">↝</span> : <Wand2 className="h-3 w-3 shrink-0 opacity-50" />}
                   <span className="truncate">{label}</span>
                 </button>
               )
             })}
           </div>
         ))}
-      </div>
-      <div className="p-2 border-t">
-        <button
-          onClick={onOpenKimodo}
-          className="w-full flex items-center gap-2 px-2 py-1.5 rounded text-xs text-left transition-colors hover:bg-sidebar-accent/50 text-sidebar-foreground/60"
-        >
-          <span className="text-sm">↝</span>
-          <span className="truncate">Kimodo Motion Studio</span>
-        </button>
       </div>
     </div>
   )
