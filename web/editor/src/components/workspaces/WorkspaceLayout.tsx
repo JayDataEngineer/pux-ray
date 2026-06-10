@@ -321,7 +321,7 @@ function ServicesSidebar({ selected, onSelect, onOpenKimodo }: { selected: strin
               return (
                 <button key={name} onClick={() => isKimodo ? onOpenKimodo() : onSelect(name)}
                   className={`w-full flex items-center gap-2 px-2 py-1.5 rounded text-xs text-left transition-colors ${selected === name ? "bg-sidebar-accent text-sidebar-accent-foreground" : "hover:bg-sidebar-accent/50"}`}>
-                  {isKimodo ? <span className="text-sm shrink-0">↝</span> : <Wand2 className="h-3 w-3 shrink-0 opacity-50" />}
+                  <Wand2 className="h-3 w-3 shrink-0 opacity-50" />
                   <span className="truncate">{label}</span>
                 </button>
               )
