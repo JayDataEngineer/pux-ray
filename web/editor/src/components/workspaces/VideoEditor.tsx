@@ -19,18 +19,7 @@ import {
   Headphones, Layers, Sliders,
 } from "lucide-react"
 
-type TrackId = "video" | "voice" | "sfx" | "music"
-
-interface TrackDef {
-  id: TrackId; label: string; color: string; icon: typeof Film
-}
-
-const TRACKS: TrackDef[] = [
-  { id: "video", label: "Video", color: "#6366f1", icon: Film },
-  { id: "voice", label: "Voice", color: "#4ade80", icon: Mic },
-  { id: "sfx", label: "SFX", color: "#facc15", icon: Volume2 },
-  { id: "music", label: "Music", color: "#fb923c", icon: Music },
-]
+// Dynamic track list: video + user-added audio tracks
 
 const ROW_H = 52
 const RULER_H = 26
@@ -62,35 +51,44 @@ interface DragInfo {
 function buildPayload(seg: TimelineSegment, _allSegments?: TimelineSegment[]) {
   return {
     service: "wan2gp",
-    model: seg.params.model,
-    image_b64: seg.firstFrameB64 || undefined,
-    image_end_b64: seg.lastFrameB64 || undefined,
-    input_prompt: seg.prompt || "animate",  // backend expects input_prompt, not prompt
-    n_prompt: seg.negativePrompt || undefined,
-    seed: seg.params.seed,
-    frame_num: seg.params.frames,   // backend expects frame_num, not frames
-    fps: seg.params.fps,
-    width: seg.params.width,
-    height: seg.params.height,
-    guide_scale: seg.params.guideScale,
-    sampling_steps: seg.params.samplingSteps,
-    guide_phases: seg.params.guidePhases || undefined,
-    epsilon: seg.params.epsilon !== 0.001 ? seg.params.epsilon : undefined,
-    denoising_strength: seg.params.denoisingStrength !== 1.0 ? seg.params.denoisingStrength : undefined,
-    spatial_upscale: seg.params.spatialUpscale ? "true" : undefined,
-    loras_selected: seg.params.loras || undefined,
-    perturbation_switch: seg.params.perturbationSwitch || undefined,
+    params: {
+      model: seg.params.model,
+      image_b64: seg.firstFrameB64 || undefined,
+      image_end_b64: seg.lastFrameB64 || undefined,
+      input_prompt: seg.prompt || "animate",
+      n_prompt: seg.negativePrompt || undefined,
+      seed: seg.params.seed,
+      frame_num: seg.params.frames,
+      fps: seg.params.fps,
+      width: seg.params.width,
+      height: seg.params.height,
+      guide_scale: seg.params.guideScale,
+      sampling_steps: seg.params.samplingSteps,
+      guide_phases: seg.params.guidePhases || undefined,
+      epsilon: seg.params.epsilon !== 0.001 ? seg.params.epsilon : undefined,
+      denoising_strength: seg.params.denoisingStrength !== 1.0 ? seg.params.denoisingStrength : undefined,
+      spatial_upscale: seg.params.spatialUpscale ? "true" : undefined,
+      loras_selected: seg.params.loras || undefined,
+      perturbation_switch: seg.params.perturbationSwitch || undefined,
+    }
   }
 }
 
 export function VideoEditor() {
   const segments = useTimelineStore((s) => s.segments)
   const audioCues = useTimelineStore((s) => s.audioCues)
+  const audioTracks = useTimelineStore((s) => s.audioTracks)
+  const addAudioTrack = useTimelineStore((s) => s.addAudioTrack)
+  const removeAudioTrack = useTimelineStore((s) => s.removeAudioTrack)
   const addSegment = useTimelineStore((s) => s.addSegment)
   const removeSegment = useTimelineStore((s) => s.removeSegment)
   const updateSegment = useTimelineStore((s) => s.updateSegment)
   const selectedId = useTimelineStore((s) => s.selectedSegmentId)
   const setSelected = useTimelineStore((s) => s.setSelectedSegment)
+  const selectedAudioCueId = useTimelineStore((s) => s.selectedAudioCueId)
+  const setSelectedAudioCue = useTimelineStore((s) => s.setSelectedAudioCue)
+  const removeAudioCue = useTimelineStore((s) => s.removeAudioCue)
+  const updateAudioCue = useTimelineStore((s) => s.updateAudioCue)
   const addAudioCue = useTimelineStore((s) => s.addAudioCue)
   const playback = useTimelineStore((s) => s.playback)
   const setPlayback = useTimelineStore((s) => s.setPlayback)
@@ -99,10 +97,24 @@ export function VideoEditor() {
 
   const [generating, setGenerating] = useState(false)
   const [pps, setPps] = useState(80)
+  const [sidebarW, setSidebarW] = useState(300)
+  const sidebarDragRef = useRef<{ startX: number; startW: number } | null>(null)
   const raf = useRef(0)
+  const videoRef = useRef<HTMLVideoElement>(null)
 
   const sel = segments.find((s) => s.id === selectedId)
+  const selCue = audioCues.find((c) => c.id === selectedAudioCueId)
   const total = Math.max(segments.reduce((t, s) => Math.max(t, s.start + s.duration), 0), 5)
+  const isLtx = !!sel?.params.model && (sel.params.model.startsWith("ltx") || sel.params.model === "ltx2" || sel.params.model === "ltx2_19B" || sel.params.model === "ltxv_098_13b")
+  const isWan = sel?.params.model.startsWith("wan") ?? false
+
+  // ── Auto-create a segment if none exist so inspector is always visible ──
+  useEffect(() => {
+    if (segments.length === 0) {
+      const s = addSegment({ duration: 5, status: "empty" })
+      setSelected(s.id)
+    }
+  }, [segments.length])
 
   // ── Playback loop ──────────────────────────────────────────────────────────
   useEffect(() => {
@@ -201,7 +213,10 @@ export function VideoEditor() {
         setSelected(s.id)
         toast("info", `Added: ${d.name}`)
       } else if (d.type === "audio") {
-        const cue = addAudioCue({ track: "music", start: 0, duration: 5, label: d.name, audioUrl: d.url, audioB64: d.url, volume: 0.5, waveformPeaks: null, sourceStepId: null })
+        // Auto-create an audio track if none exist
+        let targetTrack = audioTracks[0]
+        if (!targetTrack) targetTrack = addAudioTrack("Audio 1")
+        const cue = addAudioCue({ track: targetTrack.id, start: 0, duration: 5, label: d.name, audioUrl: d.url, audioB64: d.url, volume: 0.8, waveformPeaks: null, sourceStepId: null })
         decodeWaveform(d.url, cue.id)
         toast("info", `Added audio: ${d.name}`)
       }
@@ -249,50 +264,27 @@ export function VideoEditor() {
       )
       const firstAudio = overlappingAudio[0]
       if (firstAudio?.audioB64) {
-        payload.audio_b64 = firstAudio.audioB64
-        payload.audio_scale = String(firstAudio.volume)
-        payload.audio_prompt_type = "A"
-      }
-
-      // For LTX models with a single segment, still use prompt relay format
-      if (isLtx) {
-        payload.local_prompts = seg.prompt || "animate"
-        payload.segment_lengths = String(seg.params.frames)
+        payload.params.audio_b64 = firstAudio.audioB64
+        payload.params.audio_scale = String(firstAudio.volume)
+        payload.params.audio_prompt_type = "A"
       }
 
       const r = await callTool<{ status: string; data?: string; media_type?: string; error?: string }>(
-        isLtx ? "run_ltx_director" : "run",
-        isLtx ? {
-          global_prompt: seg.prompt || "animate",
-          start_image: seg.firstFrameB64 || "",
-          end_image: seg.lastFrameB64 || undefined,
-          negative_prompt: seg.negativePrompt || undefined,
-          seed: seg.params.seed,
-          fps: seg.params.fps,
-          frames: seg.params.frames,
-          steps: seg.params.samplingSteps,
-          guidance: String(seg.params.guideScale),
-          width: seg.params.width,
-          height: seg.params.height,
-          audio_b64: payload.audio_b64,
-          audio_scale: payload.audio_scale,
-          audio_prompt_type: payload.audio_prompt_type,
-          loras: seg.params.loras || undefined,
-          guide_phases: seg.params.guidePhases,
-          epsilon: String(seg.params.epsilon),
-          spatial_upscale: seg.params.spatialUpscale ? "true" : undefined,
-        } : payload
+        "run",
+        payload
       )
       if (r.status === "ok" && r.data) {
-        updateSegment(seg.id, { videoUrl: `data:video/mp4;base64,${r.data}`, status: "ready" })
+        updateSegment(seg.id, { videoUrl: `data:video/mp4;base64,${r.data}`, status: "ready", error: null })
         toast("success", `${segLabel(seg.order)} generated!`)
       } else {
-        updateSegment(seg.id, { status: "failed" })
-        toast("error", r.error || "Generation failed")
+        const errMsg = r.error || "Generation failed"
+        updateSegment(seg.id, { status: "failed", error: errMsg })
+        toast("error", errMsg)
       }
     } catch (e) {
-      updateSegment(seg.id, { status: "failed" })
-      toast("error", String(e))
+      const errMsg = String(e)
+      updateSegment(seg.id, { status: "failed", error: errMsg })
+      toast("error", errMsg)
     } finally {
       setGenerating(false)
     }
@@ -319,40 +311,52 @@ export function VideoEditor() {
       try {
         // Find audio for conditioning
         const firstAudio = audioCues[0]
-        const r = await callTool<{ status: string; data?: string; media_type?: string; error?: string }>("run_ltx_director", {
+        // Build _relay_config for LTX Director prompt relay
+        const relayConfig = {
           global_prompt: firstSeg.prompt || "animate",
-          segment_prompts: ltxSegs.map(s => s.prompt || "animate").join("|"),
+          local_prompts: ltxSegs.map(s => s.prompt || "animate").join("|"),
           segment_lengths: ltxSegs.map(s => String(s.params.frames)).join(","),
-          start_image: firstSeg.firstFrameB64 || "",
-          end_image: ltxSegs[ltxSegs.length - 1].lastFrameB64 || undefined,
-          negative_prompt: firstSeg.negativePrompt || undefined,
-          seed: firstSeg.params.seed,
-          fps,
-          frames: totalFrames,
-          steps: firstSeg.params.samplingSteps,
-          guidance: String(firstSeg.params.guideScale),
-          width: firstSeg.params.width,
-          height: firstSeg.params.height,
-          audio_b64: firstAudio?.audioB64 || undefined,
-          audio_scale: firstAudio ? String(firstAudio.volume) : undefined,
-          audio_prompt_type: firstAudio ? "A" : undefined,
-          loras: firstSeg.params.loras || undefined,
-          guide_phases: firstSeg.params.guidePhases,
           epsilon: String(firstSeg.params.epsilon),
+        }
+
+        const r = await callTool<{ status: string; data?: string; media_type?: string; error?: string }>("run", {
+          service: "wan2gp",
+          params: {
+            model: firstSeg.params.model,
+            input_prompt: firstSeg.prompt || "animate",
+            _relay_config: JSON.stringify(relayConfig),
+            image_b64: firstSeg.firstFrameB64 || "",
+            image_end_b64: ltxSegs[ltxSegs.length - 1].lastFrameB64 || undefined,
+            n_prompt: firstSeg.negativePrompt || undefined,
+            seed: firstSeg.params.seed,
+            fps,
+            frame_num: totalFrames,
+            sampling_steps: firstSeg.params.samplingSteps,
+            guide_scale: firstSeg.params.guideScale,
+            width: firstSeg.params.width,
+            height: firstSeg.params.height,
+            audio_b64: firstAudio?.audioB64 || undefined,
+            audio_scale: firstAudio ? String(firstAudio.volume) : undefined,
+            audio_prompt_type: firstAudio ? "A" : undefined,
+            loras_selected: firstSeg.params.loras || undefined,
+            guide_phases: firstSeg.params.guidePhases,
+          }
         })
 
         if (r.status === "ok" && r.data) {
           // Assign the video to the first segment (full Director output)
-          updateSegment(ltxSegs[0].id, { videoUrl: `data:video/mp4;base64,${r.data}`, status: "ready" })
-          ltxSegs.slice(1).forEach(s => updateSegment(s.id, { status: "ready" }))
+          updateSegment(ltxSegs[0].id, { videoUrl: `data:video/mp4;base64,${r.data}`, status: "ready", error: null })
+          ltxSegs.slice(1).forEach(s => updateSegment(s.id, { status: "ready", error: null }))
           toast("success", "Director relay generated!")
         } else {
-          ltxSegs.forEach(s => updateSegment(s.id, { status: "failed" }))
-          toast("error", r.error || "Director relay failed")
+          const errMsg = r.error || "Director relay failed"
+          ltxSegs.forEach(s => updateSegment(s.id, { status: "failed", error: errMsg }))
+          toast("error", errMsg)
         }
       } catch (e) {
-        ltxSegs.forEach(s => updateSegment(s.id, { status: "failed" }))
-        toast("error", String(e))
+        const errMsg = String(e)
+        ltxSegs.forEach(s => updateSegment(s.id, { status: "failed", error: errMsg }))
+        toast("error", errMsg)
       }
 
       // Generate any non-LTX segments individually
@@ -411,6 +415,21 @@ export function VideoEditor() {
   // Zoom
   const zoomIn = () => setPps(p => Math.min(p * 1.25, 400))
   const zoomOut = () => setPps(p => Math.max(p / 1.25, 20))
+
+  // ── Sidebar resize ──────────────────────────────────────────────────────────
+  useEffect(() => {
+    const onMove = (e: PointerEvent) => {
+      const drag = sidebarDragRef.current
+      if (!drag) return
+      const dx = drag.startX - e.clientX
+      const newW = Math.max(220, Math.min(600, drag.startW + dx))
+      setSidebarW(newW)
+    }
+    const onUp = () => { sidebarDragRef.current = null }
+    window.addEventListener("pointermove", onMove)
+    window.addEventListener("pointerup", onUp)
+    return () => { window.removeEventListener("pointermove", onMove); window.removeEventListener("pointerup", onUp) }
+  }, [])
 
   // ── Keyboard shortcuts ───────────────────────────────────────────────────
   useEffect(() => {
@@ -528,8 +547,33 @@ export function VideoEditor() {
         </div>
 
         {/* ═══ INSPECTOR PANEL ═══ */}
-        {sel && (
-          <div className="w-[280px] shrink-0 border-l border-white/[0.06] overflow-y-auto bg-[#111114] scrollbar-thin">
+        {(
+          <div className="shrink-0 border-l border-white/[0.06] overflow-y-auto bg-[#111114] scrollbar-thin relative"
+            style={{ width: sidebarW }}>
+            {/* Sidebar resize handle */}
+            <div className="absolute left-0 top-0 bottom-0 w-1.5 cursor-col-resize z-30 group"
+              onPointerDown={(e) => {
+                if (e.button !== 0) return
+                e.preventDefault()
+                ;(e.target as HTMLElement).setPointerCapture?.(e.pointerId)
+                sidebarDragRef.current = { startX: e.clientX, startW: sidebarW }
+              }}>
+              <div className="absolute left-0 top-0 bottom-0 w-[3px] bg-transparent group-hover:bg-white/20 group-active:bg-[#6366f1]/50 transition-colors"
+                style={{ marginLeft: "-1px" }} />
+            </div>
+            {!sel ? (
+              <div className="p-6 text-center space-y-3">
+                <div className="mx-auto w-12 h-12 rounded-xl border border-white/10 bg-white/5 flex items-center justify-center">
+                  <Plus className="h-5 w-5 text-white/30" />
+                </div>
+                <p className="text-xs text-white/40">Click a segment on the timeline</p>
+                <Button variant="outline" size="sm" className="text-xs"
+                  onClick={() => { const s = addSegment({ duration: 5, status: "empty" }); setSelected(s.id) }}>
+                  <Plus className="h-3 w-3 mr-1" /> Add Keyframe
+                </Button>
+              </div>
+            ) : (
+            <>
             {/* Inspector Header */}
             <div className="sticky top-0 z-10 bg-[#111114] border-b border-white/[0.06] px-4 py-2.5 flex items-center justify-between">
               <div className="flex items-center gap-2">
@@ -544,6 +588,12 @@ export function VideoEditor() {
             </div>
 
             <div className="p-4 space-y-4">
+              {/* Error display */}
+              {sel.status === "failed" && sel.error && (
+                <div className="rounded-md bg-red-500/10 border border-red-500/30 px-3 py-2 text-[11px] text-red-300 font-mono break-all">
+                  {sel.error}
+                </div>
+              )}
               {/* Thumbnail / Video Preview */}
               {sel.videoUrl ? (
                 <div className="rounded-lg overflow-hidden border border-white/10 bg-black shadow-lg">
@@ -603,6 +653,14 @@ export function VideoEditor() {
 
               {/* ── Resolution & Frame Rate ── */}
               <InspectorSection title="Resolution & Frames" icon={<ImagePlus className="h-3 w-3" />}>
+                <InspectorField label="Video Length (seconds)">
+                  <Input type="number" value={Number((sel.params.frames / sel.params.fps).toFixed(1))} step={0.5} min={0.5} max={30}
+                    onChange={(e) => {
+                      const secs = Math.max(0.5, Number(e.target.value))
+                      updateSegment(sel.id, { params: { ...sel.params, frames: Math.round(secs * sel.params.fps) } })
+                    }}
+                    className="h-7 text-xs bg-white/5 border-white/10 text-white/80 rounded-md font-mono" />
+                </InspectorField>
                 <div className="grid grid-cols-2 gap-2">
                   <InspectorField label="Width">
                     <Input type="number" value={sel.params.width} step={64} min={256} max={2048}
@@ -616,7 +674,11 @@ export function VideoEditor() {
                   </InspectorField>
                   <InspectorField label="FPS">
                     <Input type="number" value={sel.params.fps} min={8} max={60}
-                      onChange={(e) => updateSegment(sel.id, { params: { ...sel.params, fps: Number(e.target.value) } })}
+                      onChange={(e) => {
+                        const newFps = Math.max(8, Number(e.target.value))
+                        const currentSecs = sel.params.frames / sel.params.fps
+                        updateSegment(sel.id, { params: { ...sel.params, fps: newFps, frames: Math.round(currentSecs * newFps) } })
+                      }}
                       className="h-7 text-xs bg-white/5 border-white/10 text-white/80 rounded-md" />
                   </InspectorField>
                   <InspectorField label="Frames">
@@ -625,6 +687,19 @@ export function VideoEditor() {
                       className="h-7 text-xs bg-white/5 border-white/10 text-white/80 rounded-md" />
                   </InspectorField>
                 </div>
+                <InspectorField label="Resize Method">
+                  <Select value={sel.params.resizeMethod} onValueChange={(v) => updateSegment(sel.id, { params: { ...sel.params, resizeMethod: v as 'stretch' | 'fit' | 'crop' | 'pad' } })}>
+                    <SelectTrigger className="h-7 text-xs bg-white/5 border-white/10 text-white/80 rounded-md">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="fit">Fit (letterbox)</SelectItem>
+                      <SelectItem value="crop">Crop (fill)</SelectItem>
+                      <SelectItem value="stretch">Stretch</SelectItem>
+                      <SelectItem value="pad">Pad (maintain AR)</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </InspectorField>
                 <div className="text-[10px] text-white/25 mt-1 font-mono">
                   {(sel.params.frames / sel.params.fps).toFixed(1)}s · {sel.params.width}×{sel.params.height} · {sel.params.frames}f @ {sel.params.fps}fps
                 </div>
@@ -721,17 +796,31 @@ export function VideoEditor() {
               </InspectorSection>
 
               {/* ── LoRA ── */}
-              <InspectorSection title="LoRA" icon={<Layers className="h-3 w-3" />} defaultOpen={false}>
-                <InspectorField label="LoRA files (comma-separated)">
-                  <Input type="text" value={sel.params.loras}
-                    onChange={(e) => updateSegment(sel.id, { params: { ...sel.params, loras: e.target.value } })}
-                    className="h-7 text-xs bg-white/5 border-white/10 text-white/80 rounded-md font-mono"
-                    placeholder="lora1.safetensors, lora2.safetensors" />
-                </InspectorField>
+              <InspectorSection title="LoRA" icon={<Layers className="h-3 w-3" />}>
+                {isLtx && (
+                  <div className="mb-2 flex items-center justify-between">
+                    <Label className="text-[9px] font-medium text-white/30 uppercase tracking-wider">Distilled Mode (8 steps)</Label>
+                    <button className="text-white/40 hover:text-white/70"
+                      onClick={() => updateSegment(sel.id, {
+                        params: {
+                          ...sel.params,
+                          distilledMode: !sel.params.distilledMode,
+                          samplingSteps: !sel.params.distilledMode ? 8 : (sel.params.model === 'ltx2' ? 30 : 40),
+                        }
+                      })}>
+                      {sel.params.distilledMode
+                        ? <ToggleRight className="h-5 w-5 text-[#6366f1]" />
+                        : <ToggleLeft className="h-5 w-5" />}
+                    </button>
+                  </div>
+                )}
+                <LoraPicker model={sel.params.model} value={sel.params.loras}
+                  onChange={(loras) => updateSegment(sel.id, { params: { ...sel.params, loras } })} />
               </InspectorSection>
 
-              {/* ── Advanced Director Controls ── */}
-              <InspectorSection title="Director Controls" icon={<Sliders className="h-3 w-3" />} defaultOpen={false}>
+              {/* ── Advanced Director Controls (LTX only) ── */}
+              {isLtx && (
+              <InspectorSection title="Director Controls" icon={<Sliders className="h-3 w-3" />}>
                 <div className="grid grid-cols-2 gap-2">
                   <InspectorField label="Guide Phases">
                     <Input type="number" value={sel.params.guidePhases} min={1} max={2}
@@ -772,6 +861,54 @@ export function VideoEditor() {
                   </button>
                 </div>
               </InspectorSection>
+              )}
+
+              {/* ── Camera Motion (LTX only) ── */}
+              {isLtx && (
+              <InspectorSection title="Camera Motion" icon={<Sliders className="h-3 w-3" />}>
+                <div className="grid grid-cols-3 gap-2">
+                  <InspectorField label="Pan X">
+                    <Input type="number" value={sel.params.cameraPanX} step={0.1} min={-1} max={1}
+                      onChange={(e) => updateSegment(sel.id, { params: { ...sel.params, cameraPanX: Number(e.target.value) } })}
+                      className="h-7 text-xs bg-white/5 border-white/10 text-white/80 rounded-md" />
+                  </InspectorField>
+                  <InspectorField label="Pan Y">
+                    <Input type="number" value={sel.params.cameraPanY} step={0.1} min={-1} max={1}
+                      onChange={(e) => updateSegment(sel.id, { params: { ...sel.params, cameraPanY: Number(e.target.value) } })}
+                      className="h-7 text-xs bg-white/5 border-white/10 text-white/80 rounded-md" />
+                  </InspectorField>
+                  <InspectorField label="Zoom">
+                    <Input type="number" value={sel.params.cameraZoom} step={0.1} min={0.5} max={3}
+                      onChange={(e) => updateSegment(sel.id, { params: { ...sel.params, cameraZoom: Number(e.target.value) } })}
+                      className="h-7 text-xs bg-white/5 border-white/10 text-white/80 rounded-md" />
+                  </InspectorField>
+                </div>
+              </InspectorSection>
+              )}
+
+              {/* ── Audio Conditioning ── */}
+              {(() => {
+                const overlapping = audioCues.filter(c =>
+                  c.start < sel.start + sel.duration && c.start + c.duration > sel.start
+                )
+                if (overlapping.length === 0) return null
+                return (
+                  <div className="rounded-lg border border-[#4ade80]/20 bg-[#4ade80]/5 px-3 py-2">
+                    <div className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-[#4ade80]/70">
+                      <Headphones className="h-3 w-3" />
+                      Audio Conditioning
+                    </div>
+                    <div className="mt-1.5 space-y-1">
+                      {overlapping.map(c => (
+                        <div key={c.id} className="flex items-center justify-between text-[10px] text-white/50">
+                          <span>{c.label}</span>
+                          <span className="text-white/30">{c.track} · vol {c.volume.toFixed(1)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )
+              })()}
 
               {/* ── Generate Action ── */}
               {(sel.status === "empty" || sel.status === "failed") && sel.firstFrameB64 && (
@@ -789,6 +926,59 @@ export function VideoEditor() {
                 </div>
               )}
             </div>
+            </>
+            )}
+          </div>
+        )}
+
+        {/* ═══ AUDIO CUE INSPECTOR ═══ */}
+        {selCue && !sel && (
+          <div className="shrink-0 border-l border-white/[0.06] overflow-y-auto bg-[#111114] scrollbar-thin"
+            style={{ width: sidebarW }}>
+            <div className="sticky top-0 z-10 bg-[#111114] border-b border-white/[0.06] px-4 py-2.5 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Headphones className="h-3.5 w-3.5 text-white/50" />
+                <span className="text-xs font-bold tracking-wide text-white/90">{selCue.label}</span>
+                <Badge className="text-[9px] px-1.5 py-0 font-mono">{selCue.track}</Badge>
+              </div>
+              <Button variant="ghost" size="icon" className="h-6 w-6 text-white/30 hover:text-red-400 hover:bg-red-500/10"
+                onClick={() => { removeAudioCue(selCue.id); setSelectedAudioCue(null) }}>
+                <Trash2 className="h-3 w-3" />
+              </Button>
+            </div>
+            <div className="p-4 space-y-4">
+              <InspectorSection title="Properties" icon={<Music className="h-3 w-3" />}>
+                <div className="space-y-2">
+                  <InspectorField label="Label">
+                    <Input type="text" value={selCue.label}
+                      onChange={(e) => updateAudioCue(selCue.id, { label: e.target.value })}
+                      className="h-7 text-xs bg-white/5 border-white/10 text-white/80 rounded-md" />
+                  </InspectorField>
+                  <div className="grid grid-cols-2 gap-2">
+                    <InspectorField label="Start (s)">
+                      <Input type="number" value={Number(selCue.start.toFixed(1))} step={0.5} min={0}
+                        onChange={(e) => updateAudioCue(selCue.id, { start: Math.max(0, Number(e.target.value)) })}
+                        className="h-7 text-xs bg-white/5 border-white/10 text-white/80 rounded-md" />
+                    </InspectorField>
+                    <InspectorField label="Duration (s)">
+                      <Input type="number" value={Number(selCue.duration.toFixed(1))} step={0.5} min={0.5}
+                        onChange={(e) => updateAudioCue(selCue.id, { duration: Math.max(0.5, Number(e.target.value)) })}
+                        className="h-7 text-xs bg-white/5 border-white/10 text-white/80 rounded-md" />
+                    </InspectorField>
+                  </div>
+                </div>
+              </InspectorSection>
+              <InspectorSection title="Volume" icon={<Volume2 className="h-3 w-3" />}>
+                <div className="space-y-2">
+                  <div className="flex items-center gap-2">
+                    <input type="range" min={0} max={1} step={0.05} value={selCue.volume}
+                      onChange={(e) => updateAudioCue(selCue.id, { volume: Number(e.target.value) })}
+                      className="flex-1 h-1 appearance-none bg-white/10 rounded-full accent-[#6366f1] [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white/70" />
+                    <span className="text-[10px] font-mono text-white/40 w-8">{Math.round(selCue.volume * 100)}%</span>
+                  </div>
+                </div>
+              </InspectorSection>
+            </div>
           </div>
         )}
       </div>
@@ -799,6 +989,8 @@ export function VideoEditor() {
         <div className="flex items-center h-6 px-3 border-b border-white/[0.06] bg-[#111114]">
           <span className="text-[10px] font-semibold uppercase tracking-widest text-white/30">Timeline</span>
           <div className="flex-1" />
+          <span className="text-[9px] text-white/15 hidden md:inline">Space=play · ←→=scrub · Del=remove · +/-=zoom · ⌘Z=undo</span>
+          <span className="text-[9px] text-white/15 mx-2 hidden md:inline">|</span>
           <span className="text-[10px] font-mono text-white/25">
             {segments.length} seg{segments.length !== 1 ? "s" : ""} · {fmt(total)}
             {audioCues.length > 0 && <span className="ml-2">{audioCues.length} audio</span>}
@@ -827,38 +1019,20 @@ export function VideoEditor() {
         </div>
 
         {/* Track Rows */}
-        {TRACKS.map((tr) => (
-          <div key={tr.id} className="flex border-t border-white/[0.04]" style={{ height: ROW_H }}>
-            {/* Track Label */}
-            <div className="w-[88px] shrink-0 border-r border-white/[0.06] px-2.5 flex items-center gap-1.5 bg-white/[0.02]">
-              <tr.icon className="h-3 w-3" style={{ color: tr.color }} />
-              <span className="text-[10px] font-medium text-white/40 truncate">{tr.label}</span>
-            </div>
-
-            {/* Track Lane */}
-            <div className="flex-1 relative overflow-hidden"
-              style={tr.id !== "video" ? { background: `linear-gradient(90deg, ${tr.color}04, ${tr.color}08)` } : { background: "#0a0a0e" }}
-              onClick={(e) => { if (!(e.target as HTMLElement).closest("[data-seg]")) seekFromMouseEvent(e) }}
-              onDragOver={(e) => e.preventDefault()}
-              onDrop={(e) => {
-                if (tr.id === "video") return
-                e.preventDefault()
-                try {
-                  const d = JSON.parse(e.dataTransfer.getData("application/tech-noir-asset"))
-                  if (d.type === "audio") {
-                    const trackMap: Record<string, string> = { voice: "voice", sfx: "sfx", music: "music" }
-                    const trackId = trackMap[tr.id] || "music"
-                    const cue = addAudioCue({ track: trackId, start: 0, duration: 5, label: d.name, audioUrl: d.url, audioB64: d.url, volume: tr.id === "music" ? 0.4 : 1.0, waveformPeaks: null, sourceStepId: null })
-                    decodeWaveform(d.url, cue.id)
-                    toast("info", `Added ${d.name} to ${tr.label}`)
-                  }
-                } catch {}
-              }}>
-              {tr.id === "video" ? segments.map((seg) => {
+        {/* Video track — always first */}
+        <div className="flex border-t border-white/[0.04]" style={{ height: ROW_H }}>
+          <div className="w-[88px] shrink-0 border-r border-white/[0.06] px-2.5 flex items-center gap-1.5 bg-white/[0.02]">
+            <Film className="h-3 w-3" style={{ color: "#6366f1" }} />
+            <span className="text-[10px] font-medium text-white/40 truncate">Video</span>
+          </div>
+          <div className="flex-1 relative overflow-hidden"
+            style={{ background: "#0a0a0e" }}
+            onClick={(e) => { if (!(e.target as HTMLElement).closest("[data-seg]")) seekFromMouseEvent(e) }}>
+            {segments.map((seg) => {
                 const left = seg.start * pps
                 const width = Math.max(seg.duration * pps, 8)
                 const isSelected = seg.id === selectedId
-                const segColor = TRACKS[0].color
+                const segColor = "#6366f1"
                 return (
                   <div key={seg.id} data-seg={seg.id}
                     className={`absolute top-[3px] bottom-[3px] rounded-md cursor-pointer overflow-hidden transition-all duration-100 ${isSelected
@@ -873,9 +1047,22 @@ export function VideoEditor() {
                     }}
                     onClick={(e) => { e.stopPropagation(); setSelected(seg.id) }}>
 
-                    {/* Thumbnail background */}
+                    {/* Thumbnail filmstrip background */}
                     {seg.thumbnailUrl && (
-                      <img src={seg.thumbnailUrl} alt="" className="absolute inset-0 w-full h-full object-cover opacity-[0.12] pointer-events-none" />
+                      <div className="absolute inset-0 overflow-hidden pointer-events-none">
+                        <img src={seg.thumbnailUrl} alt="" className="w-full h-full object-cover opacity-25" />
+                        {/* Filmstrip perforations */}
+                        <div className="absolute left-0 top-0 bottom-0 w-[6px] flex flex-col justify-around py-1">
+                          {Array.from({ length: 4 }).map((_, i) => (
+                            <div key={i} className="w-[3px] h-[4px] rounded-[1px] bg-white/10 mx-auto" />
+                          ))}
+                        </div>
+                        <div className="absolute right-0 top-0 bottom-0 w-[6px] flex flex-col justify-around py-1">
+                          {Array.from({ length: 4 }).map((_, i) => (
+                            <div key={i} className="w-[3px] h-[4px] rounded-[1px] bg-white/10 mx-auto" />
+                          ))}
+                        </div>
+                      </div>
                     )}
 
                     {/* Left resize handle */}
@@ -899,6 +1086,9 @@ export function VideoEditor() {
                       {seg.status === "ready" && <div className="relative z-10 h-[6px] w-[6px] rounded-full bg-emerald-400 shrink-0 shadow-sm shadow-emerald-400/50" />}
                       {seg.status === "generating" && <Loader2 className="relative z-10 h-3 w-3 animate-spin shrink-0 text-white/50" />}
                       {seg.status === "failed" && <div className="relative z-10 h-[6px] w-[6px] rounded-full bg-red-400 shrink-0 shadow-sm shadow-red-400/50" />}
+                      {audioCues.some(c => c.start < seg.start + seg.duration && c.start + c.duration > seg.start) && (
+                        <Headphones className="relative z-10 h-3 w-3 shrink-0 text-[#4ade80]/60" />
+                      )}
                       {seg.prompt && width > 100 && (
                         <span className="relative z-10 text-[9px] text-white/30 truncate ml-1 hidden sm:block">{seg.prompt.slice(0, 30)}</span>
                       )}
@@ -909,55 +1099,42 @@ export function VideoEditor() {
                       style={{ background: "linear-gradient(180deg, rgba(255,255,255,0.03) 0%, transparent 40%, rgba(0,0,0,0.1) 100%)" }} />
                   </div>
                 )
-              }) : (
-                /* Audio cues with real waveform */
-                audioCues.filter((c) => c.track === tr.id).map((cue) => {
-                  const cueWidth = Math.max(cue.duration * pps, 4)
-                  return (
-                    <div key={cue.id} className="absolute top-[4px] bottom-[4px] rounded-md border overflow-hidden"
-                      style={{
-                        left: cue.start * pps,
-                        width: cueWidth,
-                        borderColor: `${tr.color}30`,
-                        background: `linear-gradient(135deg, ${tr.color}15, ${tr.color}08)`,
-                      }}>
-                      {/* Waveform */}
-                      <svg className="absolute inset-0 w-full h-full pointer-events-none" preserveAspectRatio="none" viewBox={`0 0 ${cue.waveformPeaks?.length || 50} 100`}>
-                        {cue.waveformPeaks && cue.waveformPeaks.length > 0
-                          ? cue.waveformPeaks.map((peak, i) => (
-                              <rect key={i} x={i} y={50 - peak * 45} width={1} height={peak * 90} rx={0.5}
-                                fill={tr.color} opacity={0.5} />
-                            ))
-                          : Array.from({ length: Math.min(50, Math.max(5, Math.floor(cueWidth / 4))) }).map((_, i) => (
-                              <rect key={i} x={i} y={50 - (0.15 + Math.sin(i * 0.7) * 0.25) * 45} width={1}
-                                height={(0.15 + Math.sin(i * 0.7) * 0.25) * 90} rx={0.5}
-                                fill={tr.color} opacity={0.35} />
-                            ))
-                        }
-                      </svg>
-                      <span className="relative text-[9px] truncate px-2 leading-[44px] font-medium" style={{ color: `${tr.color}cc` }}>{cue.label}</span>
-                    </div>
-                  )
-                })
-              )}
+              })}
             </div>
           </div>
-        ))}
 
-        {/* Add Keyframe Bar */}
+        {/* Add Keyframe + Add Audio Track Bar */}
         <div className="flex border-t border-white/[0.06]">
           <div className="w-[88px] shrink-0 border-r border-white/[0.06]" />
-          <div className="flex-1 px-1.5 py-1">
+          <div className="flex-1 px-1.5 py-1 flex gap-1.5">
             <Button variant="ghost" size="sm"
-              className="h-7 w-full text-[11px] gap-1.5 text-white/30 hover:text-white/60 hover:bg-white/[0.04] rounded-md border border-dashed border-white/[0.08] hover:border-white/[0.15]"
+              className="h-7 flex-1 text-[11px] gap-1.5 text-white/30 hover:text-white/60 hover:bg-white/[0.04] rounded-md border border-dashed border-white/[0.08] hover:border-white/[0.15]"
               onClick={() => { const s = addSegment({ duration: 5, status: "empty" }); setSelected(s.id) }}>
               <Plus className="h-3 w-3" /> Add Keyframe
+            </Button>
+            <Button variant="ghost" size="sm"
+              className="h-7 text-[11px] gap-1.5 text-white/30 hover:text-white/60 hover:bg-white/[0.04] rounded-md border border-dashed border-white/[0.08] hover:border-white/[0.15]"
+              onClick={() => { addAudioTrack(); toast("info", "Audio track added") }}>
+              <Music className="h-3 w-3" /> Add Track
             </Button>
           </div>
         </div>
       </div>
     </div>
   )
+}
+
+function VideoScrubber({ seg, time }: { seg: TimelineSegment; time: number }) {
+  const ref = useRef<HTMLVideoElement>(null)
+  const segTime = Math.max(0, Math.min(seg.duration, time - seg.start))
+  useEffect(() => {
+    const el = ref.current
+    if (!el || !seg.videoUrl) return
+    if (Math.abs(el.currentTime - segTime) > 0.15) {
+      el.currentTime = segTime
+    }
+  }, [segTime, seg.videoUrl])
+  return <video ref={ref} key={seg.id} src={seg.videoUrl} className="max-w-full max-h-[70vh] rounded-lg shadow-2xl" autoPlay loop muted />
 }
 
 function CurrentPreview({ segments, time }: { segments: ReturnType<typeof useTimelineStore.getState>["segments"]; time: number }) {
@@ -970,7 +1147,7 @@ function CurrentPreview({ segments, time }: { segments: ReturnType<typeof useTim
       return (
         <div className="flex flex-col items-center gap-3">
           {closest.videoUrl ? (
-            <video key={closest.id} src={closest.videoUrl} className="max-w-full max-h-[60vh] rounded-lg shadow-2xl" autoPlay loop muted />
+            <VideoScrubber seg={closest} time={time} />
           ) : closest.firstFrameB64 ? (
             <img src={closest.firstFrameB64} alt="" className="max-w-full max-h-[60vh] rounded-lg object-contain shadow-2xl" />
           ) : (
@@ -986,7 +1163,7 @@ function CurrentPreview({ segments, time }: { segments: ReturnType<typeof useTim
   if (seg.videoUrl) {
     return (
       <div className="flex flex-col items-center gap-3">
-        <video key={seg.id} src={seg.videoUrl} className="max-w-full max-h-[70vh] rounded-lg shadow-2xl" autoPlay loop muted />
+        <VideoScrubber seg={seg} time={time} />
         <span className="text-[11px] text-white/30 font-mono">{segLabel(seg.order)} — {seg.prompt?.slice(0, 80) || "no prompt"}</span>
       </div>
     )
@@ -1030,6 +1207,70 @@ function InspectorField({ label, children }: { label: string; children: React.Re
     <div className="space-y-1">
       <Label className="text-[9px] font-medium text-white/30 uppercase tracking-wider">{label}</Label>
       {children}
+    </div>
+  )
+}
+
+/** Dynamic LoRA picker — fetches available LoRAs from /v1/loras per model */
+function LoraPicker({ model, value, onChange }: { model: string; value: string; onChange: (v: string) => void }) {
+  const [available, setAvailable] = useState<string[]>([])
+  const [loading, setLoading] = useState(true)
+  const selected = value ? value.split(",").map(s => s.trim()).filter(Boolean) : []
+
+  useEffect(() => {
+    setLoading(true)
+    fetch(`/v1/loras?model=${encodeURIComponent(model)}`)
+      .then(r => r.json())
+      .then((data: { loras: string[] }) => {
+        setAvailable(data.loras || [])
+      })
+      .catch(() => setAvailable([]))
+      .finally(() => setLoading(false))
+  }, [model])
+
+  const toggle = (name: string) => {
+    const next = selected.includes(name)
+      ? selected.filter(s => s !== name)
+      : [...selected, name]
+    onChange(next.join(", "))
+  }
+
+  if (loading) {
+    return <div className="text-[10px] text-white/25 py-1">Loading LoRAs…</div>
+  }
+
+  if (available.length === 0) {
+    return <div className="text-[10px] text-white/25 py-1">No LoRAs available for this model</div>
+  }
+
+  return (
+    <div className="space-y-1.5">
+      <Label className="text-[9px] font-medium text-white/30 uppercase tracking-wider">Available LoRAs</Label>
+      <div className="space-y-0.5 max-h-40 overflow-y-auto scrollbar-thin">
+        {available.map(name => {
+          const active = selected.includes(name)
+          // Generate a human-readable short label
+          const shortLabel = name
+            .replace(".safetensors", "")
+            .replace(/^ltx-2\.?3?-?/, "")
+            .replace(/^22b-/, "")
+            .replace(/^19b-/, "")
+            .replace(/^id-lora-/, "ID: ")
+            .replace(/^celebvhq-?/, "")
+            .replace(/-lora-384(-\d[\d.]*)?$/, "")
+            .replace(/distilled/, "distilled")
+            .replace(/^-/, "")
+          return (
+            <button key={name} onClick={() => toggle(name)}
+              className={`w-full flex items-center gap-2 px-2 py-1 rounded text-left text-[10px] transition-colors ${active ? "bg-[#6366f1]/20 text-[#6366f1]" : "text-white/40 hover:bg-white/5 hover:text-white/60"}`}>
+              <div className={`w-2.5 h-2.5 rounded-sm border shrink-0 flex items-center justify-center ${active ? "bg-[#6366f1] border-[#6366f1]" : "border-white/20"}`}>
+                {active && <svg className="w-2 h-2 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="3"><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>}
+              </div>
+              <span className="truncate" title={name}>{shortLabel || name}</span>
+            </button>
+          )
+        })}
+      </div>
     </div>
   )
 }
