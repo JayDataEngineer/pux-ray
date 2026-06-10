@@ -216,12 +216,11 @@ export function VideoEditor() {
         setSelected(s.id)
         toast("info", `Added: ${d.name}`)
       } else if (d.type === "audio") {
-        // Auto-create an audio track if none exist
+        // Auto-create an audio track if none exist, add cue at start
         let targetTrack = audioTracks[0]
         if (!targetTrack) targetTrack = addAudioTrack("Audio 1")
-        const cue = addAudioCue({ track: targetTrack.id, start: 0, duration: 5, label: d.name, audioUrl: d.url, audioB64: d.url, volume: 0.8, waveformPeaks: null, sourceStepId: null })
-        decodeWaveform(d.url, cue.id)
-        toast("info", `Added audio: ${d.name}`)
+        addAudioCue({ track: targetTrack.id, start: 0, duration: 5, label: d.name, audioUrl: d.url, audioB64: d.url, volume: 0.8, waveformPeaks: null, sourceStepId: null })
+        toast("info", `Added audio: ${d.name} — drag onto a track for precise placement`)
       }
     } catch {}
   }
@@ -1138,7 +1137,32 @@ export function VideoEditor() {
               </div>
               <div className="flex-1 relative overflow-hidden"
                 style={{ background: "#0a0a0e" }}
+                onDragOver={(e) => e.preventDefault()}
+                onDrop={(e) => {
+                  e.preventDefault()
+                  try {
+                    const d = JSON.parse(e.dataTransfer.getData("application/tech-noir-asset"))
+                    if (d.type === "audio") {
+                      const rect = e.currentTarget.getBoundingClientRect()
+                      const relX = e.clientX - rect.left
+                      const startT = Math.max(0, relX / pps)
+                      const cue = addAudioCue({
+                        track: track.id, start: startT, duration: 5, label: d.name,
+                        audioUrl: d.url, audioB64: d.url, volume: 0.8,
+                        waveformPeaks: null, sourceStepId: null,
+                      })
+                      decodeWaveform(d.url, cue.id)
+                      toast("info", `Added audio: ${d.name}`)
+                    }
+                  } catch {}
+                }}
                 onClick={(e) => { if (!(e.target as HTMLElement).closest("[data-cue]")) seekFromMouseEvent(e) }}>
+                {trackCues.length === 0 && (
+                  <div className="absolute inset-0 flex items-center justify-center pointer-events-none opacity-0 hover:opacity-100 transition-opacity"
+                    style={{ opacity: undefined }}>
+                    <span className="text-[9px] text-white/10">Drop audio here</span>
+                  </div>
+                )}
                 {trackCues.map((cue) => {
                   const left = cue.start * pps
                   const width = Math.max(cue.duration * pps, 8)
