@@ -644,8 +644,12 @@ export function VideoEditor() {
                       className="h-7 text-xs bg-white/5 border-white/10 text-white/80 rounded-md" />
                   </InspectorField>
                   <InspectorField label="Duration (s)">
-                    <Input type="number" value={sel.duration} step={0.5} min={0.5}
-                      onChange={(e) => updateSegment(sel.id, { duration: Math.max(0.5, Number(e.target.value)) })}
+                    <Input type="number" value={Number(sel.duration.toFixed(2))} step={0.5} min={0.5}
+                      onChange={(e) => {
+                        const secs = Math.max(0.5, Number(e.target.value))
+                        const newFrames = Math.round(secs * sel.params.fps)
+                        updateSegment(sel.id, { duration: secs, params: { ...sel.params, frames: newFrames } })
+                      }}
                       className="h-7 text-xs bg-white/5 border-white/10 text-white/80 rounded-md" />
                   </InspectorField>
                 </div>
@@ -654,10 +658,14 @@ export function VideoEditor() {
               {/* ── Resolution & Frame Rate ── */}
               <InspectorSection title="Resolution & Frames" icon={<ImagePlus className="h-3 w-3" />}>
                 <InspectorField label="Video Length (seconds)">
-                  <Input type="number" value={Number((sel.params.frames / sel.params.fps).toFixed(1))} step={0.5} min={0.5} max={30}
+                  <Input type="number" value={Number((sel.params.frames / sel.params.fps).toFixed(2))} step={0.5} min={0.5} max={30}
                     onChange={(e) => {
                       const secs = Math.max(0.5, Number(e.target.value))
-                      updateSegment(sel.id, { params: { ...sel.params, frames: Math.round(secs * sel.params.fps) } })
+                      const newFrames = Math.round(secs * sel.params.fps)
+                      updateSegment(sel.id, {
+                        duration: secs,
+                        params: { ...sel.params, frames: newFrames },
+                      })
                     }}
                     className="h-7 text-xs bg-white/5 border-white/10 text-white/80 rounded-md font-mono" />
                 </InspectorField>
@@ -676,14 +684,24 @@ export function VideoEditor() {
                     <Input type="number" value={sel.params.fps} min={8} max={60}
                       onChange={(e) => {
                         const newFps = Math.max(8, Number(e.target.value))
+                        // Keep video length constant: recompute frames from current duration
                         const currentSecs = sel.params.frames / sel.params.fps
-                        updateSegment(sel.id, { params: { ...sel.params, fps: newFps, frames: Math.round(currentSecs * newFps) } })
+                        const newFrames = Math.round(currentSecs * newFps)
+                        updateSegment(sel.id, { params: { ...sel.params, fps: newFps, frames: newFrames } })
                       }}
                       className="h-7 text-xs bg-white/5 border-white/10 text-white/80 rounded-md" />
                   </InspectorField>
                   <InspectorField label="Frames">
                     <Input type="number" value={sel.params.frames} min={9} max={201}
-                      onChange={(e) => updateSegment(sel.id, { params: { ...sel.params, frames: Number(e.target.value) } })}
+                      onChange={(e) => {
+                        const newFrames = Math.max(9, Number(e.target.value))
+                        // Keep FPS constant: recompute duration from frames
+                        const newSecs = newFrames / sel.params.fps
+                        updateSegment(sel.id, {
+                          duration: newSecs,
+                          params: { ...sel.params, frames: newFrames },
+                        })
+                      }}
                       className="h-7 text-xs bg-white/5 border-white/10 text-white/80 rounded-md" />
                   </InspectorField>
                 </div>
