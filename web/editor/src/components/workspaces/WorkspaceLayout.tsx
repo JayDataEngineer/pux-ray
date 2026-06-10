@@ -353,6 +353,7 @@ function KimodoDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (o:
     if (!open) { setError(null); return }
     if (loadedRef.current || loadingRef.current) return
 
+    const controller = new AbortController()
     let cancelled = false
     loadingRef.current = true
     setLoading(true)
@@ -362,23 +363,33 @@ function KimodoDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (o:
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ action: 'preload', service: 'kimodo_demo' }),
+      signal: controller.signal,
     })
       .then(async (res) => {
+        const text = await res.text()
         if (!res.ok) {
-          const body = await res.json().catch(() => ({ error: `HTTP ${res.status}` }))
-          throw new Error(body.error || `HTTP ${res.status}`)
+          let msg = `HTTP ${res.status}`
+          try { const b = JSON.parse(text); msg = b.error || msg } catch { /* use default */ }
+          throw new Error(msg)
         }
-        const body = await res.json().catch(() => ({}))
+        let body: any = {}
+        try { body = JSON.parse(text) } catch { /* empty */ }
         if (body.status === 'error') throw new Error(body.error || 'Failed to load')
+        console.log('[KimodoDialog] preload success:', body.status)
         if (!cancelled) { loadedRef.current = true; setLoaded(true) }
       })
       .catch((e) => {
-        if (!cancelled) setError(e.message || 'Failed to load Kimodo')
+        if (cancelled) return
+        console.error('[KimodoDialog] preload error:', e.message)
+        setError(e.message || 'Failed to load Kimodo')
       })
       .finally(() => {
         if (!cancelled) { loadingRef.current = false; setLoading(false) }
       })
-    return () => { cancelled = true }
+    return () => {
+      cancelled = true
+      controller.abort()
+    }
   }, [open]) // intentionally only depends on `open`
 
   const handleClose = useCallback((willOpen: boolean) => {
