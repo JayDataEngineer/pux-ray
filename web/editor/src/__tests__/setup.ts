@@ -42,6 +42,29 @@ globalThis.IntersectionObserver = class {
   disconnect() {}
 } as any
 
+// Mock AudioContext
+class MockAudioContext {
+  currentTime = 0
+  state: AudioContextState = 'running'
+  createBufferSource() {
+    return { buffer: null, connect: () => {}, start: () => {}, stop: () => {}, disconnect: () => {} }
+  }
+  createGain() {
+    return { gain: { value: 1 }, connect: () => {}, disconnect: () => {} }
+  }
+  decodeAudioData() {
+    return Promise.resolve({
+      getChannelData: () => new Float32Array(100),
+      duration: 5,
+      numberOfChannels: 1,
+      length: 100,
+      sampleRate: 44100,
+    })
+  }
+  close() { return Promise.resolve() }
+}
+(globalThis as any).AudioContext = MockAudioContext
+
 // Suppress console.error for expected test noise
 const origError = console.error
 beforeEach(() => {

@@ -17,7 +17,7 @@ import { getEnhancePrompt } from "@/lib/enhance-prompts"
 import { EnhanceConfigDialog } from "@/components/EnhanceConfigDialog"
 import { kimodoUrl } from "@/mcp"
 import { callTool, forgeStatus, listTools, type MCPTool } from "@/mcp"
-import { Cpu, HardDrive, PanelLeft, PanelRightClose, Wand2, Loader2, CheckCircle2, XCircle, Clock, ListTodo, X, Maximize2, ChevronLeft, ChevronRight, Download, Sparkles } from "lucide-react"
+import { Cpu, HardDrive, PanelLeft, PanelRightClose, Wand2, Loader2, CheckCircle2, XCircle, Clock, ListTodo, X, Maximize2, ChevronLeft, ChevronRight, Download, Sparkles, AlertTriangle } from "lucide-react"
 import { AppSidebar } from "./AppSidebar"
 import { VideoEditor } from "./VideoEditor"
 
@@ -342,29 +342,43 @@ function ServicesSidebar({ selected, onSelect, onOpenKimodo }: { selected: strin
 function KimodoDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (o: boolean) => void }) {
   const [loading, setLoading] = useState(false)
   const [loaded, setLoaded] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
-  // Trigger preload when dialog opens programmatically (from sidebar link)
-  useEffect(() => {
-    if (!open || loaded || loading) return
+  const preload = useCallback(() => {
+    if (loaded || loading) return
     let cancelled = false
     setLoading(true)
+    setError(null)
     fetch('/forge', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ action: 'preload', service: 'kimodo_demo' }),
     })
-      .then((res) => {
-        if (!res.ok) throw new Error('Failed to load Kimodo')
+      .then(async (res) => {
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({ error: `HTTP ${res.status}` }))
+          throw new Error(body.error || `HTTP ${res.status}`)
+        }
+        const body = await res.json().catch(() => ({}))
+        if (body.status === 'error') throw new Error(body.error || 'Failed to load')
         if (!cancelled) setLoaded(true)
       })
       .catch((e) => {
-        console.error('Kimodo load failed:', e)
+        if (!cancelled) setError(e.message || 'Failed to load Kimodo')
       })
       .finally(() => {
         if (!cancelled) setLoading(false)
       })
     return () => { cancelled = true }
-  }, [open, loaded, loading])
+  }, [loaded, loading])
+
+  // Trigger preload when dialog opens
+  useEffect(() => {
+    if (!open) { setError(null); return }
+    if (loaded || loading) return
+    const cancel = preload()
+    return cancel
+  }, [open, loaded, loading, preload])
 
   const handleClose = useCallback((willOpen: boolean) => {
     onOpenChange(willOpen)
@@ -394,6 +408,22 @@ function KimodoDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (o:
               <Loader2 className="h-8 w-8 animate-spin" />
               <span className="text-xs">Loading Kimodo on GPU…</span>
               <span className="text-[10px] text-muted-foreground/60">This takes ~60s on first load</span>
+            </div>
+          ) : error ? (
+            <div className="absolute inset-0 flex flex-col items-center justify-center text-muted-foreground gap-3 px-8">
+              <AlertTriangle className="h-8 w-8 text-destructive" />
+              <span className="text-xs text-center max-w-md">Failed to load Kimodo: {error}</span>
+              <span className="text-[10px] text-muted-foreground/60 text-center">
+                The GPU may not have enough VRAM. Try unloading other models first.
+              </span>
+              <Button
+                variant="outline"
+                size="sm"
+                className="mt-2"
+                onClick={() => { setError(null); setLoaded(false); }}
+              >
+                Retry
+              </Button>
             </div>
           ) : loaded ? (
             <iframe
