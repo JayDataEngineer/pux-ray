@@ -504,7 +504,7 @@ function AssetsTab({ selectedService, jobs, onAddJob, nextJobId }: {
     }
     setEnhancingField(fieldName)
     try {
-      const systemPrompt = getEnhancePrompt(selectedService)
+      const systemPrompt = getEnhancePrompt(selectedService, values)
       const enhanced = await enhancePrompt(model, systemPrompt, currentVal)
       setValues((p) => ({ ...p, [fieldName]: enhanced }))
       toast("success", "Prompt enhanced")
