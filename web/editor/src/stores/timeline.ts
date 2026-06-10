@@ -70,6 +70,10 @@ interface TimelineStore {
   selectedSegmentId: string | null
   selectedAudioCueId: string | null
 
+  // Relay state — the single continuous video from Director prompt relay
+  relayVideoUrl: string | null
+  relaySegmentIds: string[]
+
   addSegment: (partial?: Partial<TimelineSegment>) => TimelineSegment
   removeSegment: (id: string) => void
   updateSegment: (id: string, patch: Partial<TimelineSegment>) => void
@@ -81,6 +85,7 @@ interface TimelineStore {
   removeAudioCue: (id: string) => void
   updateAudioCue: (id: string, patch: Partial<AudioCue>) => void
 
+  setRelayVideo: (url: string | null, segmentIds: string[]) => void
   setViewport: (patch: Partial<TimelineViewport>) => void
   setPlayback: (patch: Partial<PlaybackState>) => void
   setDrag: (patch: Partial<DragState>) => void
@@ -122,6 +127,8 @@ export const useTimelineStore = create<TimelineStore>((set, get) => ({
   drag: { ...DEFAULT_DRAG },
   selectedSegmentId: null,
   selectedAudioCueId: null,
+  relayVideoUrl: null,
+  relaySegmentIds: [],
 
   addSegment: (partial) => {
     const state = get()
@@ -156,7 +163,13 @@ export const useTimelineStore = create<TimelineStore>((set, get) => ({
   removeSegment: (id) => set((s) => {
     const segments = s.segments.filter((seg) => seg.id !== id).map((seg, i) => ({ ...seg, order: i }))
     pushHistory(segments, s.audioCues)
-    return { segments, selectedSegmentId: s.selectedSegmentId === id ? null : s.selectedSegmentId }
+    // Invalidate relay if removed segment was part of it
+    const relayActive = s.relaySegmentIds.includes(id)
+    return {
+      segments,
+      selectedSegmentId: s.selectedSegmentId === id ? null : s.selectedSegmentId,
+      ...(relayActive ? { relayVideoUrl: null, relaySegmentIds: [] } : {}),
+    }
   }),
 
   updateSegment: (id, patch) => set((s) => {
@@ -213,6 +226,8 @@ export const useTimelineStore = create<TimelineStore>((set, get) => ({
   updateAudioCue: (id, patch) => set((s) => ({
     audioCues: s.audioCues.map((c) => c.id === id ? { ...c, ...patch } : c),
   })),
+
+  setRelayVideo: (url, segmentIds) => set({ relayVideoUrl: url, relaySegmentIds: segmentIds }),
 
   setViewport: (patch) => set((s) => ({ viewport: { ...s.viewport, ...patch } })),
   setPlayback: (patch) => set((s) => ({ playback: { ...s.playback, ...patch } })),
@@ -314,6 +329,8 @@ export const useTimelineStore = create<TimelineStore>((set, get) => ({
     drag: { ...DEFAULT_DRAG },
     selectedSegmentId: null,
     selectedAudioCueId: null,
+    relayVideoUrl: null,
+    relaySegmentIds: [],
   }),
 
   undo: () => {

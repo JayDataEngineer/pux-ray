@@ -92,6 +92,9 @@ export function VideoEditor() {
   const addAudioCue = useTimelineStore((s) => s.addAudioCue)
   const playback = useTimelineStore((s) => s.playback)
   const setPlayback = useTimelineStore((s) => s.setPlayback)
+  const relayVideoUrl = useTimelineStore((s) => s.relayVideoUrl)
+  const relaySegmentIds = useTimelineStore((s) => s.relaySegmentIds)
+  const setRelayVideo = useTimelineStore((s) => s.setRelayVideo)
   const toast = useToastStore((s) => s.addToast)
   const assets = useAssetStore((s) => s.assets)
 
@@ -295,28 +298,33 @@ export function VideoEditor() {
     if (segments.length === 0) return
     setGenerating(true)
 
-    const eligible = segments.filter(s => s.status === "empty" || s.status === "failed")
+    const eligible = segments.filter(s => s.status === "empty" || s.status === "failed" || s.status === "generating")
     if (eligible.length === 0) { setGenerating(false); return }
 
-    // Check if we should use Director relay (multiple LTX segments)
+    // ── LTX relay path: all LTX segments → single Director relay call ──
     const ltxSegs = eligible.filter(s => s.params.model.startsWith("ltx"))
-    if (ltxSegs.length > 1) {
-      // Director prompt relay — single call for all LTX segments
+    if (ltxSegs.length >= 1) {
       const fps = ltxSegs[0].params.fps
       const totalFrames = ltxSegs.reduce((t, s) => t + s.params.frames, 0)
       const firstSeg = ltxSegs[0]
+      const lastSeg = ltxSegs[ltxSegs.length - 1]
 
       ltxSegs.forEach(s => updateSegment(s.id, { status: "generating" }))
 
       try {
-        // Find audio for conditioning
-        const firstAudio = audioCues[0]
-        // Build _relay_config for LTX Director prompt relay
+        // Find audio cues overlapping the relay span for audio conditioning
+        const relayStart = Math.min(...ltxSegs.map(s => s.start))
+        const relayEnd = Math.max(...ltxSegs.map(s => s.start + s.duration))
+        const firstAudio = audioCues.find(c =>
+          c.audioB64 && c.start < relayEnd && c.start + c.duration > relayStart
+        )
+
+        // Build _relay_config — arrays, not strings
         const relayConfig = {
           global_prompt: firstSeg.prompt || "animate",
-          local_prompts: ltxSegs.map(s => s.prompt || "animate").join("|"),
-          segment_lengths: ltxSegs.map(s => String(s.params.frames)).join(","),
-          epsilon: String(firstSeg.params.epsilon),
+          local_prompts: ltxSegs.map(s => s.prompt || "animate"),
+          segment_lengths: ltxSegs.map(s => s.params.frames),
+          epsilon: firstSeg.params.epsilon,
         }
 
         const r = await callTool<{ status: string; data?: string; media_type?: string; error?: string }>("run", {
@@ -325,8 +333,8 @@ export function VideoEditor() {
             model: firstSeg.params.model,
             input_prompt: firstSeg.prompt || "animate",
             _relay_config: JSON.stringify(relayConfig),
-            image_b64: firstSeg.firstFrameB64 || "",
-            image_end_b64: ltxSegs[ltxSegs.length - 1].lastFrameB64 || undefined,
+            image_b64: firstSeg.firstFrameB64 || undefined,
+            image_end_b64: lastSeg.lastFrameB64 || undefined,
             n_prompt: firstSeg.negativePrompt || undefined,
             seed: firstSeg.params.seed,
             fps,
@@ -344,10 +352,13 @@ export function VideoEditor() {
         })
 
         if (r.status === "ok" && r.data) {
-          // Assign the video to the first segment (full Director output)
-          updateSegment(ltxSegs[0].id, { videoUrl: `data:video/mp4;base64,${r.data}`, status: "ready", error: null })
-          ltxSegs.slice(1).forEach(s => updateSegment(s.id, { status: "ready", error: null }))
-          toast("success", "Director relay generated!")
+          const videoUrl = `data:video/mp4;base64,${r.data}`
+          // Store the single relay video at timeline level
+          const segIds = ltxSegs.map(s => s.id)
+          setRelayVideo(videoUrl, segIds)
+          // Mark all segments ready
+          ltxSegs.forEach(s => updateSegment(s.id, { status: "ready", error: null }))
+          toast("success", `Director relay: ${ltxSegs.length} segments, ${totalFrames} frames`)
         } else {
           const errMsg = r.error || "Director relay failed"
           ltxSegs.forEach(s => updateSegment(s.id, { status: "failed", error: errMsg }))
@@ -358,21 +369,12 @@ export function VideoEditor() {
         ltxSegs.forEach(s => updateSegment(s.id, { status: "failed", error: errMsg }))
         toast("error", errMsg)
       }
+    }
 
-      // Generate any non-LTX segments individually
-      const nonLtx = eligible.filter(s => !s.params.model.startsWith("ltx"))
-      for (const seg of nonLtx) {
-        await generateSegment(seg)
-      }
-    } else {
-      // Generate each segment individually
-      let anyFailed = false
-      for (const seg of eligible) {
-        if (!seg.firstFrameB64 && !seg.params.model.startsWith("ltx")) { anyFailed = true; continue }
-        await generateSegment(seg)
-        if (useTimelineStore.getState().segments.find(s => s.id === seg.id)?.status === "failed") anyFailed = true
-      }
-      if (!anyFailed) toast("success", "All segments generated!")
+    // ── Non-LTX segments: generate individually ──
+    const nonLtx = eligible.filter(s => !s.params.model.startsWith("ltx"))
+    for (const seg of nonLtx) {
+      await generateSegment(seg)
     }
 
     setGenerating(false)
@@ -482,7 +484,7 @@ export function VideoEditor() {
             style={{ background: "linear-gradient(135deg, #0c0c10 0%, #111118 50%, #0c0c10 100%)" }}
             onDragOver={(e) => e.preventDefault()} onDrop={onDrop}>
             {segments.length > 0 ? (
-              <CurrentPreview segments={segments} time={playback.currentTime} />
+              <CurrentPreview segments={segments} time={playback.currentTime} relayVideoUrl={relayVideoUrl} relaySegmentIds={relaySegmentIds} />
             ) : (
               <div className="text-center space-y-3 opacity-60">
                 <div className="mx-auto w-16 h-16 rounded-2xl border border-white/10 bg-white/5 flex items-center justify-center">
@@ -1142,6 +1144,7 @@ export function VideoEditor() {
   )
 }
 
+/** Video scrubber for a standalone segment video (non-relay) */
 function VideoScrubber({ seg, time }: { seg: TimelineSegment; time: number }) {
   const ref = useRef<HTMLVideoElement>(null)
   const segTime = Math.max(0, Math.min(seg.duration, time - seg.start))
@@ -1155,8 +1158,38 @@ function VideoScrubber({ seg, time }: { seg: TimelineSegment; time: number }) {
   return <video ref={ref} key={seg.id} src={seg.videoUrl} className="max-w-full max-h-[70vh] rounded-lg shadow-2xl" autoPlay loop muted />
 }
 
-function CurrentPreview({ segments, time }: { segments: ReturnType<typeof useTimelineStore.getState>["segments"]; time: number }) {
+/** Relay video scrubber — scrubs to absolute time in the continuous relay output */
+function RelayScrubber({ videoUrl, time }: { videoUrl: string; time: number }) {
+  const ref = useRef<HTMLVideoElement>(null)
+  useEffect(() => {
+    const el = ref.current
+    if (!el) return
+    if (Math.abs(el.currentTime - time) > 0.15) {
+      el.currentTime = time
+    }
+  }, [time])
+  return <video ref={ref} src={videoUrl} className="max-w-full max-h-[70vh] rounded-lg shadow-2xl" autoPlay loop muted />
+}
+
+function CurrentPreview({ segments, time, relayVideoUrl, relaySegmentIds }: {
+  segments: ReturnType<typeof useTimelineStore.getState>["segments"]
+  time: number
+  relayVideoUrl: string | null
+  relaySegmentIds: string[]
+}) {
   const seg = segments.find((s) => time >= s.start && time < s.start + s.duration)
+
+  // If this segment is part of a relay, show the relay video scrubbed to absolute time
+  if (relayVideoUrl && seg && relaySegmentIds.includes(seg.id)) {
+    return (
+      <div className="flex flex-col items-center gap-3">
+        <RelayScrubber videoUrl={relayVideoUrl} time={time} />
+        <span className="text-[11px] text-white/30 font-mono">{segLabel(seg.order)} — {seg.prompt?.slice(0, 80) || "no prompt"}</span>
+        <span className="text-[9px] text-[#6366f1]/50 font-mono uppercase tracking-wider">Director Relay</span>
+      </div>
+    )
+  }
+
   if (!seg) {
     if (segments.length > 0) {
       const closest = segments.reduce((prev, curr) =>
