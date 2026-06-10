@@ -180,6 +180,27 @@ export function VideoEditor() {
     setPlayback({ currentTime: t })
   }
 
+  const seekFromClientX = useCallback((clientX: number, containerEl: HTMLElement) => {
+    const rect = containerEl.getBoundingClientRect()
+    const relX = clientX - rect.left
+    const t = Math.max(0, Math.min(total, relX / pps))
+    setPlayback({ currentTime: t })
+  }, [pps, total, setPlayback])
+
+  const seekDragRef = useRef<HTMLElement | null>(null)
+
+  useEffect(() => {
+    const onMove = (e: PointerEvent) => {
+      const el = seekDragRef.current
+      if (!el) return
+      seekFromClientX(e.clientX, el)
+    }
+    const onUp = () => { seekDragRef.current = null }
+    window.addEventListener("pointermove", onMove)
+    window.addEventListener("pointerup", onUp)
+    return () => { window.removeEventListener("pointermove", onMove); window.removeEventListener("pointerup", onUp) }
+  }, [seekFromClientX])
+
   // ── Drag / Resize ──────────────────────────────────────────────────────────
   const dragRef = useRef<DragInfo | null>(null)
   const cueDragRef = useRef<CueDragInfo | null>(null)
@@ -1392,7 +1413,13 @@ export function VideoEditor() {
           <div className="w-[88px] shrink-0 border-r border-white/[0.06] px-2 flex items-center text-[9px] font-semibold uppercase tracking-wider text-white/20">
             Track
           </div>
-          <div className="flex-1 relative overflow-hidden cursor-pointer" onClick={seekFromMouseEvent}>
+          <div className="flex-1 relative overflow-hidden cursor-pointer"
+            onPointerDown={(e) => {
+              if (e.button !== 0) return
+              seekFromMouseEvent(e)
+              seekDragRef.current = e.currentTarget
+              ;(e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId)
+            }}>
             <div className="absolute inset-0 flex">
               {Array.from({ length: Math.ceil(total) + 1 }).map((_, i) => (
                 <div key={i} className="flex items-end border-l border-white/[0.06] shrink-0" style={{ width: pps }}>
