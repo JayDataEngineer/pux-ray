@@ -93,36 +93,96 @@ async def generate_sound(
     return await forge.invoke(payload)
 
 
+# Genre presets matching ACE-Step demo
+GENRE_PRESETS = {
+    "Custom": "",
+    "Modern Pop": "pop, synth, drums, guitar, 120 bpm, upbeat, catchy, vibrant, female vocals, polished vocals",
+    "Rock": "rock, electric guitar, drums, bass, 130 bpm, energetic, rebellious, gritty, male vocals, raw vocals",
+    "Hip Hop": "hip hop, 808 bass, hi-hats, synth, 90 bpm, bold, urban, intense, male vocals, rhythmic vocals",
+    "Country": "country, acoustic guitar, steel guitar, fiddle, 100 bpm, heartfelt, rustic, warm, male vocals, twangy vocals",
+    "EDM": "edm, synth, bass, kick drum, 128 bpm, euphoric, pulsating, energetic, instrumental",
+    "Reggae": "reggae, guitar, bass, drums, 80 bpm, chill, soulful, positive, male vocals, smooth vocals",
+    "Classical": "classical, orchestral, strings, piano, 60 bpm, elegant, emotive, timeless, instrumental",
+    "Jazz": "jazz, saxophone, piano, double bass, 110 bpm, smooth, improvisational, soulful, male vocals, crooning vocals",
+    "Metal": "metal, electric guitar, double kick drum, bass, 160 bpm, aggressive, intense, heavy, male vocals, screamed vocals",
+    "R&B": "r&b, synth, bass, drums, 85 bpm, sultry, groovy, romantic, female vocals, silky vocals",
+}
+
+
 async def generate_music(
     prompt: Annotated[str, Field(
-        description="Description of the music to generate. "
-                    "E.g. 'upbeat electronic dance music with heavy bass', "
-                    "'calm piano piece with string accompaniment'.",
+        description="Music description / tags. E.g. 'funk, pop, soul, guitar, 105 BPM, energetic'. "
+                    "Use commas to separate tags. Supports genre, instruments, tempo, mood, vocal style.",
     )],
     model: Annotated[str, Field(
         description="ACE-Step model variant.",
         enum=["v1.5", "v1.5 XL", "v1"],
     )] = "v1.5",
     lyrics: Annotated[str | None, Field(
-        description="Optional lyrics for vocal music generation.",
+        description="Lyrics with structure tags: [verse], [chorus], [bridge], [instrumental]. "
+                    "Leave empty for instrumental.",
     )] = None,
     duration_seconds: Annotated[float, Field(
-        description="Target duration in seconds (5-60).",
-    )] = 30.0,
+        description="Audio duration in seconds. -1 = random (30-240s).",
+    )] = -1.0,
+    format: Annotated[str, Field(
+        description="Output audio format.",
+        enum=["wav", "mp3", "ogg", "flac"],
+    )] = "wav",
+    genre_preset: Annotated[str, Field(
+        description="Genre preset — auto-fills prompt tags. 'Custom' uses prompt as-is.",
+        enum=list(GENRE_PRESETS.keys()),
+    )] = "Custom",
+    infer_step: Annotated[int, Field(
+        description="Denoising steps. 30=fast, 60=balanced, 100+=high quality.",
+    )] = 60,
     guidance_scale: Annotated[float, Field(
-        description="CFG guidance scale. Higher = more prompt adherence.",
-    )] = 4.5,
-    sampling_steps: Annotated[int, Field(
-        description="Number of denoising steps. More = higher quality, slower.",
-    )] = 30,
+        description="CFG guidance scale. Higher = more prompt adherence. 15.0 is default.",
+    )] = 15.0,
+    guidance_scale_text: Annotated[float, Field(
+        description="Separate guidance for text tags. Set >0 when using guidance_scale_lyric.",
+    )] = 0.0,
+    guidance_scale_lyric: Annotated[float, Field(
+        description="Separate guidance for lyrics. Set >0 when using guidance_scale_text.",
+    )] = 0.0,
+    scheduler_type: Annotated[str, Field(
+        description="Scheduler. euler=recommended, heun=slower/better, pingpong=SDE.",
+        enum=["euler", "heun", "pingpong"],
+    )] = "euler",
+    cfg_type: Annotated[str, Field(
+        description="CFG type. apg=recommended, cfg/cfg_star=classic.",
+        enum=["cfg", "apg", "cfg_star"],
+    )] = "apg",
+    omega_scale: Annotated[float, Field(
+        description="Granularity scale. Higher reduces artifacts. 10.0 default.",
+    )] = 10.0,
+    guidance_interval: Annotated[float, Field(
+        description="Apply guidance only in this fraction of steps. 0.5 = middle half.",
+    )] = 0.5,
+    guidance_interval_decay: Annotated[float, Field(
+        description="Decay guidance_scale to min_guidance_scale within interval. 0=no decay.",
+    )] = 0.0,
+    min_guidance_scale: Annotated[float, Field(
+        description="End scale for guidance interval decay.",
+    )] = 3.0,
+    use_erg_tag: Annotated[bool, Field(
+        description="Entropy Rectifying Guidance for tags — improves diversity.",
+    )] = True,
+    use_erg_lyric: Annotated[bool, Field(
+        description="ERG for lyric encoder attention.",
+    )] = False,
+    use_erg_diffusion: Annotated[bool, Field(
+        description="ERG for diffusion model attention.",
+    )] = True,
     seed: Annotated[int, Field(
-        description="Random seed for reproducibility. -1 for random.",
+        description="Random seed. -1 for random.",
     )] = -1,
     ctx: Context | None = None,
 ) -> dict:
     """Generate music from a text description.
 
-    Supports ACE-Step v1, v1.5, and v1.5 XL models.
+    Full ACE-Step pipeline with all parameters matching the official demo.
+    Supports v1, v1.5, and v1.5 XL models.
     Returns {status, data (base64 audio), media_type}.
     """
     forge = _forge(ctx)
@@ -133,17 +193,33 @@ async def generate_music(
         "v1": "tts/ace_step_v1",
     }
 
+    # Apply genre preset if not Custom
+    actual_prompt = prompt
+    if genre_preset != "Custom" and GENRE_PRESETS.get(genre_preset):
+        actual_prompt = GENRE_PRESETS[genre_preset]
+
     payload: dict[str, Any] = {
         "service": "wan2gp",
         "model": model_map.get(model, "tts/ace_step_v1_5"),
-        "prompt": prompt,
+        "prompt": actual_prompt,
+        "lyrics": lyrics or "",
         "duration": duration_seconds,
+        "format": format,
+        "sampling_steps": infer_step,
         "guide_scale": guidance_scale,
-        "sampling_steps": sampling_steps,
+        "guide_scale_text": guidance_scale_text,
+        "guide_scale_lyric": guidance_scale_lyric,
+        "scheduler_type": scheduler_type,
+        "cfg_type": cfg_type,
+        "omega_scale": omega_scale,
+        "guidance_interval": guidance_interval,
+        "guidance_interval_decay": guidance_interval_decay,
+        "min_guidance_scale": min_guidance_scale,
+        "use_erg_tag": use_erg_tag,
+        "use_erg_lyric": use_erg_lyric,
+        "use_erg_diffusion": use_erg_diffusion,
     }
-    if lyrics:
-        payload["lyrics"] = lyrics
-    if seed is not None and seed >= 0:
+    if seed >= 0:
         payload["seed"] = seed
 
     return await forge.invoke(payload)
