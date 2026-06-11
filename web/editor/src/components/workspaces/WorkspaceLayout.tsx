@@ -258,27 +258,26 @@ function GpuStatus() {
       const s = await forgeStatus()
       console.log('[GpuStatus] Raw response:', s)
 
-      const vram_total = s.vram_total_mb || s.gpu?.total_mb || 22528
+      // Use torch.cuda memory info, not Forge's tracking ledger
+      const vram_total = s.vram?.total_mb || s.gpu?.total_mb || s.vram_total_mb || 22528
+      const vram_free = s.vram?.free || s.vram_free_mb || 0
 
-      // Calculate actual usage from loaded models instead of relying on vram_free_mb
+      // Calculate actual usage from torch.cuda, not loaded_models
+      const actual_used = vram_total - vram_free
+
+      // Use loaded_models for display only, not for calculation
       const loaded_models = s.loaded || {}
-      const allocated_from_models = Object.values(loaded_models).reduce((sum: number, v: number) => sum + (v || 0), 0)
 
-      // Use the minimum of (total - free) and allocated_from_models for better accuracy
-      const vram_free = s.vram_free_mb || 0
-      const calculated_used = Math.max(vram_total - vram_free, allocated_from_models)
-
-      console.log('[GpuStatus] Calculated:', {
+      console.log('[GpuStatus] Using torch.cuda memory:', {
         vram_total,
         vram_free,
-        allocated_from_models,
-        calculated_used,
+        actual_used,
         loaded_models
       })
 
       setStatus({
         loaded: Object.keys(loaded_models).length,
-        vram_free_mb: vram_total - calculated_used, // Recalculate free based on actual usage
+        vram_free_mb: vram_free,
         vram_total_mb: vram_total,
         loaded_models: loaded_models
       })
