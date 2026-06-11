@@ -313,3 +313,47 @@ export function fileToBase64(file: File): Promise<string> {
     reader.readAsDataURL(file)
   })
 }
+
+/**
+ * Fetch available models from an OpenAI-compatible API endpoint
+ * @param baseUrl - The base URL of the API (e.g., "https://api.openai.com/v1")
+ * @param apiKey - The API key to authenticate with
+ * @returns Array of available model IDs
+ */
+export async function fetchLLMModels(baseUrl: string, apiKey: string): Promise<string[]> {
+  // Ensure baseUrl doesn't end with /v1 - we'll add it ourselves
+  const cleanBaseUrl = baseUrl.replace(/\/v1\/?$/, '')
+  const modelsUrl = `${cleanBaseUrl}/v1/models`
+
+  try {
+    const response = await fetch(modelsUrl, {
+      method: 'GET',
+      headers: {
+        'Authorization': `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+      },
+    })
+
+    if (!response.ok) {
+      const errorText = await response.text()
+      throw new Error(`Failed to fetch models: ${response.status} ${errorText}`)
+    }
+
+    const data = await response.json()
+
+    // OpenAI API returns { object: "list", data: [{ id: "model-name", ... }] }
+    if (data.data && Array.isArray(data.data)) {
+      return data.data.map((model: any) => model.id).sort()
+    }
+
+    // Fallback: some providers might return just an array
+    if (Array.isArray(data)) {
+      return data.map((model: any) => model.id || model).sort()
+    }
+
+    throw new Error('Unexpected response format from models API')
+  } catch (error) {
+    console.error('Error fetching models:', error)
+    throw error
+  }
+}

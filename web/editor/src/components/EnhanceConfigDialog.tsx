@@ -1,12 +1,14 @@
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Badge } from "@/components/ui/badge"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { useEnhanceStore, type EnhanceModel } from "@/stores/enhancement"
 import { useToastStore } from "@/stores/toast"
-import { Sparkles, Plus, Trash2, Check, Pencil, X } from "lucide-react"
+import { fetchLLMModels } from "@/api"
+import { Sparkles, Plus, Trash2, Check, Pencil, X, RefreshCw, Loader2 } from "lucide-react"
 
 interface EnhanceConfigDialogProps {
   open: boolean
@@ -30,18 +32,82 @@ export function EnhanceConfigDialog({ open, onOpenChange }: EnhanceConfigDialogP
     model: "",
   })
 
+  // Model fetching state
+  const [availableModels, setAvailableModels] = useState<string[]>([])
+  const [isLoadingModels, setIsLoadingModels] = useState(false)
+  const [modelsError, setModelsError] = useState<string | null>(null)
+
   const resetForm = () => {
     setForm({ name: "", baseUrl: "https://api.openai.com/v1", apiKey: "", model: "gpt-4o-mini" })
     setEditingId(null)
+    setAvailableModels([])
+    setModelsError(null)
   }
+
+  const loadModels = async () => {
+    if (!form.baseUrl || !form.apiKey) {
+      setModelsError("Enter base URL and API key first")
+      return
+    }
+
+    setIsLoadingModels(true)
+    setModelsError(null)
+
+    try {
+      const models = await fetchLLMModels(form.baseUrl, form.apiKey)
+      setAvailableModels(models)
+
+      // Auto-select the first model if none is selected
+      if (!form.model && models.length > 0) {
+        setForm((f) => ({ ...f, model: models[0] }))
+      }
+
+      if (models.length === 0) {
+        setModelsError("No models found")
+      }
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : "Failed to fetch models"
+      setModelsError(errorMessage)
+      setAvailableModels([])
+    } finally {
+      setIsLoadingModels(false)
+    }
+  }
+
+  // Auto-fetch models when baseUrl or apiKey changes (in add mode)
+  useEffect(() => {
+    if (editingId === null && form.baseUrl && form.apiKey) {
+      const timer = setTimeout(() => {
+        loadModels()
+      }, 500) // Debounce to avoid too many requests
+
+      return () => clearTimeout(timer)
+    }
+  }, [form.baseUrl, form.apiKey, editingId])
 
   const startAdd = () => {
     resetForm()
   }
 
-  const startEdit = (m: EnhanceModel) => {
+  const startEdit = async (m: EnhanceModel) => {
     setEditingId(m.id)
     setForm({ name: m.name, baseUrl: m.baseUrl, apiKey: m.apiKey, model: m.model })
+
+    // Fetch models for the edited endpoint
+    if (m.baseUrl && m.apiKey) {
+      try {
+        setIsLoadingModels(true)
+        setModelsError(null)
+        const models = await fetchLLMModels(m.baseUrl, m.apiKey)
+        setAvailableModels(models)
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : "Failed to fetch models"
+        setModelsError(errorMessage)
+        setAvailableModels([])
+      } finally {
+        setIsLoadingModels(false)
+      }
+    }
   }
 
   const handleSave = () => {
@@ -138,9 +204,58 @@ export function EnhanceConfigDialog({ open, onOpenChange }: EnhanceConfigDialogP
               </div>
 
               <div className="space-y-1">
-                <Label className="text-xs text-muted-foreground">Model ID</Label>
-                <Input placeholder="gpt-4o-mini" value={form.model}
-                  onChange={(e) => setForm((f) => ({ ...f, model: e.target.value }))} className="h-8 text-xs" />
+                <div className="flex items-center justify-between">
+                  <Label className="text-xs text-muted-foreground">Model</Label>
+                  {(form.baseUrl || form.apiKey) && (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="h-5 w-5"
+                      onClick={loadModels}
+                      disabled={isLoadingModels || !form.baseUrl || !form.apiKey}
+                      title="Refresh models"
+                    >
+                      {isLoadingModels ? (
+                        <Loader2 className="h-3 w-3 animate-spin" />
+                      ) : (
+                        <RefreshCw className="h-3 w-3" />
+                      )}
+                    </Button>
+                  )}
+                </div>
+
+                {availableModels.length > 0 ? (
+                  <Select value={form.model} onValueChange={(value) => setForm((f) => ({ ...f, model: value }))}>
+                    <SelectTrigger className="h-8 text-xs">
+                      <SelectValue placeholder="Select a model" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {availableModels.map((modelId) => (
+                        <SelectItem key={modelId} value={modelId} className="text-xs">
+                          {modelId}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                ) : (
+                  <div className="space-y-2">
+                    <Input
+                      placeholder="gpt-4o-mini"
+                      value={form.model}
+                      onChange={(e) => setForm((f) => ({ ...f, model: e.target.value }))}
+                      className="h-8 text-xs"
+                    />
+                    {modelsError && (
+                      <p className="text-[10px] text-destructive">{modelsError}</p>
+                    )}
+                    {!modelsError && !isLoadingModels && form.baseUrl && form.apiKey && (
+                      <p className="text-[10px] text-muted-foreground">
+                        Enter credentials above to auto-fetch models
+                      </p>
+                    )}
+                  </div>
+                )}
               </div>
 
               <div className="flex gap-2 pt-1">

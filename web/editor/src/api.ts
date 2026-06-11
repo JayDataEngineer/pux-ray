@@ -23,4 +23,6 @@ export {
   loadService,
   forgeStatus,
   fileToBase64,
+  // LLM model fetching
+  fetchLLMModels,
 } from './mcp'

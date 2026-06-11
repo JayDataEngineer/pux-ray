@@ -58,8 +58,10 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     --force-reinstall \
     torch torchvision --index-url https://download.pytorch.org/whl/cpu
 
-# Install Playwright Chromium
-RUN .venv/bin/playwright install --with-deps chromium
+# Install Playwright Chromium to /app/.cache
+RUN mkdir -p /app/.cache && \
+    PLAYWRIGHT_BROWSERS_PATH=/app/.cache/ms-playwright \
+    .venv/bin/playwright install --with-deps chromium
 
 # Install Google Chrome for SeleniumBase fallback
 # Note: libindicator7 is obsolete in Bookworm, using libayatana-appindicator instead
@@ -132,7 +134,7 @@ COPY profiling/ /app/profiling/
 COPY tests/ /app/tests/
 COPY pyproject.toml /app/pyproject.toml
 # Copy Playwright browser cache
-COPY --from=builder /root/.cache /root/.cache
+COPY --from=builder /app/.cache /app/.cache
 
 # Create data directory
 RUN mkdir -p /app/data
@@ -140,7 +142,8 @@ RUN mkdir -p /app/data
 # Add venv to PATH
 ENV PATH="/app/.venv/bin:$PATH" \
     PYTHONPATH=/app \
-    PYTHONWARNINGS="ignore::RequestsDependencyWarning,ignore::DeprecationWarning"
+    PYTHONWARNINGS="ignore::RequestsDependencyWarning,ignore::DeprecationWarning" \
+    PLAYWRIGHT_BROWSERS_PATH=/app/.cache/ms-playwright
 
 EXPOSE 8000
 

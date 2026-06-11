@@ -34,13 +34,14 @@ spec:
             runAsNonRoot: true
             runAsUser: 1000
             allowPrivilegeEscalation: false
-            readOnlyRootFilesystem: true
             capabilities:
               drop:
                 - ALL
             seccompProfile:
               type: RuntimeDefault
           env:
+            - name: PLAYWRIGHT_BROWSERS_PATH
+              value: /app/.cache/ms-playwright
             - name: MCP_PORT
               value: "8000"
             - name: POSTGRES_HOST
@@ -80,6 +81,12 @@ spec:
               mountPath: /app/downloaded_files
             - name: drivers
               mountPath: /app/.venv/lib/python3.13/site-packages/seleniumbase/drivers
+            - name: playwright-data
+              mountPath: /app/.ms-playwright
+            - name: chromium-cache
+              mountPath: /root/.cache/ms-playwright
+            - name: shm
+              mountPath: /dev/shm
           livenessProbe:
             tcpSocket:
               port: 8000
@@ -105,6 +112,13 @@ spec:
           emptyDir: {}
         - name: drivers
           emptyDir: {}
+        - name: playwright-data
+          emptyDir: {}
+        - name: chromium-cache
+          emptyDir: {}
+        - name: shm
+          emptyDir:
+            medium: Memory
 ---
 apiVersion: v1
 kind: Service
