@@ -3,25 +3,27 @@ import { defineConfig } from 'vite'
 import tailwindcss from '@tailwindcss/vite'
 import react from '@vitejs/plugin-react'
 
-// Ray Serve API URL — override with API_URL env var for remote dev
-const API_URL = process.env.API_URL || 'http://localhost:30080'
+// Ray Serve API URL — configure for local dev vs production
+// For local dev: API_URL=http://localhost:30080
+// For network access: API_URL=http://your-server:30080 or use relative paths
+const API_URL = process.env.API_URL || ''
 
 const proxyConfig: Record<string, { target: string; ws: boolean }> = {
   // WebSocket paths (Viser 3D, ComfyUI)
-  '/kimodo':  { target: API_URL, ws: true },
-  '/comfyui': { target: API_URL, ws: true },
+  '/kimodo':  { target: API_URL || 'http://localhost:30080', ws: true },
+  '/comfyui': { target: API_URL || 'http://localhost:30080', ws: true },
   // MCP App Host — embedded in Ray ingress
-  '/mcp/wan2gp-studio': { target: API_URL, ws: false },
-  // HTTP API paths
-  '/v1':        { target: API_URL, ws: false },
-  '/mcp':       { target: API_URL, ws: false },
-  '/forge':     { target: API_URL, ws: false },
-  '/status':    { target: API_URL, ws: false },
-  '/health':    { target: API_URL, ws: false },
-  '/studio':    { target: API_URL, ws: false },
-  '/dashboard': { target: API_URL, ws: false },
-  '/admin':     { target: API_URL, ws: false },
-  '/llm':       { target: API_URL, ws: false },
+  '/mcp/wan2gp-studio': { target: API_URL || 'http://localhost:30080', ws: false },
+  // HTTP API paths - use empty string for relative paths when API_URL not set
+  '/v1':        { target: API_URL || 'http://localhost:30080', ws: false },
+  '/mcp':       { target: API_URL || 'http://localhost:30080', ws: false },
+  '/forge':     { target: API_URL || 'http://localhost:30080', ws: false },
+  '/status':    { target: API_URL || 'http://localhost:30080', ws: false },
+  '/health':    { target: API_URL || 'http://localhost:30080', ws: false },
+  '/studio':    { target: API_URL || 'http://localhost:30080', ws: false },
+  '/dashboard': { target: API_URL || 'http://localhost:30080', ws: false },
+  '/admin':     { target: API_URL || 'http://localhost:30080', ws: false },
+  '/llm':       { target: API_URL || 'http://localhost:30080', ws: false },
   // Chat API — proxy to Next.js editor-mcp backend (port 3000)
   '/api/chat':  { target: 'http://localhost:3000', ws: false },
 }

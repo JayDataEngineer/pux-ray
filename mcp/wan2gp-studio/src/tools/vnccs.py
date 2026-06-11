@@ -28,7 +28,7 @@ async def generate_character_sheet(
     )] = None,
     model: Annotated[str, Field(
         description="SD model for base character generation. 'z_image' for SD distilled "
-                    "(fast), 'z_image_base' for full quality SD, 'flux_schnell' for Flux.",
+                    "(fast), 'z_image_base' for full quality SD, 'flux_schnell' for Flux, 'anima_base' for anime.",
         enum=["z_image", "z_image_base", "flux_schnell", "flux_dev", "anima_base"],
     )] = "z_image",
     nsfw: Annotated[bool, Field(
