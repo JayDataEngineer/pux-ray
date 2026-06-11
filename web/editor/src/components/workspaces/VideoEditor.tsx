@@ -871,8 +871,8 @@ export function VideoEditor() {
                 </div>
               </InspectorSection>
 
-              {/* ── First / Last Frame ── */}
-              <InspectorSection title="Frames" icon={<ImagePlus className="h-3 w-3" />}>
+              {/* ── Start / End Images ── */}
+              <InspectorSection title="Start & End Images" icon={<ImagePlus className="h-3 w-3" />}>
                 <div className="space-y-2">
                   <div className="space-y-1">
                     <Label className="text-[9px] font-medium text-white/30 uppercase tracking-wider">First Frame (start image)</Label>
@@ -1330,12 +1330,6 @@ export function VideoEditor() {
                   {generating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
                   {generating ? "Generating..." : "Generate This Segment"}
                 </Button>
-              )}
-              {sel.status === "empty" && !sel.firstFrameB64 && (
-                <div className="text-[11px] text-white/25 text-center py-3 border border-dashed border-white/10 rounded-lg bg-white/[0.02]">
-                  <ImagePlus className="h-4 w-4 mx-auto mb-1 opacity-40" />
-                  Drop an image to set the first frame, then generate
-                </div>
               )}
             </div>
             </>

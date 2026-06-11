@@ -185,6 +185,7 @@ test.describe('Playback controls', () => {
   test('time display shows current and total time', async ({ page }) => {
     const timeDisplay = page.locator('.tabular-nums')
     await expect(timeDisplay).toContainText('0:00.00')
+    // Default LTX 22B: 121 frames @ 24fps = 5.04s (displays rounded as 0:05.00)
     await expect(timeDisplay).toContainText('0:05.00')
   })
 

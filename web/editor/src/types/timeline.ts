@@ -214,13 +214,13 @@ export const VIDEO_MODELS = [
 
 export const DEFAULT_SEGMENT_PARAMS: SegmentParams = {
   seed: 42,
-  width: 1280,
-  height: 720,
-  frames: 81,
-  fps: 16,
+  width: 768,
+  height: 512,
+  frames: 121,
+  fps: 24,
   guideScale: 5.0,
-  samplingSteps: 20,
-  model: 'wan/t2v_1.3B',
+  samplingSteps: 8,
+  model: 'ltx2',
   guidePhases: 2,
   epsilon: 0.001,
   denoisingStrength: 1.0,
@@ -235,7 +235,7 @@ export const DEFAULT_SEGMENT_PARAMS: SegmentParams = {
   cameraPanY: 0,
   cameraZoom: 1.0,
   resizeMethod: 'fit',
-  distilledMode: false,
+  distilledMode: true,
 
   // Advanced guidance
   apgSwitch: false,

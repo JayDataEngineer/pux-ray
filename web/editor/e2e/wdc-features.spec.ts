@@ -55,7 +55,8 @@ test.describe('Model switching — WAN vs LTX sections', () => {
   })
 
   test('WAN model shows basic sections only — no Director/Camera/Guidance', async ({ page }) => {
-    // Default is wan/t2v_1.3B
+    // Switch to WAN first — default is now LTX 2.3 22B distilled
+    await selectModel(page, /Wan 1\.3B/)
     await expect(page.getByRole('button', { name: 'Model' })).toBeVisible()
     await expect(page.getByRole('button', { name: 'Prompts' })).toBeVisible()
     await expect(page.getByRole('button', { name: 'Generation' })).toBeVisible()
@@ -68,10 +69,8 @@ test.describe('Model switching — WAN vs LTX sections', () => {
     expect(await guidanceBtn.isVisible().catch(() => false)).toBe(false)
   })
 
-  test('LTX model shows Director Controls, Camera Motion, Guidance, Refiner, Sliding Window', async ({ page }) => {
-    await selectModel(page, /LTX 2\.3 22B/)
-
-    // LTX-only sections should now be visible
+  test('LTX 22B distilled is the default — shows all LTX sections', async ({ page }) => {
+    // Default model is already LTX 2.3 22B distilled
     await expect(page.getByRole('button', { name: /Director Controls/ })).toBeVisible()
     await expect(page.getByRole('button', { name: /Camera Motion/ })).toBeVisible()
     await expect(page.getByRole('button', { name: /^Guidance$/ })).toBeVisible()
@@ -80,12 +79,10 @@ test.describe('Model switching — WAN vs LTX sections', () => {
     await expect(page.getByRole('button', { name: /Audio Mode/ })).toBeVisible()
   })
 
-  test('switching back to WAN hides LTX sections', async ({ page }) => {
-    await selectModel(page, /LTX 2\.3 22B/)
-    await expect(page.getByRole('button', { name: /Director Controls/ })).toBeVisible()
 
-    // Switch back to WAN
-    await selectModel(page, /Wan 14B/)
+  test('switching back to WAN hides LTX sections', async ({ page }) => {
+    // Switch to WAN (default is LTX)
+    await selectModel(page, /Wan 1\.3B/)
     await page.waitForTimeout(300)
 
     const directorBtn = page.getByRole('button', { name: /Director Controls/ })
@@ -105,22 +102,15 @@ test.describe('Frames / Duration / FPS dynamic relationship', () => {
 
   test('changing Video Length updates Frames and Duration', async ({ page }) => {
     await expandSection(page, 'Resolution & Frames')
-    const lengthInput = page.locator('label:has-text("Video Length") + input, label:has-text("Video Length") ~ input').first()
-    // Use the actual input next to the label
-    const vlInput = page.getByLabel('Video Length (seconds)', { exact: false })
-    if (await vlInput.isVisible()) {
-      await vlInput.fill('10')
-    } else {
-      // Fallback: find input by label text proximity
-      const container = page.locator('div').filter({ hasText: /^Video Length \(seconds\)$/ }).first()
-      const input = container.locator('input').first()
-      await input.fill('10')
-    }
-    // Frames should now be 10 * 16 = 160
+    // Default LTX 22B: 121 frames @ 24fps = 5.04s
+    const vlContainer = page.locator('div').filter({ hasText: /^Video Length \(seconds\)$/ }).first()
+    const vlInput = vlContainer.locator('input').first()
+    await vlInput.fill('10')
+    // Frames should now be 10 * 24 = 240
     const framesContainer = page.locator('div').filter({ hasText: /^Frames$/ }).first()
     const framesInput = framesContainer.locator('input').first()
-    await expect(framesInput).toHaveValue('160')
-    // Duration should update too
+    await expect(framesInput).toHaveValue('240')
+    // Duration should update
     const durContainer = page.locator('div').filter({ hasText: /^Duration \(s\)$/ }).first()
     const durationInput = durContainer.locator('input').first()
     await expect(durationInput).toHaveValue('10')
@@ -130,8 +120,8 @@ test.describe('Frames / Duration / FPS dynamic relationship', () => {
     await expandSection(page, 'Resolution & Frames')
     const framesContainer = page.locator('div').filter({ hasText: /^Frames$/ }).first()
     const framesInput = framesContainer.locator('input').first()
-    await framesInput.fill('160')
-    // Video length = 160 / 16 = 10s
+    await framesInput.fill('240')
+    // Video length = 240 / 24 = 10s
     const vlContainer = page.locator('div').filter({ hasText: /^Video Length \(seconds\)$/ }).first()
     const vlInput = vlContainer.locator('input').first()
     await expect(vlInput).toHaveValue('10')
@@ -139,14 +129,15 @@ test.describe('Frames / Duration / FPS dynamic relationship', () => {
 
   test('changing FPS updates Frames, keeps Video Length constant', async ({ page }) => {
     await expandSection(page, 'Resolution & Frames')
+    // Default: 121 frames @ 24fps = 5.04s
     const fpsContainer = page.locator('div').filter({ hasText: /^FPS$/ }).first()
     const fpsInput = fpsContainer.locator('input').first()
-    await fpsInput.fill('24')
-    // Video length stays ~5.0625s, frames = 5.0625 * 24 = ~122
+    await fpsInput.fill('16')
+    // Video length stays ~5.04s, frames = 5.04 * 16 = ~81
     const framesContainer = page.locator('div').filter({ hasText: /^Frames$/ }).first()
     const framesInput = framesContainer.locator('input').first()
     const framesVal = await framesInput.inputValue()
-    expect(Number(framesVal)).toBeCloseTo(122, -1)
+    expect(Number(framesVal)).toBeCloseTo(81, -1)
   })
 
   test('changing Duration in Timing updates Frames', async ({ page }) => {
@@ -156,7 +147,7 @@ test.describe('Frames / Duration / FPS dynamic relationship', () => {
     await expandSection(page, 'Resolution & Frames')
     const framesContainer = page.locator('div').filter({ hasText: /^Frames$/ }).first()
     const framesInput = framesContainer.locator('input').first()
-    await expect(framesInput).toHaveValue('160')
+    await expect(framesInput).toHaveValue('240')
   })
 })
 
@@ -168,7 +159,7 @@ test.describe('LTX Inspector — All sections functional', () => {
   test.beforeEach(async ({ page }) => {
     await gotoEditor(page)
     await switchToVideo(page)
-    await selectModel(page, /LTX 2\.3 22B/)
+    // Default is already LTX 2.3 22B distilled
   })
 
   test('Director Controls has Guide Phases, Epsilon, Denoise Strength, Perturbation', async ({ page }) => {
@@ -187,19 +178,11 @@ test.describe('LTX Inspector — All sections functional', () => {
     await expect(page.getByText('Zoom').first()).toBeVisible()
   })
 
-  test('Guidance section shows APG, CFG Star, Alt Guide Scale (dev mode)', async ({ page }) => {
+  test('Guidance section shows NAG controls (distilled default)', async ({ page }) => {
     await expandSection(page, 'Guidance')
-    await expect(page.getByText('APG')).toBeVisible()
-    await expect(page.getByText('CFG Star')).toBeVisible()
-    await expect(page.getByText('Alt Guide Scale')).toBeVisible()
-    await expect(page.getByText('Alt Rescale')).toBeVisible()
-    await expect(page.getByText('Audio Guide')).toBeVisible()
-    await expect(page.getByText('Audio CFG')).toBeVisible()
-  })
-
-  test('Guidance shows sample solver for 22B', async ({ page }) => {
-    await expandSection(page, 'Guidance')
-    await expect(page.getByText('Sample Solver')).toBeVisible()
+    await expect(page.getByText('NAG Scale')).toBeVisible()
+    await expect(page.getByText('NAG Tau')).toBeVisible()
+    await expect(page.getByText('NAG Alpha')).toBeVisible()
   })
 
   test('Self-Refiner toggle enables plan and uncertainty inputs', async ({ page }) => {
@@ -235,30 +218,29 @@ test.describe('LTX Inspector — All sections functional', () => {
     await expect(page.getByText('Auto-Enhance Prompt')).toBeVisible()
   })
 
-  test('LoRA section shows Distilled Mode toggle', async ({ page }) => {
+  test('LoRA section shows Distilled Mode toggle (on by default)', async ({ page }) => {
     await expandSection(page, 'LoRA')
     await expect(page.getByText('Distilled Mode (8 steps)')).toBeVisible()
   })
 
-  test('Control Video section visible when distilled mode enabled', async ({ page }) => {
-    // Enable distilled mode first
-    await expandSection(page, 'LoRA')
-    // Find the toggle button right next to the Distilled Mode label
-    const distLabel = page.getByText('Distilled Mode (8 steps)')
-    const distToggle = distLabel.locator('xpath=following-sibling::button').first()
-    await distToggle.click()
-    await page.waitForTimeout(300)
-    // Control Video section should now be visible
+  test('Control Video section visible (distilled is default)', async ({ page }) => {
+    // Distilled mode is on by default, so Control Video is already visible
     await expect(page.getByRole('button', { name: /Control Video/ })).toBeVisible()
-    // Expand it — full title is "Control Video (IC-LoRA)"
     await expandSection(page, 'Control Video (IC-LoRA)')
     await expect(page.getByText('Control Mode')).toBeVisible()
   })
 
-  test('Perturbation Detail section appears when perturbation enabled', async ({ page }) => {
-    // Enable perturbation via Director Controls
+  test('Perturbation Detail section appears when perturbation enabled (dev mode only)', async ({ page }) => {
+    // Perturbation Detail only appears in dev mode (!distilledMode)
+    // Need to turn OFF distilled mode first
+    await expandSection(page, 'LoRA')
+    const distLabel = page.getByText('Distilled Mode (8 steps)')
+    const distToggle = distLabel.locator('xpath=following-sibling::button').first()
+    await distToggle.click()
+    await page.waitForTimeout(300)
+
+    // Now enable perturbation via Director Controls
     await expandSection(page, 'Director Controls')
-    // Find the Perturbation combobox (select trigger) and change it
     const pertCombobox = page.getByRole('combobox').filter({ hasText: /0/ }).first()
     await pertCombobox.click()
     await page.getByRole('option', { name: 'Skip Layer' }).click()
@@ -288,7 +270,7 @@ test.describe('LTX Inspector — Edit parameter values', () => {
   test.beforeEach(async ({ page }) => {
     await gotoEditor(page)
     await switchToVideo(page)
-    await selectModel(page, /LTX 2\.3 22B/)
+    // Default is already LTX 2.3 22B distilled
   })
 
   test('can type a prompt for LTX segment', async ({ page }) => {
@@ -346,12 +328,17 @@ test.describe('LTX Inspector — Edit parameter values', () => {
     await expect(sizeInput).toHaveValue('300')
   })
 
-  test('can toggle APG on and off', async ({ page }) => {
+  test('can toggle APG on after switching to dev mode', async ({ page }) => {
+    // Turn off distilled mode to get dev guidance
+    await expandSection(page, 'LoRA')
+    const distLabel = page.getByText('Distilled Mode (8 steps)')
+    const distToggle = distLabel.locator('xpath=following-sibling::button').first()
+    await distToggle.click()
+    await page.waitForTimeout(300)
+
     await expandSection(page, 'Guidance')
     const apgToggle = page.getByText('APG').locator('xpath=following-sibling::button').first()
-    // Toggle on
     await apgToggle.click()
-    // Toggle should show active state (ToggleRight icon with color)
     const apgActive = page.getByText('APG').locator('xpath=following-sibling::button').locator('.text-\\[\\#6366f1\\]')
     expect(await apgActive.count()).toBeGreaterThan(0)
   })
@@ -365,7 +352,7 @@ test.describe('Multi-segment relay setup', () => {
   test.beforeEach(async ({ page }) => {
     await gotoEditor(page)
     await switchToVideo(page)
-    await selectModel(page, /LTX 2\.3 22B/)
+    // Default is already LTX 2.3 22B distilled
   })
 
   test('can add 3 segments with different prompts', async ({ page }) => {
@@ -474,7 +461,7 @@ test.describe('LoRA picker — dynamic from /v1/loras', () => {
 
     await gotoEditor(page)
     await switchToVideo(page)
-    await selectModel(page, /LTX 2\.3 22B/)
+    // Default is already LTX 2.3 22B
   })
 
   test('LoRA section loads available LoRAs from backend', async ({ page }) => {
@@ -538,46 +525,49 @@ test.describe('Distilled mode — NAG guidance', () => {
   test.beforeEach(async ({ page }) => {
     await gotoEditor(page)
     await switchToVideo(page)
-    await selectModel(page, /LTX 2\.3 22B/)
+    // Default is LTX 2.3 22B distilled
   })
 
-  test('dev mode shows APG/CFG Star/Alt guidance', async ({ page }) => {
-    await expandSection(page, 'Guidance')
-    await expect(page.getByText('APG')).toBeVisible()
-    await expect(page.getByText('CFG Star')).toBeVisible()
-    await expect(page.getByText('Alt Guide Scale')).toBeVisible()
-  })
-
-  test('distilled mode shows NAG controls instead', async ({ page }) => {
-    // Enable distilled
-    await expandSection(page, 'LoRA')
-    const distLabel = page.getByText('Distilled Mode (8 steps)')
-    const distToggle = distLabel.locator('xpath=following-sibling::button').first()
-    await distToggle.click()
-    await page.waitForTimeout(300)
-
+  test('distilled default shows NAG controls', async ({ page }) => {
     await expandSection(page, 'Guidance')
     await expect(page.getByText('NAG Scale')).toBeVisible()
     await expect(page.getByText('NAG Tau')).toBeVisible()
     await expect(page.getByText('NAG Alpha')).toBeVisible()
-    // APG/CFG Star should NOT be visible
-    expect(await page.getByText('APG').isVisible().catch(() => false)).toBe(false)
-    expect(await page.getByText('CFG Star').isVisible().catch(() => false)).toBe(false)
   })
 
-  test('Control Video section only visible in distilled mode', async ({ page }) => {
-    // Not visible in dev mode
-    const cvBtn = page.getByRole('button', { name: /Control Video/ })
-    expect(await cvBtn.isVisible().catch(() => false)).toBe(false)
-
-    // Enable distilled
+  test('dev mode shows APG/CFG Star instead of NAG', async ({ page }) => {
+    // Turn OFF distilled mode to get dev guidance
     await expandSection(page, 'LoRA')
     const distLabel = page.getByText('Distilled Mode (8 steps)')
     const distToggle = distLabel.locator('xpath=following-sibling::button').first()
     await distToggle.click()
     await page.waitForTimeout(300)
 
-    // Now visible
+    await expandSection(page, 'Guidance')
+    await expect(page.getByText('APG')).toBeVisible()
+    await expect(page.getByText('CFG Star')).toBeVisible()
+    await expect(page.getByText('Alt Guide Scale')).toBeVisible()
+    // NAG should NOT be visible
+    expect(await page.getByText('NAG Scale').isVisible().catch(() => false)).toBe(false)
+  })
+
+  test('Control Video section only visible in distilled mode', async ({ page }) => {
+    // Turn OFF distilled mode first
+    await expandSection(page, 'LoRA')
+    const distLabel = page.getByText('Distilled Mode (8 steps)')
+    const distToggle = distLabel.locator('xpath=following-sibling::button').first()
+    await distToggle.click()
+    await page.waitForTimeout(300)
+
+    // Control Video should NOT be visible in dev mode
+    const cvBtn = page.getByRole('button', { name: /Control Video/ })
+    expect(await cvBtn.isVisible().catch(() => false)).toBe(false)
+
+    // Turn distilled back ON
+    await distToggle.click()
+    await page.waitForTimeout(300)
+
+    // Now Control Video is visible
     await expect(page.getByRole('button', { name: /Control Video/ })).toBeVisible()
   })
 })
@@ -590,8 +580,7 @@ test.describe('Export — JSON contains relay config', () => {
   test.beforeEach(async ({ page }) => {
     await gotoEditor(page)
     await switchToVideo(page)
-    await selectModel(page, /LTX 2\.3 22B/)
-    // Set a prompt
+    // Default is already LTX 2.3 22B distilled
     await expandSection(page, 'Prompts')
     await page.locator('textarea[placeholder="Describe this segment..."]').fill('Test export prompt')
   })
