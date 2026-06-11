@@ -78,8 +78,8 @@ spec:
               mountPath: /.crawl4ai
             - name: downloads
               mountPath: /app/downloaded_files
-            - name: venv
-              mountPath: /app/.venv
+            - name: drivers
+              mountPath: /app/.venv/lib/python3.13/site-packages/seleniumbase/drivers
           livenessProbe:
             tcpSocket:
               port: 8000
@@ -103,7 +103,7 @@ spec:
           emptyDir: {}
         - name: downloads
           emptyDir: {}
-        - name: venv
+        - name: drivers
           emptyDir: {}
 ---
 apiVersion: v1
