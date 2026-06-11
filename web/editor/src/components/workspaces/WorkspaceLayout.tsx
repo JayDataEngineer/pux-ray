@@ -21,7 +21,7 @@ import { getEnhancePrompt } from "@/lib/enhance-prompts"
 import { EnhanceConfigDialog } from "@/components/EnhanceConfigDialog"
 import { kimodoUrl } from "@/mcp"
 import { callTool, forgeStatus, listTools, type MCPTool } from "@/mcp"
-import { Cpu, HardDrive, PanelLeft, PanelRightClose, Wand2, Loader2, CheckCircle2, XCircle, Clock, ListTodo, Maximize2, ChevronLeft, ChevronRight, Download, Sparkles, AlertTriangle, ChevronDown, Plus, Trash2, HelpCircle } from "lucide-react"
+import { Cpu, HardDrive, ChevronLeft, ChevronRight, Wand2, Loader2, CheckCircle2, XCircle, Clock, ListTodo, Maximize2, Download, Sparkles, AlertTriangle, ChevronDown, Plus, Trash2, HelpCircle } from "lucide-react"
 import { AppSidebar } from "./AppSidebar"
 import { VideoEditor } from "./VideoEditor"
 import { AudioWaveform } from "@/components/AudioWaveform"
@@ -30,8 +30,9 @@ type TabId = "assets" | "video"
 
 export interface JobEntry {
   id: number; name: string
-  status: "pending" | "running" | "completed" | "failed"
+  status: "pending" | "running" | "completed" | "failed" | "cancelled"
   startedAt: number; endedAt?: number; error?: string
+  abortController?: AbortController
 }
 
 interface FieldDef {
@@ -189,7 +190,7 @@ export function WorkspaceLayout() {
       <div className="flex flex-1 flex-col min-w-0">
         <header className="flex items-center h-11 px-4 border-b gap-2 shrink-0">
           <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setLeftOpen((o) => !o)}>
-            <PanelLeft className="h-4 w-4" />
+            {leftOpen ? <ChevronLeft className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
           </Button>
           <span className="font-bold text-sm tracking-tight">TECH NOIR</span>
           <Separator orientation="vertical" className="h-5 mx-1" />
@@ -205,7 +206,7 @@ export function WorkspaceLayout() {
           <GpuStatus />
           <JobsButton jobs={jobs} />
           <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setRightOpen((o) => !o)}>
-            <PanelRightClose className="h-4 w-4" />
+            {rightOpen ? <ChevronRight className="h-4 w-4" /> : <ChevronLeft className="h-4 w-4" />}
           </Button>
         </header>
         <div className="flex flex-1 min-h-0">
@@ -226,7 +227,7 @@ export function WorkspaceLayout() {
   )
 }
 
-function JobsButton({ jobs }: { jobs: JobEntry[] }) {
+function JobsButton({ jobs, onCancelJob }: { jobs: JobEntry[]; onCancelJob: (id: number) => void }) {
   const [open, setOpen] = useState(false)
   const [currentTime, setCurrentTime] = useState(Date.now())
   const ref = useRef<HTMLDivElement>(null)
@@ -278,14 +279,27 @@ function JobsButton({ jobs }: { jobs: JobEntry[] }) {
           ) : (
             <div className="max-h-72 overflow-y-auto p-1 space-y-0.5">
               {jobs.map((j) => (
-                <div key={j.id} className="flex items-center gap-2 px-2 py-1.5 rounded text-xs hover:bg-accent">
+                <div key={j.id} className="flex items-center gap-2 px-2 py-1.5 rounded text-xs hover:bg-accent group">
                   {j.status === "running" && <Loader2 className="h-3 w-3 shrink-0 animate-spin text-primary" />}
                   {j.status === "completed" && <CheckCircle2 className="h-3 w-3 shrink-0 text-green-500" />}
                   {j.status === "failed" && <XCircle className="h-3 w-3 shrink-0 text-destructive" />}
+                  {j.status === "cancelled" && <XCircle className="h-3 w-3 shrink-0 text-muted-foreground" />}
                   <span className="flex-1 truncate">{j.name}</span>
                   {j.status === "running" && <span className="text-[10px] text-muted-foreground">{Math.round((currentTime - j.startedAt) / 1000)}s</span>}
                   {j.status === "completed" && j.endedAt && <span className="text-[10px] text-muted-foreground">{(j.endedAt - j.startedAt) / 1000}s</span>}
                   {j.status === "failed" && <span className="text-[10px] text-destructive truncate max-w-24">{j.error}</span>}
+                  {j.status === "cancelled" && <span className="text-[10px] text-muted-foreground">Cancelled</span>}
+                  {j.status === "running" && (
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-5 w-5 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity"
+                      onClick={() => onCancelJob(j.id)}
+                      title="Cancel job"
+                    >
+                      <XCircle className="h-3 w-3 text-destructive" />
+                    </Button>
+                  )}
                 </div>
               ))}
             </div>
@@ -305,13 +319,11 @@ function GpuStatus() {
   const refresh = useCallback(async () => {
     try {
       const s = await forgeStatus()
-      console.log('[GpuStatus] Raw API response:', JSON.stringify(s, null, 2))
 
       // The real GPU info is in gpu.total_mb and gpu.reserved_mb from torch.cuda
       // Forge's vram_free_mb is wrong (returns system RAM, not VRAM)
       const gpu_total = s.gpu?.total_mb
       const gpu_reserved = s.gpu?.reserved_mb
-      const gpu_allocated = s.gpu?.allocated_mb
 
       // Calculate actual free VRAM from torch.cuda data
       const vram_total = gpu_total || 22528
@@ -319,15 +331,6 @@ function GpuStatus() {
       const vram_free = Math.max(0, vram_total - vram_used)
 
       const loaded_models = s.loaded || {}
-
-      console.log('[GpuStatus] Using torch.cuda GPU info:', {
-        gpu_device: s.gpu?.device,
-        vram_total: gpu_total,
-        vram_used: gpu_reserved,
-        vram_allocated: gpu_allocated,
-        vram_free,
-        loaded_models
-      })
 
       setStatus({
         loaded: Object.keys(loaded_models).length,
@@ -359,7 +362,6 @@ function GpuStatus() {
       const body = await res.json()
       if (body.status === 'error') throw new Error(body.error || 'Unload failed')
 
-      console.log('[GpuStatus] Unload success:', body)
       // Refresh status after unload
       await refresh()
     } catch (err) {
@@ -770,6 +772,7 @@ function AssetsTab({ selectedService, jobs, onAddJob, nextJobId, onOpenKimodo }:
   const [fields, setFields] = useState<FieldDef[]>([])
   const [enhancing, setEnhancing] = useState(false)
   const [advancedOpen, setAdvancedOpen] = useState(false)
+  const [promptingOpen, setPromptingOpen] = useState(false)
   const [voiceExamples, setVoiceExamples] = useState<any[]>([])
   const [voiceExampleCategories, setVoiceExampleCategories] = useState<Record<string, string>>({})
   const [voiceSamplingPresets, setVoiceSamplingPresets] = useState<Record<string, any>>({})
@@ -777,8 +780,7 @@ function AssetsTab({ selectedService, jobs, onAddJob, nextJobId, onOpenKimodo }:
   const [voiceQwen3Modes, setVoiceQwen3Modes] = useState<Record<string, string>>({})
   const [loadingVoiceExamples, setLoadingVoiceExamples] = useState(false)
   const [voiceAdvancedOpen, setVoiceAdvancedOpen] = useState(false)
-  const [batchMode, setBatchMode] = useState(false)
-  const [batchRequests, setBatchRequests] = useState<any[]>([])
+  const [quantity, setQuantity] = useState(1)
   const [voiceComparisonMode, setVoiceComparisonMode] = useState(false)
   const [comparisonResults, setComparisonResults] = useState<any[]>([])
   const [dialogueMode, setDialogueMode] = useState(false)
@@ -843,96 +845,6 @@ function AssetsTab({ selectedService, jobs, onAddJob, nextJobId, onOpenKimodo }:
       toast("info", `Applied sampling preset: ${presetName}`)
     }
   }, [voiceSamplingPresets, toast])
-
-  // Handle batch generation
-  const handleBatchGenerate = useCallback(async () => {
-    if (batchRequests.length === 0) {
-      toast("error", "No batch requests to generate")
-      return
-    }
-
-    const jobId = nextJobId.current++
-    const jobName = `Batch ${SERVICE_LABELS[selectedService] || selectedService} (${batchRequests.length})`
-    onAddJob((prev) => [{ id: jobId, name: jobName, status: "running", startedAt: Date.now() }, ...prev])
-
-    setGenerating(true)
-    try {
-      let batchFunction: string
-      if (selectedService === "voice_creator") {
-        batchFunction = "voice_creator_batch"
-      } else if (selectedService === "generate_music") {
-        batchFunction = "generate_music_batch"
-      } else if (selectedService === "generate_sound") {
-        batchFunction = "generate_sound_batch"
-      } else {
-        batchFunction = "generate_batch"
-      }
-
-      const result = await callTool<{ status: string; results: any[]; total: number; successful: number; failed: number }>(
-        batchFunction,
-        { requests: batchRequests }
-      )
-
-      if (result.status === "ok" && result.results) {
-        // Process results and add as assets
-        result.results.forEach((r: any, idx: number) => {
-          if (r.status === "ok" && r.data) {
-            const mt = r.media_type || "image/png"
-            const isAud = mt.includes("audio")
-            const cat = isAud ? "sfx" : "image"
-            const ext = mt.includes("png") ? "png" : mt.includes("jpeg") || mt.includes("jpg") ? "jpg" : mt.includes("wav") ? "wav" : "mp3"
-            addAsset({
-              name: `${nextAssetName(selectedService, ext)}_${idx + 1}`,
-              type: isAud ? "audio" : "image",
-              category: cat,
-              mediaType: mt,
-              url: `data:${mt};base64,${r.data}`,
-              sizeBytes: Math.round((r.data as string).length * 0.75),
-              source: "generated",
-            })
-          }
-        })
-        toast("success", `Batch complete: ${result.successful}/${result.total} successful`)
-        onAddJob((prev) => prev.map((j) => j.id === jobId ? { ...j, status: "completed", endedAt: Date.now() } : j))
-      } else {
-        onAddJob((prev) => prev.map((j) => j.id === jobId ? { ...j, status: "failed", endedAt: Date.now(), error: "Batch failed" } : j))
-        toast("error", "Batch generation failed")
-      }
-    } catch (e) {
-      onAddJob((prev) => prev.map((j) => j.id === jobId ? { ...j, status: "failed", endedAt: Date.now(), error: e instanceof Error ? e.message : String(e) } : j))
-      toast("error", e instanceof Error ? e.message : String(e))
-    } finally {
-      setGenerating(false)
-    }
-  }, [batchRequests, selectedService, nextJobId, onAddJob, addAsset, toast])
-
-  // Add current request to batch
-  const handleAddToBatch = useCallback(() => {
-    // Validate current values
-    const promptField = fields.find((f) => f.name === "prompt" || f.name === "text")
-    const promptVal = String(promptField ? (values[promptField.name] ?? "") : "").trim()
-
-    if (!promptVal) {
-      toast("error", "Enter a prompt first, then add to batch")
-      return
-    }
-
-    // Create request object based on service
-    const request: any = {
-      prompt: promptVal,
-      text: promptVal, // Some tools use 'text', some use 'prompt'
-    }
-
-    // Add all current values to the request
-    Object.entries(values).forEach(([key, value]) => {
-      if (value !== null && value !== "" && value !== undefined) {
-        request[key] = value
-      }
-    })
-
-    setBatchRequests((prev: any[]) => [...prev, request])
-    toast("info", `Added to batch (${batchRequests.length + 1} requests)`)
-  }, [values, fields, batchRequests.length, toast])
 
   // Handle voice comparison
   const handleVoiceComparison = useCallback(async () => {
@@ -1192,9 +1104,11 @@ function AssetsTab({ selectedService, jobs, onAddJob, nextJobId, onOpenKimodo }:
     const useTool = currentTool || tools.find((t) => t.name === "run")
     if (!useTool) return
 
-    const jobId = nextJobId.current++
+    // Generate multiple items based on quantity
+    const totalItems = quantity
     const jobName = SERVICE_LABELS[selectedService] || currentService?.label || selectedService
-    onAddJob((prev) => [{ id: jobId, name: jobName, status: "running", startedAt: Date.now() }, ...prev])
+    const jobId = nextJobId.current++
+    onAddJob((prev) => [{ id: jobId, name: totalItems > 1 ? `${jobName} x${totalItems}` : jobName, status: "running", startedAt: Date.now() }, ...prev])
 
     setGenerating(true)
     try {
@@ -1207,25 +1121,51 @@ function AssetsTab({ selectedService, jobs, onAddJob, nextJobId, onOpenKimodo }:
       } else {
         for (const [k, v] of Object.entries(values)) { if (v !== null && v !== "") args[k] = v }
       }
-      const result = await callTool<{ status: string; data?: string; media_type?: string; error?: string; message?: string }>(useTool.name, args)
-      if (result.status === "ok" || result.status === "success") {
-        if (result.data) {
-          const mt = result.media_type || "image/png"
-          const isAud = mt.includes("audio")
-          const cat = isAud && selectedService.includes("music") ? "music" as const : isAud ? "sfx" as const : "image" as const
-          const ext = mt.includes("png") ? "png" : mt.includes("jpeg") || mt.includes("jpg") ? "jpg" : mt.includes("webp") ? "webp" : mt.includes("wav") ? "wav" : mt.includes("mp3") ? "mp3" : mt.split("/")[1] || "bin"
-          addAsset({
-            name: nextAssetName(selectedService, ext),
-            type: isAud ? "audio" : "image", category: cat, mediaType: mt,
-            url: `data:${mt};base64,${result.data}`,
-            sizeBytes: Math.round((result.data as string).length * 0.75), source: "generated",
-          })
-          toast("success", `${jobName} generated`)
+
+      let successCount = 0
+      let failCount = 0
+
+      // Generate quantity items
+      for (let i = 0; i < totalItems; i++) {
+        try {
+          const result = await callTool<{ status: string; data?: string; media_type?: string; error?: string; message?: string }>(useTool.name, args)
+          if (result.status === "ok" || result.status === "success") {
+            if (result.data) {
+              const mt = result.media_type || "image/png"
+              const isAud = mt.includes("audio")
+              const cat = isAud && selectedService.includes("music") ? "music" as const : isAud ? "sfx" as const : "image" as const
+              const ext = mt.includes("png") ? "png" : mt.includes("jpeg") || mt.includes("jpg") ? "jpg" : mt.includes("webp") ? "webp" : mt.includes("wav") ? "wav" : mt.includes("mp3") ? "mp3" : mt.split("/")[1] || "bin"
+
+              // Add index suffix if generating multiple
+              const itemName = totalItems > 1
+                ? `${nextAssetName(selectedService, ext).replace(/\.[^.]+$/, '')}_${i + 1}.${ext}`
+                : nextAssetName(selectedService, ext)
+
+              addAsset({
+                name: itemName,
+                type: isAud ? "audio" : "image", category: cat, mediaType: mt,
+                url: `data:${mt};base64,${result.data}`,
+                sizeBytes: Math.round((result.data as string).length * 0.75), source: "generated",
+              })
+              successCount++
+            }
+          } else {
+            failCount++
+          }
+        } catch (e) {
+          failCount++
         }
+      }
+
+      if (successCount === totalItems) {
+        toast("success", `${jobName} generated (${successCount}/${totalItems} successful)`)
+        onAddJob((prev) => prev.map((j) => j.id === jobId ? { ...j, status: "completed", endedAt: Date.now() } : j))
+      } else if (successCount > 0) {
+        toast("warning", `${jobName} partially complete (${successCount}/${totalItems} successful, ${failCount} failed)`)
         onAddJob((prev) => prev.map((j) => j.id === jobId ? { ...j, status: "completed", endedAt: Date.now() } : j))
       } else {
-        onAddJob((prev) => prev.map((j) => j.id === jobId ? { ...j, status: "failed", endedAt: Date.now(), error: result.error || result.message || "Unknown error" } : j))
-        toast("error", String(result.error || result.message || "Unknown error"))
+        onAddJob((prev) => prev.map((j) => j.id === jobId ? { ...j, status: "failed", endedAt: Date.now(), error: "All items failed" } : j))
+        toast("error", `${jobName} failed`)
       }
     } catch (e) {
       onAddJob((prev) => prev.map((j) => j.id === jobId ? { ...j, status: "failed", endedAt: Date.now(), error: e instanceof Error ? e.message : String(e) } : j))
@@ -1285,7 +1225,6 @@ function AssetsTab({ selectedService, jobs, onAddJob, nextJobId, onOpenKimodo }:
           <CardContent className="pt-6 space-y-4">
             <div className="flex items-center justify-between">
               <h2 className="text-base font-semibold">{label}</h2>
-              {selectedService && <Badge variant="outline" className="text-[10px]">{selectedService}</Badge>}
             </div>
             {/* Voice Creator Example Selection */}
             {selectedService === "voice_creator" && !loadingVoiceExamples && voiceExamples.length > 0 && (
@@ -1425,64 +1364,6 @@ function AssetsTab({ selectedService, jobs, onAddJob, nextJobId, onOpenKimodo }:
               </div>
             )}
 
-            {/* Batch Mode UI */}
-            {batchMode && (
-              <div className="space-y-2 rounded-md border bg-muted/50 p-3">
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-medium">Batch Requests ({batchRequests.length})</span>
-                  <div className="flex gap-1">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="h-7 text-xs"
-                      onClick={handleAddToBatch}
-                      disabled={generating}
-                    >
-                      <Plus className="h-3 w-3 mr-1" /> Add Current
-                    </Button>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="h-7 text-xs"
-                      onClick={() => setBatchRequests([])}
-                      disabled={generating}
-                    >
-                      Clear
-                    </Button>
-                  </div>
-                </div>
-                {batchRequests.length > 0 && (
-                  <div className="max-h-32 overflow-y-auto space-y-1">
-                    {batchRequests.map((req, idx) => (
-                      <div key={idx} className="flex items-center gap-2 text-xs bg-background px-2 py-1 rounded">
-                        <span className="text-muted-foreground">{idx + 1}.</span>
-                        <span className="flex-1 truncate">{(req.prompt || req.text || "").substring(0, 60)}...</span>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-5 w-5"
-                          onClick={() => setBatchRequests((prev) => prev.filter((_, i) => i !== idx))}
-                        >
-                          <Trash2 className="h-3 w-3" />
-                        </Button>
-                      </div>
-                    ))}
-                  </div>
-                )}
-                {batchRequests.length > 0 && (
-                  <Button
-                    variant="default"
-                    size="sm"
-                    className="w-full h-8 text-xs"
-                    onClick={handleBatchGenerate}
-                    disabled={generating || running.length > 0}
-                  >
-                    {generating ? "Generating Batch..." : `Generate ${batchRequests.length} Items`}
-                  </Button>
-                )}
-              </div>
-            )}
-
             {/* Dialogue Mode UI */}
             {dialogueMode && (
               <div className="space-y-2 rounded-md border bg-muted/50 p-3">
@@ -1571,87 +1452,6 @@ function AssetsTab({ selectedService, jobs, onAddJob, nextJobId, onOpenKimodo }:
                   ))}
                 </div>
               </div>
-            )}
-
-            {/* Batch Mode for other services */}
-            {selectedService !== "voice_creator" && batchMode && (
-              <div className="space-y-2 rounded-md border bg-muted/50 p-3">
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-medium">Batch Requests ({batchRequests.length})</span>
-                  <div className="flex gap-1">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="h-7 text-xs"
-                      onClick={handleAddToBatch}
-                      disabled={generating}
-                    >
-                      <Plus className="h-3 w-3 mr-1" /> Add Current
-                    </Button>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="h-7 text-xs"
-                      onClick={() => setBatchRequests([])}
-                      disabled={generating}
-                    >
-                      Clear
-                    </Button>
-                  </div>
-                </div>
-                {batchRequests.length > 0 && (
-                  <div className="max-h-32 overflow-y-auto space-y-1">
-                    {batchRequests.map((req, idx) => (
-                      <div key={idx} className="flex items-center gap-2 text-xs bg-background px-2 py-1 rounded">
-                        <span className="text-muted-foreground">{idx + 1}.</span>
-                        <span className="flex-1 truncate">{(req.prompt || req.text || "").substring(0, 60)}...</span>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-5 w-5"
-                          onClick={() => setBatchRequests((prev) => prev.filter((_, i) => i !== idx))}
-                        >
-                          <Trash2 className="h-3 w-3" />
-                        </Button>
-                      </div>
-                    ))}
-                  </div>
-                )}
-                {batchRequests.length > 0 && (
-                  <Button
-                    variant="default"
-                    size="sm"
-                    className="w-full h-8 text-xs"
-                    onClick={handleBatchGenerate}
-                    disabled={generating || running.length > 0}
-                  >
-                    {generating ? "Generating Batch..." : `Generate ${batchRequests.length} Items`}
-                  </Button>
-                )}
-              </div>
-            )}
-
-            {/* Batch mode toggle for all services */}
-            {selectedService !== "voice_creator" && (
-              <div className="flex justify-end">
-                <Button
-                  variant={batchMode ? "default" : "outline"}
-                  size="sm"
-                  className="h-7 text-xs"
-                  onClick={() => setBatchMode(!batchMode)}
-                >
-                  {batchMode ? "📦 Batch Mode ON" : "📦 Batch Mode"}
-                </Button>
-              </div>
-            )}
-
-            {fields.some((f) => f.name === "prompt" || f.name === "text") && (
-              <Button variant="outline" size="sm" className="w-full h-8 text-xs gap-2"
-                disabled={enhancing || generating || !String(values[fields.find((f) => f.name === "prompt" || f.name === "text")?.name ?? ""] ?? "").trim()}
-                onClick={handleEnhance}>
-                {enhancing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
-                {enhancing ? "Enhancing…" : "Enhance Prompt"}
-              </Button>
             )}
 
             {/* Compact Form Layout */}
@@ -1776,6 +1576,31 @@ function AssetsTab({ selectedService, jobs, onAddJob, nextJobId, onOpenKimodo }:
                             />
                           </div>
                         ))}
+
+                        {/* Sampler (for image generation) */}
+                        {(selectedService === "generate" || selectedService === "generate_image") && (
+                          <div className="space-y-2">
+                            <FieldLabel label="Sampler" tooltip="Sampler algorithm for denoising" />
+                            <Select
+                              value={String(values.sampler ?? "")}
+                              onValueChange={(v) => setValues((p) => ({ ...p, sampler: v }))}
+                            >
+                              <SelectTrigger className="h-9">
+                                <SelectValue placeholder="Default sampler" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="">Default</SelectItem>
+                                <SelectItem value="er_sde">ER SDE (default, neutral)</SelectItem>
+                                <SelectItem value="euler_a">Euler A (softer)</SelectItem>
+                                <SelectItem value="dpmpp_2m_sde_gpu">DPM++ 2M SDE GPU (creative)</SelectItem>
+                                <SelectItem value="dpmpp_2m">DPM++ 2M (fast)</SelectItem>
+                                <SelectItem value="dpmpp_sde">DPM++ SDE (balanced)</SelectItem>
+                                <SelectItem value="ddim">DDIM (classic)</SelectItem>
+                                <SelectItem value="uni_pc">UniPC (unified)</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          </div>
+                        )}
                       </div>
 
                       {/* Negative Prompt */}
@@ -2114,10 +1939,261 @@ function AssetsTab({ selectedService, jobs, onAddJob, nextJobId, onOpenKimodo }:
               </div>
             )}
 
+            {/* ── Prompting Guide ─────────────────────────────────────────────────────── */}
+            {(selectedService === "generate" || selectedService === "generate_image" || selectedService?.includes("generate")) && (
+              <div className="space-y-3 pt-2">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="w-full h-8 text-xs gap-2 justify-start px-2"
+                  onClick={() => setPromptingOpen(!promptingOpen)}
+                >
+                  <ChevronDown className={`h-3.5 w-3.5 transition-transform ${promptingOpen ? "rotate-180" : ""}`} />
+                  Prompting Guide
+                </Button>
+                {promptingOpen && (
+                  <div className="rounded-lg bg-muted/50 p-3 space-y-3 text-[11px]">
+                    {String(values.model || "") === "anima_base" ? (
+                      <>
+                        <div className="font-semibold text-xs mb-2">Anima Prompting Guide</div>
+                        <div className="space-y-2">
+                          <div>
+                            <span className="text-muted-foreground">Format:</span>
+                            <span className="ml-2">Danbooru-style tags (NOT prose)</span>
+                          </div>
+                          <div>
+                            <span className="text-muted-foreground">Prefix:</span>
+                            <span className="ml-2 font-mono text-[10px]">masterpiece, best quality, score_7, safe,</span>
+                          </div>
+                          <div>
+                            <span className="text-muted-foreground">Structure:</span>
+                            <span className="ml-2">[quality] [subject] [character] [series] [artist] [tags]</span>
+                          </div>
+                          <div>
+                            <span className="text-muted-foreground">What to include:</span>
+                            <ul className="mt-1 space-y-0.5 text-muted-foreground">
+                              <li>• Use tags with spaces (not underscores): <code className="bg-background px-1 rounded">long hair</code> not <code className="bg-background px-1 rounded">long_hair</code></li>
+                              <li>• Artist tags with <code className="bg-background px-1 rounded">@</code>: <code className="bg-background px-1 rounded">@wlop</code> for style</li>
+                              <li>• Quality tags: <code className="bg-background px-1 rounded">masterpiece, best quality, score_9</code></li>
+                              <li>• Time period: <code className="bg-background px-1 rounded">year 2025, newest</code> for latest styles</li>
+                            </ul>
+                          </div>
+                          <div className="pt-1 border-t">
+                            <span className="text-muted-foreground">Example:</span>
+                            <div className="mt-1 text-[10px] font-mono bg-background p-2 rounded">
+                              masterpiece, best quality, score_7, safe, year 2025, highres, 1girl, brown hair, smile, looking at viewer, white background, @artist_name
+                            </div>
+                          </div>
+                        </div>
+                      </>
+                    ) : String(values.model || "").startsWith("z_image") ? (
+                      <>
+                        <div className="font-semibold text-xs mb-2">Z-Image Prompting Guide</div>
+                        <div className="space-y-2">
+                          <div>
+                            <span className="text-muted-foreground">Format:</span>
+                            <span className="ml-2">Continuous descriptive prose (NOT tag lists)</span>
+                          </div>
+                          <div>
+                            <span className="text-muted-foreground">Length:</span>
+                            <span className="ml-2">{String(values.model || "") === "z_image_base" ? "80-200 words" : "80-200 words"}</span>
+                          </div>
+                          <div>
+                            <span className="text-muted-foreground">Structure (order matters):</span>
+                            <ol className="mt-1 space-y-0.5 text-muted-foreground">
+                              <li>1. Subject identity and action</li>
+                              <li>2. Physical description (face, hair, clothing, textures)</li>
+                              <li>3. Hand/object interactions and spatial details</li>
+                              <li>4. Background/environment with depth layers</li>
+                              <li>5. Lighting, atmosphere, color palette</li>
+                              <li>6. Camera/framing (for photorealism)</li>
+                            </ol>
+                          </div>
+                          <div>
+                            <span className="text-muted-foreground">What to include:</span>
+                            <ul className="mt-1 space-y-0.5 text-muted-foreground">
+                              <li>• Specific demographics: <code className="bg-background px-1 rounded">young Chinese woman</code> not <code className="bg-background px-1 rounded">woman</code></li>
+                              <li>• Specific garments: <code className="bg-background px-1 rounded">cream-colored wool turtleneck</code></li>
+                              <li>• Fabric behavior: <code className="bg-background px-1 rounded">slightly wrinkled linen</code></li>
+                              <li>• Spatial positions: <code className="bg-background px-1 rounded">on the left</code>, <code className="bg-background px-1 rounded">in the foreground</code></li>
+                              <li>• Lighting: <code className="bg-background px-1 rounded">warm golden-hour sunlight from camera left</code></li>
+                            </ul>
+                          </div>
+                          <div className="pt-1 border-t">
+                            <span className="text-muted-foreground">What to avoid:</span>
+                            <ul className="mt-1 space-y-0.5 text-muted-foreground">
+                              <li>• Meta-tags: <code className="bg-background px-1 rounded">8K, masterpiece, trending on artstation</code></li>
+                              <li>• Other-model syntax: <code className="bg-background px-1 rounded">score_9, plms, euler a</code></li>
+                              <li>• Negation: <code className="bg-background px-1 rounded">no hat</code> → use <code className="bg-background px-1 rounded">bareheaded</code></li>
+                            </ul>
+                          </div>
+                          {String(values.model || "") === "z_image_base" && (
+                            <div className="pt-1 border-t">
+                              <span className="text-muted-foreground">Negative prompts:</span>
+                              <span className="ml-2">Active - use for quality issues and unwanted features</span>
+                            </div>
+                          )}
+                        </div>
+                      </>
+                    ) : String(values.model || "").startsWith("flux") ? (
+                      <>
+                        <div className="font-semibold text-xs mb-2">Flux Prompting Guide</div>
+                        <div className="space-y-2">
+                          <div>
+                            <span className="text-muted-foreground">Format:</span>
+                            <span className="ml-2">Natural language descriptive prose</span>
+                          </div>
+                          <div>
+                            <span className="text-muted-foreground">Length:</span>
+                            <span className="ml-2">{String(values.model || "").includes("schnell") || String(values.model || "").includes("klein") ? "40-100 words" : "60-150 words"}</span>
+                          </div>
+                          <div>
+                            <span className="text-muted-foreground">What to describe:</span>
+                            <ul className="mt-1 space-y-0.5 text-muted-foreground">
+                              <li>• Subject details (age, appearance, expression)</li>
+                              <li>• Environment and setting</li>
+                              <li>• Lighting and mood</li>
+                              <li>• Composition and camera angle</li>
+                              <li>• Color palette and style</li>
+                            </ul>
+                          </div>
+                          <div>
+                            <span className="text-muted-foreground">Tips:</span>
+                            <ul className="mt-1 space-y-0.5 text-muted-foreground">
+                              <li>• Use flowing prose with vivid descriptions</li>
+                              <li>• Include one clear style signal: <code className="bg-background px-1 rounded">photograph</code>, <code className="bg-background px-1 rounded">digital illustration</code>, <code className="bg-background px-1 rounded">oil painting</code></li>
+                              <li>• For photorealism: <code className="bg-background px-1 rounded">85mm lens, shallow DOF</code></li>
+                            </ul>
+                          </div>
+                          {!String(values.model || "").includes("schnell") && !String(values.model || "").includes("klein") && (
+                            <div className="pt-1 border-t">
+                              <span className="text-muted-foreground">Negative prompts:</span>
+                              <span className="ml-2">Effective - use <code className="bg-background px-1 rounded">blurry, low quality, deformed, bad anatomy</code></span>
+                            </div>
+                          )}
+                        </div>
+                      </>
+                    ) : String(values.model || "").startsWith("qwen") ? (
+                      <>
+                        <div className="font-semibold text-xs mb-2">Qwen Image Prompting Guide</div>
+                        <div className="space-y-2">
+                          <div>
+                            <span className="text-muted-foreground">Strength:</span>
+                            <span className="ml-2">Excellent at text rendering in images</span>
+                          </div>
+                          <div>
+                            <span className="text-muted-foreground">Length:</span>
+                            <span className="ml-2">60-150 words</span>
+                          </div>
+                          <div>
+                            <span className="text-muted-foreground">Text in images:</span>
+                            <ul className="mt-1 space-y-0.5 text-muted-foreground">
+                              <li>• Wrap text in double quotes: <code className="bg-background px-1 rounded">poster reading "SALE 50% OFF"</code></li>
+                              <li>• Chinese text rendering is especially strong</li>
+                              <li>• For signs/posters: describe content, font style, and layout</li>
+                            </ul>
+                          </div>
+                          <div>
+                            <span className="text-muted-foreground">What to describe:</span>
+                            <ul className="mt-1 space-y-0.5 text-muted-foreground">
+                              <li>• Subject and scene</li>
+                              <li>• Any visible text content and layout</li>
+                              <li>• Style and atmosphere</li>
+                            </ul>
+                          </div>
+                        </div>
+                      </>
+                    ) : String(values.model || "").startsWith("hidream") ? (
+                      <>
+                        <div className="font-semibold text-xs mb-2">HiDream O1 Prompting Guide</div>
+                        <div className="space-y-2">
+                          <div>
+                            <span className="text-muted-foreground">Architecture:</span>
+                            <span className="ml-2">Unified text+pixel token space - very responsive to detail</span>
+                          </div>
+                          <div>
+                            <span className="text-muted-foreground">Length:</span>
+                            <span className="ml-2">60-150 words</span>
+                          </div>
+                          <div>
+                            <span className="text-muted-foreground">Focus on:</span>
+                            <ul className="mt-1 space-y-0.5 text-muted-foreground">
+                              <li>• Visual qualities: textures, materials, reflections, transparency</li>
+                              <li>• Subject, scene, lighting, atmosphere</li>
+                              <li>• Color palette and composition</li>
+                              <li>• One style signal: <code className="bg-background px-1 rounded">photograph</code>, <code className="bg-background px-1 rounded">digital painting</code></li>
+                            </ul>
+                          </div>
+                        </div>
+                      </>
+                    ) : (
+                      <div className="text-muted-foreground text-[10px]">
+                        Model-specific prompting guide will appear here when you select a model.
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+
             {fields.length > 0 && (
-              <Button className="w-full" disabled={generating || running.length > 0} onClick={handleGenerate}>
-                {generating ? "Generating..." : "Generate"}
-              </Button>
+              <div className="flex items-center gap-2">
+                {/* Enhance prompt button */}
+                {fields.some((f) => f.name === "prompt" || f.name === "text") && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-8 text-xs gap-2"
+                    disabled={enhancing || generating || !String(values[fields.find((f) => f.name === "prompt" || f.name === "text")?.name ?? ""] ?? "").trim()}
+                    onClick={handleEnhance}
+                  >
+                    {enhancing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
+                    {enhancing ? "Enhancing…" : "Enhance"}
+                  </Button>
+                )}
+
+                {/* Generate button with quantity */}
+                <div className="flex items-center gap-0 flex-1">
+                  <Button
+                    className="rounded-r-none flex-1"
+                    disabled={generating || running.length > 0}
+                    onClick={handleGenerate}
+                  >
+                    {generating ? "Generating..." : `Generate${quantity > 1 ? ` ${quantity}` : ""}`}
+                  </Button>
+
+                  {/* Quantity selector */}
+                  <div className="flex items-center border rounded-l-none rounded-r-md">
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-8 w-8 rounded-none"
+                      onClick={() => setQuantity(Math.max(1, quantity - 1))}
+                      disabled={quantity <= 1 || generating}
+                    >
+                      -
+                    </Button>
+                    <Input
+                      type="number"
+                      value={quantity}
+                      onChange={(e) => setQuantity(Math.max(1, parseInt(e.target.value) || 1))}
+                      className="h-8 w-12 text-center text-sm border-0 rounded-none focus-visible:z-10 [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none [-moz-appearance:textfield]"
+                      disabled={generating}
+                      min={1}
+                      max={10}
+                    />
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-8 w-8 rounded-none"
+                      onClick={() => setQuantity(Math.min(10, quantity + 1))}
+                      disabled={quantity >= 10 || generating}
+                    >
+                      +
+                    </Button>
+                  </div>
+                </div>
+              </div>
             )}
           </CardContent>
         </Card>
