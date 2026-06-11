@@ -73,6 +73,7 @@ interface TimelineStore {
   // Relay state — the single continuous video from Director prompt relay
   relayVideoUrl: string | null
   relaySegmentIds: string[]
+  relayAssetId: string | null
 
   addSegment: (partial?: Partial<TimelineSegment>) => TimelineSegment
   removeSegment: (id: string) => void
@@ -85,7 +86,7 @@ interface TimelineStore {
   removeAudioCue: (id: string) => void
   updateAudioCue: (id: string, patch: Partial<AudioCue>) => void
 
-  setRelayVideo: (url: string | null, segmentIds: string[]) => void
+  setRelayVideo: (url: string | null, segmentIds: string[], assetId?: string | null) => void
   setViewport: (patch: Partial<TimelineViewport>) => void
   setPlayback: (patch: Partial<PlaybackState>) => void
   setDrag: (patch: Partial<DragState>) => void
@@ -228,7 +229,7 @@ export const useTimelineStore = create<TimelineStore>((set, get) => ({
     audioCues: s.audioCues.map((c) => c.id === id ? { ...c, ...patch } : c),
   })),
 
-  setRelayVideo: (url, segmentIds) => set({ relayVideoUrl: url, relaySegmentIds: segmentIds }),
+  setRelayVideo: (url, segmentIds, assetId) => set({ relayVideoUrl: url, relaySegmentIds: segmentIds, relayAssetId: assetId }),
 
   setViewport: (patch) => set((s) => ({ viewport: { ...s.viewport, ...patch } })),
   setPlayback: (patch) => set((s) => ({ playback: { ...s.playback, ...patch } })),
@@ -332,6 +333,7 @@ export const useTimelineStore = create<TimelineStore>((set, get) => ({
     selectedAudioCueId: null,
     relayVideoUrl: null,
     relaySegmentIds: [],
+    relayAssetId: null,
   }),
 
   undo: () => {

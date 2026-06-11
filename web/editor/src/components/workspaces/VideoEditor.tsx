@@ -139,6 +139,7 @@ export function VideoEditor({ jobs, onAddJob }: VideoEditorProps) {
   const setRelayVideo = useTimelineStore((s) => s.setRelayVideo)
   const toast = useToastStore((s) => s.addToast)
   const assets = useAssetStore((s) => s.assets)
+  const addAsset = useAssetStore((s) => s.addAsset)
 
   const [generating, setGenerating] = useState(false)
   const [generatingSegId, setGeneratingSegId] = useState<string | null>(null)
@@ -399,7 +400,19 @@ export function VideoEditor({ jobs, onAddJob }: VideoEditorProps) {
         payload
       )
       if (r.status === "ok" && r.data) {
-        updateSegment(seg.id, { videoUrl: `data:video/mp4;base64,${r.data}`, status: "ready", error: null })
+        const videoData = `data:video/mp4;base64,${r.data}`
+        // Create asset for the generated video
+        const asset = addAsset({
+          name: `K${seg.order + 1}_${seg.params.model}`,
+          type: 'video',
+          category: 'video',
+          mediaType: 'video/mp4',
+          url: videoData,
+          sizeBytes: Math.round(r.data.length * 0.75), // approximate base64 decoded size
+          source: 'generated',
+          prompt: seg.prompt,
+        })
+        updateSegment(seg.id, { videoUrl: videoData, assetId: asset.id, status: "ready", error: null })
         toast("success", `${segLabel(seg.order)} generated!`)
         onAddJob((prev) => prev.map((j) => j.id === jobId ? { ...j, status: "completed", endedAt: Date.now() } : j))
       } else {
@@ -484,9 +497,20 @@ export function VideoEditor({ jobs, onAddJob }: VideoEditorProps) {
 
         if (r.status === "ok" && r.data) {
           const videoUrl = `data:video/mp4;base64,${r.data}`
-          // Store the single relay video at timeline level
+          // Create asset for the generated relay video
+          const asset = addAsset({
+            name: `Relay_${ltxSegs.length}segments_${firstSeg.params.model}`,
+            type: 'video',
+            category: 'video',
+            mediaType: 'video/mp4',
+            url: videoUrl,
+            sizeBytes: Math.round(r.data.length * 0.75), // approximate base64 decoded size
+            source: 'generated',
+            prompt: firstSeg.prompt,
+          })
+          // Store the single relay video at timeline level with asset ID
           const segIds = ltxSegs.map(s => s.id)
-          setRelayVideo(videoUrl, segIds)
+          setRelayVideo(videoUrl, segIds, asset.id)
           // Mark all segments ready
           ltxSegs.forEach(s => updateSegment(s.id, { status: "ready", error: null }))
           toast("success", `Director relay: ${ltxSegs.length} segments, ${totalFrames} frames`)

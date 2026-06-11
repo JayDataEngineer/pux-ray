@@ -8,6 +8,8 @@ export interface TimelineSegment {
   negativePrompt: string
   thumbnailUrl: string | null
   videoUrl: string | null
+  /** Asset ID for generated video (references asset store) */
+  assetId?: string
   firstFrameB64: string | null
   lastFrameB64: string | null
   params: SegmentParams
