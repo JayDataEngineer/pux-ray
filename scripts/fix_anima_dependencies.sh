@@ -39,50 +39,40 @@ if not te_dst.exists():
 else:
     print("✓ Text encoder symlink already exists")
 
-# 3. Download ZImage VAE if needed
-ae_file = ckpts_dir / "split_files" / "vae" / "ae.safetensors"
-vae_target = ckpts_dir / "ZImageTurbo_VAE_bf16.safetensors"
+# 3. Download correct Qwen-Image VAE if needed
+from huggingface_hub import hf_hub_download
 
-if not vae_target.exists():
-    if ae_file.exists():
-        shutil.copy(ae_file, vae_target)
-        print(f"✓ Created ZImage VAE: {vae_target}")
-    else:
-        print("❌ ZImage VAE source file not found")
+qwen_vae_src = ckpts_dir / "split_files" / "vae" / "qwen_image_vae.safetensors"
+qwen_vae_dst = ckpts_dir / "qwen_image_vae.safetensors"
+
+if not qwen_vae_dst.exists():
+    try:
+        downloaded_path = hf_hub_download(
+            repo_id="Comfy-Org/Qwen-Image_ComfyUI",
+            filename="split_files/vae/qwen_image_vae.safetensors",
+            local_dir=str(ckpts_dir),
+            local_dir_use_symlinks=False
+        )
+        qwen_vae_src = Path(downloaded_path)
+        qwen_vae_dst.symlink_to(qwen_vae_src)
+        print(f"✓ Downloaded Qwen-Image VAE: {qwen_vae_dst}")
+    except Exception as e:
+        print(f"❌ Failed to download Qwen-Image VAE: {e}")
 else:
-    print("✓ ZImage VAE already exists")
+    print("✓ Qwen-Image VAE symlink already exists")
 
-# 4. Create config files if needed
-vae_config = {
-    "model_type": "AutoencoderKL",
-    "sample_size": 32,
-    "in_channels": 3,
-    "out_channels": 4,
-    "latent_channels": 16,
-    "scaling_factor": 0.18215,
-    "latent_bias": -0.077,
-    "downsampling_block": "bilinear"
-}
+# 4. Clean up incorrect ZImage VAE files
+zimage_files = [
+    "ZImageTurbo_VAE_bf16.safetensors",
+    "ZImageTurbo_VAE_bf16_config.json",
+    "ZImageTurbo_scheduler_config.json",
+]
 
-vae_config_path = ckpts_dir / "ZImageTurbo_VAE_bf16_config.json"
-if not vae_config_path.exists():
-    with open(vae_config_path, 'w') as f:
-        json.dump(vae_config, f, indent=2)
-    print(f"✓ Created VAE config")
-
-scheduler_config = {
-    "prediction_type": "epsilon",
-    "num_train_timesteps": 1000,
-    "beta_start": 0.0001,
-    "beta_end": 0.02,
-    "beta_schedule": "scaled_linear"
-}
-
-scheduler_config_path = ckpts_dir / "ZImageTurbo_scheduler_config.json"
-if not scheduler_config_path.exists():
-    with open(scheduler_config_path, 'w') as f:
-        json.dump(scheduler_config, f, indent=2)
-    print(f"✓ Created scheduler config")
+for f in zimage_files:
+    path = ckpts_dir / f
+    if path.exists():
+        path.unlink()
+        print(f"✓ Removed incorrect ZImage file: {f}")
 
 print("\n✅ Anima model dependencies fixed!")
 print("✅ Anima model should now load successfully")

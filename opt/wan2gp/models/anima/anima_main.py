@@ -225,17 +225,22 @@ class model_factory:
             tokenizer_path = os.path.dirname(text_encoder_filename)
         tokenizer = AutoTokenizer.from_pretrained(tokenizer_path, trust_remote_code=True)
 
-        # --- VAE (Qwen-Image VAE, same as Z-Image) ---
-        vae_filename = fl.locate_file("ZImageTurbo_VAE_bf16.safetensors")
-        vae_config_path = fl.locate_file("ZImageTurbo_VAE_bf16_config.json")
+        # --- VAE (Qwen-Image VAE - CORRECT ARCHITECTURE FOR ANIMA) ---
+        vae_filename = fl.locate_file("qwen_image_vae.safetensors")
 
-        vae = offload.fast_load_transformers_model(
-            vae_filename,
-            writable_tensors=True,
-            modelClass=AutoencoderKL,
-            defaultConfigPath=vae_config_path,
-            default_dtype=VAE_dtype,
+        # Qwen-Image VAE uses standard diffusers AutoencoderKL
+        vae = AutoencoderKL.from_pretrained(
+            "Comfy-Org/Qwen-Image_ComfyUI",
+            subfolder="vae",
+            use_safetensors=True,
         )
+        # Load the VAE weights
+        import safetensors.torch
+        vae_state_dict = safetensors.torch.load_file(vae_filename)
+        vae.load_state_dict(vae_state_dict, strict=False)
+        vae.to(VAE_dtype).to("cuda" if torch.cuda.is_available() else "cpu")
+        vae.eval()
+
         # Cosmos pipeline expects temporal downsampling attrs (2D VAE has none)
         if not hasattr(vae, 'temperal_downsample'):
             vae.temperal_downsample = []
@@ -243,8 +248,16 @@ class model_factory:
             vae.temporal_downsample = []
 
         # --- Scheduler ---
-        with open(fl.locate_file("ZImageTurbo_scheduler_config.json"), "r") as f:
-            scheduler_config = json.load(f)
+        # Use standard FlowMatchEulerDiscreteScheduler config
+        scheduler_config = {
+            "num_train_timesteps": 1000,
+            "shift": 3.0,
+            "use_dynamic_shifting": True,
+            "base_shift": 0.5,
+            "max_shift": 1.15,
+            "base_image_seq_len": 256,
+            "max_image_seq_len": 4096,
+        }
         scheduler = FlowMatchEulerDiscreteScheduler(**scheduler_config)
 
         # --- Pipeline ---
