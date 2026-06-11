@@ -118,7 +118,7 @@ export function LLMChatDialog({ open, onOpenChange }: LLMChatDialogProps) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-[600px] w-[90vw] h-[70vh] max-h-[70vh] flex flex-col p-0 gap-0">
-        <DialogHeader className="px-4 py-3 border-b shrink-0 flex-row items-center justify-between space-y-0">
+        <DialogHeader className="px-4 py-3 border-b shrink-0">
           <div className="flex items-center gap-2">
             <MessageSquare className="h-4 w-4" />
             <DialogTitle className="text-sm">AI Chat</DialogTitle>
@@ -128,21 +128,10 @@ export function LLMChatDialog({ open, onOpenChange }: LLMChatDialogProps) {
               </Badge>
             )}
           </div>
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-7 text-xs"
-            onClick={handleStartOver}
-            disabled={messages.length === 0}
-          >
-            <RotateCcw className="h-3 w-3 mr-1" />
-            Start Over
-          </Button>
+          <DialogDescription className="sr-only">
+            Chat with AI using your configured LLM endpoint
+          </DialogDescription>
         </DialogHeader>
-
-        <DialogDescription className="sr-only">
-          Chat with AI using your configured LLM endpoint
-        </DialogDescription>
 
         <div className="flex-1 flex flex-col min-h-0">
           {/* Messages area */}
@@ -210,7 +199,25 @@ export function LLMChatDialog({ open, onOpenChange }: LLMChatDialogProps) {
           </ScrollArea>
 
           {/* Input area */}
-          <div className="border-t p-3 shrink-0">
+          <div className="border-t p-3 shrink-0 space-y-2">
+            {/* Toolbar */}
+            <div className="flex items-center justify-between">
+              <div className="text-[10px] text-muted-foreground">
+                {messages.length > 0 && `${messages.length} message${messages.length > 1 ? 's' : ''}`}
+              </div>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-6 text-xs"
+                onClick={handleStartOver}
+                disabled={messages.length === 0}
+              >
+                <RotateCcw className="h-3 w-3 mr-1" />
+                Start Over
+              </Button>
+            </div>
+
+            {/* Input row */}
             <div className="flex gap-2">
               <Input
                 placeholder={activeModel ? "Type your message..." : "Configure an LLM endpoint first"}
@@ -233,8 +240,9 @@ export function LLMChatDialog({ open, onOpenChange }: LLMChatDialogProps) {
                 )}
               </Button>
             </div>
+
             {!activeModel && (
-              <p className="text-[10px] text-muted-foreground mt-2">
+              <p className="text-[10px] text-muted-foreground">
                 ⚠️ No LLM configured. Add an endpoint in AI Prompt Enhancement settings.
               </p>
             )}

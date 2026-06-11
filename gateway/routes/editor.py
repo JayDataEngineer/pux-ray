@@ -33,6 +33,20 @@ _MODEL_TO_LORA_DIR: dict[str, str] = {
     "ltx2": "ltx2",
     "ltx2_19B": "ltx2",
     "ltxv_098_13b": "ltxv",
+    # Z-Image models
+    "z_image": "z_image",
+    "z_image_base": "z_image",
+    "anima_base": "anima",
+    "flux": "flux",
+    "flux_schnell": "flux",
+    "flux_chroma": "flux",
+    "flux2_dev": "flux2",
+    "flux2_klein_4b": "flux2_klein",
+    "flux2_klein_9b": "flux2_klein",
+    "qwen_image_20B": "qwen_image",
+    "qwen_image_2512_20B": "qwen_image",
+    "hidream_o1": "hidream",
+    "hidream_o1_dev": "hidream",
 }
 
 

@@ -1669,6 +1669,19 @@ function AssetsTab({ selectedService, jobs, onAddJob, nextJobId, onOpenKimodo, o
                         </div>
                       ))}
 
+                      {/* ── LoRA Picker (Special Handling) ──────────────────────────────────────── */}
+                      {fields.filter(f => f.name === "loras_selected").map(f => (
+                        <div key={f.name} className="space-y-2">
+                          <FieldLabel label={f.label} tooltip="Select LoRA models to enhance generation" />
+                          <LoraPicker
+                            model={String(values.model || "")}
+                            value={String(values[f.name] ?? "")}
+                            onChange={(v) => setValues((p) => ({ ...p, [f.name]: v }))}
+                            variant="light"
+                          />
+                        </div>
+                      ))}
+
                       {/* Additional Advanced Fields */}
                       {(selectedService === "tts_speak"
                         ? ttsVisibleFields(String(values.engine || "kokoro"), fields)
@@ -1826,19 +1839,6 @@ function AssetsTab({ selectedService, jobs, onAddJob, nextJobId, onOpenKimodo, o
                   <Switch
                     checked={!!values[f.name]}
                     onCheckedChange={(checked) => setValues((p) => ({ ...p, [f.name]: checked }))}
-                  />
-                </div>
-              ))}
-
-              {/* ── LoRA Picker (Special Handling) ──────────────────────────────────────── */}
-              {fields.filter(f => f.name === "loras_selected").map(f => (
-                <div key={f.name} className="space-y-2">
-                  <FieldLabel label={f.label} tooltip="Select LoRA models to apply" />
-                  <LoraPicker
-                    model={String(values.model || "")}
-                    value={String(values[f.name] ?? "")}
-                    onChange={(v) => setValues((p) => ({ ...p, [f.name]: v }))}
-                    variant="light"
                   />
                 </div>
               ))}
