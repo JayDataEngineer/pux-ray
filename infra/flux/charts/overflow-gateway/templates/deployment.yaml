@@ -13,6 +13,12 @@ spec:
       labels:
         app: overflow-gateway
     spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: gateway
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
@@ -22,6 +28,16 @@ spec:
           ports:
             - containerPort: {{ .Values.service.port }}
               name: http
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+            seccompProfile:
+              type: RuntimeDefault
           env:
             - name: LOCAL_RAY_URL
               value: {{ .Values.env.LOCAL_RAY_URL }}
@@ -36,9 +52,10 @@ spec:
                   optional: true
             {{- end }}
           volumeMounts:
-            - name: source
-              mountPath: /app
-              readOnly: true
+            - name: tmp
+              mountPath: /tmp
+            - name: cache
+              mountPath: /app/.cache
           readinessProbe:
             httpGet:
               path: {{ .Values.probes.readiness.path }}
@@ -54,7 +71,7 @@ spec:
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
       volumes:
-        - name: source
-          hostPath:
-            path: {{ .Values.hostPath }}
-            type: Directory
+        - name: tmp
+          emptyDir: {}
+        - name: cache
+          emptyDir: {}

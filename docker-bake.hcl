@@ -17,7 +17,7 @@ variable "REGISTRY" {
 }
 
 group "default" {
-  targets = ["gpu-all", "model-sync", "anigen", "postgres-age-vector", "mcp-web-research", "mcp-media-analysis", "mcp-wan2gp-studio"]
+  targets = ["gpu-all", "model-sync", "anigen", "postgres-age-vector", "mcp-web-research", "mcp-media-analysis", "mcp-wan2gp-studio", "overflow-gateway"]
 }
 
 target "gpu-all" {
@@ -76,5 +76,12 @@ target "mcp-wan2gp-studio" {
   dockerfile = "mcp/wan2gp-studio/Dockerfile"
   context    = "mcp/wan2gp-studio"
   tags       = ["${REGISTRY}/mcp-wan2gp-studio:latest"]
+  platforms  = ["linux/amd64"]
+}
+
+target "overflow-gateway" {
+  dockerfile = "gateway/Dockerfile"
+  context    = "."
+  tags       = ["${REGISTRY}/overflow-gateway:latest"]
   platforms  = ["linux/amd64"]
 }

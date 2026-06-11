@@ -1,21 +1,25 @@
 image:
-  repository: python
-  tag: "3.12-slim-bookworm"
+  repository: forge-registry.infra.svc.cluster.local:5000/tech-noir/overflow-gateway
+  tag: "latest"
   pullPolicy: IfNotPresent
 
 replicas: 1
 
 command:
-  - /bin/sh
-  - -c
-  - pip install -q uvicorn httpx starlette prometheus-client && python -m uvicorn gateway.overflow_proxy:create_app --host 0.0.0.0 --port 8090 --factory
+  - python
+  - -m
+  - uvicorn
+  - main:create_app
+  - --host
+  - 0.0.0.0
+  - --port
+  - "8090"
+  - --factory
 
 workingDir: /app
 
 service:
   port: 8090
-
-hostPath: /home/user/Documents/programs/ray
 
 env:
   LOCAL_RAY_URL: http://tech-noir-ray-serve-svc.ai-services.svc.cluster.local:8000
