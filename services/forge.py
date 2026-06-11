@@ -64,6 +64,8 @@ SERVICE_MAP: dict[str, tuple[str, str]] = {
     # All vendor + custom family models: wan, flux, hunyuan, trellis, anigen,
     # kokoro, index_tts, ace_step, moss, etc.
     "wan2gp":    ("services.wan2gp.forge_adapter",    "Wan2GPForgeService"),
+    # Anima — Direct integration (bypasses Wan2GP recursion)
+    "anima":     ("services.anima_service",            "get_anima_service"),
     # ComfyUI — subprocess, separate GPU
     "comfyui":   ("services.image.comfyui",          "ComfyUIService"),
     # llama.cpp — subprocess, separate GPU
