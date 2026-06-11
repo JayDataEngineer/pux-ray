@@ -116,11 +116,19 @@ export function nextAssetName(service: string, ext: string): string {
 // Load persisted assets on init
 async function loadPersisted(): Promise<Asset[]> {
   try {
+    // Load non-video assets
     const raw = localStorage.getItem('tech_noir_assets')
     const assets: Asset[] = raw ? JSON.parse(raw) : []
 
+    // Load video metadata and merge with assets
+    const rawVideos = localStorage.getItem('tech_noir_videos')
+    const videoMetadata: Asset[] = rawVideos ? JSON.parse(rawVideos) : []
+
+    // Merge video metadata with other assets
+    const allAssets = [...assets, ...videoMetadata]
+
     // Restore video data URLs from IndexedDB
-    const videos = assets.filter(a => a.type === 'video')
+    const videos = allAssets.filter(a => a.type === 'video')
     for (const video of videos) {
       if (!video.url.startsWith('data:')) {
         // URL is a placeholder (just asset ID), load actual data from IndexedDB
@@ -130,13 +138,14 @@ async function loadPersisted(): Promise<Asset[]> {
         } else {
           // Video not found in IndexedDB, remove from assets
           console.warn('[Assets] Video not found in IndexedDB:', video.name)
-          assets.splice(assets.indexOf(video), 1)
+          const idx = allAssets.indexOf(video)
+          if (idx > -1) allAssets.splice(idx, 1)
         }
       }
     }
 
-    console.log('[Assets] Loaded', assets.length, 'assets from localStorage + IndexedDB')
-    return assets
+    console.log('[Assets] Loaded', allAssets.length, 'assets from localStorage + IndexedDB')
+    return allAssets
   } catch (e) {
     console.error('[Assets] Failed to load assets:', e)
     return []
@@ -151,6 +160,7 @@ function persist(assets: Asset[]) {
 
     // Save non-video assets to localStorage (images, audio - small enough)
     localStorage.setItem('tech_noir_assets', JSON.stringify(others))
+    console.log('[Assets] Persisted', others.length, 'non-video assets to localStorage (tech_noir_assets)')
 
     // Save video data URLs to IndexedDB, store placeholder in localStorage
     const videoMetadata = videos.map(({ id, name, type, category, mediaType, sizeBytes, source, createdAt, prompt }) => ({
@@ -160,6 +170,7 @@ function persist(assets: Asset[]) {
 
     // Save video metadata to separate localStorage key
     localStorage.setItem('tech_noir_videos', JSON.stringify(videoMetadata))
+    console.log('[Assets] Persisted', videoMetadata.length, 'video metadata to localStorage (tech_noir_videos)')
 
     // Save actual video data to IndexedDB
     Promise.all(
@@ -169,9 +180,11 @@ function persist(assets: Asset[]) {
         }
         return Promise.resolve()
       })
-    ).catch(err => console.error('[Assets] Failed to save videos to IndexedDB:', err))
+    ).then(() => {
+      console.log('[Assets] Successfully saved', videos.length, 'videos to IndexedDB')
+    }).catch(err => console.error('[Assets] Failed to save videos to IndexedDB:', err))
 
-    console.log('[Assets] Persisted', others.length, 'small assets to localStorage,', videos.length, 'videos to IndexedDB')
+    console.log('[Assets] Total assets persisted:', assets.length, `(${others.length} non-video, ${videos.length} videos)`)
   } catch (e) {
     console.error('[Assets] Failed to persist assets:', e)
   }
