@@ -26,7 +26,10 @@ from gateway.routes.wf_engine import (
     wf_approve_step, wf_continue_step, wf_rerun_step, wf_execute_step, wf_list_artifacts,
     wf_get_artifact, wf_events,
 )
-from gateway.routes.editor import editor_page, editor_static
+from gateway.routes.editor import (
+    editor_page, editor_static,
+    llm_key_store, llm_key_list, llm_key_delete, llm_enhance
+)
 
 
 class _ParamsRequest:
@@ -114,6 +117,17 @@ class APIIngressDeployment:
             return await self._ingress.chat_completions(request)
         if path == "/v1/llm/configure" and method == "POST":
             return await self._ingress.llm_configure(request)
+
+        # LLM key management (secure storage)
+        if path == "/v1/llm/keys" and method == "POST":
+            return await llm_key_store(request)
+        if path == "/v1/llm/keys" and method == "GET":
+            return await llm_key_list(request)
+        if path.startswith("/v1/llm/keys/") and method == "DELETE":
+            key_id = path.split("/v1/llm/keys/")[1].rstrip("/")
+            return await llm_key_delete(_ParamsRequest(request, {"key_id": key_id}))
+        if path == "/v1/llm/enhance" and method == "POST":
+            return await llm_enhance(request)
         if path == "/v1/audio/speech" and method == "POST":
             return await self._ingress.audio_speech(request)
         if path == "/v1/audio/transcriptions" and method == "POST":

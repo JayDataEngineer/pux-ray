@@ -154,6 +154,9 @@ async def generate(
     guide_scale: Annotated[float | None, Field(
         description="CFG guidance scale. Leave empty to use model preset.",
     )] = None,
+    sampler: Annotated[str | None, Field(
+        description="Sampler type. Leave empty for model default. Options: er_sde (default, neutral), euler_a (softer), dpmpp_2m_sde_gpu (more creative).",
+    )] = None,
     ctx: Context | None = None,
 ) -> dict:
     """Generate images with model-specific defaults.
@@ -190,6 +193,8 @@ async def generate(
         params["guide_scale"] = guide_scale
     elif "guide_scale" in preset:
         params["guide_scale"] = preset["guide_scale"]
+    if sampler is not None:
+        params["sample_solver"] = sampler
     for extra_key in ("steps", "guidance", "resolution", "embedded_guidance_scale"):
         if extra_key in preset:
             params[extra_key] = preset[extra_key]

@@ -5,9 +5,18 @@ The SPA calls /v1/wf API endpoints directly from the browser.
 """
 from __future__ import annotations
 
+import base64
+import hashlib
+import json
 import logging
+import os
 from pathlib import Path
+from typing import Any
 
+from cryptography.fernet import Fernet
+from cryptography.hazmat.backends import default_backend
+from cryptography.hazmat.primitives import hashes
+from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2
 from starlette.requests import Request
 from starlette.responses import HTMLResponse, JSONResponse, Response
 
@@ -110,3 +119,190 @@ async def editor_static(request: Request) -> Response:
         media_type=media_type,
         headers={"Cache-Control": cache},
     )
+
+
+# ── Secure LLM Enhancement Endpoints ─────────────────────────────────────────
+
+# Encryption key for storing API keys (derived from environment variable or default)
+_ENCRYPTION_KEY_SALT = os.environ.get("LLM_KEY_SALT", "tech-noir-llm-keys-default").encode()
+_ENCRYPTION_KEY = hashlib.pbkdf2_hmac(
+    "sha256",
+    _ENCRYPTION_KEY_SALT,
+    b"tech-noir-llm-key-derivation",
+    100000,
+    dklen=32
+)
+_CIPHER = Fernet(base64.urlsafe_b64encode(_ENCRYPTION_KEY))
+
+# In-memory storage for encrypted API keys (in production, use a database)
+# Structure: { key_id: {"name": str, "encrypted_key": str, "baseUrl": str, "model": str} }
+_STORED_KEYS: dict[str, dict[str, Any]] = {}
+
+
+def _encrypt_key(api_key: str) -> str:
+    """Encrypt an API key for storage."""
+    return _CIPHER.encrypt(api_key.encode()).decode()
+
+
+def _decrypt_key(encrypted_key: str) -> str:
+    """Decrypt a stored API key."""
+    return _CIPHER.decrypt(encrypted_key.encode()).decode()
+
+
+def _generate_key_id() -> str:
+    """Generate a unique ID for a stored API key."""
+    import time
+    import uuid
+    return f"llm_key_{int(time.time())}_{uuid.uuid4().hex[:8]}"
+
+
+async def llm_key_store(request: Request) -> JSONResponse:
+    """POST /v1/llm/keys — Store an encrypted LLM API key."""
+    try:
+        data = await request.json()
+        name = data.get("name", "").strip()
+        base_url = data.get("baseUrl", "").strip()
+        api_key = data.get("apiKey", "").strip()
+        model = data.get("model", "").strip()
+
+        if not all([name, base_url, api_key, model]):
+            return JSONResponse(
+                {"error": "Missing required fields: name, baseUrl, apiKey, model"},
+                status_code=400
+            )
+
+        # Encrypt the API key
+        encrypted_api_key = _encrypt_key(api_key)
+        key_id = _generate_key_id()
+
+        # Store metadata and encrypted key (never store plaintext)
+        _STORED_KEYS[key_id] = {
+            "name": name,
+            "encrypted_key": encrypted_api_key,
+            "baseUrl": base_url,
+            "model": model,
+        }
+
+        logger.info(f"Stored LLM key: {name} (ID: {key_id})")
+
+        # Return only the key ID and safe metadata (NOT the API key)
+        return JSONResponse({
+            "key_id": key_id,
+            "name": name,
+            "baseUrl": base_url,
+            "model": model,
+        })
+
+    except Exception as e:
+        logger.error(f"Error storing LLM key: {e}")
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
+async def llm_key_list(request: Request) -> JSONResponse:
+    """GET /v1/llm/keys — List stored LLM keys (metadata only)."""
+    try:
+        keys = []
+        for key_id, data in _STORED_KEYS.items():
+            # Only return safe metadata, never the encrypted key
+            keys.append({
+                "key_id": key_id,
+                "name": data["name"],
+                "baseUrl": data["baseUrl"],
+                "model": data["model"],
+            })
+
+        return JSONResponse({"keys": keys})
+
+    except Exception as e:
+        logger.error(f"Error listing LLM keys: {e}")
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
+async def llm_key_delete(request: Request) -> JSONResponse:
+    """DELETE /v1/llm/keys/{key_id} — Delete a stored LLM key."""
+    key_id = request.path_params.get("key_id")
+
+    if not key_id or key_id not in _STORED_KEYS:
+        return JSONResponse({"error": "Key not found"}, status_code=404)
+
+    name = _STORED_KEYS[key_id]["name"]
+    del _STORED_KEYS[key_id]
+    logger.info(f"Deleted LLM key: {name} (ID: {key_id})")
+
+    return JSONResponse({"message": "Key deleted"})
+
+
+async def llm_enhance(request: Request) -> JSONResponse:
+    """POST /v1/llm/enhance — Enhance a prompt using a stored LLM key.
+    
+    This endpoint makes the actual LLM API call, so the frontend never
+    needs to handle or expose the API key.
+    """
+    try:
+        data = await request.json()
+        key_id = data.get("key_id")
+        system_prompt = data.get("system_prompt", "You are a helpful assistant.")
+        user_prompt = data.get("prompt", "").strip()
+
+        if not key_id or not user_prompt:
+            return JSONResponse(
+                {"error": "Missing required fields: key_id, prompt"},
+                status_code=400
+            )
+
+        # Retrieve the stored key
+        if key_id not in _STORED_KEYS:
+            return JSONResponse({"error": "Key not found"}, status_code=404)
+
+        key_data = _STORED_KEYS[key_id]
+
+        # Decrypt the API key in memory only
+        api_key = _decrypt_key(key_data["encrypted_key"])
+        base_url = key_data["baseUrl"].rstrip("/")
+        model = key_data["model"]
+
+        # Make the LLM API call
+        import httpx
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            response = await client.post(
+                f"{base_url}/chat/completions",
+                headers={
+                    "Content-Type": "application/json",
+                    "Authorization": f"Bearer {api_key}",
+                },
+                json={
+                    "model": model,
+                    "messages": [
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": user_prompt},
+                    ],
+                    "max_tokens": 1024,
+                    "temperature": 0.8,
+                },
+            )
+
+        if response.status_code != 200:
+            error_text = response.text[:500]
+            logger.error(f"LLM API error: {response.status_code} - {error_text}")
+            return JSONResponse(
+                {"error": f"LLM API error ({response.status_code}): {error_text}"},
+                status_code=response.status_code
+            )
+
+        result = response.json()
+        enhanced_text = result.get("choices", [{}])[0].get("message", {}).get("content", "")
+
+        if not enhanced_text:
+            return JSONResponse({"error": "Model returned empty response"}, status_code=500)
+
+        logger.info(f"Successfully enhanced prompt using {key_data['name']}")
+
+        return JSONResponse({
+            "result": enhanced_text.strip(),
+            "model": model,
+            "provider": key_data["name"],
+        })
+
+    except Exception as e:
+        logger.error(f"Error enhancing prompt: {e}")
+        return JSONResponse({"error": str(e)}, status_code=500)

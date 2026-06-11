@@ -10,15 +10,18 @@ import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Separator } from "@/components/ui/separator"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog"
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion"
+import { Switch } from "@/components/ui/switch"
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 import { useToastStore } from "@/stores/toast"
 import { useAssetStore, type Asset, nextAssetName } from "@/stores/assets"
 import { useEnhanceStore } from "@/stores/enhancement"
-import { enhancePrompt } from "@/lib/enhance"
+import { enhancePrompt, storeEnhanceKey } from "@/lib/enhance"
 import { getEnhancePrompt } from "@/lib/enhance-prompts"
 import { EnhanceConfigDialog } from "@/components/EnhanceConfigDialog"
 import { kimodoUrl } from "@/mcp"
 import { callTool, forgeStatus, listTools, type MCPTool } from "@/mcp"
-import { Cpu, HardDrive, PanelLeft, PanelRightClose, Wand2, Loader2, CheckCircle2, XCircle, Clock, ListTodo, Maximize2, ChevronLeft, ChevronRight, Download, Sparkles, AlertTriangle, ChevronDown, Plus, Trash2 } from "lucide-react"
+import { Cpu, HardDrive, PanelLeft, PanelRightClose, Wand2, Loader2, CheckCircle2, XCircle, Clock, ListTodo, Maximize2, ChevronLeft, ChevronRight, Download, Sparkles, AlertTriangle, ChevronDown, Plus, Trash2, HelpCircle } from "lucide-react"
 import { AppSidebar } from "./AppSidebar"
 import { VideoEditor } from "./VideoEditor"
 import { AudioWaveform } from "@/components/AudioWaveform"
@@ -95,6 +98,28 @@ const GENRE_ICONS: Record<string, string> = { image: "◎", audio: "♪", motion
 // Map backend category → genre for sidebar grouping
 const CATEGORY_TO_GENRE: Record<string, string> = {
   audio: "audio", motion: "motion", "3d": "3d",
+}
+
+// Helper component for field labels with tooltips
+function FieldLabel({ label, tooltip }: { label: string; tooltip?: string }) {
+  if (!tooltip) {
+    return <Label className="text-xs text-muted-foreground capitalize">{label}</Label>
+  }
+  return (
+    <div className="flex items-center gap-1">
+      <Label className="text-xs text-muted-foreground capitalize">{label}</Label>
+      <TooltipProvider>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <HelpCircle className="h-3 w-3 text-muted-foreground cursor-help" />
+          </TooltipTrigger>
+          <TooltipContent className="max-w-xs text-xs">
+            {tooltip}
+          </TooltipContent>
+        </Tooltip>
+      </TooltipProvider>
+    </div>
+  )
 }
 
 const SERVICE_GENRE: Record<string, string> = {
@@ -1035,9 +1060,27 @@ function AssetsTab({ selectedService, jobs, onAddJob, nextJobId, onOpenKimodo }:
 
     setEnhancing(true)
     try {
-      // Enhance positive prompt
+      // Ensure the API key is stored securely on the backend
+      let keyId = model.keyId
+
+      if (!keyId) {
+        // Legacy model without keyId - store it now
+        if (!model.apiKey) {
+          toast("error", "API key missing. Please re-add your LLM endpoint.")
+          return
+        }
+        toast("info", "Storing API key securely on server...")
+        keyId = await storeEnhanceKey(model)
+
+        // Update the model in the store with the keyId
+        // This way we don't need to store the API key locally anymore
+        const updateModel = useEnhanceStore.getState().updateModel
+        updateModel(model.id, { keyId, apiKey: '' }) // Clear apiKey from local storage
+      }
+
+      // Enhance positive prompt using the secure backend
       const systemPrompt = getEnhancePrompt(selectedService, values)
-      const enhanced = await enhancePrompt(model, systemPrompt, promptVal)
+      const enhanced = await enhancePrompt(keyId, systemPrompt, promptVal)
       const updates: Record<string, unknown> = {}
       if (promptField) updates[promptField.name] = enhanced
 
@@ -1047,7 +1090,7 @@ function AssetsTab({ selectedService, jobs, onAddJob, nextJobId, onOpenKimodo }:
         if (negVal) {
           try {
             const negSystemPrompt = getEnhancePrompt(selectedService, { ...values, _field: "negative_prompt" })
-            const enhancedNeg = await enhancePrompt(model, negSystemPrompt, negVal)
+            const enhancedNeg = await enhancePrompt(keyId, negSystemPrompt, negVal)
             updates[negField.name] = enhancedNeg
           } catch {
             // Negative prompt enhancement is best-effort — don't fail the whole thing
@@ -1610,151 +1653,377 @@ function AssetsTab({ selectedService, jobs, onAddJob, nextJobId, onOpenKimodo }:
                 {enhancing ? "Enhancing…" : "Enhance Prompt"}
               </Button>
             )}
-            {(selectedService === "tts_speak"
-              ? ttsVisibleFields(String(values.engine || "kokoro"), fields)
-              : selectedService === "voice_creator"
-              ? voiceCreatorVisibleFields(
-                  String(values.engine || "moss_voicegenerator"),
-                  String(values.mode || "voice_design"),
-                  fields
-                ).filter((f) => voiceAdvancedOpen || ![
-                  "max_new_tokens", "audio_temperature", "audio_top_p",
-                  "audio_top_k", "audio_repetition_penalty", "seed"
-                ].includes(f.name))
-              : fields
-            ).map((f) => {
-              const handleDrop = (e: React.DragEvent) => {
-                e.preventDefault()
-                try {
-                  const d = JSON.parse(e.dataTransfer.getData("application/tech-noir-asset"))
-                  if (d.url && (f.type === "file" || f.name.includes("image") || f.name.includes("b64"))) {
-                    setValues((p) => ({ ...p, [f.name]: d.url.split(",")[1] || d.url }))
-                  } else if (d.name && f.type === "text") {
-                    setValues((p) => ({ ...p, [f.name]: d.name }))
-                  }
-                } catch {}
-              }
-              return (
-              <div key={f.name} className="space-y-1" onDragOver={(e) => e.preventDefault()} onDrop={handleDrop}>
-                <div className="flex items-center gap-1">
-                  <Label className="text-xs text-muted-foreground capitalize">{f.label}</Label>
-                  {selectedService === "edit" && f.name === "pose_image_b64" && (
-                    <button type="button"
-                      onClick={onOpenKimodo}
-                      className="inline-flex items-center gap-1 text-[10px] text-primary hover:underline ml-auto">
-                      <Maximize2 className="h-3 w-3" /> Open Kimodo Studio
-                    </button>
-                  )}
+
+            {/* Compact Form Layout */}
+            <div className="space-y-4">
+              {/* ── Prompt/Text Section (Always Top Priority) ──────────────────────────── */}
+              {fields.filter(f => f.name === "prompt" || f.name === "text").map(f => (
+                <div key={f.name} className="space-y-2">
+                  <FieldLabel
+                    label={f.label}
+                    tooltip={f.name === "prompt" ? "60-200 words works best for detailed results" : "Enter text content"}
+                  />
+                  <Textarea
+                    value={String(values[f.name] ?? f.default ?? "")}
+                    onChange={(e) => setValues((p) => ({ ...p, [f.name]: e.target.value }))}
+                    placeholder={f.label}
+                    rows={3}
+                    className="text-sm"
+                  />
                 </div>
-                {f.type === "select" && f.options ? (
-                  <Select value={String(values[f.name] ?? f.default ?? "")}
-                    onValueChange={(v) => setValues((p) => ({ ...p, [f.name]: v }))}>
-                    <SelectTrigger><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      {f.options.map((o) => <SelectItem key={o} value={o}>{o}</SelectItem>)}
-                    </SelectContent>
-                  </Select>
-                ) : f.type === "number" ? (
-                  <Input type="number" value={String(values[f.name] ?? f.default ?? "")}
-                    onChange={(e) => setValues((p) => ({ ...p, [f.name]: e.target.value ? Number(e.target.value) : "" }))}
-                    placeholder={f.label} />
-                ) : f.type === "file" && f.name === "ref_audio_b64_list" ? (
-                  <div className="space-y-2">
-                    <Label className="flex items-center justify-center h-16 border-2 border-dashed rounded-lg cursor-pointer hover:border-primary/50 text-sm text-muted-foreground"
-                      onDragOver={(e) => e.preventDefault()}
-                      onDrop={(e) => {
-                        e.preventDefault()
-                        try {
-                          const d = JSON.parse(e.dataTransfer.getData("application/tech-noir-asset"))
-                          if (d.url) {
-                            setMultipleRefAudios((prev) => [...prev, d.url.split(",")[1] || d.url])
-                            setValues((p) => ({ ...p, [f.name]: [...(p[f.name] as string[] || []), d.url.split(",")[1] || d.url] }))
-                          }
-                        } catch {}
-                      }}>
-                      {multipleRefAudios.length > 0 ? `Loaded ${multipleRefAudios.length} audio files` : "Drop multiple audio files or click to upload"}
-                      <input type="file" className="hidden" multiple accept="audio/*"
-                        onChange={(e) => {
-                          const files = Array.from(e.target.files || [])
-                          files.forEach((file) => {
-                            const r = new FileReader()
-                            r.onload = () => {
-                              const base64 = (r.result as string).split(",")[1] || ""
-                              setMultipleRefAudios((prev) => [...prev, base64])
-                              setValues((p) => ({ ...p, [f.name]: [...(p[f.name] as string[] || []), base64] }))
-                            }
-                            r.readAsDataURL(file)
-                          })
-                        }} />
-                    </Label>
-                    {multipleRefAudios.length > 0 && (
-                      <div className="max-h-24 overflow-y-auto space-y-1">
-                        {multipleRefAudios.map((audio, idx) => (
-                          <div key={idx} className="flex items-center gap-2 text-xs bg-background px-2 py-1 rounded">
-                            <span className="text-muted-foreground">{idx + 1}.</span>
-                            <audio src={`data:audio/wav;base64,${audio}`} controls className="flex-1 h-6" />
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="h-5 w-5"
-                              onClick={() => {
-                                setMultipleRefAudios((prev) => prev.filter((_, i) => i !== idx))
-                                setValues((p) => ({ ...p, [f.name]: (p[f.name] as string[] || []).filter((_, i) => i !== idx) }))
-                              }}
-                            >
-                              <Trash2 className="h-3 w-3" />
-                            </Button>
+              ))}
+
+              {/* ── Basic Configuration Grid ────────────────────────────────────────────── */}
+              {(selectedService === "generate" || selectedService === "generate_image" || selectedService?.includes("generate")) && (
+                <div className="grid grid-cols-2 gap-4">
+                  {/* Model Selection */}
+                  {fields.filter(f => f.name === "model").map(f => (
+                    <div key={f.name} className="space-y-2">
+                      <FieldLabel label={f.label} tooltip="Select the AI model to use" />
+                      <Select value={String(values[f.name] ?? f.default ?? "")}
+                        onValueChange={(v) => setValues((p) => ({ ...p, [f.name]: v }))}>
+                        <SelectTrigger className="h-9"><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          {f.options?.map((o) => <SelectItem key={o} value={o}>{o}</SelectItem>)}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  ))}
+
+                  {/* Seed */}
+                  {fields.filter(f => f.name === "seed").map(f => (
+                    <div key={f.name} className="space-y-2">
+                      <FieldLabel label={f.label} tooltip="Random seed for reproducibility (-1 for random)" />
+                      <Input
+                        type="number"
+                        value={String(values[f.name] ?? f.default ?? "")}
+                        onChange={(e) => setValues((p) => ({ ...p, [f.name]: e.target.value ? Number(e.target.value) : "" }))}
+                        placeholder={f.label}
+                        className="h-9"
+                      />
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* ── Dimensions Grid ─────────────────────────────────────────────────────── */}
+              {(selectedService === "generate" || selectedService === "generate_image" || selectedService?.includes("generate")) && (
+                <div className="grid grid-cols-2 gap-4">
+                  {/* Width */}
+                  {fields.filter(f => f.name === "width").map(f => (
+                    <div key={f.name} className="space-y-2">
+                      <FieldLabel label={f.label} tooltip="Must be divisible by 16" />
+                      <Input
+                        type="number"
+                        value={String(values[f.name] ?? f.default ?? "")}
+                        onChange={(e) => setValues((p) => ({ ...p, [f.name]: e.target.value ? Number(e.target.value) : "" }))}
+                        placeholder={f.label}
+                        className="h-9"
+                      />
+                    </div>
+                  ))}
+
+                  {/* Height */}
+                  {fields.filter(f => f.name === "height").map(f => (
+                    <div key={f.name} className="space-y-2">
+                      <FieldLabel label={f.label} tooltip="Must be divisible by 16" />
+                      <Input
+                        type="number"
+                        value={String(values[f.name] ?? f.default ?? "")}
+                        onChange={(e) => setValues((p) => ({ ...p, [f.name]: e.target.value ? Number(e.target.value) : "" }))}
+                        placeholder={f.label}
+                        className="h-9"
+                      />
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* ── Advanced Settings Accordion ─────────────────────────────────────────── */}
+              {(selectedService === "generate" || selectedService === "generate_image" || selectedService?.includes("generate")) && (
+                <Accordion type="single" collapsible className="border rounded-lg px-3">
+                  <AccordionItem value="advanced-settings" className="border-b-0">
+                    <AccordionTrigger className="py-3 text-sm font-medium hover:no-underline">
+                      Advanced Settings
+                    </AccordionTrigger>
+                    <AccordionContent className="space-y-4 pb-4">
+                      <div className="grid grid-cols-2 gap-4">
+                        {/* Sampling Steps */}
+                        {fields.filter(f => f.name === "sampling_steps" || f.name === "steps").map(f => (
+                          <div key={f.name} className="space-y-2">
+                            <FieldLabel label={f.label} tooltip="Number of denoising steps (higher = better quality)" />
+                            <Input
+                              type="number"
+                              value={String(values[f.name] ?? f.default ?? "")}
+                              onChange={(e) => setValues((p) => ({ ...p, [f.name]: e.target.value ? Number(e.target.value) : "" }))}
+                              placeholder={f.label}
+                              className="h-9"
+                            />
+                          </div>
+                        ))}
+
+                        {/* Guidance Scale */}
+                        {fields.filter(f => f.name === "guide_scale" || f.name === "guidance").map(f => (
+                          <div key={f.name} className="space-y-2">
+                            <FieldLabel label={f.label} tooltip="Guidance scale for prompt adherence (typically 4-8)" />
+                            <Input
+                              type="number"
+                              step="0.1"
+                              value={String(values[f.name] ?? f.default ?? "")}
+                              onChange={(e) => setValues((p) => ({ ...p, [f.name]: e.target.value ? Number(e.target.value) : "" }))}
+                              placeholder={f.label}
+                              className="h-9"
+                            />
                           </div>
                         ))}
                       </div>
+
+                      {/* Negative Prompt */}
+                      {fields.filter(f => f.name === "negative_prompt").map(f => (
+                        <div key={f.name} className="space-y-2">
+                          <FieldLabel label={f.label} tooltip="Describe what to avoid in the output" />
+                          <Textarea
+                            value={String(values[f.name] ?? f.default ?? "")}
+                            onChange={(e) => setValues((p) => ({ ...p, [f.name]: e.target.value }))}
+                            placeholder={f.label}
+                            rows={2}
+                            className="text-sm"
+                          />
+                        </div>
+                      ))}
+
+                      {/* Additional Advanced Fields */}
+                      {(selectedService === "tts_speak"
+                        ? ttsVisibleFields(String(values.engine || "kokoro"), fields)
+                        : selectedService === "voice_creator"
+                        ? voiceCreatorVisibleFields(
+                            String(values.engine || "moss_voicegenerator"),
+                            String(values.mode || "voice_design"),
+                            fields
+                          )
+                        : fields
+                      ).filter(f =>
+                        !["prompt", "text", "model", "seed", "width", "height", "sampling_steps", "steps", "guide_scale", "guidance", "negative_prompt"].includes(f.name) &&
+                        f.name !== "loras_selected" &&
+                        f.type !== "file" &&
+                        f.type !== "boolean"
+                      ).map(f => (
+                        <div key={f.name} className="space-y-2">
+                          <FieldLabel label={f.label} />
+                          {f.type === "select" && f.options ? (
+                            <Select value={String(values[f.name] ?? f.default ?? "")}
+                              onValueChange={(v) => setValues((p) => ({ ...p, [f.name]: v }))}>
+                              <SelectTrigger className="h-9"><SelectValue /></SelectTrigger>
+                              <SelectContent>
+                                {f.options.map((o) => <SelectItem key={o} value={o}>{o}</SelectItem>)}
+                              </SelectContent>
+                            </Select>
+                          ) : f.type === "number" ? (
+                            <Input
+                              type="number"
+                              value={String(values[f.name] ?? f.default ?? "")}
+                              onChange={(e) => setValues((p) => ({ ...p, [f.name]: e.target.value ? Number(e.target.value) : "" }))}
+                              placeholder={f.label}
+                              className="h-9"
+                            />
+                          ) : f.type === "textarea" ? (
+                            <Textarea
+                              value={String(values[f.name] ?? f.default ?? "")}
+                              onChange={(e) => setValues((p) => ({ ...p, [f.name]: e.target.value }))}
+                              placeholder={f.label}
+                              rows={2}
+                              className="text-sm"
+                            />
+                          ) : (
+                            <Input
+                              value={String(values[f.name] ?? f.default ?? "")}
+                              onChange={(e) => setValues((p) => ({ ...p, [f.name]: e.target.value }))}
+                              placeholder={f.label}
+                              className="h-9"
+                            />
+                          )}
+                        </div>
+                      ))}
+                    </AccordionContent>
+                  </AccordionItem>
+                </Accordion>
+              )}
+
+              {/* ── File Upload Fields (Outside Accordion) ──────────────────────────────── */}
+              {fields.filter(f => f.type === "file" || f.name.includes("image") || f.name.includes("b64")).map(f => {
+                const handleDrop = (e: React.DragEvent) => {
+                  e.preventDefault()
+                  try {
+                    const d = JSON.parse(e.dataTransfer.getData("application/tech-noir-asset"))
+                    if (d.url) setValues((p) => ({ ...p, [f.name]: d.url.split(",")[1] || d.url }))
+                  } catch {}
+                }
+
+                return (
+                  <div key={f.name} className="space-y-2" onDragOver={(e) => e.preventDefault()} onDrop={handleDrop}>
+                    <div className="flex items-center gap-1">
+                      <FieldLabel label={f.label} />
+                      {selectedService === "edit" && f.name === "pose_image_b64" && (
+                        <button type="button"
+                          onClick={onOpenKimodo}
+                          className="inline-flex items-center gap-1 text-[10px] text-primary hover:underline ml-auto">
+                          <Maximize2 className="h-3 w-3" /> Open Kimodo Studio
+                        </button>
+                      )}
+                    </div>
+
+                    {f.name === "ref_audio_b64_list" ? (
+                      <div className="space-y-2">
+                        <Label className="flex items-center justify-center h-16 border-2 border-dashed rounded-lg cursor-pointer hover:border-primary/50 text-sm text-muted-foreground"
+                          onDragOver={(e) => e.preventDefault()}
+                          onDrop={(e) => {
+                            e.preventDefault()
+                            try {
+                              const d = JSON.parse(e.dataTransfer.getData("application/tech-noir-asset"))
+                              if (d.url) {
+                                setMultipleRefAudios((prev) => [...prev, d.url.split(",")[1] || d.url])
+                                setValues((p) => ({ ...p, [f.name]: [...(p[f.name] as string[] || []), d.url.split(",")[1] || d.url] }))
+                              }
+                            } catch {}
+                          }}>
+                          {multipleRefAudios.length > 0 ? `Loaded ${multipleRefAudios.length} audio files` : "Drop multiple audio files or click to upload"}
+                          <input type="file" className="hidden" multiple accept="audio/*"
+                            onChange={(e) => {
+                              const files = Array.from(e.target.files || [])
+                              files.forEach((file) => {
+                                const r = new FileReader()
+                                r.onload = () => {
+                                  const base64 = (r.result as string).split(",")[1] || ""
+                                  setMultipleRefAudios((prev) => [...prev, base64])
+                                  setValues((p) => ({ ...p, [f.name]: [...(p[f.name] as string[] || []), base64] }))
+                                }
+                                r.readAsDataURL(file)
+                              })
+                            }} />
+                        </Label>
+                        {multipleRefAudios.length > 0 && (
+                          <div className="max-h-24 overflow-y-auto space-y-1">
+                            {multipleRefAudios.map((audio, idx) => (
+                              <div key={idx} className="flex items-center gap-2 text-xs bg-background px-2 py-1 rounded">
+                                <span className="text-muted-foreground">{idx + 1}.</span>
+                                <audio src={`data:audio/wav;base64,${audio}`} controls className="flex-1 h-6" />
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  className="h-5 w-5"
+                                  onClick={() => {
+                                    setMultipleRefAudios((prev) => prev.filter((_, i) => i !== idx))
+                                    setValues((p) => ({ ...p, [f.name]: (p[f.name] as string[] || []).filter((_, i) => i !== idx) }))
+                                  }}
+                                >
+                                  <Trash2 className="h-3 w-3" />
+                                </Button>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    ) : (
+                      <Label className="flex items-center justify-center h-16 border-2 border-dashed rounded-lg cursor-pointer hover:border-primary/50 text-sm text-muted-foreground"
+                        onDragOver={(e) => e.preventDefault()}
+                        onDrop={handleDrop}>
+                        {values[f.name] ? "Loaded from asset" : "Drop asset or click to upload"}
+                        <Input type="file" className="hidden"
+                          onChange={(e) => {
+                            const file = e.target.files?.[0]
+                            if (!file) return
+                            const r = new FileReader()
+                            r.onload = () => setValues((p) => ({ ...p, [f.name]: (r.result as string).split(",")[1] || "" }))
+                            r.readAsDataURL(file)
+                          }} />
+                      </Label>
                     )}
                   </div>
-                ) : f.type === "file" ? (
-                  <Label className="flex items-center justify-center h-16 border-2 border-dashed rounded-lg cursor-pointer hover:border-primary/50 text-sm text-muted-foreground"
-                    onDragOver={(e) => e.preventDefault()}
-                    onDrop={(e) => {
-                      e.preventDefault()
-                      try {
-                        const d = JSON.parse(e.dataTransfer.getData("application/tech-noir-asset"))
-                        if (d.url) setValues((p) => ({ ...p, [f.name]: d.url.split(",")[1] || d.url }))
-                      } catch {}
-                    }}>
-                    {values[f.name] ? "Loaded from asset" : "Drop asset or click to upload"}
-                    <Input type="file" className="hidden"
-                      onChange={(e) => {
-                        const file = e.target.files?.[0]
-                        if (!file) return
-                        const r = new FileReader()
-                        r.onload = () => setValues((p) => ({ ...p, [f.name]: (r.result as string).split(",")[1] || "" }))
-                        r.readAsDataURL(file)
-                      }} />
-                  </Label>
-                ) : f.type === "textarea" ? (
-                  <Textarea value={String(values[f.name] ?? f.default ?? "")}
-                    onChange={(e) => setValues((p) => ({ ...p, [f.name]: e.target.value }))}
-                    placeholder={f.label} rows={3} />
-                ) : f.type === "boolean" ? (
-                  <label className="flex items-center gap-2 cursor-pointer">
-                    <input type="checkbox" checked={!!values[f.name]}
-                      onChange={(e) => setValues((p) => ({ ...p, [f.name]: e.target.checked }))}
-                      className="h-4 w-4 rounded border-border text-primary focus:ring-primary" />
-                    <span className="text-xs text-muted-foreground">{values[f.name] ? "Yes" : "No"}</span>
-                  </label>
-                ) : f.name === "loras_selected" ? (
+                )
+              })}
+
+              {/* ── Boolean Fields (Switch instead of checkbox) ──────────────────────────── */}
+              {fields.filter(f => f.type === "boolean").map(f => (
+                <div key={f.name} className="flex items-center justify-between">
+                  <FieldLabel label={f.label} />
+                  <Switch
+                    checked={!!values[f.name]}
+                    onCheckedChange={(checked) => setValues((p) => ({ ...p, [f.name]: checked }))}
+                  />
+                </div>
+              ))}
+
+              {/* ── LoRA Picker (Special Handling) ──────────────────────────────────────── */}
+              {fields.filter(f => f.name === "loras_selected").map(f => (
+                <div key={f.name} className="space-y-2">
+                  <FieldLabel label={f.label} tooltip="Select LoRA models to apply" />
                   <LoraPicker
                     model={String(values.model || "")}
                     value={String(values[f.name] ?? "")}
                     onChange={(v) => setValues((p) => ({ ...p, [f.name]: v }))}
                     variant="light"
                   />
-                ) : (
-                  <Input value={String(values[f.name] ?? f.default ?? "")}
-                    onChange={(e) => setValues((p) => ({ ...p, [f.name]: e.target.value }))}
-                    placeholder={f.label} />
-                )}
-              </div>
-              )
-            })}
+                </div>
+              ))}
+
+              {/* ── Remaining Text Fields (for non-image services) ──────────────────────────── */}
+              {!(selectedService === "generate" || selectedService === "generate_image" || selectedService?.includes("generate")) &&
+                (selectedService === "tts_speak"
+                  ? ttsVisibleFields(String(values.engine || "kokoro"), fields)
+                  : selectedService === "voice_creator"
+                  ? voiceCreatorVisibleFields(
+                      String(values.engine || "moss_voicegenerator"),
+                      String(values.mode || "voice_design"),
+                      fields
+                    ).filter((f) => voiceAdvancedOpen || ![
+                      "max_new_tokens", "audio_temperature", "audio_top_p",
+                      "audio_top_k", "audio_repetition_penalty", "seed"
+                    ].includes(f.name))
+                  : fields
+                ).filter(f =>
+                  !["prompt", "text", "model", "seed", "width", "height", "sampling_steps", "steps", "guide_scale", "guidance", "negative_prompt"].includes(f.name) &&
+                  f.name !== "loras_selected" &&
+                  f.type !== "file" &&
+                  f.type !== "boolean"
+                ).map(f => (
+                  <div key={f.name} className="space-y-2">
+                    <FieldLabel label={f.label} />
+                    {f.type === "select" && f.options ? (
+                      <Select value={String(values[f.name] ?? f.default ?? "")}
+                        onValueChange={(v) => setValues((p) => ({ ...p, [f.name]: v }))}>
+                        <SelectTrigger className="h-9"><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          {f.options.map((o) => <SelectItem key={o} value={o}>{o}</SelectItem>)}
+                        </SelectContent>
+                      </Select>
+                    ) : f.type === "number" ? (
+                      <Input
+                        type="number"
+                        value={String(values[f.name] ?? f.default ?? "")}
+                        onChange={(e) => setValues((p) => ({ ...p, [f.name]: e.target.value ? Number(e.target.value) : "" }))}
+                        placeholder={f.label}
+                        className="h-9"
+                      />
+                    ) : f.type === "textarea" ? (
+                      <Textarea
+                        value={String(values[f.name] ?? f.default ?? "")}
+                        onChange={(e) => setValues((p) => ({ ...p, [f.name]: e.target.value }))}
+                        placeholder={f.label}
+                        rows={2}
+                        className="text-sm"
+                      />
+                    ) : (
+                      <Input
+                        value={String(values[f.name] ?? f.default ?? "")}
+                        onChange={(e) => setValues((p) => ({ ...p, [f.name]: e.target.value }))}
+                        placeholder={f.label}
+                        className="h-9"
+                      />
+                    )}
+                  </div>
+                ))
+              }
+            </div>
 
             {/* ── Advanced Settings Guide ──────────────────────────────────────── */}
             {(selectedService === "generate" || selectedService === "generate_image" || selectedService?.includes("generate")) && (

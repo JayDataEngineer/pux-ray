@@ -8,7 +8,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { useEnhanceStore, type EnhanceModel } from "@/stores/enhancement"
 import { useToastStore } from "@/stores/toast"
 import { fetchLLMModels } from "@/api"
-import { Sparkles, Plus, Trash2, Check, Pencil, X, RefreshCw, Loader2 } from "lucide-react"
+import { storeEnhanceKey, deleteEnhanceKey } from "@/lib/enhance"
+import { Sparkles, Plus, Trash2, Check, Pencil, X, RefreshCw, Loader2, Eye, EyeOff } from "lucide-react"
 
 // Popular model presets for quick access
 const MODEL_PRESETS = {
@@ -43,6 +44,8 @@ export function EnhanceConfigDialog({ open, onOpenChange }: EnhanceConfigDialogP
   const [availableModels, setAvailableModels] = useState<string[]>([])
   const [isLoadingModels, setIsLoadingModels] = useState(false)
   const [modelsError, setModelsError] = useState<string | null>(null)
+  const [isStoringKey, setIsStoringKey] = useState(false)
+  const [showApiKey, setShowApiKey] = useState(false)
 
   // Detect provider from base URL for presets
   const detectProvider = (baseUrl: string): keyof typeof MODEL_PRESETS | 'other' => {
@@ -128,20 +131,68 @@ export function EnhanceConfigDialog({ open, onOpenChange }: EnhanceConfigDialogP
     }
   }
 
-  const handleSave = () => {
+  const handleSave = async () => {
     if (!form.name.trim() || !form.baseUrl.trim() || !form.apiKey.trim() || !form.model.trim()) {
       toast("error", "All fields are required")
       return
     }
-    if (editingId) {
-      updateModel(editingId, form)
-      toast("success", `Updated: ${form.name}`)
-    } else {
-      const m = addModel(form)
-      setActive(m.id)
-      toast("success", `Added: ${form.name}`)
+
+    setIsStoringKey(true)
+    try {
+      // Store the API key securely on the backend
+      const keyId = await storeEnhanceKey({
+        name: form.name,
+        baseUrl: form.baseUrl,
+        apiKey: form.apiKey,
+        model: form.model,
+      })
+
+      // Save model with keyId but WITHOUT the API key (it's stored securely on backend)
+      const modelData = {
+        name: form.name,
+        baseUrl: form.baseUrl,
+        apiKey: '', // Never store API key locally
+        model: form.model,
+        keyId, // Store reference to backend key
+      }
+
+      if (editingId) {
+        // Delete old key if updating
+        const oldModel = models.find((m) => m.id === editingId)
+        if (oldModel?.keyId && oldModel.keyId !== keyId) {
+          try {
+            await deleteEnhanceKey(oldModel.keyId)
+          } catch {
+            // Non-critical if deletion fails
+          }
+        }
+        updateModel(editingId, modelData)
+        toast("success", `Updated: ${form.name}`)
+      } else {
+        const m = addModel(modelData)
+        setActive(m.id)
+        toast("success", `Added: ${form.name}`)
+      }
+      resetForm()
+    } catch (error) {
+      toast("error", error instanceof Error ? error.message : "Failed to store API key securely")
+    } finally {
+      setIsStoringKey(false)
     }
-    resetForm()
+  }
+
+  const handleRemove = async (m: EnhanceModel) => {
+    // Delete the key from backend if it exists
+    if (m.keyId) {
+      try {
+        await deleteEnhanceKey(m.keyId)
+      } catch (error) {
+        console.error('Failed to delete backend key:', error)
+        // Continue with local removal even if backend deletion fails
+      }
+    }
+    removeModel(m.id)
+    toast("info", `Removed: ${m.name}`)
   }
 
   const handleCancel = () => {
@@ -157,7 +208,7 @@ export function EnhanceConfigDialog({ open, onOpenChange }: EnhanceConfigDialogP
             AI Prompt Enhancement
           </DialogTitle>
           <DialogDescription>
-            Add an OpenAI-compatible endpoint to power prompt enhancement. Enhancement prompts are configured automatically per service.
+            Add an OpenAI-compatible endpoint to power prompt enhancement. API keys are stored securely on the server and never exposed to your browser. Enhancement prompts are configured automatically per service.
           </DialogDescription>
         </DialogHeader>
 
@@ -183,7 +234,7 @@ export function EnhanceConfigDialog({ open, onOpenChange }: EnhanceConfigDialogP
                   <Button variant="ghost" size="icon" className="h-6 w-6 shrink-0" onClick={() => startEdit(m)}>
                     <Pencil className="h-3 w-3" />
                   </Button>
-                  <Button variant="ghost" size="icon" className="h-6 w-6 shrink-0" onClick={() => { removeModel(m.id); toast("info", `Removed: ${m.name}`) }}>
+                  <Button variant="ghost" size="icon" className="h-6 w-6 shrink-0" onClick={() => handleRemove(m)}>
                     <Trash2 className="h-3 w-3 text-destructive" />
                   </Button>
                 </div>
@@ -216,9 +267,28 @@ export function EnhanceConfigDialog({ open, onOpenChange }: EnhanceConfigDialogP
               </div>
 
               <div className="space-y-1">
-                <Label className="text-xs text-muted-foreground">API Key</Label>
-                <Input type="password" placeholder="sk-..." value={form.apiKey}
-                  onChange={(e) => setForm((f) => ({ ...f, apiKey: e.target.value }))} className="h-8 text-xs" />
+                <Label className="text-xs text-muted-foreground">
+                  API Key
+                  <span className="text-[9px] ml-1 text-primary">(stored securely on server)</span>
+                </Label>
+                <div className="relative">
+                  <Input
+                    type={showApiKey ? "text" : "password"}
+                    placeholder="sk-..."
+                    value={form.apiKey}
+                    onChange={(e) => setForm((f) => ({ ...f, apiKey: e.target.value }))}
+                    className="h-8 text-xs pr-16"
+                  />
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="absolute right-0 top-0 h-8 w-8"
+                    onClick={() => setShowApiKey(!showApiKey)}
+                  >
+                    {showApiKey ? <EyeOff className="h-3 w-3" /> : <Eye className="h-3 w-3" />}
+                  </Button>
+                </div>
               </div>
 
               <div className="space-y-1">
@@ -291,9 +361,23 @@ export function EnhanceConfigDialog({ open, onOpenChange }: EnhanceConfigDialogP
               </div>
 
               <div className="flex gap-2 pt-1">
-                <Button size="sm" className="h-7 text-xs" onClick={handleSave}>
-                  <Check className="h-3 w-3 mr-1" />
-                  {editingId ? "Update" : "Add Endpoint"}
+                <Button
+                  size="sm"
+                  className="h-7 text-xs"
+                  onClick={handleSave}
+                  disabled={isStoringKey || isLoadingModels}
+                >
+                  {isStoringKey ? (
+                    <>
+                      <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+                      Storing securely...
+                    </>
+                  ) : (
+                    <>
+                      <Check className="h-3 w-3 mr-1" />
+                      {editingId ? "Update" : "Add Endpoint"}
+                    </>
+                  )}
                 </Button>
                 {editingId && (
                   <Button variant="outline" size="sm" className="h-7 text-xs" onClick={handleCancel}>Cancel</Button>

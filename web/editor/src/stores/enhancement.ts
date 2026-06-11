@@ -4,8 +4,9 @@ export interface EnhanceModel {
   id: string
   name: string
   baseUrl: string       // e.g. "https://api.openai.com/v1"
-  apiKey: string
+  apiKey: string        // Only used temporarily, not persisted
   model: string         // e.g. "gpt-4o-mini"
+  keyId?: string        // Backend key ID for secure storage
 }
 
 interface EnhancementStore {
@@ -30,7 +31,11 @@ function loadPersisted(): { models: EnhanceModel[]; activeId: string | null } {
 }
 
 function persist(models: EnhanceModel[], activeId: string | null) {
-  try { localStorage.setItem('tech_noir_enhance', JSON.stringify({ models, activeId })) } catch {}
+  try {
+    // Never store API keys in localStorage - only metadata
+    const safeModels = models.map(({ apiKey: _, ...rest }) => rest)
+    localStorage.setItem('tech_noir_enhance', JSON.stringify({ models: safeModels, activeId }))
+  } catch {}
 }
 
 export const useEnhanceStore = create<EnhancementStore>((set, get) => {

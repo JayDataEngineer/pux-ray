@@ -12,6 +12,7 @@ dependencies = [
     "starlette>=0.37",
     "python-multipart>=0.0.7",
     "uvicorn>=0.30",
+    "cryptography>=42.0",  # For secure API key encryption
     "rich>=13.0",
     "prometheus-client>=0.18",
     # Model download CLI (lightweight, used by ray-noir models pull)
