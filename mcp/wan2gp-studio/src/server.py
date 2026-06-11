@@ -101,7 +101,7 @@ mcp = FastMCP(
 # ========== TOOL REGISTRATION ==========
 
 from .tools.generate import run
-from .tools.image import generate
+from .tools.image import generate, get_model_preset
 from .tools.vnccs import generate_character_sheet, edit, clone_character
 from .tools.status import list_models, list_services, get_service, forge_status, list_pipelines
 from .tools.tts import tts_speak, tts_voices

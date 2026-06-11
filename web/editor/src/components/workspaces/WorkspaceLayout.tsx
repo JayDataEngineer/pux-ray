@@ -24,7 +24,7 @@ import { VideoEditor } from "./VideoEditor"
 
 type TabId = "assets" | "video"
 
-interface JobEntry {
+export interface JobEntry {
   id: number; name: string
   status: "pending" | "running" | "completed" | "failed"
   startedAt: number; endedAt?: number; error?: string
@@ -165,7 +165,7 @@ export function WorkspaceLayout() {
               <AssetsTab selectedService={selectedService} jobs={jobs} onAddJob={(j) => setJobs(j)} nextJobId={nextJobId} onOpenKimodo={() => setKimodoOpen(true)} />
             </div>
           ) : (
-            <VideoEditor />
+            <VideoEditor jobs={jobs} onAddJob={(j) => setJobs(j)} />
           )}
           {rightOpen && tab === "assets" && <ServicesSidebar selected={selectedService} onSelect={setSelectedService} onOpenKimodo={() => setKimodoOpen(true)} />}
         </div>

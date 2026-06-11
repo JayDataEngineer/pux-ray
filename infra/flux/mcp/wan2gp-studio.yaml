@@ -20,9 +20,15 @@ spec:
       labels:
         app: wan2gp-studio-mcp
     spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: wan2gp-studio
-          image: forge-reg.local:30500/tech-noir/mcp-wan2gp-studio:latest
+          image: forge-registry.infra.svc.cluster.local:5000/tech-noir/mcp-wan2gp-studio:latest
           ports:
             - containerPort: 8002
           securityContext:

@@ -117,6 +117,15 @@ _MODEL_PRESETS: dict[str, dict] = {
 _MODEL_CHOICES = list(_MODEL_PRESETS.keys())
 
 
+def get_model_preset(model: str) -> dict[str, Any]:
+    """Get the preset defaults for a specific model.
+
+    Returns the preset configuration including recommended steps, guidance, etc.
+    Used by the frontend to pre-fill form fields with model-specific defaults.
+    """
+    return _MODEL_PRESETS.get(model, {})
+
+
 async def generate(
     model: Annotated[str, Field(
         description=f"Model to use.",
@@ -139,21 +148,18 @@ async def generate(
     height: Annotated[int, Field(
         description="Image height in pixels. Must be divisible by 16.",
     )] = 1024,
-    advanced: Annotated[bool, Field(
-        description="Enable advanced mode to override all parameters manually.",
-    )] = False,
     sampling_steps: Annotated[int | None, Field(
-        description="[Advanced] Number of denoising steps. Overrides model preset.",
+        description="Number of denoising steps. Leave empty to use model preset.",
     )] = None,
     guide_scale: Annotated[float | None, Field(
-        description="[Advanced] CFG guidance scale. Overrides model preset.",
+        description="CFG guidance scale. Leave empty to use model preset.",
     )] = None,
     ctx: Context | None = None,
 ) -> dict:
     """Generate an image using Z-Image, Flux, Anima, Qwen Image, or HiDream.
 
-    Sensible defaults are applied per model. Use advanced=True to override
-    individual parameters like sampling_steps, guide_scale, or quality.
+    Sensible defaults are applied per model. Override individual parameters
+    like sampling_steps or guide_scale for custom settings.
 
     Returns base64-encoded image data and metadata.
     """
@@ -171,31 +177,25 @@ async def generate(
         "seed": seed,
     }
 
-    # Apply preset defaults (overridden by explicit args when not in advanced mode)
-    if not advanced:
-        params["quality"] = preset.get("quality", "turbo")
-        params["width"] = width if width != 1024 else preset.get("width", 1024)
-        params["height"] = height if height != 1024 else preset.get("height", 1024)
-        if negative_prompt is not None:
-            params["n_prompt"] = negative_prompt
-        elif "negative_prompt" in preset:
-            params["n_prompt"] = preset["negative_prompt"]
-        if "sampling_steps" in preset and sampling_steps is None:
-            params["sampling_steps"] = preset["sampling_steps"]
-        if "guide_scale" in preset and guide_scale is None:
-            params["guide_scale"] = preset["guide_scale"]
-        for extra_key in ("steps", "guidance", "resolution", "embedded_guidance_scale"):
-            if extra_key in preset:
-                params[extra_key] = preset[extra_key]
-    else:
-        params["width"] = width
-        params["height"] = height
-        if negative_prompt is not None:
-            params["n_prompt"] = negative_prompt
-        if sampling_steps is not None:
-            params["sampling_steps"] = sampling_steps
-        if guide_scale is not None:
-            params["guide_scale"] = guide_scale
+    # Apply preset defaults (overridden by explicit args if provided)
+    params["quality"] = preset.get("quality", "turbo")
+    params["width"] = width if width != 1024 else preset.get("width", 1024)
+    params["height"] = height if height != 1024 else preset.get("height", 1024)
+    if negative_prompt is not None:
+        params["n_prompt"] = negative_prompt
+    elif "negative_prompt" in preset:
+        params["n_prompt"] = preset["negative_prompt"]
+    if sampling_steps is not None:
+        params["sampling_steps"] = sampling_steps
+    elif "sampling_steps" in preset:
+        params["sampling_steps"] = preset["sampling_steps"]
+    if guide_scale is not None:
+        params["guide_scale"] = guide_scale
+    elif "guide_scale" in preset:
+        params["guide_scale"] = preset["guide_scale"]
+    for extra_key in ("steps", "guidance", "resolution", "embedded_guidance_scale"):
+        if extra_key in preset:
+            params[extra_key] = preset[extra_key]
 
     payload = {"service": "wan2gp", "model": model, **params}
     return await client.invoke(payload)

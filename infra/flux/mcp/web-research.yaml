@@ -19,9 +19,15 @@ spec:
       labels:
         app: web-research-mcp
     spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: server
-          image: forge-reg.local:30500/tech-noir/mcp-web-research:latest
+          image: forge-registry.infra.svc.cluster.local:5000/tech-noir/mcp-web-research:latest
           ports:
             - containerPort: 8000
           securityContext:

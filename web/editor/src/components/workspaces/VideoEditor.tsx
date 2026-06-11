@@ -12,6 +12,7 @@ import { useAssetStore } from "@/stores/assets"
 import { callTool } from "@/mcp"
 import { VIDEO_MODELS, CONTROL_VIDEO_MODES, AUDIO_PROMPT_MODES, MASK_MODES } from "@/types/timeline"
 import type { TimelineSegment } from "@/types/timeline"
+import type { JobEntry } from "@/components/workspaces/WorkspaceLayout"
 import {
   Play, Pause, SkipBack, Plus, Trash2,
   Music, Mic, Volume2, Film, Settings, Wand2, Loader2,
@@ -59,6 +60,7 @@ interface CueDragInfo {
 // ── Compile timeline into backend payload ─────────────────────────────────────
 function buildPayload(seg: TimelineSegment, _allSegments?: TimelineSegment[]) {
   const p = seg.params
+  const isLtxModel = p.model.startsWith("ltx") || p.model === "ltx2" || p.model === "ltx2_19B" || p.model === "ltxv_098_13b"
   return {
     service: "wan2gp",
     params: {
@@ -89,7 +91,7 @@ function buildPayload(seg: TimelineSegment, _allSegments?: TimelineSegment[]) {
       NAG_scale: p.nagScale !== 1.0 ? p.nagScale : undefined,
       NAG_tau: p.nagTau !== 3.5 ? p.nagTau : undefined,
       NAG_alpha: p.nagAlpha !== 0.5 ? p.nagAlpha : undefined,
-      sample_solver: p.sampleSolver !== 'euler' ? p.sampleSolver : undefined,
+      sample_solver: isLtxModel ? p.sampleSolver : (p.sampleSolver !== 'euler' ? p.sampleSolver : undefined),
       self_refiner_setting: p.selfRefinerSetting || undefined,
       self_refiner_plan: p.selfRefinerPlan || undefined,
       self_refiner_f_uncertainty: p.selfRefinerSetting ? p.selfRefinerFUncertainty : undefined,
@@ -109,12 +111,17 @@ function buildPayload(seg: TimelineSegment, _allSegments?: TimelineSegment[]) {
   }
 }
 
-export function VideoEditor() {
+interface VideoEditorProps {
+  jobs: JobEntry[]
+  onAddJob: (j: JobEntry[] | ((prev: JobEntry[]) => JobEntry[])) => void
+}
+
+export function VideoEditor({ jobs, onAddJob }: VideoEditorProps) {
   const segments = useTimelineStore((s) => s.segments)
   const audioCues = useTimelineStore((s) => s.audioCues)
   const audioTracks = useTimelineStore((s) => s.audioTracks)
   const addAudioTrack = useTimelineStore((s) => s.addAudioTrack)
-  const removeAudioTrack = useTimelineStore((s) => s.removeAudioTrack)
+  const removeAudioTrack = useTimelineStore((s) => removeAudioTrack)
   const addSegment = useTimelineStore((s) => s.addSegment)
   const removeSegment = useTimelineStore((s) => s.removeSegment)
   const updateSegment = useTimelineStore((s) => s.updateSegment)
@@ -365,6 +372,12 @@ export function VideoEditor() {
     updateSegment(seg.id, { status: "generating" })
     setGenerating(true)
     setGeneratingSegId(seg.id)
+
+    // Create job notification
+    const jobId = Date.now()
+    const jobName = `Generate K${seg.order + 1}`
+    onAddJob((prev) => [{ id: jobId, name: jobName, status: "running", startedAt: Date.now() }, ...prev])
+
     try {
       // If using LTX model, route through ltx_director spec
       const isLtx = seg.params.model.startsWith("ltx")
@@ -388,15 +401,18 @@ export function VideoEditor() {
       if (r.status === "ok" && r.data) {
         updateSegment(seg.id, { videoUrl: `data:video/mp4;base64,${r.data}`, status: "ready", error: null })
         toast("success", `${segLabel(seg.order)} generated!`)
+        onAddJob((prev) => prev.map((j) => j.id === jobId ? { ...j, status: "completed", endedAt: Date.now() } : j))
       } else {
         const errMsg = r.error || "Generation failed"
         updateSegment(seg.id, { status: "failed", error: errMsg })
         toast("error", errMsg)
+        onAddJob((prev) => prev.map((j) => j.id === jobId ? { ...j, status: "failed", endedAt: Date.now(), error: errMsg } : j))
       }
     } catch (e) {
       const errMsg = String(e)
       updateSegment(seg.id, { status: "failed", error: errMsg })
       toast("error", errMsg)
+      onAddJob((prev) => prev.map((j) => j.id === jobId ? { ...j, status: "failed", endedAt: Date.now(), error: errMsg } : j))
     } finally {
       setGenerating(false)
       setGeneratingSegId(null)
@@ -410,6 +426,11 @@ export function VideoEditor() {
 
     const eligible = segments.filter(s => s.status === "empty" || s.status === "failed" || s.status === "generating")
     if (eligible.length === 0) { setGenerating(false); return }
+
+    // Create job notification for relay generation
+    const jobId = Date.now()
+    const jobName = `Director Relay (${eligible.length} segments)`
+    onAddJob((prev) => [{ id: jobId, name: jobName, status: "running", startedAt: Date.now() }, ...prev])
 
     // ── LTX relay path: all LTX segments → single Director relay call ──
     const ltxSegs = eligible.filter(s => s.params.model.startsWith("ltx"))
@@ -469,15 +490,18 @@ export function VideoEditor() {
           // Mark all segments ready
           ltxSegs.forEach(s => updateSegment(s.id, { status: "ready", error: null }))
           toast("success", `Director relay: ${ltxSegs.length} segments, ${totalFrames} frames`)
+          onAddJob((prev) => prev.map((j) => j.id === jobId ? { ...j, status: "completed", endedAt: Date.now() } : j))
         } else {
           const errMsg = r.error || "Director relay failed"
           ltxSegs.forEach(s => updateSegment(s.id, { status: "failed", error: errMsg }))
           toast("error", errMsg)
+          onAddJob((prev) => prev.map((j) => j.id === jobId ? { ...j, status: "failed", endedAt: Date.now(), error: errMsg } : j))
         }
       } catch (e) {
         const errMsg = String(e)
         ltxSegs.forEach(s => updateSegment(s.id, { status: "failed", error: errMsg }))
         toast("error", errMsg)
+        onAddJob((prev) => prev.map((j) => j.id === jobId ? { ...j, status: "failed", endedAt: Date.now(), error: errMsg } : j))
       }
     }
 
