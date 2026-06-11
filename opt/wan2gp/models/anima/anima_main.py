@@ -12,7 +12,8 @@ from diffusers import CosmosTransformer3DModel
 from diffusers.utils import logging
 from mmgp import offload
 from shared.utils import files_locator as fl
-from transformers import AutoTokenizer, Qwen3ForCausalLM
+from transformers import AutoTokenizer, Qwen3ForCausalLM, AutoConfig
+import safetensors.torch
 
 # Import Qwen-Image VAE - correct architecture for Anima
 # Anima uses Qwen-Image VAE, not ZImage Turbo VAE
@@ -193,10 +194,8 @@ class model_factory:
 
         # --- Text encoder (Qwen3 0.6B, only 1.2GB, no lm_head) ---
         # Load directly with PyTorch — small enough to not need mmgp offloading.
-        from transformers import AutoConfig
         te_config_dir = os.path.join("ckpts", "Qwen3-0.6B")
         te_config = AutoConfig.from_pretrained(te_config_dir, trust_remote_code=True)
-        import safetensors.torch
         te_sd = safetensors.torch.load_file(text_encoder_filename)
         te_sd["lm_head.weight"] = torch.zeros(
             te_config.vocab_size, te_config.hidden_size
@@ -248,7 +247,6 @@ class model_factory:
             )
 
             # Load the VAE weights directly
-            import safetensors.torch
             vae_state_dict = safetensors.torch.load_file(vae_filename)
             vae.load_state_dict(vae_state_dict, strict=False)
             vae.to(VAE_dtype).to("cuda" if torch.cuda.is_available() else "cpu")
@@ -268,7 +266,6 @@ class model_factory:
             )
 
             # Load weights with non-strict loading
-            import safetensors.torch
             vae_state_dict = safetensors.torch.load_file(vae_filename)
             vae.load_state_dict(vae_state_dict, strict=False)
             vae.to(VAE_dtype).to("cuda" if torch.cuda.is_available() else "cpu")
