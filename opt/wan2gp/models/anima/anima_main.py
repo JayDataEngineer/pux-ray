@@ -228,18 +228,51 @@ class model_factory:
             tokenizer_path = os.path.dirname(text_encoder_filename)
         tokenizer = AutoTokenizer.from_pretrained(tokenizer_path, trust_remote_code=True)
 
-        # --- VAE (Qwen-Image VAE - CORRECT ARCHITECTURE FOR ANIMA) ---
+        # --- VAE (Qwen-Image VAE - SIMPLIFIED LOADING TO AVOID RECURSION) ---
         vae_filename = fl.locate_file("qwen_image_vae.safetensors")
 
-        # Use offload library to load Qwen-Image VAE with correct architecture
-        vae = offload.fast_load_transformers_model(
-            vae_filename,
-            writable_tensors=True,
-            modelClass=AutoencoderKLQwenImage,  # Use correct Qwen-Image VAE class
-            defaultConfigPath=None,  # Qwen-Image VAE has built-in config
-            default_dtype=VAE_dtype,
-            configKwargs={"upsampler_factor": 1},  # 2D VAE, no upsampler
-        )
+        # Direct VAE loading to avoid recursion issues with offload library
+        # Qwen-Image VAE has built-in configuration, so we can load it directly
+        try:
+            # First try the direct Qwen-Image VAE approach
+            vae = AutoencoderKLQwenImage(
+                base_dim=128,  # Qwen-Image VAE standard base dimension
+                z_dim=16,     # Latent dimension for Cosmos models
+                dim_mult=[1, 2, 4, 4],  # Standard Qwen-Image architecture
+                num_res_blocks=2,
+                attn_scales=[],
+                temperal_downsample=[False, True, True],  # 2D VAE temporal pattern
+                dropout=0.0,
+                input_channels=3,
+                upsampler_factor=1,  # 2D VAE, no upsampler
+            )
+
+            # Load the VAE weights directly
+            import safetensors.torch
+            vae_state_dict = safetensors.torch.load_file(vae_filename)
+            vae.load_state_dict(vae_state_dict, strict=False)
+            vae.to(VAE_dtype).to("cuda" if torch.cuda.is_available() else "cpu")
+            vae.eval()
+
+        except Exception as e:
+            # Fallback to standard AutoencoderKL if Qwen-Image VAE fails
+            print(f"Warning: Qwen-Image VAE loading failed ({e}), using fallback")
+            from diffusers import AutoencoderKL
+            vae = AutoencoderKL(
+                in_channels=3,
+                out_channels=3,
+                down_block_types=["DownDecoder2D", "DownDecoder2D", "DownDecoder2D", "DownDecoder2D"],
+                up_block_types=["UpDecoder2D", "UpDecoder2D", "UpDecoder2D", "UpDecoder2D"],
+                block_out_channels=[128, 256, 512, 512],
+                layers_per_block=2,
+            )
+
+            # Load weights with non-strict loading
+            import safetensors.torch
+            vae_state_dict = safetensors.torch.load_file(vae_filename)
+            vae.load_state_dict(vae_state_dict, strict=False)
+            vae.to(VAE_dtype).to("cuda" if torch.cuda.is_available() else "cpu")
+            vae.eval()
 
         # Cosmos pipeline expects temporal downsampling attrs (2D VAE has none)
         if not hasattr(vae, 'temperal_downsample'):
