@@ -85,16 +85,9 @@ async def generate_character_sheet(
     )] = "",
     ctx: Context | None = None,
 ) -> dict:
-    """Generate a character base sheet matching the VNCCS CharacterCreator workflow.
+    """Generate character sheet from structured attributes.
 
-    1:1 match of VN_Step1_QWEN_CharSheetGenerator_v1 ComfyUI workflow:
-      1. CharacterCreator -> prompt from structured attributes (sex, age, race, etc)
-      2. VNCCS_PoseGenerator -> 12-pose openpose grid reference image
-      3. SD base generation -> turbo (8-step) or standard (20-step)
-      4. QWEN refinement -> 4-step image edit with pose grid + poser_helper_v2 LoRA
-      5. Face detailer -> DWPose face crop -> 20-step QWEN refine -> composite back
-
-    Returns base64-encoded sheet image + optional face crop.
+    Returns base64-encoded sheet image.
     """
     if ctx is None:
         raise RuntimeError("No MCP context available")
@@ -159,15 +152,7 @@ async def edit(
     )] = -1,
     ctx: Context | None = None,
 ) -> dict:
-    """Edit an image — dynamically selects the best pipeline.
-
-    When a pose/mannequin/mesh reference image is provided (pose_image_b64),
-    uses the VNCCS Pose Studio pipeline for accurate character re-posing with
-    skeleton extraction and PoseStudio LoRA.
-
-    When no pose reference is provided, performs a standard QWEN image edit
-    using just the text prompt — ideal for style changes, outfit swaps,
-    background edits, and general image-to-image modifications.
+    """Edit images: pose reference → VNCCS pipeline, no pose → QWEN edit.
 
     Returns base64-encoded image data.
     """
@@ -278,13 +263,7 @@ async def clone_character(
     )] = -1,
     ctx: Context | None = None,
 ) -> dict:
-    """Clone an existing character with modified attributes.
-
-    Takes a reference character image and re-renders it with new
-    character attributes (age, hair, eyes, body, etc) using QWEN-Image-Edit.
-    The character's core identity is preserved while applying the changes.
-
-    Corresponds to the VNCCS Step1.1 Clone workflow.
+    """Clone character with modified attributes using QWEN-Image-Edit.
 
     Returns base64-encoded image data.
     """

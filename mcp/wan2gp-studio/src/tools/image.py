@@ -1,6 +1,6 @@
-"""Image generation MCP tool — unified interface for z-image, anigen, flux, etc.
+"""Image generation MCP tool — unified interface for image models.
 
-Provides sensible defaults per model with an "advanced" mode for full control.
+Provides sensible defaults per model with optional parameter override.
 All models route through the Wan2GP forge adapter via /v1/run.
 """
 from typing import Annotated, Any
@@ -156,12 +156,9 @@ async def generate(
     )] = None,
     ctx: Context | None = None,
 ) -> dict:
-    """Generate an image using Z-Image, Flux, Anima, Qwen Image, or HiDream.
+    """Generate images with model-specific defaults.
 
-    Sensible defaults are applied per model. Override individual parameters
-    like sampling_steps or guide_scale for custom settings.
-
-    Returns base64-encoded image data and metadata.
+    Returns base64-encoded image data.
     """
     if ctx is None:
         raise RuntimeError("No MCP context available")
