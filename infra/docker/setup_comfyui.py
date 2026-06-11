@@ -67,6 +67,7 @@ def main():
         )
 
     # Set up extra_model_paths.yaml - DOCKER VOLUME MOUNTS ONLY, NO SYMLINKS
+    # Covers ALL Wan2GP model types for complete ComfyUI integration
     config = {
         "ray_models": {
             "base_path": "/models/image-gen/comfyui",
@@ -81,12 +82,23 @@ def main():
             "diffusion_models": "diffusion_models",
             "text_encoders": "text_encoders",
         },
-        "wan2gp_base": {
+        "wan2gp_all": {
             "base_path": "/opt/wan2gp/ckpts",
-            "unet": "",  # Anima models at base_path
-            "diffusion_models": "",  # Anima models at base_path
-            "text_encoders": "Qwen3-0.6B",  # Qwen text encoder in subdirectory
-            "clip": "Qwen3-0.6B",  # Also add to clip search path
+            # Diffusion models at base level (Anima, Qwen Image Edit, LTX, Flux, etc.)
+            "unet": "",
+            "diffusion_models": "",
+            # Text encoders in multiple locations (subdirectories + split_files)
+            "text_encoders": "Qwen3-0.6B\nQwen2.5-VL-7B-Instruct\ngemma-3-12b-it-qat-q4_0-unquantized\nsplit_files/text_encoders",
+            "clip": "Qwen3-0.6B\nQwen2.5-VL-7B-Instruct\ngemma-3-12b-it-qat-q4_0-unquantized\nsplit_files/text_encoders",
+            # VAE models at base level (qwen_vae, ltx-2.3-22b_vae)
+            "vae": "",
+            # Upscalers at base level (ltx-2.3-spatial-upscaler, ltx-2.3-temporal-upscaler)
+            "upscale_models": "",
+            "latent_upscale_models": "",
+            # Audio encoders (rife4.26, wav2vec models)
+            "audio_encoders": "wav2vec",
+            # SAM/Matanyone models in mask subdirectory (for segmentation nodes)
+            "sams": "mask",
         }
     }
     with open("/opt/ComfyUI/extra_model_paths.yaml", "w") as f:
