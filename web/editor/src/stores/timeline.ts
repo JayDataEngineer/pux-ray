@@ -130,6 +130,7 @@ export const useTimelineStore = create<TimelineStore>((set, get) => ({
   selectedAudioCueId: null,
   relayVideoUrl: null,
   relaySegmentIds: [],
+  relayAssetId: null,
 
   addSegment: (partial) => {
     const state = get()
@@ -266,6 +267,7 @@ export const useTimelineStore = create<TimelineStore>((set, get) => ({
         start: 0,
         duration: defaultDuration,
         prompt: (run.inputs?.video_prompt as string) || '',
+        negativePrompt: '',
         thumbnailUrl,
         videoUrl,
         firstFrameB64: null,
@@ -274,6 +276,8 @@ export const useTimelineStore = create<TimelineStore>((set, get) => ({
         trimStart: 0,
         sourceStepId: primaryVideoStep,
         status: 'ready',
+        error: null,
+        controlVideoUrl: null,
       })
       cursor = defaultDuration
     }
@@ -303,6 +307,7 @@ export const useTimelineStore = create<TimelineStore>((set, get) => ({
         duration: defaultDuration,
         label: stepId.replace(/_/g, ' '),
         audioUrl,
+        audioB64: null,
         volume: stepId === 'music' ? 0.4 : 1.0,
         waveformPeaks: null,
         sourceStepId: stepId,

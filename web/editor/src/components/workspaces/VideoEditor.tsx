@@ -423,8 +423,10 @@ export function VideoEditor({ jobs, onAddJob }: VideoEditorProps) {
             duration: seg.duration,
             label: `K${seg.order + 1} Generated Audio`,
             audioUrl: videoData, // Use the video URL as audio source (MP4 contains audio)
+            audioB64: null,
             volume: 1.0,
             waveformPeaks: null,
+            sourceStepId: null,
           })
         }
 
@@ -538,8 +540,10 @@ export function VideoEditor({ jobs, onAddJob }: VideoEditorProps) {
               duration: relayEnd - relayStart,
               label: `Relay Generated Audio (${ltxSegs.length} segments)`,
               audioUrl: videoUrl, // Use the video URL as audio source (MP4 contains audio)
+              audioB64: null,
               volume: 1.0,
               waveformPeaks: null,
+              sourceStepId: null,
             })
           }
 
