@@ -22,7 +22,12 @@ _qwen_dir = os.path.join(
 )
 if _qwen_dir not in _sys.path:
     _sys.path.insert(0, _qwen_dir)
-from autoencoder_kl_qwenimage import AutoencoderKLQwenImage as AutoencoderKL
+try:
+    from autoencoder_kl_qwenimage import AutoencoderKLQwenImage
+except ImportError:
+    # Fallback to standard AutoencoderKL if Qwen-Image VAE not available
+    from diffusers import AutoencoderKL
+    AutoencoderKLQwenImage = AutoencoderKL
 
 logger = logging.get_logger(__name__)
 
@@ -230,7 +235,7 @@ class model_factory:
         vae = offload.fast_load_transformers_model(
             vae_filename,
             writable_tensors=True,
-            modelClass=AutoencoderKL,  # This is now AutoencoderKLQwenImage
+            modelClass=AutoencoderKLQwenImage,  # Use correct Qwen-Image VAE class
             defaultConfigPath=None,  # Qwen-Image VAE has built-in config
             default_dtype=VAE_dtype,
             configKwargs={"upsampler_factor": 1},  # 2D VAE, no upsampler
