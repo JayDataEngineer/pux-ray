@@ -1669,19 +1669,6 @@ function AssetsTab({ selectedService, jobs, onAddJob, nextJobId, onOpenKimodo, o
                         </div>
                       ))}
 
-                      {/* ── LoRA Picker (Special Handling) ──────────────────────────────────────── */}
-                      {fields.filter(f => f.name === "loras_selected").map(f => (
-                        <div key={f.name} className="space-y-2">
-                          <FieldLabel label={f.label} tooltip="Select LoRA models to enhance generation" />
-                          <LoraPicker
-                            model={String(values.model || "")}
-                            value={String(values[f.name] ?? "")}
-                            onChange={(v) => setValues((p) => ({ ...p, [f.name]: v }))}
-                            variant="light"
-                          />
-                        </div>
-                      ))}
-
                       {/* Additional Advanced Fields */}
                       {(selectedService === "tts_speak"
                         ? ttsVisibleFields(String(values.engine || "kokoro"), fields)
@@ -1693,8 +1680,7 @@ function AssetsTab({ selectedService, jobs, onAddJob, nextJobId, onOpenKimodo, o
                           )
                         : fields
                       ).filter(f =>
-                        !["prompt", "text", "model", "seed", "width", "height", "sampling_steps", "steps", "guide_scale", "guidance", "negative_prompt"].includes(f.name) &&
-                        f.name !== "loras_selected" &&
+                        !["prompt", "text", "model", "seed", "width", "height", "sampling_steps", "steps", "guide_scale", "guidance", "negative_prompt", "loras_selected"].includes(f.name) &&
                         f.type !== "file" &&
                         f.type !== "boolean"
                       ).map(f => (
@@ -1986,6 +1972,24 @@ function AssetsTab({ selectedService, jobs, onAddJob, nextJobId, onOpenKimodo, o
                         Model-specific settings will appear here when you select a model.
                       </div>
                     )}
+
+                    {/* ── LoRA Picker ──────────────────────────────────────────────────────── */}
+                    {fields.filter(f => f.name === "loras_selected").map(f => (
+                      <div key={f.name} className="pt-2 border-t">
+                        <div className="space-y-2">
+                          <div className="font-semibold text-xs">LoRA Enhancement</div>
+                          <div className="text-[10px] text-muted-foreground mb-2">
+                            Select LoRA models to enhance generation quality
+                          </div>
+                          <LoraPicker
+                            model={String(values.model || "")}
+                            value={String(values[f.name] ?? "")}
+                            onChange={(v) => setValues((p) => ({ ...p, [f.name]: v }))}
+                            variant="light"
+                          />
+                        </div>
+                      </div>
+                    ))}
                   </div>
                 )}
               </div>
