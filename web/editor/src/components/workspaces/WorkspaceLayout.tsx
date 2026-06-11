@@ -1902,7 +1902,7 @@ function AssetsTab({ selectedService, jobs, onAddJob, nextJobId, onOpenKimodo, o
                 </Button>
                 {advancedOpen && (
                   <div className="rounded-lg bg-muted/50 p-3 space-y-2 text-[11px]">
-                    {String(values.model || "") === "anima_base" ? (
+                    {String(values.model || "") === "anima" ? (
                       <>
                         <div className="font-semibold text-xs mb-2">Anima Base Recommended Settings</div>
                         <div className="grid grid-cols-2 gap-x-4 gap-y-1">
@@ -2009,7 +2009,7 @@ function AssetsTab({ selectedService, jobs, onAddJob, nextJobId, onOpenKimodo, o
                 </Button>
                 {promptingOpen && (
                   <div className="rounded-lg bg-muted/50 p-3 space-y-3 text-[11px]">
-                    {String(values.model || "") === "anima_base" ? (
+                    {String(values.model || "") === "anima" ? (
                       <>
                         <div className="font-semibold text-xs mb-2">Anima Prompting Guide</div>
                         <div className="space-y-2">

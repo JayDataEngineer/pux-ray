@@ -28,12 +28,13 @@ _MODEL_PRESETS: dict[str, dict] = {
         "description": "Z-Image Base 6B — full model, 50 steps, CFG 4.0. Best for creative work, fine-tuning, max diversity.",
     },
     # ── Anima (anime/illustration) ──────────────────────────────────────────
-    "anima_base": {
+    "anima": {
         "label": "Anima",
         "quality": "standard",
         "width": 1024, "height": 1024,
         "sampling_steps": 30, "guide_scale": 4.0,
         "description": "Anima Base 2B — anime/illustration focused, Cosmos architecture. 30 steps, CFG 4.0.",
+        "service": "wan2gp",
     },
     # ── Flux 1 family ───────────────────────────────────────────────────────
     "flux": {
@@ -206,5 +207,5 @@ async def generate(
         if extra_key in preset:
             params[extra_key] = preset[extra_key]
 
-    payload = {"service": "wan2gp", "model": model, **params}
+    payload = {"service": preset.get("service", "wan2gp"), "model": model, **params}
     return await client.invoke(payload)
