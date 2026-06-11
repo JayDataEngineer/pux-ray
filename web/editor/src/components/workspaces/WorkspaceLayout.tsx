@@ -18,9 +18,10 @@ import { getEnhancePrompt } from "@/lib/enhance-prompts"
 import { EnhanceConfigDialog } from "@/components/EnhanceConfigDialog"
 import { kimodoUrl } from "@/mcp"
 import { callTool, forgeStatus, listTools, type MCPTool } from "@/mcp"
-import { Cpu, HardDrive, PanelLeft, PanelRightClose, Wand2, Loader2, CheckCircle2, XCircle, Clock, ListTodo, Maximize2, ChevronLeft, ChevronRight, Download, Sparkles, AlertTriangle, ChevronDown } from "lucide-react"
+import { Cpu, HardDrive, PanelLeft, PanelRightClose, Wand2, Loader2, CheckCircle2, XCircle, Clock, ListTodo, Maximize2, ChevronLeft, ChevronRight, Download, Sparkles, AlertTriangle, ChevronDown, Plus, Trash2 } from "lucide-react"
 import { AppSidebar } from "./AppSidebar"
 import { VideoEditor } from "./VideoEditor"
+import { AudioWaveform } from "@/components/AudioWaveform"
 
 type TabId = "assets" | "video"
 
@@ -62,6 +63,29 @@ function ttsVisibleFields(engine: string, allFields: FieldDef[]): FieldDef[] {
   const visible = TTS_ENGINE_VISIBLE_FIELDS[engine]
   if (!visible) return allFields  // Unknown engine → show all
   return allFields.filter((f) => visible.includes(f.name))
+}
+
+// ── Dynamic Voice Creator: per-engine field visibility ──────────────────────
+function voiceCreatorVisibleFields(engine: string, mode: string, allFields: FieldDef[]): FieldDef[] {
+  if (engine === "qwen3_tts") {
+    if (mode === "voice_clone") {
+      return allFields.filter((f) =>
+        ["text", "engine", "mode", "ref_audio_b64", "ref_audio_b64_list", "language"].includes(f.name)
+      )
+    } else if (mode === "custom_voice") {
+      return allFields.filter((f) =>
+        ["text", "engine", "mode", "voice", "language"].includes(f.name)
+      )
+    } else {
+      // voice_design
+      return allFields.filter((f) =>
+        ["text", "engine", "mode", "instruct", "language"].includes(f.name)
+      )
+    }
+  } else {
+    // moss_voicegenerator - show all fields including ref_audio_b64_list
+    return allFields
+  }
 }
 
 const GENRE_ORDER = ["image", "audio", "motion", "3d", "external"]
@@ -721,9 +745,276 @@ function AssetsTab({ selectedService, jobs, onAddJob, nextJobId, onOpenKimodo }:
   const [fields, setFields] = useState<FieldDef[]>([])
   const [enhancing, setEnhancing] = useState(false)
   const [advancedOpen, setAdvancedOpen] = useState(false)
+  const [voiceExamples, setVoiceExamples] = useState<any[]>([])
+  const [voiceExampleCategories, setVoiceExampleCategories] = useState<Record<string, string>>({})
+  const [voiceSamplingPresets, setVoiceSamplingPresets] = useState<Record<string, any>>({})
+  const [voiceQwen3Voices, setVoiceQwen3Voices] = useState<string[]>([])
+  const [voiceQwen3Modes, setVoiceQwen3Modes] = useState<Record<string, string>>({})
+  const [loadingVoiceExamples, setLoadingVoiceExamples] = useState(false)
+  const [voiceAdvancedOpen, setVoiceAdvancedOpen] = useState(false)
+  const [batchMode, setBatchMode] = useState(false)
+  const [batchRequests, setBatchRequests] = useState<any[]>([])
+  const [voiceComparisonMode, setVoiceComparisonMode] = useState(false)
+  const [comparisonResults, setComparisonResults] = useState<any[]>([])
+  const [dialogueMode, setDialogueMode] = useState(false)
+  const [dialogueScript, setDialogueScript] = useState("")
+  const [pauseControlExamples, setPauseControlExamples] = useState<any[]>([])
+  const [dialogueExamples, setDialogueExamples] = useState<any[]>([])
+  const [multipleRefAudios, setMultipleRefAudios] = useState<string[]>([])
   const prevServiceRef = useRef("")
 
   const enhanceActiveModel = useEnhanceStore((s) => s.activeModel)
+
+  // Load voice examples when voice_creator service is selected
+  useEffect(() => {
+    if (selectedService === "voice_creator" && voiceExamples.length === 0 && !loadingVoiceExamples) {
+      setLoadingVoiceExamples(true)
+      callTool<{ status: string; examples?: any[]; categories?: Record<string, string>; sampling_presets?: Record<string, any>; qwen3_voices?: string[]; qwen3_modes?: Record<string, string>; pause_control_examples?: any[]; dialogue_examples?: any[] }>(
+        "voice_creator_examples",
+        {}
+      ).then((result) => {
+        if (result.status === "ok") {
+          setVoiceExamples(result.examples || [])
+          setVoiceExampleCategories(result.categories || {})
+          setVoiceSamplingPresets(result.sampling_presets || {})
+          setVoiceQwen3Voices(result.qwen3_voices || [])
+          setVoiceQwen3Modes(result.qwen3_modes || {})
+          setPauseControlExamples(result.pause_control_examples || [])
+          setDialogueExamples(result.dialogue_examples || [])
+        }
+      }).catch(() => {
+        // Examples failed to load, continue without them
+      }).finally(() => {
+        setLoadingVoiceExamples(false)
+      })
+    }
+  }, [selectedService, voiceExamples.length, loadingVoiceExamples])
+
+  // Handle voice example selection
+  const handleVoiceExampleSelect = useCallback((exampleId: string) => {
+    const example = voiceExamples.find((ex) => ex.id === exampleId)
+    if (example) {
+      setValues((prev) => ({
+        ...prev,
+        instruct: example.instruction,
+        text: example.text,
+        language: example.language,
+      }))
+      toast("info", `Loaded example: ${example.instruction.substring(0, 50)}...`)
+    }
+  }, [voiceExamples, toast])
+
+  // Handle sampling preset selection
+  const handleSamplingPresetSelect = useCallback((presetName: string) => {
+    const preset = voiceSamplingPresets[presetName]
+    if (preset) {
+      setValues((prev) => ({
+        ...prev,
+        audio_temperature: preset.audio_temperature,
+        audio_top_p: preset.audio_top_p,
+        audio_top_k: preset.audio_top_k,
+        audio_repetition_penalty: preset.audio_repetition_penalty,
+      }))
+      toast("info", `Applied sampling preset: ${presetName}`)
+    }
+  }, [voiceSamplingPresets, toast])
+
+  // Handle batch generation
+  const handleBatchGenerate = useCallback(async () => {
+    if (batchRequests.length === 0) {
+      toast("error", "No batch requests to generate")
+      return
+    }
+
+    const jobId = nextJobId.current++
+    const jobName = `Batch ${SERVICE_LABELS[selectedService] || selectedService} (${batchRequests.length})`
+    onAddJob((prev) => [{ id: jobId, name: jobName, status: "running", startedAt: Date.now() }, ...prev])
+
+    setGenerating(true)
+    try {
+      let batchFunction: string
+      if (selectedService === "voice_creator") {
+        batchFunction = "voice_creator_batch"
+      } else if (selectedService === "generate_music") {
+        batchFunction = "generate_music_batch"
+      } else if (selectedService === "generate_sound") {
+        batchFunction = "generate_sound_batch"
+      } else {
+        batchFunction = "generate_batch"
+      }
+
+      const result = await callTool<{ status: string; results: any[]; total: number; successful: number; failed: number }>(
+        batchFunction,
+        { requests: batchRequests }
+      )
+
+      if (result.status === "ok" && result.results) {
+        // Process results and add as assets
+        result.results.forEach((r: any, idx: number) => {
+          if (r.status === "ok" && r.data) {
+            const mt = r.media_type || "image/png"
+            const isAud = mt.includes("audio")
+            const cat = isAud ? "sfx" : "image"
+            const ext = mt.includes("png") ? "png" : mt.includes("jpeg") || mt.includes("jpg") ? "jpg" : mt.includes("wav") ? "wav" : "mp3"
+            addAsset({
+              name: `${nextAssetName(selectedService, ext)}_${idx + 1}`,
+              type: isAud ? "audio" : "image",
+              category: cat,
+              mediaType: mt,
+              url: `data:${mt};base64,${r.data}`,
+              sizeBytes: Math.round((r.data as string).length * 0.75),
+              source: "generated",
+            })
+          }
+        })
+        toast("success", `Batch complete: ${result.successful}/${result.total} successful`)
+        onAddJob((prev) => prev.map((j) => j.id === jobId ? { ...j, status: "completed", endedAt: Date.now() } : j))
+      } else {
+        onAddJob((prev) => prev.map((j) => j.id === jobId ? { ...j, status: "failed", endedAt: Date.now(), error: "Batch failed" } : j))
+        toast("error", "Batch generation failed")
+      }
+    } catch (e) {
+      onAddJob((prev) => prev.map((j) => j.id === jobId ? { ...j, status: "failed", endedAt: Date.now(), error: e instanceof Error ? e.message : String(e) } : j))
+      toast("error", e instanceof Error ? e.message : String(e))
+    } finally {
+      setGenerating(false)
+    }
+  }, [batchRequests, selectedService, nextJobId, onAddJob, addAsset, toast])
+
+  // Add current request to batch
+  const handleAddToBatch = useCallback(() => {
+    // Validate current values
+    const promptField = fields.find((f) => f.name === "prompt" || f.name === "text")
+    const promptVal = String(promptField ? (values[promptField.name] ?? "") : "").trim()
+
+    if (!promptVal) {
+      toast("error", "Enter a prompt first, then add to batch")
+      return
+    }
+
+    // Create request object based on service
+    const request: any = {
+      prompt: promptVal,
+      text: promptVal, // Some tools use 'text', some use 'prompt'
+    }
+
+    // Add all current values to the request
+    Object.entries(values).forEach(([key, value]) => {
+      if (value !== null && value !== "" && value !== undefined) {
+        request[key] = value
+      }
+    })
+
+    setBatchRequests((prev: any[]) => [...prev, request])
+    toast("info", `Added to batch (${batchRequests.length + 1} requests)`)
+  }, [values, fields, batchRequests.length, toast])
+
+  // Handle voice comparison
+  const handleVoiceComparison = useCallback(async () => {
+    if (!values.text) {
+      toast("error", "Enter sample text for voice comparison")
+      return
+    }
+
+    setVoiceComparisonMode(true)
+    setComparisonResults([])
+
+    // Generate variations with different settings
+    const variations = [
+      { ...values, instruct: (values.instruct || "") + " - Original style" },
+      { ...values, audio_temperature: 1.8, instruct: (values.instruct || "") + " - More expressive" },
+      { ...values, audio_temperature: 1.2, instruct: (values.instruct || "") + " - More stable" },
+    ]
+
+    const results = []
+    for (let i = 0; i < variations.length; i++) {
+      try {
+        const result = await callTool("voice_creator", variations[i])
+        results.push({
+          index: i,
+          label: `Variation ${i + 1}`,
+          params: variations[i],
+          data: (result as any).data,
+          media_type: (result as any).media_type,
+          error: (result as any).error,
+        })
+      } catch (e) {
+        results.push({
+          index: i,
+          label: `Variation ${i + 1}`,
+          params: variations[i],
+          error: e instanceof Error ? e.message : String(e),
+        })
+      }
+    }
+
+    setComparisonResults(results)
+    toast("success", "Voice comparison complete")
+  }, [values, toast])
+
+  // Handle dialogue script generation
+  const handleDialogueGenerate = useCallback(async () => {
+    if (!dialogueScript.trim()) {
+      toast("error", "Enter a dialogue script first")
+      return
+    }
+
+    // Parse dialogue script (simple format: Speaker: Text)
+    const lines = dialogueScript.split("\n").filter((line) => line.trim())
+    const requests: any[] = []
+
+    lines.forEach((line) => {
+      const match = line.match(/^([^:]+):\s*(.+)$/)
+      if (match) {
+        const speaker = match[1].trim()
+        const text = match[2].trim()
+        requests.push({
+          text,
+          instruct: `Voice for ${speaker}`,
+          language: values.language || "English",
+          engine: values.engine || "moss_voicegenerator",
+          mode: values.mode || "voice_design",
+        })
+      }
+    })
+
+    if (requests.length === 0) {
+      toast("error", "No valid dialogue lines found. Use format: Speaker: Text")
+      return
+    }
+
+    const jobId = nextJobId.current++
+    const jobName = `Dialogue (${requests.length} lines)`
+    onAddJob((prev) => [{ id: jobId, name: jobName, status: "running", startedAt: Date.now() }, ...prev])
+
+    try {
+      const result = await callTool<{ status: string; results: any[]; total: number; successful: number; failed: number }>("voice_creator_batch", { requests })
+
+      if (result.status === "ok" && result.results) {
+        result.results.forEach((r: any, idx: number) => {
+          if (r.status === "ok" && r.data) {
+            addAsset({
+              name: `${lines[idx].split(":")[0].trim()}_${nextAssetName("voice", "wav")}`,
+              type: "audio",
+              category: "voice",
+              mediaType: "audio/wav",
+              url: `data:audio/wav;base64,${r.data}`,
+              sizeBytes: Math.round((r.data as string).length * 0.75),
+              source: "generated",
+            })
+          }
+        })
+        toast("success", `Dialogue complete: ${result.successful}/${result.total} lines`)
+        onAddJob((prev) => prev.map((j) => j.id === jobId ? { ...j, status: "completed", endedAt: Date.now() } : j))
+      } else {
+        onAddJob((prev) => prev.map((j) => j.id === jobId ? { ...j, status: "failed", endedAt: Date.now() } : j))
+        toast("error", "Dialogue generation failed")
+      }
+    } catch (e) {
+      onAddJob((prev) => prev.map((j) => j.id === jobId ? { ...j, status: "failed", endedAt: Date.now(), error: e instanceof Error ? e.message : String(e) } : j))
+      toast("error", e instanceof Error ? e.message : String(e))
+    }
+  }, [dialogueScript, values, nextJobId, onAddJob, addAsset, toast])
 
   const handleEnhance = useCallback(async () => {
     const model = enhanceActiveModel()
@@ -953,6 +1244,364 @@ function AssetsTab({ selectedService, jobs, onAddJob, nextJobId, onOpenKimodo }:
               <h2 className="text-base font-semibold">{label}</h2>
               {selectedService && <Badge variant="outline" className="text-[10px]">{selectedService}</Badge>}
             </div>
+            {/* Voice Creator Example Selection */}
+            {selectedService === "voice_creator" && !loadingVoiceExamples && voiceExamples.length > 0 && (
+              <div className="space-y-2">
+                <div className="flex items-center gap-2">
+                  <Label className="text-xs font-medium">Voice Examples</Label>
+                  <span className="text-[10px] text-muted-foreground">From vendor demos</span>
+                </div>
+                <Select
+                  value=""
+                  onValueChange={(value) => value && handleVoiceExampleSelect(value)}
+                >
+                  <SelectTrigger className="h-8 text-xs">
+                    <SelectValue placeholder="Select an example..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {Object.entries(voiceExampleCategories).map(([cat, label]) => (
+                      <div key={cat} className="space-y-1">
+                        <div className="px-2 py-1 text-[10px] font-semibold text-muted-foreground uppercase">
+                          {label}
+                        </div>
+                        {voiceExamples
+                          .filter((ex) => ex.category === cat)
+                          .map((ex) => (
+                            <SelectItem key={ex.id} value={ex.id} className="text-xs">
+                              {ex.instruction.substring(0, 60)}...
+                            </SelectItem>
+                          ))}
+                      </div>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+
+            {/* MOSS Sampling Presets */}
+            {selectedService === "voice_creator" && String(values.engine || "moss_voicegenerator") === "moss_voicegenerator" && (
+              <div className="space-y-2">
+                <div className="flex items-center gap-2">
+                  <Label className="text-xs font-medium">MOSS Sampling Presets</Label>
+                  <span className="text-[10px] text-muted-foreground">Vendor-recommended settings</span>
+                </div>
+                <div className="flex flex-wrap gap-1">
+                  {Object.keys(voiceSamplingPresets).map((preset) => (
+                    <Button
+                      key={preset}
+                      variant="outline"
+                      size="sm"
+                      className="h-7 text-xs"
+                      onClick={() => handleSamplingPresetSelect(preset)}
+                    >
+                      {preset}
+                    </Button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Voice Advanced Settings Toggle */}
+            {selectedService === "voice_creator" && (
+              <div className="space-y-2">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="w-full h-8 text-xs gap-2 justify-start px-2"
+                  onClick={() => setVoiceAdvancedOpen(!voiceAdvancedOpen)}
+                >
+                  <ChevronDown className={`h-3.5 w-3.5 transition-transform ${voiceAdvancedOpen ? "rotate-180" : ""}`} />
+                  Advanced Voice Settings
+                </Button>
+
+                {/* Pause Control Help */}
+                {String(values.model_variant || "default") === "v1.5" && (
+                  <div className="rounded-md border bg-blue-50/50 dark:bg-blue-950/20 p-2 space-y-1">
+                    <div className="text-xs font-medium text-blue-700 dark:text-blue-300">⏸️ Pause Control (MOSS v1.5)</div>
+                    <div className="text-[10px] text-muted-foreground">
+                      Use <code className="bg-background px-1 rounded">[pause X.Xs]</code> in your text for timing control:
+                    </div>
+                    <div className="space-y-0.5">
+                      {pauseControlExamples.slice(0, 2).map((ex, idx) => (
+                        <div key={idx} className="text-[9px] text-muted-foreground bg-background px-2 py-0.5 rounded">
+                          <span className="font-medium">{ex.name}:</span> {ex.text}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Dialogue Example Loading */}
+                {dialogueMode && dialogueExamples.length > 0 && (
+                  <div className="space-y-1">
+                    <div className="text-[10px] text-muted-foreground">Load dialogue example:</div>
+                    <div className="flex flex-wrap gap-1">
+                      {dialogueExamples.map((ex) => (
+                        <Button
+                          key={ex.name}
+                          variant="outline"
+                          size="sm"
+                          className="h-6 text-xs"
+                          onClick={() => setDialogueScript(ex.script)}
+                        >
+                          {ex.name}
+                        </Button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Voice Special Features */}
+                <div className="flex flex-wrap gap-1">
+                  <Button
+                    variant={batchMode ? "default" : "outline"}
+                    size="sm"
+                    className="h-7 text-xs"
+                    onClick={() => setBatchMode(!batchMode)}
+                  >
+                    {batchMode ? "📦 Batch Mode ON" : "📦 Batch Mode"}
+                  </Button>
+                  <Button
+                    variant={voiceComparisonMode ? "default" : "outline"}
+                    size="sm"
+                    className="h-7 text-xs"
+                    onClick={handleVoiceComparison}
+                    disabled={!values.text || generating}
+                  >
+                    🔄 Compare Voices
+                  </Button>
+                  <Button
+                    variant={dialogueMode ? "default" : "outline"}
+                    size="sm"
+                    className="h-7 text-xs"
+                    onClick={() => setDialogueMode(!dialogueMode)}
+                  >
+                    💬 Dialogue Mode
+                  </Button>
+                </div>
+              </div>
+            )}
+
+            {/* Batch Mode UI */}
+            {batchMode && (
+              <div className="space-y-2 rounded-md border bg-muted/50 p-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-medium">Batch Requests ({batchRequests.length})</span>
+                  <div className="flex gap-1">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-7 text-xs"
+                      onClick={handleAddToBatch}
+                      disabled={generating}
+                    >
+                      <Plus className="h-3 w-3 mr-1" /> Add Current
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-7 text-xs"
+                      onClick={() => setBatchRequests([])}
+                      disabled={generating}
+                    >
+                      Clear
+                    </Button>
+                  </div>
+                </div>
+                {batchRequests.length > 0 && (
+                  <div className="max-h-32 overflow-y-auto space-y-1">
+                    {batchRequests.map((req, idx) => (
+                      <div key={idx} className="flex items-center gap-2 text-xs bg-background px-2 py-1 rounded">
+                        <span className="text-muted-foreground">{idx + 1}.</span>
+                        <span className="flex-1 truncate">{(req.prompt || req.text || "").substring(0, 60)}...</span>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-5 w-5"
+                          onClick={() => setBatchRequests((prev) => prev.filter((_, i) => i !== idx))}
+                        >
+                          <Trash2 className="h-3 w-3" />
+                        </Button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {batchRequests.length > 0 && (
+                  <Button
+                    variant="default"
+                    size="sm"
+                    className="w-full h-8 text-xs"
+                    onClick={handleBatchGenerate}
+                    disabled={generating || running.length > 0}
+                  >
+                    {generating ? "Generating Batch..." : `Generate ${batchRequests.length} Items`}
+                  </Button>
+                )}
+              </div>
+            )}
+
+            {/* Dialogue Mode UI */}
+            {dialogueMode && (
+              <div className="space-y-2 rounded-md border bg-muted/50 p-3">
+                <div className="text-xs font-medium">Dialogue Script</div>
+                <div className="text-[10px] text-muted-foreground">
+                  Format: Speaker: Text (one line per speaker)
+                </div>
+                <Textarea
+                  value={dialogueScript}
+                  onChange={(e) => setDialogueScript(e.target.value)}
+                  placeholder={`Mother: How was your day today?\nChild: It was great! We played games.\nMother: That sounds wonderful!`}
+                  rows={6}
+                  className="text-xs"
+                />
+                <Button
+                  variant="default"
+                  size="sm"
+                  className="w-full h-8 text-xs"
+                  onClick={handleDialogueGenerate}
+                  disabled={!dialogueScript.trim() || generating || running.length > 0}
+                >
+                  {generating ? "Generating Dialogue..." : "Generate Dialogue"}
+                </Button>
+              </div>
+            )}
+
+            {/* Voice Comparison Results */}
+            {voiceComparisonMode && comparisonResults.length > 0 && (
+              <div className="space-y-2 rounded-md border bg-muted/50 p-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-medium">Voice Comparison Results</span>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-6 text-xs"
+                    onClick={() => { setVoiceComparisonMode(false); setComparisonResults([]) }}
+                  >
+                    Close
+                  </Button>
+                </div>
+                <div className="space-y-2">
+                  {comparisonResults.map((result) => (
+                    <div key={result.index} className="space-y-1 bg-background p-2 rounded">
+                      <div className="text-xs font-medium">{result.label}</div>
+                      {result.error ? (
+                        <div className="text-[10px] text-destructive">{result.error}</div>
+                      ) : (
+                        <>
+                          {true && (
+                            <AudioWaveform
+                              audioUrl={`data:${result.media_type};base64,${result.data}`}
+                              height={40}
+                              color="#3b82f6"
+                            />
+                          )}
+                          <audio
+                            src={`data:${result.media_type};base64,${result.data}`}
+                            controls
+                            className="w-full h-8 text-xs"
+                          />
+                          <div className="text-[9px] text-muted-foreground">
+                            Temp: {result.params.audio_temperature}, Top-P: {result.params.audio_top_p}
+                          </div>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="h-6 text-xs"
+                            onClick={() => {
+                              addAsset({
+                                name: `voice_comparison_${result.index + 1}.wav`,
+                                type: "audio",
+                                category: "voice",
+                                mediaType: "audio/wav",
+                                url: `data:audio/wav;base64,${result.data}`,
+                                sizeBytes: Math.round((result.data as string).length * 0.75),
+                                source: "generated",
+                              })
+                              toast("success", "Saved to assets")
+                            }}
+                          >
+                            Save to Assets
+                          </Button>
+                        </>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Batch Mode for other services */}
+            {selectedService !== "voice_creator" && batchMode && (
+              <div className="space-y-2 rounded-md border bg-muted/50 p-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-medium">Batch Requests ({batchRequests.length})</span>
+                  <div className="flex gap-1">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-7 text-xs"
+                      onClick={handleAddToBatch}
+                      disabled={generating}
+                    >
+                      <Plus className="h-3 w-3 mr-1" /> Add Current
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-7 text-xs"
+                      onClick={() => setBatchRequests([])}
+                      disabled={generating}
+                    >
+                      Clear
+                    </Button>
+                  </div>
+                </div>
+                {batchRequests.length > 0 && (
+                  <div className="max-h-32 overflow-y-auto space-y-1">
+                    {batchRequests.map((req, idx) => (
+                      <div key={idx} className="flex items-center gap-2 text-xs bg-background px-2 py-1 rounded">
+                        <span className="text-muted-foreground">{idx + 1}.</span>
+                        <span className="flex-1 truncate">{(req.prompt || req.text || "").substring(0, 60)}...</span>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-5 w-5"
+                          onClick={() => setBatchRequests((prev) => prev.filter((_, i) => i !== idx))}
+                        >
+                          <Trash2 className="h-3 w-3" />
+                        </Button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {batchRequests.length > 0 && (
+                  <Button
+                    variant="default"
+                    size="sm"
+                    className="w-full h-8 text-xs"
+                    onClick={handleBatchGenerate}
+                    disabled={generating || running.length > 0}
+                  >
+                    {generating ? "Generating Batch..." : `Generate ${batchRequests.length} Items`}
+                  </Button>
+                )}
+              </div>
+            )}
+
+            {/* Batch mode toggle for all services */}
+            {selectedService !== "voice_creator" && (
+              <div className="flex justify-end">
+                <Button
+                  variant={batchMode ? "default" : "outline"}
+                  size="sm"
+                  className="h-7 text-xs"
+                  onClick={() => setBatchMode(!batchMode)}
+                >
+                  {batchMode ? "📦 Batch Mode ON" : "📦 Batch Mode"}
+                </Button>
+              </div>
+            )}
+
             {fields.some((f) => f.name === "prompt" || f.name === "text") && (
               <Button variant="outline" size="sm" className="w-full h-8 text-xs gap-2"
                 disabled={enhancing || generating || !String(values[fields.find((f) => f.name === "prompt" || f.name === "text")?.name ?? ""] ?? "").trim()}
@@ -963,6 +1612,15 @@ function AssetsTab({ selectedService, jobs, onAddJob, nextJobId, onOpenKimodo }:
             )}
             {(selectedService === "tts_speak"
               ? ttsVisibleFields(String(values.engine || "kokoro"), fields)
+              : selectedService === "voice_creator"
+              ? voiceCreatorVisibleFields(
+                  String(values.engine || "moss_voicegenerator"),
+                  String(values.mode || "voice_design"),
+                  fields
+                ).filter((f) => voiceAdvancedOpen || ![
+                  "max_new_tokens", "audio_temperature", "audio_top_p",
+                  "audio_top_k", "audio_repetition_penalty", "seed"
+                ].includes(f.name))
               : fields
             ).map((f) => {
               const handleDrop = (e: React.DragEvent) => {
@@ -1000,6 +1658,57 @@ function AssetsTab({ selectedService, jobs, onAddJob, nextJobId, onOpenKimodo }:
                   <Input type="number" value={String(values[f.name] ?? f.default ?? "")}
                     onChange={(e) => setValues((p) => ({ ...p, [f.name]: e.target.value ? Number(e.target.value) : "" }))}
                     placeholder={f.label} />
+                ) : f.type === "file" && f.name === "ref_audio_b64_list" ? (
+                  <div className="space-y-2">
+                    <Label className="flex items-center justify-center h-16 border-2 border-dashed rounded-lg cursor-pointer hover:border-primary/50 text-sm text-muted-foreground"
+                      onDragOver={(e) => e.preventDefault()}
+                      onDrop={(e) => {
+                        e.preventDefault()
+                        try {
+                          const d = JSON.parse(e.dataTransfer.getData("application/tech-noir-asset"))
+                          if (d.url) {
+                            setMultipleRefAudios((prev) => [...prev, d.url.split(",")[1] || d.url])
+                            setValues((p) => ({ ...p, [f.name]: [...(p[f.name] as string[] || []), d.url.split(",")[1] || d.url] }))
+                          }
+                        } catch {}
+                      }}>
+                      {multipleRefAudios.length > 0 ? `Loaded ${multipleRefAudios.length} audio files` : "Drop multiple audio files or click to upload"}
+                      <input type="file" className="hidden" multiple accept="audio/*"
+                        onChange={(e) => {
+                          const files = Array.from(e.target.files || [])
+                          files.forEach((file) => {
+                            const r = new FileReader()
+                            r.onload = () => {
+                              const base64 = (r.result as string).split(",")[1] || ""
+                              setMultipleRefAudios((prev) => [...prev, base64])
+                              setValues((p) => ({ ...p, [f.name]: [...(p[f.name] as string[] || []), base64] }))
+                            }
+                            r.readAsDataURL(file)
+                          })
+                        }} />
+                    </Label>
+                    {multipleRefAudios.length > 0 && (
+                      <div className="max-h-24 overflow-y-auto space-y-1">
+                        {multipleRefAudios.map((audio, idx) => (
+                          <div key={idx} className="flex items-center gap-2 text-xs bg-background px-2 py-1 rounded">
+                            <span className="text-muted-foreground">{idx + 1}.</span>
+                            <audio src={`data:audio/wav;base64,${audio}`} controls className="flex-1 h-6" />
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-5 w-5"
+                              onClick={() => {
+                                setMultipleRefAudios((prev) => prev.filter((_, i) => i !== idx))
+                                setValues((p) => ({ ...p, [f.name]: (p[f.name] as string[] || []).filter((_, i) => i !== idx) }))
+                              }}
+                            >
+                              <Trash2 className="h-3 w-3" />
+                            </Button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
                 ) : f.type === "file" ? (
                   <Label className="flex items-center justify-center h-16 border-2 border-dashed rounded-lg cursor-pointer hover:border-primary/50 text-sm text-muted-foreground"
                     onDragOver={(e) => e.preventDefault()}
