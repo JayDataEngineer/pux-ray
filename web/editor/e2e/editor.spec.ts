@@ -229,9 +229,8 @@ test.describe('Controls', () => {
     await expect(btn).toBeEnabled()
   })
 
-  test('Generate This Segment button in Generation inspector', async ({ page }) => {
+  test('Generate This Segment button at bottom of inspector', async ({ page }) => {
     await page.locator('[data-seg]').first().click()
-    await expandSection(page, 'Generation')
     const btn = page.getByRole('button', { name: /Generate This Segment/ })
     await expect(btn).toBeVisible()
     // Button should be enabled for empty segments

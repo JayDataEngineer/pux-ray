@@ -24,6 +24,16 @@ spec:
           image: forge-reg.local:30500/tech-noir/mcp-web-research:latest
           ports:
             - containerPort: 8000
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+            seccompProfile:
+              type: RuntimeDefault
           env:
             - name: MCP_PORT
               value: "8000"
@@ -53,6 +63,11 @@ spec:
             requests:
               memory: 2Gi
               cpu: "1"
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+            - name: cache
+              mountPath: /app/.cache
           livenessProbe:
             tcpSocket:
               port: 8000
@@ -67,6 +82,11 @@ spec:
             periodSeconds: 10
             timeoutSeconds: 5
             failureThreshold: 6
+      volumes:
+        - name: tmp
+          emptyDir: {}
+        - name: cache
+          emptyDir: {}
 ---
 apiVersion: v1
 kind: Service

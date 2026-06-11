@@ -872,27 +872,6 @@ export function VideoEditor() {
                     </div>
                   </InspectorField>
                 </div>
-
-                {/* Generate This Segment button */}
-                <div className="mt-3 pt-3 border-t border-white/[0.06]">
-                  <Button
-                    size="sm"
-                    className="w-full h-9 text-xs gap-2 bg-[#6366f1] hover:bg-[#5558e6] text-white rounded-lg font-medium"
-                    disabled={generating || (sel.status !== 'empty' && sel.status !== 'failed')}
-                    onClick={() => generateSegment(sel)}>
-                    {generating && sel.id === generatingSegId ? (
-                      <>
-                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                        Generating...
-                      </>
-                    ) : (
-                      <>
-                        <Sparkles className="h-3.5 w-3.5" />
-                        Generate This Segment
-                      </>
-                    )}
-                  </Button>
-                </div>
               </InspectorSection>
 
               {/* ── Start / End Images ── */}
@@ -1345,6 +1324,27 @@ export function VideoEditor() {
                   </div>
                 )
               })()}
+
+              {/* Generate This Segment button */}
+              <div className="mt-3">
+                <Button
+                  size="sm"
+                  className="w-full h-9 text-xs gap-2 bg-[#6366f1] hover:bg-[#5558e6] text-white rounded-lg font-medium"
+                  disabled={generating || (sel.status !== 'empty' && sel.status !== 'failed')}
+                  onClick={() => generateSegment(sel)}>
+                  {generating && sel.id === generatingSegId ? (
+                    <>
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      Generating...
+                    </>
+                  ) : (
+                    <>
+                      <Sparkles className="h-3.5 w-3.5" />
+                      Generate This Segment
+                    </>
+                  )}
+                </Button>
+              </div>
             </div>
             </>
             )}

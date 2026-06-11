@@ -18,7 +18,7 @@ import { getEnhancePrompt } from "@/lib/enhance-prompts"
 import { EnhanceConfigDialog } from "@/components/EnhanceConfigDialog"
 import { kimodoUrl } from "@/mcp"
 import { callTool, forgeStatus, listTools, type MCPTool } from "@/mcp"
-import { Cpu, HardDrive, PanelLeft, PanelRightClose, Wand2, Loader2, CheckCircle2, XCircle, Clock, ListTodo, Maximize2, ChevronLeft, ChevronRight, Download, Sparkles, AlertTriangle } from "lucide-react"
+import { Cpu, HardDrive, PanelLeft, PanelRightClose, Wand2, Loader2, CheckCircle2, XCircle, Clock, ListTodo, Maximize2, ChevronLeft, ChevronRight, Download, Sparkles, AlertTriangle, ChevronDown } from "lucide-react"
 import { AppSidebar } from "./AppSidebar"
 import { VideoEditor } from "./VideoEditor"
 
@@ -81,7 +81,6 @@ const SERVICE_GENRE: Record<string, string> = {
   tts_speak: "audio",
   voice_creator: "audio",
   kimodo: "motion", kimodo_demo: "motion", hy_motion: "motion", gemx: "motion",
-  trellis: "3d", anigen: "3d", body_mesh: "3d",
   _kimodo_studio: "external",
 }
 
@@ -97,8 +96,6 @@ const SERVICE_LABELS: Record<string, string> = {
   kimodo_demo: "Kimodo Demo",
   hy_motion: "HY-Motion",
   gemx: "GEM-X Pose",
-  trellis: "TRELLIS 3D",
-  anigen: "AniGen 3D",
   body_mesh: "BodyMesh",
 }
 
@@ -269,7 +266,11 @@ function ServicesSidebar({ selected, onSelect, onOpenKimodo }: { selected: strin
   }, [])
 
   const allItems = [
-    ...tools.filter((t) => !["run","list_models","list_services","get_service","forge_status","load_service","unload_services","tts_voices","chat","transcribe","llm_configure"].includes(t.name) && !t.name.startsWith("workflow_")),
+    ...tools.filter((t) =>
+      !["run","list_models","list_services","get_service","forge_status","load_service","unload_services","tts_voices","chat","transcribe","llm_configure"].includes(t.name) &&
+      !t.name.startsWith("workflow_") &&
+      !HIDDEN_SERVICES.has(t.name)
+    ),
     ...services.filter((s) => !tools.find((t) => t.name === s.name) && !HIDDEN_SERVICES.has(s.name)),
     // External links
     { name: "_kimodo_studio", label: "Kimodo Motion Studio", category: "external" } as { name: string; label: string; category: string },
@@ -546,6 +547,7 @@ function AssetsTab({ selectedService, jobs, onAddJob, nextJobId, onOpenKimodo }:
   const [generating, setGenerating] = useState(false)
   const [fields, setFields] = useState<FieldDef[]>([])
   const [enhancing, setEnhancing] = useState(false)
+  const [advancedOpen, setAdvancedOpen] = useState(false)
   const prevServiceRef = useRef("")
 
   const enhanceActiveModel = useEnhanceStore((s) => s.activeModel)
@@ -817,6 +819,43 @@ function AssetsTab({ selectedService, jobs, onAddJob, nextJobId, onOpenKimodo }:
               </div>
               )
             })}
+
+            {/* ── Advanced Settings Guide ──────────────────────────────────────── */}
+            {(selectedService === "generate" || selectedService === "generate_image" || selectedService?.includes("generate")) && (
+              <div className="space-y-3 pt-2">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="w-full h-8 text-xs gap-2 justify-start px-2"
+                  onClick={() => setAdvancedOpen(!advancedOpen)}
+                >
+                  <ChevronDown className={`h-3.5 w-3.5 transition-transform ${advancedOpen ? "rotate-180" : ""}`} />
+                  Advanced Settings Guide
+                </Button>
+                {advancedOpen && (
+                  <div className="rounded-lg bg-muted/50 p-3 space-y-2 text-[11px]">
+                    <div className="font-semibold text-xs mb-2">Anima Base Recommended Settings</div>
+                    <div className="grid grid-cols-2 gap-x-4 gap-y-1">
+                      <span className="text-muted-foreground">Steps:</span>
+                      <span>30-50</span>
+                      <span className="text-muted-foreground">CFG Scale:</span>
+                      <span>4-5</span>
+                      <span className="text-muted-foreground">Resolution:</span>
+                      <span>512² - 1536² px</span>
+                    </div>
+                    <div className="pt-1">
+                      <span className="text-muted-foreground">Sampler options:</span>
+                      <ul className="mt-1 space-y-0.5 text-muted-foreground">
+                        <li>• <span className="text-foreground">er_sde</span> — neutral, flat colors, sharp lines (default)</li>
+                        <li>• <span className="text-foreground">euler_a</span> — softer, thinner lines</li>
+                        <li>• <span className="text-foreground">dpmpp_2m_sde_gpu</span> — more creative variety</li>
+                      </ul>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
             {fields.length > 0 && (
               <Button className="w-full" disabled={generating || running.length > 0} onClick={handleGenerate}>
                 {generating ? "Generating..." : "Generate"}
