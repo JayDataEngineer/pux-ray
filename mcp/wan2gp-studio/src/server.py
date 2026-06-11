@@ -105,7 +105,17 @@ from .tools.image import generate, get_model_preset
 from .tools.vnccs import generate_character_sheet, edit, clone_character
 from .tools.status import list_models, list_services, get_service, forge_status, list_pipelines
 from .tools.tts import tts_speak, tts_voices
-from .tools.audio import transcribe, generate_sound, generate_music, voice_creator
+from .tools.audio import (
+    transcribe,
+    generate_sound,
+    generate_music,
+    voice_creator,
+    voice_creator_examples,
+    voice_creator_batch,
+    generate_batch,
+    generate_music_batch,
+    generate_sound_batch,
+)
 from .tools.llm import chat, llm_configure
 from .tools.admin import load_service, unload_services
 from .tools.workflow import (
@@ -232,6 +242,29 @@ mcp.tool(generate_music, meta={
 mcp.tool(voice_creator, meta={
     "ui": {"resourceUri": "ui://apps/audio"},
     "openai/toolInvocation/invoking": "Creating voice…",
+    "openai/toolInvocation/invoked": "Done",
+})
+mcp.tool(voice_creator_examples, meta={
+    "description": "Get voice creation examples and presets from vendor demos",
+})
+mcp.tool(voice_creator_batch, meta={
+    "ui": {"resourceUri": "ui://apps/audio"},
+    "openai/toolInvocation/invoking": "Creating voices…",
+    "openai/toolInvocation/invoked": "Done",
+})
+mcp.tool(generate_batch, meta={
+    "ui": {"resourceUri": "ui://apps/image"},
+    "openai/toolInvocation/invoking": "Generating images…",
+    "openai/toolInvocation/invoked": "Done",
+})
+mcp.tool(generate_music_batch, meta={
+    "ui": {"resourceUri": "ui://apps/audio"},
+    "openai/toolInvocation/invoking": "Generating music…",
+    "openai/toolInvocation/invoked": "Done",
+})
+mcp.tool(generate_sound_batch, meta={
+    "ui": {"resourceUri": "ui://apps/audio"},
+    "openai/toolInvocation/invoking": "Generating sounds…",
     "openai/toolInvocation/invoked": "Done",
 })
 
