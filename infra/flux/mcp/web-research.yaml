@@ -74,6 +74,12 @@ spec:
               mountPath: /tmp
             - name: cache
               mountPath: /app/.cache
+            - name: crawl4ai
+              mountPath: /.crawl4ai
+            - name: downloads
+              mountPath: /app/downloaded_files
+            - name: venv
+              mountPath: /app/.venv
           livenessProbe:
             tcpSocket:
               port: 8000
@@ -92,6 +98,12 @@ spec:
         - name: tmp
           emptyDir: {}
         - name: cache
+          emptyDir: {}
+        - name: crawl4ai
+          emptyDir: {}
+        - name: downloads
+          emptyDir: {}
+        - name: venv
           emptyDir: {}
 ---
 apiVersion: v1

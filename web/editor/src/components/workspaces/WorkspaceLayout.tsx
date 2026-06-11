@@ -828,7 +828,7 @@ function AssetsTab({ selectedService, jobs, onAddJob, nextJobId, onOpenKimodo }:
       for (const f of extracted) { if (f.default !== undefined) d[f.name] = f.default }
       setValues(d)
     }
-  }, [selectedService])
+  }, [selectedService, currentTool, currentService])
 
   // ── Load model presets and pre-fill defaults ─────────────────────────────────
   useEffect(() => {
@@ -904,10 +904,41 @@ function AssetsTab({ selectedService, jobs, onAddJob, nextJobId, onOpenKimodo }:
   const running = jobs.filter((j) => j.status === "running")
   const label = currentService?.label || currentTool?.description?.split("—")[0]?.trim() || selectedService
 
+  // Show loading state while tools/services are being fetched
+  const isLoading = tools.length === 0 && services.length === 0
+
   if (!selectedService) {
     return (
       <div className="flex-1 flex items-center justify-center p-6">
         <p className="text-sm text-muted-foreground">Select a service from the right sidebar, or click an asset in the left sidebar</p>
+      </div>
+    )
+  }
+
+  if (isLoading) {
+    return (
+      <div className="flex-1 flex items-center justify-center p-6">
+        <div className="flex flex-col items-center gap-3">
+          <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+          <p className="text-sm text-muted-foreground">Loading services...</p>
+        </div>
+      </div>
+    )
+  }
+
+  if (!currentTool && !currentService) {
+    return (
+      <div className="flex-1 flex items-center justify-center p-6">
+        <p className="text-sm text-muted-foreground">Service "{selectedService}" not found. Select a different service from the right sidebar.</p>
+      </div>
+    )
+  }
+
+  if (fields.length === 0 && currentTool && currentTool.inputSchema?.properties) {
+    // Tool exists but no fields were extracted - shouldn't happen but handle gracefully
+    return (
+      <div className="flex-1 flex items-center justify-center p-6">
+        <p className="text-sm text-muted-foreground">No form fields available for this service.</p>
       </div>
     )
   }

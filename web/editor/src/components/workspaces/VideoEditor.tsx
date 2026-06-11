@@ -413,6 +413,21 @@ export function VideoEditor({ jobs, onAddJob }: VideoEditorProps) {
           prompt: seg.prompt,
         })
         updateSegment(seg.id, { videoUrl: videoData, assetId: asset.id, status: "ready", error: null })
+
+        // If LTX2 generated audio (audio_prompt_type="2"), add audio track automatically
+        if (seg.params.audioPromptType === "2") {
+          const track = addAudioTrack(`K${seg.order + 1} Audio`)
+          addAudioCue({
+            track: track.id,
+            start: seg.start,
+            duration: seg.duration,
+            label: `K${seg.order + 1} Generated Audio`,
+            audioUrl: videoData, // Use the video URL as audio source (MP4 contains audio)
+            volume: 1.0,
+            waveformPeaks: null,
+          })
+        }
+
         toast("success", `${segLabel(seg.order)} generated!`)
         onAddJob((prev) => prev.map((j) => j.id === jobId ? { ...j, status: "completed", endedAt: Date.now() } : j))
       } else {
@@ -513,6 +528,21 @@ export function VideoEditor({ jobs, onAddJob }: VideoEditorProps) {
           setRelayVideo(videoUrl, segIds, asset.id)
           // Mark all segments ready
           ltxSegs.forEach(s => updateSegment(s.id, { status: "ready", error: null }))
+
+          // If any segment has audio_prompt_type="2", add audio track for relay
+          if (ltxSegs.some(s => s.params.audioPromptType === "2")) {
+            const track = addAudioTrack("Relay Audio")
+            addAudioCue({
+              track: track.id,
+              start: relayStart,
+              duration: relayEnd - relayStart,
+              label: `Relay Generated Audio (${ltxSegs.length} segments)`,
+              audioUrl: videoUrl, // Use the video URL as audio source (MP4 contains audio)
+              volume: 1.0,
+              waveformPeaks: null,
+            })
+          }
+
           toast("success", `Director relay: ${ltxSegs.length} segments, ${totalFrames} frames`)
           onAddJob((prev) => prev.map((j) => j.id === jobId ? { ...j, status: "completed", endedAt: Date.now() } : j))
         } else {
@@ -642,7 +672,7 @@ export function VideoEditor({ jobs, onAddJob }: VideoEditorProps) {
             style={{ background: "linear-gradient(135deg, #0c0c10 0%, #111118 50%, #0c0c10 100%)" }}
             onDragOver={(e) => e.preventDefault()} onDrop={onDrop}>
             {segments.length > 0 ? (
-              <CurrentPreview segments={segments} time={playback.currentTime} relayVideoUrl={relayVideoUrl} relaySegmentIds={relaySegmentIds} />
+              <CurrentPreview segments={segments} time={playback.currentTime} relayVideoUrl={relayVideoUrl} relaySegmentIds={relaySegmentIds} isPlaying={playback.isPlaying} />
             ) : (
               <div className="text-center space-y-3 opacity-60">
                 <div className="mx-auto w-16 h-16 rounded-2xl border border-white/10 bg-white/5 flex items-center justify-center">
@@ -1704,9 +1734,19 @@ export function VideoEditor({ jobs, onAddJob }: VideoEditorProps) {
 }
 
 /** Video scrubber for a standalone segment video (non-relay) */
-function VideoScrubber({ seg, time }: { seg: TimelineSegment; time: number }) {
+function VideoScrubber({ seg, time, isPlaying }: { seg: TimelineSegment; time: number; isPlaying: boolean }) {
   const ref = useRef<HTMLVideoElement>(null)
   const segTime = Math.max(0, Math.min(seg.duration, time - seg.start))
+  useEffect(() => {
+    const el = ref.current
+    if (!el || !seg.videoUrl) return
+    // Sync video playback state with global play state
+    if (isPlaying && el.paused) {
+      el.play().catch(() => {})
+    } else if (!isPlaying && !el.paused) {
+      el.pause()
+    }
+  }, [isPlaying, seg.videoUrl])
   useEffect(() => {
     const el = ref.current
     if (!el || !seg.videoUrl) return
@@ -1714,12 +1754,22 @@ function VideoScrubber({ seg, time }: { seg: TimelineSegment; time: number }) {
       el.currentTime = segTime
     }
   }, [segTime, seg.videoUrl])
-  return <video ref={ref} key={seg.id} src={seg.videoUrl} className="max-w-full max-h-[70vh] rounded-lg shadow-2xl" autoPlay loop muted />
+  return <video ref={ref} key={seg.id} src={seg.videoUrl} className="max-w-full max-h-[70vh] rounded-lg shadow-2xl" loop muted playsInline />
 }
 
 /** Relay video scrubber — scrubs to absolute time in the continuous relay output */
-function RelayScrubber({ videoUrl, time }: { videoUrl: string; time: number }) {
+function RelayScrubber({ videoUrl, time, isPlaying }: { videoUrl: string; time: number; isPlaying: boolean }) {
   const ref = useRef<HTMLVideoElement>(null)
+  useEffect(() => {
+    const el = ref.current
+    if (!el) return
+    // Sync video playback state with global play state
+    if (isPlaying && el.paused) {
+      el.play().catch(() => {})
+    } else if (!isPlaying && !el.paused) {
+      el.pause()
+    }
+  }, [isPlaying])
   useEffect(() => {
     const el = ref.current
     if (!el) return
@@ -1727,14 +1777,15 @@ function RelayScrubber({ videoUrl, time }: { videoUrl: string; time: number }) {
       el.currentTime = time
     }
   }, [time])
-  return <video ref={ref} src={videoUrl} className="max-w-full max-h-[70vh] rounded-lg shadow-2xl" autoPlay loop muted />
+  return <video ref={ref} src={videoUrl} className="max-w-full max-h-[70vh] rounded-lg shadow-2xl" loop muted playsInline />
 }
 
-function CurrentPreview({ segments, time, relayVideoUrl, relaySegmentIds }: {
+function CurrentPreview({ segments, time, relayVideoUrl, relaySegmentIds, isPlaying }: {
   segments: ReturnType<typeof useTimelineStore.getState>["segments"]
   time: number
   relayVideoUrl: string | null
   relaySegmentIds: string[]
+  isPlaying: boolean
 }) {
   const seg = segments.find((s) => time >= s.start && time < s.start + s.duration)
 
@@ -1742,7 +1793,7 @@ function CurrentPreview({ segments, time, relayVideoUrl, relaySegmentIds }: {
   if (relayVideoUrl && seg && relaySegmentIds.includes(seg.id)) {
     return (
       <div className="flex flex-col items-center gap-3">
-        <RelayScrubber videoUrl={relayVideoUrl} time={time} />
+        <RelayScrubber videoUrl={relayVideoUrl} time={time} isPlaying={isPlaying} />
         <span className="text-[11px] text-white/30 font-mono">{segLabel(seg.order)} — {seg.prompt?.slice(0, 80) || "no prompt"}</span>
         <span className="text-[9px] text-[#6366f1]/50 font-mono uppercase tracking-wider">Director Relay</span>
       </div>
@@ -1757,7 +1808,7 @@ function CurrentPreview({ segments, time, relayVideoUrl, relaySegmentIds }: {
       return (
         <div className="flex flex-col items-center gap-3">
           {closest.videoUrl ? (
-            <VideoScrubber seg={closest} time={time} />
+            <VideoScrubber seg={closest} time={time} isPlaying={isPlaying} />
           ) : closest.firstFrameB64 ? (
             <img src={closest.firstFrameB64} alt="" className="max-w-full max-h-[60vh] rounded-lg object-contain shadow-2xl" />
           ) : (
@@ -1773,7 +1824,7 @@ function CurrentPreview({ segments, time, relayVideoUrl, relaySegmentIds }: {
   if (seg.videoUrl) {
     return (
       <div className="flex flex-col items-center gap-3">
-        <VideoScrubber seg={seg} time={time} />
+        <VideoScrubber seg={seg} time={time} isPlaying={isPlaying} />
         <span className="text-[11px] text-white/30 font-mono">{segLabel(seg.order)} — {seg.prompt?.slice(0, 80) || "no prompt"}</span>
       </div>
     )
