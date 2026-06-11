@@ -228,18 +228,14 @@ class model_factory:
         # --- VAE (Qwen-Image VAE - CORRECT ARCHITECTURE FOR ANIMA) ---
         vae_filename = fl.locate_file("qwen_image_vae.safetensors")
 
-        # Qwen-Image VAE uses standard diffusers AutoencoderKL
-        vae = AutoencoderKL.from_pretrained(
-            "Comfy-Org/Qwen-Image_ComfyUI",
-            subfolder="vae",
-            use_safetensors=True,
+        # Use offload library to load Qwen-Image VAE (same pattern as original)
+        vae = offload.fast_load_transformers_model(
+            vae_filename,
+            writable_tensors=True,
+            modelClass=AutoencoderKL,
+            defaultConfigPath=None,  # Qwen-Image VAE has built-in config
+            default_dtype=VAE_dtype,
         )
-        # Load the VAE weights
-        import safetensors.torch
-        vae_state_dict = safetensors.torch.load_file(vae_filename)
-        vae.load_state_dict(vae_state_dict, strict=False)
-        vae.to(VAE_dtype).to("cuda" if torch.cuda.is_available() else "cpu")
-        vae.eval()
 
         # Cosmos pipeline expects temporal downsampling attrs (2D VAE has none)
         if not hasattr(vae, 'temperal_downsample'):
@@ -248,7 +244,7 @@ class model_factory:
             vae.temporal_downsample = []
 
         # --- Scheduler ---
-        # Use standard FlowMatchEulerDiscreteScheduler config
+        # Use standard FlowMatchEulerDiscreteScheduler config for Cosmos models
         scheduler_config = {
             "num_train_timesteps": 1000,
             "shift": 3.0,
