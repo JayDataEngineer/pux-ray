@@ -5,7 +5,7 @@ import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { useEnhanceStore } from "@/stores/enhancement"
-import { Message } from "lucide-react"
+import { MessageSquare } from "lucide-react"
 import { Loader2, Sparkles, RotateCcw } from "lucide-react"
 
 interface ChatMessage {
@@ -120,7 +120,7 @@ export function LLMChatDialog({ open, onOpenChange }: LLMChatDialogProps) {
       <DialogContent className="sm:max-w-[600px] w-[90vw] h-[70vh] max-h-[70vh] flex flex-col p-0 gap-0">
         <DialogHeader className="px-4 py-3 border-b shrink-0 flex-row items-center justify-between space-y-0">
           <div className="flex items-center gap-2">
-            <Message className="h-4 w-4" />
+            <MessageSquare className="h-4 w-4" />
             <DialogTitle className="text-sm">AI Chat</DialogTitle>
             {activeModel && (
               <Badge variant="outline" className="text-[9px]">

@@ -1,19 +1,23 @@
-"""Anima model factory — Cosmos-Predict2-2B via diffusers Cosmos2TextToImagePipeline.
+"""Anima model factory — Simplified approach to avoid recursion issues.
 
-Loads the Cosmos transformer, Qwen3 0.6B text encoder, Qwen-Image VAE,
-and constructs a standard Cosmos2TextToImagePipeline from diffusers.
+Direct model loading following z_image pattern for stability.
 """
 import json
 import os
 import torch
-from accelerate import init_empty_weights
-from diffusers import FlowMatchEulerDiscreteScheduler, Cosmos2TextToImagePipeline
-from diffusers import CosmosTransformer3DModel
+from diffusers import FlowMatchEulerDiscreteScheduler
 from diffusers.utils import logging
-from mmgp import offload
-from shared.utils import files_locator as fl
 from transformers import AutoTokenizer, Qwen3ForCausalLM, AutoConfig
 import safetensors.torch
+
+# Import Qwen-Image VAE - using direct import for stability
+import sys as _sys
+_qwen_dir = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "qwen"
+)
+if _qwen_dir not in _sys.path:
+    _sys.path.insert(0, _qwen_dir)
+from autoencoder_kl_qwenimage import AutoencoderKLQwenImage
 
 # Import Qwen-Image VAE - correct architecture for Anima
 # Anima uses Qwen-Image VAE, not ZImage Turbo VAE
@@ -152,9 +156,28 @@ class model_factory:
         save_quantized=False,
         **kwargs,
     ):
+        # Very simple initialization to avoid recursion
         model_def = model_def or {}
         self.base_model_type = base_model_type
         self.model_def = model_def
+
+        # Store basic parameters
+        self.dtype = dtype
+        self.checkpoint_dir = checkpoint_dir
+
+        # Defer complex loading to first use (lazy initialization)
+        self._transformer = None
+        self._text_encoder = None
+        self._tokenizer = None
+        self._vae = None
+        self._scheduler = None
+        self._pipeline = None
+
+        # Store filenames for later loading
+        self._model_filename = model_filename
+        self._text_encoder_filename = text_encoder_filename
+
+        print(f"[Anima] Model factory initialized (lazy loading)")
 
         # --- Transformer ---
         transformer_filename = (

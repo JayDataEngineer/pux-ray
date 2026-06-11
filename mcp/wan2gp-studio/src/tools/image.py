@@ -157,6 +157,9 @@ async def generate(
     sampler: Annotated[str | None, Field(
         description="Sampler type. Leave empty for model default. Options: er_sde (default, neutral), euler_a (softer), dpmpp_2m_sde_gpu (more creative).",
     )] = None,
+    loras_selected: Annotated[str | None, Field(
+        description="Comma-separated list of LoRA models to apply. Leave empty for no LoRAs.",
+    )] = None,
     ctx: Context | None = None,
 ) -> dict:
     """Generate images with model-specific defaults.
@@ -195,6 +198,10 @@ async def generate(
         params["guide_scale"] = preset["guide_scale"]
     if sampler is not None:
         params["sample_solver"] = sampler
+    if loras_selected is not None and loras_selected.strip():
+        # Split comma-separated LoRA names and convert to array
+        loras_list = [l.strip() for l in loras_selected.split(",") if l.strip()]
+        params["loras_selected"] = loras_list
     for extra_key in ("steps", "guidance", "resolution", "embedded_guidance_scale"):
         if extra_key in preset:
             params[extra_key] = preset[extra_key]
