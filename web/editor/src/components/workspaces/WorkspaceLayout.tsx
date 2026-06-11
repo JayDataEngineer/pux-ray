@@ -19,6 +19,7 @@ import { useEnhanceStore } from "@/stores/enhancement"
 import { enhancePrompt, storeEnhanceKey } from "@/lib/enhance"
 import { getEnhancePrompt } from "@/lib/enhance-prompts"
 import { EnhanceConfigDialog } from "@/components/EnhanceConfigDialog"
+import { LLMChatDialog } from "@/components/LLMChatDialog"
 import { kimodoUrl } from "@/mcp"
 import { callTool, forgeStatus, listTools, type MCPTool } from "@/mcp"
 import { Cpu, HardDrive, ChevronLeft, ChevronRight, Wand2, Loader2, CheckCircle2, XCircle, Clock, ListTodo, Maximize2, Download, Sparkles, AlertTriangle, ChevronDown, Plus, Trash2, HelpCircle } from "lucide-react"
@@ -132,6 +133,7 @@ const SERVICE_GENRE: Record<string, string> = {
   voice_creator: "audio",
   kimodo: "motion", kimodo_demo: "motion", hy_motion: "motion", gemx: "motion",
   _kimodo_studio: "external",
+  _llm_chat: "external",
 }
 
 const SERVICE_LABELS: Record<string, string> = {
@@ -147,6 +149,8 @@ const SERVICE_LABELS: Record<string, string> = {
   hy_motion: "HY-Motion",
   gemx: "GEM-X Pose",
   body_mesh: "BodyMesh",
+  _kimodo_studio: "Kimodo Motion Studio",
+  _llm_chat: "AI Chat",
 }
 
 // Backend-only services hidden from sidebar
@@ -179,10 +183,28 @@ export function WorkspaceLayout() {
   const [jobs, setJobs] = useState<JobEntry[]>([])
   const [enhanceConfigOpen, setEnhanceConfigOpen] = useState(false)
   const [kimodoOpen, setKimodoOpen] = useState(false)
+  const [llmChatOpen, setLLMChatOpen] = useState(false)
   const nextJobId = useRef(1)
 
   const enhanceActiveModel = useEnhanceStore((s) => s.activeModel)
   const hasEnhanceModel = !!enhanceActiveModel()
+
+  const handleCancelJob = useCallback((jobId: number) => {
+    setJobs((prevJobs) => {
+      const job = prevJobs.find((j) => j.id === jobId)
+      if (job && job.status === "running" && job.abortController) {
+        // Abort the fetch request
+        job.abortController.abort()
+        // Update job status to cancelled
+        return prevJobs.map((j) =>
+          j.id === jobId
+            ? { ...j, status: "cancelled" as const, endedAt: Date.now() }
+            : j
+        )
+      }
+      return prevJobs
+    })
+  }, [])
 
   return (
     <div className="flex h-screen w-full bg-background">
@@ -204,7 +226,7 @@ export function WorkspaceLayout() {
             <Sparkles className={`h-4 w-4 ${hasEnhanceModel ? "text-primary" : "text-muted-foreground"}`} />
           </Button>
           <GpuStatus />
-          <JobsButton jobs={jobs} />
+          <JobsButton jobs={jobs} onCancelJob={handleCancelJob} />
           <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setRightOpen((o) => !o)}>
             {rightOpen ? <ChevronRight className="h-4 w-4" /> : <ChevronLeft className="h-4 w-4" />}
           </Button>
@@ -212,16 +234,17 @@ export function WorkspaceLayout() {
         <div className="flex flex-1 min-h-0">
           {tab === "assets" ? (
             <div className="flex-1 min-w-0 overflow-auto scrollbar-thin">
-              <AssetsTab selectedService={selectedService} jobs={jobs} onAddJob={(j) => setJobs(j)} nextJobId={nextJobId} onOpenKimodo={() => setKimodoOpen(true)} />
+              <AssetsTab selectedService={selectedService} jobs={jobs} onAddJob={(j) => setJobs(j)} nextJobId={nextJobId} onOpenKimodo={() => setKimodoOpen(true)} onOpenLLM={() => setLLMChatOpen(true)} />
             </div>
           ) : (
             <VideoEditor jobs={jobs} onAddJob={(j) => setJobs(j)} />
           )}
-          {rightOpen && tab === "assets" && <ServicesSidebar selected={selectedService} onSelect={setSelectedService} onOpenKimodo={() => setKimodoOpen(true)} />}
+          {rightOpen && tab === "assets" && <ServicesSidebar selected={selectedService} onSelect={setSelectedService} onOpenKimodo={() => setKimodoOpen(true)} onOpenLLM={() => setLLMChatOpen(true)} />}
         </div>
       </div>
       <AssetPreviewDialog asset={selectedAsset} onClose={() => setSelectedAsset(null)} onSelect={(a) => setSelectedAsset(a)} />
       <KimodoDialog open={kimodoOpen} onOpenChange={setKimodoOpen} />
+      <LLMChatDialog open={llmChatOpen} onOpenChange={setLLMChatOpen} />
       <EnhanceConfigDialog open={enhanceConfigOpen} onOpenChange={setEnhanceConfigOpen} />
     </div>
   )
@@ -480,7 +503,7 @@ function GpuStatus() {
   )
 }
 
-function ServicesSidebar({ selected, onSelect, onOpenKimodo }: { selected: string; onSelect: (n: string) => void; onOpenKimodo: () => void }) {
+function ServicesSidebar({ selected, onSelect, onOpenKimodo, onOpenLLM }: { selected: string; onSelect: (n: string) => void; onOpenKimodo: () => void; onOpenLLM: () => void }) {
   const [tools, setTools] = useState<MCPTool[]>([])
   const [services, setServices] = useState<{ name: string; label: string; category: string }[]>([])
 
@@ -498,6 +521,7 @@ function ServicesSidebar({ selected, onSelect, onOpenKimodo }: { selected: strin
     ...services.filter((s) => !tools.find((t) => t.name === s.name) && !HIDDEN_SERVICES.has(s.name)),
     // External links
     { name: "_kimodo_studio", label: "Kimodo Motion Studio", category: "external" } as { name: string; label: string; category: string },
+    { name: "_llm_chat", label: "AI Chat", category: "external" } as { name: string; label: string; category: string },
   ]
 
   const getLabel = (item: MCPTool | { name: string; label: string }) => {
@@ -544,8 +568,13 @@ function ServicesSidebar({ selected, onSelect, onOpenKimodo }: { selected: strin
               const name = ("name" in item ? (item as any).name : (item as any).name) as string
               const label = getLabel(item)
               const isKimodo = name === "_kimodo_studio"
+              const isLLM = name === "_llm_chat"
               return (
-                <button key={name} onClick={() => isKimodo ? onOpenKimodo() : onSelect(name)}
+                <button key={name} onClick={() => {
+                  if (isKimodo) onOpenKimodo()
+                  else if (isLLM) onOpenLLM()
+                  else onSelect(name)
+                }}
                   className={`w-full flex items-center gap-2 px-2 py-1.5 rounded text-xs text-left transition-colors ${selected === name ? "bg-sidebar-accent text-sidebar-accent-foreground" : "hover:bg-sidebar-accent/50"}`}>
                   <Wand2 className="h-3 w-3 shrink-0 opacity-50" />
                   <span className="truncate">{label}</span>
@@ -756,12 +785,13 @@ function AssetPreviewDialog({ asset, onClose, onSelect }: { asset: Asset | null;
   )
 }
 
-function AssetsTab({ selectedService, jobs, onAddJob, nextJobId, onOpenKimodo }: {
+function AssetsTab({ selectedService, jobs, onAddJob, nextJobId, onOpenKimodo, onOpenLLM }: {
   selectedService: string
   jobs: JobEntry[]
   onAddJob: (j: JobEntry[] | ((prev: JobEntry[]) => JobEntry[])) => void
   nextJobId: React.MutableRefObject<number>
   onOpenKimodo: () => void
+  onOpenLLM: () => void
 }) {
   const toast = useToastStore((s) => s.addToast)
   const addAsset = useAssetStore((s) => s.addAsset)
@@ -784,6 +814,7 @@ function AssetsTab({ selectedService, jobs, onAddJob, nextJobId, onOpenKimodo }:
   const [voiceComparisonMode, setVoiceComparisonMode] = useState(false)
   const [comparisonResults, setComparisonResults] = useState<any[]>([])
   const [dialogueMode, setDialogueMode] = useState(false)
+  const [batchMode, setBatchMode] = useState(false)
   const [dialogueScript, setDialogueScript] = useState("")
   const [pauseControlExamples, setPauseControlExamples] = useState<any[]>([])
   const [dialogueExamples, setDialogueExamples] = useState<any[]>([])
@@ -922,10 +953,11 @@ function AssetsTab({ selectedService, jobs, onAddJob, nextJobId, onOpenKimodo }:
 
     const jobId = nextJobId.current++
     const jobName = `Dialogue (${requests.length} lines)`
-    onAddJob((prev) => [{ id: jobId, name: jobName, status: "running", startedAt: Date.now() }, ...prev])
+    const abortController = new AbortController()
+    onAddJob((prev) => [{ id: jobId, name: jobName, status: "running", startedAt: Date.now(), abortController }, ...prev])
 
     try {
-      const result = await callTool<{ status: string; results: any[]; total: number; successful: number; failed: number }>("voice_creator_batch", { requests })
+      const result = await callTool<{ status: string; results: any[]; total: number; successful: number; failed: number }>("voice_creator_batch", { requests }, abortController.signal)
 
       if (result.status === "ok" && result.results) {
         result.results.forEach((r: any, idx: number) => {
@@ -948,6 +980,12 @@ function AssetsTab({ selectedService, jobs, onAddJob, nextJobId, onOpenKimodo }:
         toast("error", "Dialogue generation failed")
       }
     } catch (e) {
+      // Check if the error is due to abort
+      if (e instanceof Error && e.name === 'AbortError') {
+        onAddJob((prev) => prev.map((j) => j.id === jobId ? { ...j, status: "cancelled", endedAt: Date.now() } : j))
+        toast("info", `${jobName} cancelled`)
+        return
+      }
       onAddJob((prev) => prev.map((j) => j.id === jobId ? { ...j, status: "failed", endedAt: Date.now(), error: e instanceof Error ? e.message : String(e) } : j))
       toast("error", e instanceof Error ? e.message : String(e))
     }
@@ -1108,7 +1146,9 @@ function AssetsTab({ selectedService, jobs, onAddJob, nextJobId, onOpenKimodo }:
     const totalItems = quantity
     const jobName = SERVICE_LABELS[selectedService] || currentService?.label || selectedService
     const jobId = nextJobId.current++
-    onAddJob((prev) => [{ id: jobId, name: totalItems > 1 ? `${jobName} x${totalItems}` : jobName, status: "running", startedAt: Date.now() }, ...prev])
+    const abortController = new AbortController()
+
+    onAddJob((prev) => [{ id: jobId, name: totalItems > 1 ? `${jobName} x${totalItems}` : jobName, status: "running", startedAt: Date.now(), abortController }, ...prev])
 
     setGenerating(true)
     try {
@@ -1128,7 +1168,7 @@ function AssetsTab({ selectedService, jobs, onAddJob, nextJobId, onOpenKimodo }:
       // Generate quantity items
       for (let i = 0; i < totalItems; i++) {
         try {
-          const result = await callTool<{ status: string; data?: string; media_type?: string; error?: string; message?: string }>(useTool.name, args)
+          const result = await callTool<{ status: string; data?: string; media_type?: string; error?: string; message?: string }>(useTool.name, args, abortController.signal)
           if (result.status === "ok" || result.status === "success") {
             if (result.data) {
               const mt = result.media_type || "image/png"
@@ -1153,6 +1193,12 @@ function AssetsTab({ selectedService, jobs, onAddJob, nextJobId, onOpenKimodo }:
             failCount++
           }
         } catch (e) {
+          // Check if the error is due to abort
+          if (e instanceof Error && e.name === 'AbortError') {
+            onAddJob((prev) => prev.map((j) => j.id === jobId ? { ...j, status: "cancelled", endedAt: Date.now() } : j))
+            toast("info", `${jobName} cancelled`)
+            return
+          }
           failCount++
         }
       }
@@ -1168,6 +1214,12 @@ function AssetsTab({ selectedService, jobs, onAddJob, nextJobId, onOpenKimodo }:
         toast("error", `${jobName} failed`)
       }
     } catch (e) {
+      // Check if the error is due to abort
+      if (e instanceof Error && e.name === 'AbortError') {
+        onAddJob((prev) => prev.map((j) => j.id === jobId ? { ...j, status: "cancelled", endedAt: Date.now() } : j))
+        toast("info", `${jobName} cancelled`)
+        return
+      }
       onAddJob((prev) => prev.map((j) => j.id === jobId ? { ...j, status: "failed", endedAt: Date.now(), error: e instanceof Error ? e.message : String(e) } : j))
       toast("error", e instanceof Error ? e.message : String(e))
     } finally {

@@ -377,7 +377,8 @@ export function VideoEditor({ jobs, onAddJob }: VideoEditorProps) {
     // Create job notification
     const jobId = Date.now()
     const jobName = `Generate K${seg.order + 1}`
-    onAddJob((prev) => [{ id: jobId, name: jobName, status: "running", startedAt: Date.now() }, ...prev])
+    const abortController = new AbortController()
+    onAddJob((prev) => [{ id: jobId, name: jobName, status: "running", startedAt: Date.now(), abortController }, ...prev])
 
     try {
       // If using LTX model, route through ltx_director spec
@@ -397,7 +398,8 @@ export function VideoEditor({ jobs, onAddJob }: VideoEditorProps) {
 
       const r = await callTool<{ status: string; data?: string; media_type?: string; error?: string }>(
         "run",
-        payload
+        payload,
+        abortController.signal
       )
       if (r.status === "ok" && r.data) {
         const videoData = `data:video/mp4;base64,${r.data}`
@@ -439,6 +441,13 @@ export function VideoEditor({ jobs, onAddJob }: VideoEditorProps) {
         onAddJob((prev) => prev.map((j) => j.id === jobId ? { ...j, status: "failed", endedAt: Date.now(), error: errMsg } : j))
       }
     } catch (e) {
+      // Check if the error is due to abort
+      if (e instanceof Error && e.name === 'AbortError') {
+        updateSegment(seg.id, { status: "empty", error: null })
+        onAddJob((prev) => prev.map((j) => j.id === jobId ? { ...j, status: "cancelled", endedAt: Date.now() } : j))
+        toast("info", `${jobName} cancelled`)
+        return
+      }
       const errMsg = String(e)
       updateSegment(seg.id, { status: "failed", error: errMsg })
       toast("error", errMsg)
@@ -460,7 +469,8 @@ export function VideoEditor({ jobs, onAddJob }: VideoEditorProps) {
     // Create job notification for relay generation
     const jobId = Date.now()
     const jobName = `Director Relay (${eligible.length} segments)`
-    onAddJob((prev) => [{ id: jobId, name: jobName, status: "running", startedAt: Date.now() }, ...prev])
+    const abortController = new AbortController()
+    onAddJob((prev) => [{ id: jobId, name: jobName, status: "running", startedAt: Date.now(), abortController }, ...prev])
 
     // ── LTX relay path: all LTX segments → single Director relay call ──
     const ltxSegs = eligible.filter(s => s.params.model.startsWith("ltx"))
@@ -510,7 +520,7 @@ export function VideoEditor({ jobs, onAddJob }: VideoEditorProps) {
             loras_selected: firstSeg.params.loras || undefined,
             guide_phases: firstSeg.params.guidePhases,
           }
-        })
+        }, abortController.signal)
 
         if (r.status === "ok" && r.data) {
           const videoUrl = `data:video/mp4;base64,${r.data}`
@@ -556,6 +566,13 @@ export function VideoEditor({ jobs, onAddJob }: VideoEditorProps) {
           onAddJob((prev) => prev.map((j) => j.id === jobId ? { ...j, status: "failed", endedAt: Date.now(), error: errMsg } : j))
         }
       } catch (e) {
+        // Check if the error is due to abort
+        if (e instanceof Error && e.name === 'AbortError') {
+          ltxSegs.forEach(s => updateSegment(s.id, { status: "empty", error: null }))
+          onAddJob((prev) => prev.map((j) => j.id === jobId ? { ...j, status: "cancelled", endedAt: Date.now() } : j))
+          toast("info", `${jobName} cancelled`)
+          return
+        }
         const errMsg = String(e)
         ltxSegs.forEach(s => updateSegment(s.id, { status: "failed", error: errMsg }))
         toast("error", errMsg)

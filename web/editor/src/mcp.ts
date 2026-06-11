@@ -71,7 +71,7 @@ async function ensureInit() {
 
 let nextId = 10
 
-export async function callTool<T = unknown>(name: string, args: Record<string, unknown> = {}): Promise<T> {
+export async function callTool<T = unknown>(name: string, args: Record<string, unknown> = {}, signal?: AbortSignal): Promise<T> {
   await ensureInit()
 
   const resp = await fetch(MCP_URL, {
@@ -87,6 +87,7 @@ export async function callTool<T = unknown>(name: string, args: Record<string, u
       method: 'tools/call',
       params: { name, arguments: args },
     }),
+    signal,
   })
 
   const text = await resp.text()

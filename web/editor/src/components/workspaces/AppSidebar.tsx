@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button"
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
 import { useAssetStore, CATEGORY_LABEL, CATEGORY_ORDER, type AssetCategory, type Asset } from "@/stores/assets"
 import { useToastStore } from "@/stores/toast"
-import { FolderOpen, Plus, Music, Image, Mic, Volume2, Trash2, ChevronDown, PanelLeftClose, X, Download, Pencil } from "lucide-react"
+import { FolderOpen, Plus, Music, Image, Mic, Volume2, Trash2, ChevronDown, ChevronLeft, X, Download, Pencil } from "lucide-react"
 import { useState } from "react"
 
 const ICONS: Record<AssetCategory, typeof Image> = {
@@ -64,7 +64,7 @@ export function AppSidebar({ open, onToggle, onSelectAsset }: AppSidebarProps) {
       <div className="flex items-center justify-between p-2 border-b">
         <span className="font-semibold text-sm px-1">Assets</span>
         <Button variant="ghost" size="icon" className="h-7 w-7" onClick={onToggle}>
-          <PanelLeftClose className="h-4 w-4" />
+          <ChevronLeft className="h-4 w-4" />
         </Button>
       </div>
       <div className="p-2 border-b">
