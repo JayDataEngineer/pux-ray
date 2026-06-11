@@ -66,7 +66,7 @@ def main():
             check=False,
         )
 
-    # Set up extra_model_paths.yaml
+    # Set up extra_model_paths.yaml - DOCKER VOLUME MOUNTS ONLY, NO SYMLINKS
     config = {
         "ray_models": {
             "base_path": "/models/image-gen/comfyui",
@@ -81,63 +81,19 @@ def main():
             "diffusion_models": "diffusion_models",
             "text_encoders": "text_encoders",
         },
-        "wan2gp_models": {
+        "wan2gp_base": {
             "base_path": "/opt/wan2gp/ckpts",
-            "checkpoints": "checkpoints",
-            "vae": "vae",
-            "loras": "loras",
-            "upscale_models": "latent_upscale_models",
-            "controlnet": "controlnet",
-            "clip": "Qwen3-0.6B",
-            "clip_vision": "clip_vision",
-            "unet": "unet",
-            "diffusion_models": "diffusion_models",
-            "text_encoders": "Qwen3-0.6B",
+            "unet": "",  # Anima models at base_path
+            "diffusion_models": "",  # Anima models at base_path
+            "text_encoders": "Qwen3-0.6B",  # Qwen text encoder in subdirectory
+            "clip": "Qwen3-0.6B",  # Also add to clip search path
         }
     }
     with open("/opt/ComfyUI/extra_model_paths.yaml", "w") as f:
         yaml.dump(config, f)
     print("extra_model_paths.yaml written")
 
-    # Create custom model type symlinks (RMBG, sams, ultralytics for VNCCS)
-    models_dir = "/opt/ComfyUI/models"
-    os.makedirs(models_dir, exist_ok=True)
-    for folder in ("RMBG", "sams", "ultralytics", "HY-Motion"):
-        shared = os.path.join("/models/image-gen/comfyui", folder)
-        link = os.path.join(models_dir, folder)
-        if os.path.isdir(shared) and not os.path.exists(link):
-            os.symlink(shared, link)
-            print(f"Symlinked {link} -> {shared}")
-
-    # Create symlinks for wan2gp models in ComfyUI
-    wan2gp_ckpts = "/opt/wan2gp/ckpts"
-    if os.path.isdir(wan2gp_ckpts):
-        # Link anima model to unet directory (for diffusion models)
-        anima_src = os.path.join(wan2gp_ckpts, "anima-base-v1.0.safetensors")
-        anima_dst = os.path.join(models_dir, "unet", "anima-base-v1.0.safetensors")
-        if os.path.isfile(anima_src) and not os.path.exists(anima_dst):
-            os.makedirs(os.path.dirname(anima_dst), exist_ok=True)
-            os.symlink(anima_src, anima_dst)
-            print(f"Symlinked {anima_dst} -> {anima_src}")
-
-        # Link text encoders for anima
-        qwen_dir = os.path.join(wan2gp_ckpts, "Qwen3-0.6B")
-        if os.path.isdir(qwen_dir):
-            text_encoder_src = os.path.join(qwen_dir, "qwen_3_06b_base.safetensors")
-            text_encoder_dst = os.path.join(models_dir, "text_encoders", "qwen_3_06b_base.safetensors")
-            if os.path.isfile(text_encoder_src) and not os.path.exists(text_encoder_dst):
-                os.makedirs(os.path.dirname(text_encoder_dst), exist_ok=True)
-                os.symlink(text_encoder_src, text_encoder_dst)
-                print(f"Symlinked {text_encoder_dst} -> {text_encoder_src}")
-
-            # Also link to clip directory (ComfyUI checks both locations)
-            clip_dst = os.path.join(models_dir, "clip", "qwen_3_06b_base.safetensors")
-            if os.path.isfile(text_encoder_src) and not os.path.exists(clip_dst):
-                os.makedirs(os.path.dirname(clip_dst), exist_ok=True)
-                os.symlink(text_encoder_src, clip_dst)
-                print(f"Symlinked {clip_dst} -> {text_encoder_src}")
-
-    print("Setup complete")
+    print("Setup complete - volume mounts handle model paths")
 
 
 if __name__ == "__main__":
