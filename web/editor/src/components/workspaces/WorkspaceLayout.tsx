@@ -256,22 +256,27 @@ function GpuStatus() {
   const refresh = useCallback(async () => {
     try {
       const s = await forgeStatus()
-      console.log('[GpuStatus] Raw response:', s)
+      console.log('[GpuStatus] Raw API response:', JSON.stringify(s, null, 2))
 
-      // Use torch.cuda memory info, not Forge's tracking ledger
-      const vram_total = s.vram?.total_mb || s.gpu?.total_mb || s.vram_total_mb || 22528
-      const vram_free = s.vram?.free || s.vram_free_mb || 0
+      // The real GPU info is in gpu.total_mb and gpu.reserved_mb from torch.cuda
+      // Forge's vram_free_mb is wrong (returns system RAM, not VRAM)
+      const gpu_total = s.gpu?.total_mb
+      const gpu_reserved = s.gpu?.reserved_mb
+      const gpu_allocated = s.gpu?.allocated_mb
 
-      // Calculate actual usage from torch.cuda, not loaded_models
-      const actual_used = vram_total - vram_free
+      // Calculate actual free VRAM from torch.cuda data
+      const vram_total = gpu_total || 22528
+      const vram_used = gpu_reserved || 0  // reserved is what actually matters
+      const vram_free = Math.max(0, vram_total - vram_used)
 
-      // Use loaded_models for display only, not for calculation
       const loaded_models = s.loaded || {}
 
-      console.log('[GpuStatus] Using torch.cuda memory:', {
-        vram_total,
+      console.log('[GpuStatus] Using torch.cuda GPU info:', {
+        gpu_device: s.gpu?.device,
+        vram_total: gpu_total,
+        vram_used: gpu_reserved,
+        vram_allocated: gpu_allocated,
         vram_free,
-        actual_used,
         loaded_models
       })
 
