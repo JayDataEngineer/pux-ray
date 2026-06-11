@@ -179,6 +179,7 @@ export function WorkspaceLayout() {
 
 function JobsButton({ jobs }: { jobs: JobEntry[] }) {
   const [open, setOpen] = useState(false)
+  const [currentTime, setCurrentTime] = useState(Date.now())
   const ref = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -188,6 +189,18 @@ function JobsButton({ jobs }: { jobs: JobEntry[] }) {
     document.addEventListener("mousedown", handleClick)
     return () => document.removeEventListener("mousedown", handleClick)
   }, [])
+
+  // Update current time every second when there are running jobs
+  useEffect(() => {
+    const running = jobs.filter((j) => j.status === "running")
+    if (running.length === 0) return
+
+    const interval = setInterval(() => {
+      setCurrentTime(Date.now())
+    }, 1000)
+
+    return () => clearInterval(interval)
+  }, [jobs])
 
   const running = jobs.filter((j) => j.status === "running")
 
@@ -221,7 +234,7 @@ function JobsButton({ jobs }: { jobs: JobEntry[] }) {
                   {j.status === "completed" && <CheckCircle2 className="h-3 w-3 shrink-0 text-green-500" />}
                   {j.status === "failed" && <XCircle className="h-3 w-3 shrink-0 text-destructive" />}
                   <span className="flex-1 truncate">{j.name}</span>
-                  {j.status === "running" && <span className="text-[10px] text-muted-foreground">{Math.round((Date.now() - j.startedAt) / 1000)}s</span>}
+                  {j.status === "running" && <span className="text-[10px] text-muted-foreground">{Math.round((currentTime - j.startedAt) / 1000)}s</span>}
                   {j.status === "completed" && j.endedAt && <span className="text-[10px] text-muted-foreground">{(j.endedAt - j.startedAt) / 1000}s</span>}
                   {j.status === "failed" && <span className="text-[10px] text-destructive truncate max-w-24">{j.error}</span>}
                 </div>
@@ -235,24 +248,180 @@ function JobsButton({ jobs }: { jobs: JobEntry[] }) {
 }
 
 function GpuStatus() {
-  const [status, setStatus] = useState<{ loaded: number; vram_free_mb: number; vram_total_mb: number } | null>(null)
+  const [status, setStatus] = useState<{ loaded: number; vram_free_mb: number; vram_total_mb: number; loaded_models?: Record<string, number> } | null>(null)
   const [error, setError] = useState(false)
+  const [hoverOpen, setHoverOpen] = useState(false)
+  const [unloading, setUnloading] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
   const refresh = useCallback(async () => {
     try {
       const s = await forgeStatus()
-      setStatus({ loaded: Object.keys(s.loaded).length, vram_free_mb: s.vram_free_mb, vram_total_mb: s.vram_total_mb || 22528 })
+      console.log('[GpuStatus] Raw response:', s)
+
+      const vram_total = s.vram_total_mb || s.gpu?.total_mb || 22528
+
+      // Calculate actual usage from loaded models instead of relying on vram_free_mb
+      const loaded_models = s.loaded || {}
+      const allocated_from_models = Object.values(loaded_models).reduce((sum: number, v: number) => sum + (v || 0), 0)
+
+      // Use the minimum of (total - free) and allocated_from_models for better accuracy
+      const vram_free = s.vram_free_mb || 0
+      const calculated_used = Math.max(vram_total - vram_free, allocated_from_models)
+
+      console.log('[GpuStatus] Calculated:', {
+        vram_total,
+        vram_free,
+        allocated_from_models,
+        calculated_used,
+        loaded_models
+      })
+
+      setStatus({
+        loaded: Object.keys(loaded_models).length,
+        vram_free_mb: vram_total - calculated_used, // Recalculate free based on actual usage
+        vram_total_mb: vram_total,
+        loaded_models: loaded_models
+      })
       setError(false)
-    } catch { setError(true) }
+    } catch (err) {
+      console.error('[GpuStatus] Error fetching status:', err)
+      setError(true)
+    }
   }, [])
-  useEffect(() => { refresh(); const id = setInterval(refresh, 15000); return () => clearInterval(id) }, [refresh])
+
+  const unloadAll = useCallback(async () => {
+    if (!confirm('Are you sure you want to unload all GPU models? This will free all VRAM but any subsequent generation will need to reload models.')) {
+      return
+    }
+
+    setUnloading(true)
+    try {
+      const res = await fetch('/forge', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'unload' }),
+      })
+      if (!res.ok) throw new Error(`Failed to unload: ${res.status}`)
+
+      const body = await res.json()
+      if (body.status === 'error') throw new Error(body.error || 'Unload failed')
+
+      console.log('[GpuStatus] Unload success:', body)
+      // Refresh status after unload
+      await refresh()
+    } catch (err) {
+      console.error('[GpuStatus] Unload error:', err)
+      setError(true)
+    } finally {
+      setUnloading(false)
+    }
+  }, [refresh])
+
+  useEffect(() => {
+    refresh()
+    const id = setInterval(refresh, 15000)
+    return () => clearInterval(id)
+  }, [refresh])
+
+  useEffect(() => {
+    const handleClick = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setHoverOpen(false)
+    }
+    document.addEventListener("mousedown", handleClick)
+    return () => document.removeEventListener("mousedown", handleClick)
+  }, [])
+
   if (error) return <Badge variant="outline" className="text-xs gap-1"><Cpu className="h-3 w-3 text-destructive" />Offline</Badge>
   if (!status) return <Skeleton className="h-5 w-20" />
-  const used = status.vram_total_mb - status.vram_free_mb
-  const pct = Math.round((used / status.vram_total_mb) * 100)
+
+  // Use the already-calculated values from refresh()
+  const total = Math.max(0, status.vram_total_mb || 0)
+  const free = Math.max(0, status.vram_free_mb || 0)
+  const used = Math.max(0, total - free)
+  const pct = total > 0 ? Math.min(100, Math.round((used / total) * 100)) : 0
+
+  // Debug log if values seem wrong
+  if (pct < 0 || pct > 100) {
+    console.warn('[GpuStatus] Unexpected percentage:', { total, free, used, pct })
+  }
+
   return (
-    <Badge variant="outline" className="text-xs gap-1 cursor-pointer" onClick={refresh}>
-      <HardDrive className="h-3 w-3" />{pct}% GPU
-    </Badge>
+    <div ref={ref} className="relative">
+      <Badge
+        variant="outline"
+        className="text-xs gap-1 cursor-pointer"
+        onClick={() => setHoverOpen(!hoverOpen)}
+        title={hoverOpen ? "" : "Click to see loaded models"}
+      >
+        <HardDrive className="h-3 w-3" />{pct}% GPU
+      </Badge>
+      {hoverOpen && (
+        <div className="absolute right-0 top-full mt-1 w-72 rounded-md border bg-popover text-popover-foreground shadow-md z-50">
+          <div className="p-2 border-b text-xs font-medium flex items-center gap-1.5">
+            <Cpu className="h-3 w-3" /> GPU Status
+          </div>
+          <div className="p-2 space-y-1.5">
+            <div className="flex justify-between text-xs">
+              <span className="text-muted-foreground">VRAM Usage:</span>
+              <span className="font-medium">{used} MB / {total} MB ({pct}%)</span>
+            </div>
+            <div className="flex justify-between text-xs">
+              <span className="text-muted-foreground">Free:</span>
+              <span className="font-medium">{free} MB</span>
+            </div>
+            <div className="flex justify-between text-xs">
+              <span className="text-muted-foreground">Loaded Models:</span>
+              <span className="font-medium">{status.loaded}</span>
+            </div>
+            {status.loaded_models && Object.keys(status.loaded_models).length > 0 && (
+              <div className="pt-1.5 border-t mt-2">
+                <div className="text-[10px] text-muted-foreground mb-1">Loaded Services:</div>
+                {Object.entries(status.loaded_models).map(([name, vram]) => (
+                  <div key={name} className="flex justify-between text-xs py-0.5">
+                    <span className="text-muted-foreground">{name}:</span>
+                    <span className="font-medium">{vram} MB</span>
+                  </div>
+                ))}
+              </div>
+            )}
+            <div className="flex gap-2 mt-2">
+              <Button
+                variant="ghost"
+                size="sm"
+                className="flex-1 h-7 text-xs"
+                onClick={(e) => {
+                  e.stopPropagation()
+                  refresh()
+                }}
+              >
+                Refresh
+              </Button>
+              {status.loaded > 0 && (
+                <Button
+                  variant="destructive"
+                  size="sm"
+                  className="flex-1 h-7 text-xs"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    unloadAll()
+                  }}
+                  disabled={unloading}
+                >
+                  {unloading ? (
+                    <>
+                      <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+                      Unloading...
+                    </>
+                  ) : (
+                    'Unload All'
+                  )}
+                </Button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
   )
 }
 
