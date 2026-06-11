@@ -121,7 +121,7 @@ export function VideoEditor({ jobs, onAddJob }: VideoEditorProps) {
   const audioCues = useTimelineStore((s) => s.audioCues)
   const audioTracks = useTimelineStore((s) => s.audioTracks)
   const addAudioTrack = useTimelineStore((s) => s.addAudioTrack)
-  const removeAudioTrack = useTimelineStore((s) => removeAudioTrack)
+  const removeAudioTrack = useTimelineStore((s) => s.removeAudioTrack)
   const addSegment = useTimelineStore((s) => s.addSegment)
   const removeSegment = useTimelineStore((s) => s.removeSegment)
   const updateSegment = useTimelineStore((s) => s.updateSegment)

@@ -657,6 +657,29 @@ function AssetsTab({ selectedService, jobs, onAddJob, nextJobId, onOpenKimodo }:
     }
   }, [selectedService])
 
+  // ── Load model presets and pre-fill defaults ─────────────────────────────────
+  useEffect(() => {
+    const modelName = String(values.model || "")
+    if (!modelName || (selectedService !== "generate" && selectedService !== "generate_image")) return
+
+    callTool<{ sampling_steps?: number; guide_scale?: number; width?: number; height?: number; description?: string }>(
+      "get_model_preset",
+      { model: modelName }
+    ).then((preset) => {
+      if (preset && typeof preset === "object") {
+        setValues((prev) => ({
+          ...prev,
+          sampling_steps: preset.sampling_steps ?? prev.sampling_steps,
+          guide_scale: preset.guide_scale ?? prev.guide_scale,
+          width: preset.width ?? prev.width,
+          height: preset.height ?? prev.height,
+        }))
+      }
+    }).catch(() => {
+      // Preset fetch failed, continue with defaults
+    })
+  }, [values.model, selectedService])
+
   const handleGenerate = async () => {
     if (!currentTool && !currentService) return
     const useTool = currentTool || tools.find((t) => t.name === "run")
@@ -834,23 +857,76 @@ function AssetsTab({ selectedService, jobs, onAddJob, nextJobId, onOpenKimodo }:
                 </Button>
                 {advancedOpen && (
                   <div className="rounded-lg bg-muted/50 p-3 space-y-2 text-[11px]">
-                    <div className="font-semibold text-xs mb-2">Anima Base Recommended Settings</div>
-                    <div className="grid grid-cols-2 gap-x-4 gap-y-1">
-                      <span className="text-muted-foreground">Steps:</span>
-                      <span>30-50</span>
-                      <span className="text-muted-foreground">CFG Scale:</span>
-                      <span>4-5</span>
-                      <span className="text-muted-foreground">Resolution:</span>
-                      <span>512² - 1536² px</span>
-                    </div>
-                    <div className="pt-1">
-                      <span className="text-muted-foreground">Sampler options:</span>
-                      <ul className="mt-1 space-y-0.5 text-muted-foreground">
-                        <li>• <span className="text-foreground">er_sde</span> — neutral, flat colors, sharp lines (default)</li>
-                        <li>• <span className="text-foreground">euler_a</span> — softer, thinner lines</li>
-                        <li>• <span className="text-foreground">dpmpp_2m_sde_gpu</span> — more creative variety</li>
-                      </ul>
-                    </div>
+                    {String(values.model || "") === "anima_base" ? (
+                      <>
+                        <div className="font-semibold text-xs mb-2">Anima Base Recommended Settings</div>
+                        <div className="grid grid-cols-2 gap-x-4 gap-y-1">
+                          <span className="text-muted-foreground">Steps:</span>
+                          <span>30-50 (default: {values.sampling_steps ?? "30"})</span>
+                          <span className="text-muted-foreground">CFG Scale:</span>
+                          <span>4-5 (default: {values.guide_scale ?? "4.0"})</span>
+                          <span className="text-muted-foreground">Resolution:</span>
+                          <span>512² - 1536² px</span>
+                        </div>
+                        <div className="pt-1">
+                          <span className="text-muted-foreground">Sampler options:</span>
+                          <ul className="mt-1 space-y-0.5 text-muted-foreground">
+                            <li>• <span className="text-foreground">er_sde</span> — neutral, flat colors, sharp lines (default)</li>
+                            <li>• <span className="text-foreground">euler_a</span> — softer, thinner lines</li>
+                            <li>• <span className="text-foreground">dpmpp_2m_sde_gpu</span> — more creative variety</li>
+                          </ul>
+                        </div>
+                      </>
+                    ) : String(values.model || "") === "z_image" ? (
+                      <>
+                        <div className="font-semibold text-xs mb-2">Z-Image Turbo Recommended Settings</div>
+                        <div className="grid grid-cols-2 gap-x-4 gap-y-1">
+                          <span className="text-muted-foreground">Steps:</span>
+                          <span>8 (distilled, no CFG)</span>
+                          <span className="text-muted-foreground">CFG Scale:</span>
+                          <span>0.0 (disabled for turbo)</span>
+                          <span className="text-muted-foreground">Quality:</span>
+                          <span>Turbo (fastest)</span>
+                        </div>
+                        <div className="pt-1 text-[10px] text-muted-foreground">
+                          Best for photorealism and speed. Use Z-Image Base for creative work with full control.
+                        </div>
+                      </>
+                    ) : String(values.model || "") === "z_image_base" ? (
+                      <>
+                        <div className="font-semibold text-xs mb-2">Z-Image Base Recommended Settings</div>
+                        <div className="grid grid-cols-2 gap-x-4 gap-y-1">
+                          <span className="text-muted-foreground">Steps:</span>
+                          <span>50 (default: {values.sampling_steps ?? "50"})</span>
+                          <span className="text-muted-foreground">CFG Scale:</span>
+                          <span>4.0 (default: {values.guide_scale ?? "4.0"})</span>
+                          <span className="text-muted-foreground">Negative Prompt:</span>
+                          <span>Active</span>
+                        </div>
+                        <div className="pt-1 text-[10px] text-muted-foreground">
+                          Full model with maximum control. Best for fine-tuning and creative diversity.
+                        </div>
+                      </>
+                    ) : String(values.model || "")?.startsWith("flux") ? (
+                      <>
+                        <div className="font-semibold text-xs mb-2">Flux Recommended Settings</div>
+                        <div className="grid grid-cols-2 gap-x-4 gap-y-1">
+                          <span className="text-muted-foreground">Resolution:</span>
+                          <span>{values.width ?? "1280"}×{values.height ?? "720"}</span>
+                          <span className="text-muted-foreground">Steps:</span>
+                          <span>{String(values.model || "")?.includes("schnell") || String(values.model || "")?.includes("klein") ? "4" : String(values.model || "")?.startsWith("flux2") ? "30" : "20"}</span>
+                        </div>
+                        <div className="pt-1 text-[10px] text-muted-foreground">
+                          {String(values.model || "")?.includes("schnell") || String(values.model || "")?.includes("klein")
+                            ? "Distilled for speed. Natural language prompts work best."
+                            : "Full model with high quality. Natural language prompts work best."}
+                        </div>
+                      </>
+                    ) : (
+                      <div className="text-muted-foreground text-[10px]">
+                        Model-specific settings will appear here when you select a model.
+                      </div>
+                    )}
                   </div>
                 )}
               </div>

@@ -173,6 +173,9 @@ mcp.tool(generate, meta={
     "openai/toolInvocation/invoking": "Generating image…",
     "openai/toolInvocation/invoked": "Done",
 })
+mcp.tool(get_model_preset, meta={
+    "description": "Get model-specific preset defaults for image generation",
+})
 mcp.tool(generate_character_sheet, meta={
     "ui": {"resourceUri": "ui://apps/image"},
     "openai/toolInvocation/invoking": "Generating character sheet…",
