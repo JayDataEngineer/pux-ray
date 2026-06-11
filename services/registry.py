@@ -416,6 +416,22 @@ SERVICE_REGISTRY: dict[str, ServiceEntry] = {
             ParamSpec(type="select", label="Style", default="photorealistic", options=["photorealistic", "anime", "stylized", "cartoon"]),
         ],
     ),
+
+    # ── Anima (anime/illustration image generation) ──────────────────────────────
+    "anima": ServiceEntry(
+        deployment="forge", app="forge",
+        label="Anima", category="image",
+        needs_gpu=True, default_model="anima_base",
+        output_type="image",
+        description="Anima — anime/illustration image generation.",
+        params_schema=[
+            ParamSpec(type="textarea", label="Prompt", required=True, placeholder="A beautiful anime girl..."),
+            ParamSpec(type="number", label="Width", default=1024, placeholder="1024"),
+            ParamSpec(type="number", label="Height", default=1024, placeholder="1024"),
+            ParamSpec(type="number", label="Steps", default=30, placeholder="30"),
+            ParamSpec(type="number", label="CFG Scale", default=4.0, placeholder="4.0"),
+        ],
+    ),
 }
 
 
