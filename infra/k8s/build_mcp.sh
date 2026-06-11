@@ -8,8 +8,8 @@
 # Usage: bash infra/k8s/build_mcp.sh
 set -euo pipefail
 
-REGISTRY="forge-reg.local:30500/tech-noir"      # K3s containerd resolves via registries.yaml
-PUSH_REGISTRY="forge-reg.local:30500"            # Docker push — must match insecure-registries in daemon.json
+REGISTRY="forge-registry.infra.svc.cluster.local:5000/tech-noir"      # K3s containerd resolves via registries.yaml
+PUSH_REGISTRY="forge-registry.infra.svc.cluster.local:5000"            # Docker push — must match insecure-registries in daemon.json
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
