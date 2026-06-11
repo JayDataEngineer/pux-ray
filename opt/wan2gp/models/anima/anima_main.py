@@ -14,17 +14,15 @@ from mmgp import offload
 from shared.utils import files_locator as fl
 from transformers import AutoTokenizer, Qwen3ForCausalLM
 
-# Reuse Z-Image's AutoencoderKL — same VAE checkpoint, same interface.
-# Cosmos2TextToImagePipeline just calls vae.encode()/decode(), doesn't
-# care about the specific VAE class. Avoids config incompatibility with
-# diffusers' AutoencoderKLCosmos.
+# Import Qwen-Image VAE - correct architecture for Anima
+# Anima uses Qwen-Image VAE, not ZImage Turbo VAE
 import sys as _sys
-_zimg_dir = os.path.join(
-    os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "z_image"
+_qwen_dir = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "qwen"
 )
-if _zimg_dir not in _sys.path:
-    _sys.path.insert(0, _zimg_dir)
-from autoencoder_kl import AutoencoderKL
+if _qwen_dir not in _sys.path:
+    _sys.path.insert(0, _qwen_dir)
+from autoencoder_kl_qwenimage import AutoencoderKLQwenImage as AutoencoderKL
 
 logger = logging.get_logger(__name__)
 
@@ -228,13 +226,14 @@ class model_factory:
         # --- VAE (Qwen-Image VAE - CORRECT ARCHITECTURE FOR ANIMA) ---
         vae_filename = fl.locate_file("qwen_image_vae.safetensors")
 
-        # Use offload library to load Qwen-Image VAE (same pattern as original)
+        # Use offload library to load Qwen-Image VAE with correct architecture
         vae = offload.fast_load_transformers_model(
             vae_filename,
             writable_tensors=True,
-            modelClass=AutoencoderKL,
+            modelClass=AutoencoderKL,  # This is now AutoencoderKLQwenImage
             defaultConfigPath=None,  # Qwen-Image VAE has built-in config
             default_dtype=VAE_dtype,
+            configKwargs={"upsampler_factor": 1},  # 2D VAE, no upsampler
         )
 
         # Cosmos pipeline expects temporal downsampling attrs (2D VAE has none)
