@@ -10,6 +10,13 @@ import { useToastStore } from "@/stores/toast"
 import { fetchLLMModels } from "@/api"
 import { Sparkles, Plus, Trash2, Check, Pencil, X, RefreshCw, Loader2 } from "lucide-react"
 
+// Popular model presets for quick access
+const MODEL_PRESETS = {
+  openai: ["gpt-4o-mini", "gpt-4o", "gpt-4-turbo", "gpt-4", "gpt-3.5-turbo"],
+  anthropic: ["claude-3-haiku-20240307", "claude-3-sonnet-20240229", "claude-3-opus-20240229"],
+  google: ["gemini-pro", "gemini-ultra"],
+}
+
 interface EnhanceConfigDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
@@ -36,6 +43,17 @@ export function EnhanceConfigDialog({ open, onOpenChange }: EnhanceConfigDialogP
   const [availableModels, setAvailableModels] = useState<string[]>([])
   const [isLoadingModels, setIsLoadingModels] = useState(false)
   const [modelsError, setModelsError] = useState<string | null>(null)
+
+  // Detect provider from base URL for presets
+  const detectProvider = (baseUrl: string): keyof typeof MODEL_PRESETS | 'other' => {
+    const url = baseUrl.toLowerCase()
+    if (url.includes('openai.com') || url.includes('api.openai.com')) return 'openai'
+    if (url.includes('anthropic.com') || url.includes('api.anthropic.com')) return 'anthropic'
+    if (url.includes('google.com') || url.includes('generativelanguage.googleapis.com')) return 'google'
+    return 'other'
+  }
+
+  const suggestedPresets = MODEL_PRESETS[detectProvider(form.baseUrl)] || []
 
   const resetForm = () => {
     setForm({ name: "", baseUrl: "https://api.openai.com/v1", apiKey: "", model: "gpt-4o-mini" })
@@ -248,6 +266,20 @@ export function EnhanceConfigDialog({ open, onOpenChange }: EnhanceConfigDialogP
                     />
                     {modelsError && (
                       <p className="text-[10px] text-destructive">{modelsError}</p>
+                    )}
+                    {!modelsError && !isLoadingModels && suggestedPresets.length > 0 && !form.model && (
+                      <div className="flex flex-wrap gap-1">
+                        {suggestedPresets.slice(0, 4).map((preset) => (
+                          <button
+                            key={preset}
+                            type="button"
+                            onClick={() => setForm((f) => ({ ...f, model: preset }))}
+                            className="text-[9px] px-2 py-0.5 rounded bg-muted hover:bg-muted-foreground/20 transition-colors"
+                          >
+                            {preset}
+                          </button>
+                        ))}
+                      </div>
                     )}
                     {!modelsError && !isLoadingModels && form.baseUrl && form.apiKey && (
                       <p className="text-[10px] text-muted-foreground">

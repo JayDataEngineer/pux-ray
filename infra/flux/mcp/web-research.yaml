@@ -23,8 +23,6 @@ spec:
         runAsNonRoot: true
         runAsUser: 1000
         fsGroup: 1000
-        seccompProfile:
-          type: RuntimeDefault
       containers:
         - name: server
           image: forge-registry.infra.svc.cluster.local:5000/tech-noir/mcp-web-research:latest
@@ -34,11 +32,6 @@ spec:
             runAsNonRoot: true
             runAsUser: 1000
             allowPrivilegeEscalation: false
-            capabilities:
-              drop:
-                - ALL
-            seccompProfile:
-              type: RuntimeDefault
           env:
             - name: PLAYWRIGHT_BROWSERS_PATH
               value: /app/.cache/ms-playwright
@@ -119,6 +112,7 @@ spec:
         - name: shm
           emptyDir:
             medium: Memory
+            sizeLimit: 256Mi
 ---
 apiVersion: v1
 kind: Service
