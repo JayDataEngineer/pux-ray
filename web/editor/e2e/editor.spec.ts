@@ -16,6 +16,17 @@ async function switchToVideo(page: Page) {
   await clickButton(page, 'Video')
 }
 
+/** Expand an inspector section by clicking its header button */
+async function expandSection(page: Page, title: string) {
+  // Escape regex special chars in title
+  const escaped = title.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  const header = page.getByRole('button', { name: new RegExp(`^${escaped}$`), exact: false }).first()
+  if (await header.isVisible()) {
+    const isCollapsed = await header.locator('.lucide-chevron-right').count()
+    if (isCollapsed > 0) await header.click()
+  }
+}
+
 // ═══════════════════════════════════════════════════════════════════════════
 // 1. SMOKE TESTS
 // ═══════════════════════════════════════════════════════════════════════════
@@ -215,6 +226,15 @@ test.describe('Controls', () => {
 
   test('Generate All button is enabled with auto-created segment', async ({ page }) => {
     const btn = page.getByRole('button', { name: /Generate All/ })
+    await expect(btn).toBeEnabled()
+  })
+
+  test('Generate This Segment button in Generation inspector', async ({ page }) => {
+    await page.locator('[data-seg]').first().click()
+    await expandSection(page, 'Generation')
+    const btn = page.getByRole('button', { name: /Generate This Segment/ })
+    await expect(btn).toBeVisible()
+    // Button should be enabled for empty segments
     await expect(btn).toBeEnabled()
   })
 
