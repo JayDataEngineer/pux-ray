@@ -200,8 +200,15 @@ export function EnhanceConfigDialog({ open, onOpenChange }: EnhanceConfigDialogP
   }
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-lg max-h-[85vh] overflow-y-auto">
+    <Dialog open={open} onOpenChange={onOpenChange} modal={false}>
+      <DialogContent className="sm:max-w-lg max-h-[85vh] overflow-y-auto"
+        onInteractOutside={(e) => {
+          // Prevent closing when interacting with Select dropdown
+          const target = e.target as HTMLElement
+          if (target?.closest('[data-slot="select-content"]') || target?.closest('[role="listbox"]')) {
+            e.preventDefault()
+          }
+        }}>
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2 text-base">
             <Sparkles className="h-4 w-4 text-primary" />
