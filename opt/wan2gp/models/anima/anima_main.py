@@ -18,6 +18,62 @@ from transformers import AutoTokenizer, Qwen3ForCausalLM
 logger = logging.get_logger(__name__)
 
 
+def _attach_llm_adapter(transformer: CosmosTransformer3DModel, text_embed_dim: int = 1024):
+    """Build and attach the LLM adapter module to the diffusers transformer.
+
+    The ComfyUI Anima checkpoint contains a `net.llm_adapter` sub-network that
+    processes text embeddings before feeding them to the transformer blocks.
+    It has: embed, norm, N adapter blocks (self_attn + cross_attn + mlp), out_proj.
+    diffusers' CosmosTransformer3DModel doesn't include this, so we attach it
+    as a custom submodule so its weights load via load_state_dict.
+    """
+    import torch.nn as nn
+
+    class _LLMAdapterBlock(nn.Module):
+        def __init__(self, dim=1024, ff_dim=4096, num_heads=16, head_dim=64):
+            super().__init__()
+            self.norm_self_attn = nn.LayerNorm(dim, elementwise_affine=True)
+            self.self_attn = nn.ModuleDict({
+                "q_proj": nn.Linear(dim, dim, bias=False),
+                "k_proj": nn.Linear(dim, dim, bias=False),
+                "v_proj": nn.Linear(dim, dim, bias=False),
+                "o_proj": nn.Linear(dim, dim, bias=False),
+                "q_norm": nn.LayerNorm(head_dim, elementwise_affine=True),
+                "k_norm": nn.LayerNorm(head_dim, elementwise_affine=True),
+            })
+            self.norm_cross_attn = nn.LayerNorm(dim, elementwise_affine=True)
+            self.cross_attn = nn.ModuleDict({
+                "q_proj": nn.Linear(dim, dim, bias=False),
+                "k_proj": nn.Linear(dim, dim, bias=False),
+                "v_proj": nn.Linear(dim, dim, bias=False),
+                "o_proj": nn.Linear(dim, dim, bias=False),
+                "q_norm": nn.LayerNorm(head_dim, elementwise_affine=True),
+                "k_norm": nn.LayerNorm(head_dim, elementwise_affine=True),
+            })
+            self.norm_mlp = nn.LayerNorm(dim, elementwise_affine=True)
+            self.mlp = nn.Sequential(
+                nn.Linear(dim, ff_dim),
+                nn.GELU(),
+                nn.Linear(ff_dim, dim),
+            )
+
+    class _LLMAdapter(nn.Module):
+        def __init__(self, vocab_size=32128, dim=1024, num_blocks=6,
+                     ff_dim=4096, num_heads=16, head_dim=64):
+            super().__init__()
+            self.embed = nn.Embedding(vocab_size, dim)
+            self.norm = nn.LayerNorm(dim, elementwise_affine=True)
+            self.blocks = nn.ModuleList([
+                _LLMAdapterBlock(dim, ff_dim, num_heads, head_dim)
+                for _ in range(num_blocks)
+            ])
+            self.out_proj = nn.Linear(dim, dim)
+
+    adapter = _LLMAdapter()
+    # Attach as a named submodule so load_state_dict picks up llm_adapter.* keys
+    transformer.llm_adapter = adapter
+
+
 def _convert_cosmos_state_dict(sd: dict) -> dict:
     """Remap ComfyUI Cosmos state dict keys to diffusers CosmosTransformer3DModel format.
 
@@ -25,11 +81,16 @@ def _convert_cosmos_state_dict(sd: dict) -> dict:
     Key mapping (ComfyUI → diffusers):
       blocks.N.self_attn.*       → transformer_blocks.N.attn1.*
       blocks.N.cross_attn.*      → transformer_blocks.N.attn2.*
-      blocks.N.adaln_modulation_self_attn.{1,2}.weight  → norm{1,2}.linear_{1,2}.weight
+      blocks.N.adaln_modulation_*.1.* → norm{1,2,3}.linear_1.*
+      blocks.N.adaln_modulation_*.2.* → norm{1,2,3}.linear_2.*
       blocks.N.mlp.layer{1,2}    → ff.net.{0.proj,2}
       x_embedder.proj.1.*        → patch_embed.proj.*
       final_layer.adaln_modulation.* → norm_out.linear_*.weight
       final_layer.linear.*       → proj_out.*
+      llm_adapter.*              → llm_adapter.* (kept as-is, loaded into custom module)
+
+    NOTE: positional embeddings are NOT in the checkpoint and are NOT
+    overwritten — the model keeps its randomly initialized values.
     """
     import re
     out = {}
@@ -65,6 +126,7 @@ def _convert_cosmos_state_dict(sd: dict) -> dict:
         elif k == 'final_layer.adaln_modulation.2.bias':
             out['norm_out.linear_2.bias'] = tensor
         elif k.startswith('llm_adapter.'):
+            # Keep llm_adapter keys as-is — they load into a custom module
             out[k] = tensor
         # === Block-level keys ===
         else:
@@ -112,11 +174,8 @@ def _convert_cosmos_state_dict(sd: dict) -> dict:
                     out[f'transformer_blocks.{blk}.ff.net.2.bias'] = tensor
                 continue
 
-    # Add learned positional embeddings (not stored in ComfyUI state dict,
-    # initialized randomly in the model __init__). Use zero init — fine for T2I.
-    out['learnable_pos_embed.pos_emb_t'] = torch.zeros(128, 2048)   # max_t/patch_t=128, hidden=16×128
-    out['learnable_pos_embed.pos_emb_h'] = torch.zeros(120, 2048)   # max_h/patch_h=240/2=120
-    out['learnable_pos_embed.pos_emb_w'] = torch.zeros(120, 2048)   # max_w/patch_w=240/2=120
+    # Do NOT add zero positional embeddings — the model was trained without
+    # them (uses RoPE in attention) and zeroing them destroys spatial info.
 
     return out
 
@@ -161,6 +220,11 @@ class model_factory:
         # Load transformer with config, stripping net. prefix from weights
         with init_empty_weights():
             transformer = CosmosTransformer3DModel(**config)
+
+        # The ComfyUI checkpoint includes an llm_adapter module that transforms
+        # text embeddings before they reach the transformer. Diffusers' model
+        # doesn't have this — add it as a submodule so its weights load correctly.
+        _attach_llm_adapter(transformer, config.get("text_embed_dim", 1024))
 
         offload.load_model_data(
             transformer,

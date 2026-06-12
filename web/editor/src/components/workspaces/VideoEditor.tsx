@@ -145,7 +145,9 @@ export function VideoEditor({ jobs, onAddJob }: VideoEditorProps) {
   const [generatingSegId, setGeneratingSegId] = useState<string | null>(null)
   const [pps, setPps] = useState(80)
   const [sidebarW, setSidebarW] = useState(300)
+  const [timelineH, setTimelineH] = useState(220)
   const sidebarDragRef = useRef<{ startX: number; startW: number } | null>(null)
+  const timelineDragRef = useRef<{ startY: number; startH: number } | null>(null)
   const raf = useRef(0)
   const videoRef = useRef<HTMLVideoElement>(null)
 
@@ -637,6 +639,21 @@ export function VideoEditor({ jobs, onAddJob }: VideoEditorProps) {
       setSidebarW(newW)
     }
     const onUp = () => { sidebarDragRef.current = null }
+    window.addEventListener("pointermove", onMove)
+    window.addEventListener("pointerup", onUp)
+    return () => { window.removeEventListener("pointermove", onMove); window.removeEventListener("pointerup", onUp) }
+  }, [])
+
+  // ── Timeline vertical resize ────────────────────────────────────────────────
+  useEffect(() => {
+    const onMove = (e: PointerEvent) => {
+      const drag = timelineDragRef.current
+      if (!drag) return
+      const dy = drag.startY - e.clientY // up = positive = taller
+      const newH = Math.max(120, Math.min(window.innerHeight * 0.7, drag.startH + dy))
+      setTimelineH(newH)
+    }
+    const onUp = () => { timelineDragRef.current = null }
     window.addEventListener("pointermove", onMove)
     window.addEventListener("pointerup", onUp)
     return () => { window.removeEventListener("pointermove", onMove); window.removeEventListener("pointerup", onUp) }
@@ -1503,7 +1520,18 @@ export function VideoEditor({ jobs, onAddJob }: VideoEditorProps) {
       </div>
 
       {/* ═══ TIMELINE ═══ */}
-      <div className="border-t border-white/[0.06] shrink-0 select-none bg-[#0d0d10]">
+      <div className="border-t border-white/[0.06] shrink-0 select-none bg-[#0d0d10] flex flex-col"
+        style={{ height: timelineH }}>
+        {/* Resize handle — drag up to make timeline taller */}
+        <div className="h-2 shrink-0 cursor-row-resize flex items-center justify-center group z-20 relative"
+          onPointerDown={(e) => {
+            if (e.button !== 0) return
+            e.preventDefault()
+            ;(e.target as HTMLElement).setPointerCapture?.(e.pointerId)
+            timelineDragRef.current = { startY: e.clientY, startH: timelineH }
+          }}>
+          <div className="w-12 h-[3px] rounded-full bg-white/[0.08] group-hover:bg-white/20 group-active:bg-[#6366f1]/50 transition-colors" />
+        </div>
         {/* Timeline Header */}
         <div className="flex items-center h-6 px-3 border-b border-white/[0.06] bg-[#111114]">
           <span className="text-[10px] font-semibold uppercase tracking-widest text-white/30">Timeline</span>
@@ -1516,6 +1544,8 @@ export function VideoEditor({ jobs, onAddJob }: VideoEditorProps) {
           </span>
         </div>
 
+        {/* Scrollable tracks area */}
+        <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden scrollbar-thin">
         {/* Ruler */}
         <div className="flex border-b border-white/[0.04]" style={{ height: RULER_H }}>
           <div className="w-[88px] shrink-0 border-r border-white/[0.06] px-2 flex items-center text-[9px] font-semibold uppercase tracking-wider text-white/20">
@@ -1748,6 +1778,7 @@ export function VideoEditor({ jobs, onAddJob }: VideoEditorProps) {
               <Music className="h-3 w-3" /> Add Track
             </Button>
           </div>
+        </div>
         </div>
       </div>
     </div>
