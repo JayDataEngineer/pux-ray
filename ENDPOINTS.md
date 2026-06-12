@@ -40,6 +40,7 @@ These are the actions the ingress dispatches to.
 | `GET` | `/v1/services` | List all registered services with metadata |
 | `GET` | `/v1/services/{name}` | Info about a specific service |
 | `GET` | `/v1/models` | OpenAI-compatible model list (supports `?category=` filter) |
+| `GET` | `/v1/models/{model}` | Info about a specific model |
 
 ### Service Invocation
 
@@ -59,6 +60,34 @@ Payload shapes for `/v1/run`:
 
 // Inline steps (returns SSE)
 {"steps": [{"name": "gen", "service": "wan2gp", "params": {...}}]}
+```
+
+### Images (OpenAI-compatible)
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `POST` | `/v1/images/generations` | OpenAI-compatible image generation |
+
+Body:
+```json
+{
+  "model": "z_image",           // Service name or alias (z_image, flux_schnell, etc.)
+  "prompt": "a cyberpunk samurai in a neon-lit alleyway",
+  "size": "1024x1024",          // width x height
+  "n": 1,                       // number of images
+  "response_format": "b64_json",// b64_json or url
+  "negative_prompt": "blurry",  // optional
+  "steps": 4,                   // optional
+  "seed": 42                    // optional
+}
+```
+
+Response:
+```json
+{
+  "created": 1718234567,
+  "data": [{"b64_json": "...", "url": null}]
+}
 ```
 
 ### LLM

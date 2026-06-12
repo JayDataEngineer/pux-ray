@@ -9,6 +9,8 @@ Usage:
     ray-noir models pull <name>   # Download a specific model
     ray-noir models verify        # Check all model hashes
     ray-noir models status        # Summary of disk usage
+    ray-noir pull <name>          # Shortcut: download a specific model
+    ray-noir connect <app>        # Print connection config for an app
     ray-noir cluster start        # Start Ray cluster
     ray-noir cluster stop         # Stop Ray cluster
     ray-noir deploy               # Deploy all services
@@ -556,6 +558,268 @@ def cmd_deploy(args):
     subprocess.run([str(venv_python), str(deploy_script)], check=True)
 
 
+# =========================================================================
+# Connect — print config snippets for popular apps
+# =========================================================================
+
+_CONNECT_SNIPPETS = {
+    "open-webui": {
+        "name": "Open WebUI",
+        "instructions": [
+            "Settings → Connections → OpenAI API",
+            "Set API Base URL to the URL below",
+            "Set API Key to your Tech Noir API key (or leave blank if no auth)",
+        ],
+        "config": {
+            "API_BASE_URL": "{base_url}/v1",
+            "API_KEY": "your-api-key-here",
+        },
+    },
+    "anythingllm": {
+        "name": "AnythingLLM",
+        "instructions": [
+            "Settings → LLM Provider → Generic OpenAI",
+            "Set Base URL and API Key below",
+        ],
+        "config": {
+            "API_BASE_URL": "{base_url}/v1",
+            "API_KEY": "your-api-key-here",
+            "MODEL": "llm",
+        },
+    },
+    "claude-desktop": {
+        "name": "Claude Desktop",
+        "instructions": [
+            "Add to claude_desktop_config.json:",
+        ],
+        "config_json": {
+            "mcpServers": {
+                "media": {
+                    "type": "http",
+                    "url": "{base_url}/mcp/media",
+                },
+                "web-research": {
+                    "type": "http",
+                    "url": "{base_url}/mcp/web",
+                },
+            },
+        },
+    },
+    "claude-code": {
+        "name": "Claude Code",
+        "instructions": [
+            "Run these commands:",
+        ],
+        "commands": [
+            'claude mcp add media --transport http "{base_url}/mcp/media"',
+            'claude mcp add web-research --transport http "{base_url}/mcp/web"',
+        ],
+    },
+    "cursor": {
+        "name": "Cursor IDE",
+        "instructions": [
+            "Settings → Models → OpenAI API Key",
+            "Set Base URL below",
+        ],
+        "config": {
+            "OPENAI_API_BASE": "{base_url}/v1",
+            "OPENAI_API_KEY": "your-api-key-here",
+        },
+    },
+    "n8n": {
+        "name": "n8n",
+        "instructions": [
+            "Add an OpenAI node → Credentials → Create New",
+            "Set Base URL and API Key below",
+        ],
+        "config": {
+            "BASE_URL": "{base_url}/v1",
+            "API_KEY": "your-api-key-here",
+        },
+    },
+    "dify": {
+        "name": "Dify",
+        "instructions": [
+            "Settings → Model Providers → Custom Model Provider",
+            "Add OpenAI-API-compatible provider with URL below",
+        ],
+        "config": {
+            "api_endpoint": "{base_url}/v1",
+            "api_key": "your-api-key-here",
+        },
+    },
+    "continue-dev": {
+        "name": "Continue.dev",
+        "instructions": [
+            "Add to ~/.continue/config.json under 'models':",
+        ],
+        "config_json": {
+            "title": "Tech Noir LLM",
+            "provider": "openai",
+            "model": "llm",
+            "apiBase": "{base_url}/v1",
+            "apiKey": "your-api-key-here",
+        },
+    },
+    "python": {
+        "name": "Python (openai library)",
+        "instructions": [
+            "pip install openai",
+        ],
+        "code": (
+            "from openai import OpenAI\n\n"
+            'client = OpenAI(\n'
+            '    base_url="{base_url}/v1",\n'
+            '    api_key="your-api-key-here",\n'
+            ")\n\n"
+            '# Chat\n'
+            'response = client.chat.completions.create(\n'
+            '    model="llm",\n'
+            '    messages=[{"role": "user", "content": "Hello!"}],\n'
+            ")\n"
+            "print(response.choices[0].message.content)\n\n"
+            '# Image generation\n'
+            'response = client.images.generate(\n'
+            '    model="z_image",\n'
+            '    prompt="a cyberpunk samurai",\n'
+            '    size="1024x1024",\n'
+            ")\n"
+            "print(response.data[0].b64_json[:80] + '...')\n\n"
+            '# TTS\n'
+            'response = client.audio.speech.create(\n'
+            '    model="kokoro",\n'
+            '    voice="af_bella",\n'
+            '    input="Hello world",\n'
+            ")\n"
+            'with open("output.wav", "wb") as f:\n'
+            "    f.write(response.content)"
+        ),
+    },
+    "curl": {
+        "name": "curl",
+        "instructions": [],
+        "commands": [
+            '# List available models',
+            'curl {base_url}/v1/models',
+            '',
+            '# Chat completion',
+            'curl -X POST {base_url}/v1/chat/completions \\',
+            '  -H "Content-Type: application/json" \\',
+            '  -d \'{{"model": "llm", "messages": [{{"role": "user", "content": "Hello!"}}]}}\'',
+            '',
+            '# Image generation',
+            'curl -X POST {base_url}/v1/images/generations \\',
+            '  -H "Content-Type: application/json" \\',
+            '  -d \'{{"model": "z_image", "prompt": "a cyberpunk samurai", "size": "1024x1024"}}\'',
+            '',
+            '# Text-to-speech',
+            'curl -X POST {base_url}/v1/audio/speech \\',
+            '  -H "Content-Type: application/json" \\',
+            '  -d \'{{"model": "kokoro", "input": "Hello world", "voice": "af_bella"}}\' \\',
+            '  --output speech.wav',
+        ],
+    },
+}
+
+
+def _get_base_url() -> str:
+    """Determine the best base URL for connection config."""
+    import subprocess
+    # Try Tailscale IP first (works from tailnet)
+    try:
+        result = subprocess.run(
+            ["tailscale", "ip", "-4"],
+            capture_output=True, text=True, timeout=5,
+        )
+        if result.returncode == 0:
+            ts_ip = result.stdout.strip().split("\n")[0].strip()
+            if ts_ip:
+                return f"http://{ts_ip}:30080"
+    except Exception:
+        pass
+
+    # Try hostname
+    import socket
+    hostname = socket.gethostname()
+    return f"http://{hostname}:30080"
+
+
+def cmd_connect(args):
+    """Print connection config for a specific app."""
+    from rich.console import Console
+    from rich.panel import Panel
+    from rich.syntax import Syntax
+    import json
+
+    console = Console()
+    base_url = _get_base_url()
+
+    # Override with explicit URL if provided
+    if getattr(args, "url", None):
+        base_url = args.url
+
+    app = args.app
+
+    if app == "list":
+        console.print("\n[bold]Available app configs:[/bold]\n")
+        for key, info in sorted(_CONNECT_SNIPPETS.items()):
+            console.print(f"  [cyan]{key:16s}[/cyan]  {info['name']}")
+        console.print()
+        return
+
+    snippet = _CONNECT_SNIPPETS.get(app)
+    if not snippet:
+        console.print(f"[red]Unknown app: {app}[/red]")
+        console.print(f"Run [cyan]ray-noir connect list[/cyan] to see available apps.")
+        return 1
+
+    console.print()
+    console.print(Panel(
+        f"[bold]{snippet['name']}[/bold]\n"
+        f"Base URL: [green]{base_url}[/green]",
+        title="Tech Noir Connection",
+        border_style="blue",
+    ))
+
+    # Print instructions
+    if snippet.get("instructions"):
+        console.print("\n[bold]Setup:[/bold]")
+        for line in snippet["instructions"]:
+            console.print(f"  {line}")
+
+    # Print config values
+    if snippet.get("config"):
+        console.print("\n[bold]Configuration:[/bold]")
+        for key, val in snippet["config"].items():
+            resolved = val.replace("{base_url}", base_url)
+            console.print(f"  [cyan]{key}[/cyan] = [green]{resolved}[/green]")
+
+    # Print JSON config
+    if snippet.get("config_json"):
+        console.print("\n[bold]Config (JSON):[/bold]")
+        raw = json.dumps(snippet["config_json"], indent=2)
+        resolved = raw.replace("{base_url}", base_url)
+        console.print(Syntax(resolved, "json", theme="monokai"))
+
+    # Print commands
+    if snippet.get("commands"):
+        console.print("\n[bold]Commands:[/bold]")
+        resolved_cmds = [c.replace("{base_url}", base_url) for c in snippet["commands"]]
+        for cmd in resolved_cmds:
+            if cmd.startswith("#") or cmd == "":
+                console.print(f"  [dim]{cmd}[/dim]")
+            else:
+                console.print(f"  [green]{cmd}[/green]")
+
+    # Print code
+    if snippet.get("code"):
+        console.print("\n[bold]Code:[/bold]")
+        resolved_code = snippet["code"].replace("{base_url}", base_url)
+        console.print(Syntax(resolved_code, "python", theme="monokai"))
+
+    console.print()
+
+
 def main():
     parser = argparse.ArgumentParser(
         prog="ray-noir",
@@ -573,6 +837,15 @@ def main():
 
     pull = models_sub.add_parser("pull", help="Download missing models")
     pull.add_argument("model", nargs="?", help="Specific model to pull (category/name or name)")
+
+    # Shortcut: ray-noir pull <model>
+    pull_shortcut = sub.add_parser("pull", help="Download a model (shortcut for models pull)")
+    pull_shortcut.add_argument("model", help="Model to pull (category/name or name)")
+
+    # connect
+    connect = sub.add_parser("connect", help="Print connection config for an app")
+    connect.add_argument("app", help="App name (or 'list' to see available)")
+    connect.add_argument("--url", help="Override base URL")
 
     # cluster
     cluster = sub.add_parser("cluster", help="Ray cluster management")
@@ -596,6 +869,14 @@ def main():
             cmd_models_status(args)
         else:
             models.print_help()
+    elif args.command == "pull":
+        # Shortcut: treat as models pull <model>
+        args.models_command = "pull"
+        cmd_models_pull(args)
+    elif args.command == "connect":
+        ret = cmd_connect(args)
+        if ret:
+            return ret
     elif args.command == "cluster":
         if args.cluster_command == "start":
             cmd_cluster_start(args)

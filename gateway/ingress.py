@@ -178,6 +178,30 @@ class APIIngress:
             })
         return JSONResponse({"object": "list", "data": models})
 
+    async def model_info(self, request: Request) -> Response:
+        """GET /v1/models/{model} — info about a specific model."""
+        model_id = request.path_params.get("model", "")
+        entry = get_service(model_id)
+        if not entry:
+            # Try resolving by alias
+            resolved = resolve_model(model_id)
+            if resolved:
+                _, entry = resolved
+        if not entry:
+            return JSONResponse({"error": f"Model '{model_id}' not found"}, status_code=404)
+        return JSONResponse({
+            "id": model_id,
+            "object": "model",
+            "owned_by": "tech-noir",
+            "category": entry.category,
+            "label": entry.label,
+            "output_type": entry.output_type,
+            "needs_gpu": entry.needs_gpu,
+            "default_model": entry.default_model,
+            "description": entry.description,
+            "model_aliases": list(entry.model_aliases.keys()),
+        })
+
     async def chat_completions(self, request: Request) -> Response:
         body = await request.json()
         forge = _get_forge()
@@ -191,6 +215,86 @@ class APIIngress:
         forge = _get_forge()
         result = await forge.invoke.remote("llm", body)
         return JSONResponse(result)
+
+    async def images_generations(self, request: Request) -> Response:
+        """POST /v1/images/generations — OpenAI-compatible image generation.
+
+        Supports model names from the service registry (e.g. "z_image", "flux_schnell")
+        or aliases. Falls back to z_image (Flux/Z-Image via Wan2GP) if model is unknown.
+        """
+        body = await request.json()
+        prompt = body.get("prompt", "")
+        model_alias = body.get("model", "z_image")
+        size = body.get("size", "1024x1024")
+        n = body.get("n", 1)
+        response_format = body.get("response_format", "b64_json")
+
+        # Parse size into width/height
+        width, height = 1024, 1024
+        if isinstance(size, str) and "x" in size:
+            try:
+                width, height = [int(x) for x in size.split("x")]
+            except ValueError:
+                pass
+
+        # Resolve model name → service
+        resolved = resolve_model(model_alias)
+        if resolved:
+            service_key, entry = resolved
+        else:
+            # Try matching by category="image" services
+            image_services = [
+                (k, e) for k, e in SERVICE_REGISTRY.items()
+                if e.category == "image" and e.output_type == "image"
+            ]
+            if image_services:
+                service_key, entry = image_services[0]
+            else:
+                service_key, entry = "z_image", get_service("z_image")
+
+        # Build dispatch payload
+        dispatch_body = {
+            "model": entry.default_model,
+            "prompt": prompt,
+            "width": width,
+            "height": height,
+        }
+        if body.get("negative_prompt"):
+            dispatch_body["negative_prompt"] = body["negative_prompt"]
+        if body.get("steps"):
+            dispatch_body["steps"] = body["steps"]
+        if body.get("seed"):
+            dispatch_body["seed"] = body["seed"]
+
+        result = await self._dispatch_service(service_key, dispatch_body)
+
+        # Format as OpenAI images/generations response
+        images = []
+        image_data = result.get("data") or result.get("image") or result.get("url")
+        if image_data:
+            if isinstance(image_data, list):
+                for item in image_data[:n]:
+                    images.append({
+                        "b64_json": item if isinstance(item, str) else None,
+                        "url": item if isinstance(item, str) and item.startswith("http") else None,
+                    })
+            elif isinstance(image_data, str):
+                # Single image — could be base64 or URL
+                is_url = image_data.startswith("http")
+                for _ in range(n):
+                    images.append({
+                        "b64_json": image_data if not is_url else None,
+                        "url": image_data if is_url else None,
+                    })
+
+        if not images:
+            # Fallback: return the raw result wrapped
+            images = [{"b64_json": None, "url": None}]
+
+        return JSONResponse({
+            "created": int(__import__("time").time()),
+            "data": images,
+        })
 
     async def audio_speech(self, request: Request) -> Response:
         body = await request.json()
@@ -651,14 +755,16 @@ def create_app() -> Starlette:
         # Service discovery
         Route("/v1/services", ingress.list_services),
         Route("/v1/services/{service}", ingress.service_info),
-        # Generic TNAP generate (covers all services)
-        Route("/v1/{service}/generate", ingress.tnap_generate, methods=["POST"]),
-        # OpenAI-compatible endpoints (keep for standard clients)
+        # OpenAI-compatible endpoints (exact paths before catch-all)
         Route("/v1/models", ingress.list_models),
+        Route("/v1/models/{model}", ingress.model_info),
         Route("/v1/chat/completions", ingress.chat_completions, methods=["POST"]),
+        Route("/v1/images/generations", ingress.images_generations, methods=["POST"]),
         Route("/v1/llm/configure", ingress.llm_configure, methods=["POST"]),
         Route("/v1/audio/speech", ingress.audio_speech, methods=["POST"]),
         Route("/v1/audio/transcriptions", ingress.audio_transcriptions, methods=["POST"]),
+        # Generic TNAP generate (covers all services — must be after exact paths)
+        Route("/v1/{service}/generate", ingress.tnap_generate, methods=["POST"]),
         # LLM proxy (auto-loads via Forge on first request)
         Route("/llm/{path:path}", ingress.llm_proxy, methods=["GET", "POST", "PUT", "DELETE"]),
         Route("/llm", ingress.llm_proxy, methods=["GET", "POST"]),
