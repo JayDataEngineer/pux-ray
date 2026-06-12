@@ -700,10 +700,10 @@ export function VideoEditor({ jobs, onAddJob }: VideoEditorProps) {
   }
 
   return (
-    <div className="flex-1 flex flex-col min-h-0 bg-[#0a0a0c]">
+    <div className="flex-1 flex flex-col min-h-0 bg-[#0a0a0c] relative">
       {/* ═══ MAIN SPLIT: Preview + Inspector ═══ */}
-      <div className="flex-1 flex min-h-0">
-        {/* Preview + Transport */}
+      <div className="flex-1 flex min-h-0" style={{ paddingBottom: timelineH }}>
+        {/* Preview */}
         <div className="flex-1 flex flex-col min-w-0">
           {/* Video Canvas */}
           <div className="flex-1 relative overflow-hidden flex items-center justify-center"
@@ -723,71 +723,25 @@ export function VideoEditor({ jobs, onAddJob }: VideoEditorProps) {
               </div>
             )}
           </div>
-
-          {/* Transport Bar */}
-          <div className="h-10 shrink-0 flex items-center px-3 gap-1.5 border-t border-white/[0.06] bg-[#111114]">
-            <Button variant="ghost" size="icon" className="h-7 w-7 text-white/60 hover:text-white hover:bg-white/10"
-              onClick={() => setPlayback({ currentTime: 0 })} title="Skip to start (Home)">
-              <SkipBack className="h-3.5 w-3.5" />
-            </Button>
-            <Button variant="ghost" size="icon"
-              className="h-8 w-8 rounded-full bg-white/10 text-white hover:bg-white/20 hover:text-white border border-white/10"
-              onClick={togglePlay} title="Play / Pause (Space)">
-              {playback.isPlaying ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4 ml-0.5" />}
-            </Button>
-            <span className="text-[11px] tabular-nums text-white/50 font-mono w-28 pl-1">{fmt(playback.currentTime)} / {fmt(total)}</span>
-
-            <div className="w-px h-5 bg-white/10 mx-1" />
-
-            <Button variant="ghost" size="icon" className="h-7 w-7 text-white/40 hover:text-white/70 hover:bg-white/5"
-              onClick={() => useTimelineStore.getState().undo()} title="Undo (Ctrl+Z)">
-              <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 7v6h6"/><path d="M21 17a9 9 0 0 0-9-9 9 9 0 0 0-6.69 3L3 13"/></svg>
-            </Button>
-            <Button variant="ghost" size="icon" className="h-7 w-7 text-white/40 hover:text-white/70 hover:bg-white/5"
-              onClick={() => useTimelineStore.getState().redo()} title="Redo (Ctrl+Y)">
-              <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 7v6h-6"/><path d="M3 17a9 9 0 0 1 9-9 9 9 0 0 1 6.69 3L21 13"/></svg>
-            </Button>
-
-            <div className="w-px h-5 bg-white/10 mx-1" />
-
-            <Button variant="ghost" size="sm"
-              className="h-7 text-[11px] gap-1.5 text-white/60 hover:text-white hover:bg-white/10 rounded-md"
-              disabled={generating || segments.length === 0} onClick={genAll}>
-              {generating ? <><Loader2 className="h-3 w-3 animate-spin" /> Generating...</> : <><Sparkles className="h-3 w-3" /> Generate All</>}
-            </Button>
-
-            <div className="flex-1" />
-
-            <Button variant="ghost" size="icon" className="h-7 w-7 text-white/40 hover:text-white/70 hover:bg-white/5"
-              onClick={zoomOut}><ZoomOut className="h-3 w-3" /></Button>
-            <span className="text-[10px] text-white/30 w-10 text-center font-mono">{Math.round(pps / 80 * 100)}%</span>
-            <Button variant="ghost" size="icon" className="h-7 w-7 text-white/40 hover:text-white/70 hover:bg-white/5"
-              onClick={zoomIn}><ZoomIn className="h-3 w-3" /></Button>
-
-            <div className="w-px h-5 bg-white/10 mx-1" />
-
-            <Button variant="ghost" size="sm"
-              className="h-7 text-[11px] gap-1.5 text-white/60 hover:text-white hover:bg-white/10 rounded-md"
-              disabled={segments.length === 0} onClick={doExport}>
-              <Settings className="h-3 w-3" /> Export
-            </Button>
-          </div>
         </div>
 
         {/* ═══ INSPECTOR PANEL ═══ */}
         {(
-          <div className="shrink-0 border-l border-white/[0.06] overflow-y-auto bg-[#111114] scrollbar-thin relative"
+          <div className="shrink-0 border-l border-white/[0.06] overflow-y-auto bg-[#111114] scrollbar-thin"
             style={{ width: sidebarW }}>
-            {/* Sidebar resize handle */}
-            <div className="absolute left-0 top-0 bottom-0 w-1.5 cursor-col-resize z-30 group"
-              onPointerDown={(e) => {
-                if (e.button !== 0) return
-                e.preventDefault()
-                ;(e.target as HTMLElement).setPointerCapture?.(e.pointerId)
-                sidebarDragRef.current = { startX: e.clientX, startW: sidebarW }
-              }}>
-              <div className="absolute left-0 top-0 bottom-0 w-[3px] bg-transparent group-hover:bg-white/20 group-active:bg-[#6366f1]/50 transition-colors"
-                style={{ marginLeft: "-1px" }} />
+            {/* Sidebar resize handle — sticky so it stays accessible when scrolled */}
+            <div className="sticky left-0 top-0 h-0 z-30 pointer-events-none">
+              <div className="absolute left-0 top-0 bottom-0 w-1.5 cursor-col-resize group pointer-events-auto"
+                style={{ height: "100vmax", marginTop: "-50vmax" }}
+                onPointerDown={(e) => {
+                  if (e.button !== 0) return
+                  e.preventDefault()
+                  ;(e.target as HTMLElement).setPointerCapture?.(e.pointerId)
+                  sidebarDragRef.current = { startX: e.clientX, startW: sidebarW }
+                }}>
+                <div className="absolute left-0 top-0 bottom-0 w-[3px] bg-transparent group-hover:bg-white/20 group-active:bg-[#6366f1]/50 transition-colors"
+                  style={{ marginLeft: "-1px" }} />
+              </div>
             </div>
             {!sel ? (
               <div className="p-6 text-center space-y-3">
@@ -1471,6 +1425,20 @@ export function VideoEditor({ jobs, onAddJob }: VideoEditorProps) {
         {selCue && !sel && (
           <div className="shrink-0 border-l border-white/[0.06] overflow-y-auto bg-[#111114] scrollbar-thin"
             style={{ width: sidebarW }}>
+            {/* Sidebar resize handle — sticky so it stays accessible when scrolled */}
+            <div className="sticky left-0 top-0 h-0 z-30 pointer-events-none">
+              <div className="absolute left-0 top-0 bottom-0 w-1.5 cursor-col-resize group pointer-events-auto"
+                style={{ height: "100vmax", marginTop: "-50vmax" }}
+                onPointerDown={(e) => {
+                  if (e.button !== 0) return
+                  e.preventDefault()
+                  ;(e.target as HTMLElement).setPointerCapture?.(e.pointerId)
+                  sidebarDragRef.current = { startX: e.clientX, startW: sidebarW }
+                }}>
+                <div className="absolute left-0 top-0 bottom-0 w-[3px] bg-transparent group-hover:bg-white/20 group-active:bg-[#6366f1]/50 transition-colors"
+                  style={{ marginLeft: "-1px" }} />
+              </div>
+            </div>
             <div className="sticky top-0 z-10 bg-[#111114] border-b border-white/[0.06] px-4 py-2.5 flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <Headphones className="h-3.5 w-3.5 text-white/50" />
@@ -1519,18 +1487,67 @@ export function VideoEditor({ jobs, onAddJob }: VideoEditorProps) {
         )}
       </div>
 
-      {/* ═══ TIMELINE ═══ */}
-      <div className="border-t border-white/[0.06] shrink-0 select-none bg-[#0d0d10] flex flex-col"
+      {/* ═══ BOTTOM PANEL: Transport + Timeline (full width, draggable height) ═══ */}
+      <div className="absolute bottom-0 left-0 right-0 flex flex-col select-none bg-[#0d0d10] border-t border-white/[0.06] z-40"
         style={{ height: timelineH }}>
-        {/* Resize handle — drag up to make timeline taller */}
-        <div className="h-2 shrink-0 cursor-row-resize flex items-center justify-center group z-20 relative"
+        {/* Drag handle — top edge of bottom panel */}
+        <div className="h-[5px] shrink-0 cursor-row-resize group z-50 relative"
           onPointerDown={(e) => {
             if (e.button !== 0) return
             e.preventDefault()
             ;(e.target as HTMLElement).setPointerCapture?.(e.pointerId)
             timelineDragRef.current = { startY: e.clientY, startH: timelineH }
           }}>
-          <div className="w-12 h-[3px] rounded-full bg-white/[0.08] group-hover:bg-white/20 group-active:bg-[#6366f1]/50 transition-colors" />
+          <div className="absolute bottom-0 left-1/2 -translate-x-1/2 w-12 h-[3px] rounded-full bg-white/[0.08] group-hover:bg-white/20 group-active:bg-[#6366f1]/50 transition-colors" />
+        </div>
+
+        {/* Transport Bar */}
+        <div className="h-10 shrink-0 flex items-center px-3 gap-1.5 border-b border-white/[0.06] bg-[#111114]">
+          <Button variant="ghost" size="icon" className="h-7 w-7 text-white/60 hover:text-white hover:bg-white/10"
+            onClick={() => setPlayback({ currentTime: 0 })} title="Skip to start (Home)">
+            <SkipBack className="h-3.5 w-3.5" />
+          </Button>
+          <Button variant="ghost" size="icon"
+            className="h-8 w-8 rounded-full bg-white/10 text-white hover:bg-white/20 hover:text-white border border-white/10"
+            onClick={togglePlay} title="Play / Pause (Space)">
+            {playback.isPlaying ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4 ml-0.5" />}
+          </Button>
+          <span className="text-[11px] tabular-nums text-white/50 font-mono w-28 pl-1">{fmt(playback.currentTime)} / {fmt(total)}</span>
+
+          <div className="w-px h-5 bg-white/10 mx-1" />
+
+          <Button variant="ghost" size="icon" className="h-7 w-7 text-white/40 hover:text-white/70 hover:bg-white/5"
+            onClick={() => useTimelineStore.getState().undo()} title="Undo (Ctrl+Z)">
+            <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 7v6h6"/><path d="M21 17a9 9 0 0 0-9-9 9 9 0 0 0-6.69 3L3 13"/></svg>
+          </Button>
+          <Button variant="ghost" size="icon" className="h-7 w-7 text-white/40 hover:text-white/70 hover:bg-white/5"
+            onClick={() => useTimelineStore.getState().redo()} title="Redo (Ctrl+Y)">
+            <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 7v6h-6"/><path d="M3 17a9 9 0 0 1 9-9 9 9 0 0 1 6.69 3L21 13"/></svg>
+          </Button>
+
+          <div className="w-px h-5 bg-white/10 mx-1" />
+
+          <Button variant="ghost" size="sm"
+            className="h-7 text-[11px] gap-1.5 text-white/60 hover:text-white hover:bg-white/10 rounded-md"
+            disabled={generating || segments.length === 0} onClick={genAll}>
+            {generating ? <><Loader2 className="h-3 w-3 animate-spin" /> Generating...</> : <><Sparkles className="h-3 w-3" /> Generate All</>}
+          </Button>
+
+          <div className="flex-1" />
+
+          <Button variant="ghost" size="icon" className="h-7 w-7 text-white/40 hover:text-white/70 hover:bg-white/5"
+            onClick={zoomOut}><ZoomOut className="h-3 w-3" /></Button>
+          <span className="text-[10px] text-white/30 w-10 text-center font-mono">{Math.round(pps / 80 * 100)}%</span>
+          <Button variant="ghost" size="icon" className="h-7 w-7 text-white/40 hover:text-white/70 hover:bg-white/5"
+            onClick={zoomIn}><ZoomIn className="h-3 w-3" /></Button>
+
+          <div className="w-px h-5 bg-white/10 mx-1" />
+
+          <Button variant="ghost" size="sm"
+            className="h-7 text-[11px] gap-1.5 text-white/60 hover:text-white hover:bg-white/10 rounded-md"
+            disabled={segments.length === 0} onClick={doExport}>
+            <Settings className="h-3 w-3" /> Export
+          </Button>
         </div>
         {/* Timeline Header */}
         <div className="flex items-center h-6 px-3 border-b border-white/[0.06] bg-[#111114]">
