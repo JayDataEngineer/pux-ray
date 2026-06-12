@@ -1,0 +1,49 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: forge-registry-https
+  namespace: infra
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: forge-registry-https
+  template:
+    metadata:
+      labels:
+        app: forge-registry-https
+    spec:
+      containers:
+      - name: nginx
+        image: nginx:alpine
+        ports:
+        - containerPort: 30500
+          name: https
+        volumeMounts:
+        - name: config
+          mountPath: /etc/nginx/nginx.conf
+          subPath: nginx.conf
+        - name: certs
+          mountPath: /etc/nginx/certs
+          readOnly: true
+      volumes:
+      - name: config
+        configMap:
+          name: nginx-registry-https
+      - name: certs
+        secret:
+          secretName: forge-registry-certs
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: forge-registry-https
+  namespace: infra
+spec:
+  selector:
+    app: forge-registry-https
+  ports:
+  - port: 30500
+    targetPort: 30500
+    name: https
+  type: NodePort

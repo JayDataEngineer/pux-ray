@@ -3,6 +3,11 @@
 Anima is a 2B anime/illustration model by CircleStone Labs + Comfy Org,
 built on NVIDIA Cosmos architecture. Uses Qwen3 0.6B text encoder and
 Qwen-Image VAE — same VAE as the Qwen/Z-Image family.
+
+HuggingFace repo structure:
+  split_files/diffusion_models/anima-base-v1.0.safetensors
+  split_files/text_encoders/qwen_3_06b_base.safetensors
+  split_files/vae/qwen_image_vae.safetensors
 """
 import os
 import torch
@@ -18,11 +23,10 @@ class family_handler:
             "fit_into_canvas_image_refs": 0,
             "profiles_dir": [],
         }
-        text_encoder_folder = "Qwen3-0.6B"
         extra_model_def["text_encoder_URLs"] = [
-            build_hf_url("circlestone-labs/Anima", text_encoder_folder, "qwen_3_06b_base.safetensors"),
+            build_hf_url("circlestone-labs/Anima", "split_files/text_encoders", "qwen_3_06b_base.safetensors"),
         ]
-        extra_model_def["text_encoder_folder"] = text_encoder_folder
+        extra_model_def["text_encoder_folder"] = "split_files/text_encoders"
         return extra_model_def
 
     @staticmethod
@@ -59,10 +63,10 @@ class family_handler:
         download_def = [
             {
                 "repoId": "circlestone-labs/Anima",
-                "sourceFolderList": ["Qwen3-0.6B", ""],
+                "sourceFolderList": ["split_files/text_encoders", "split_files/vae"],
                 "fileList": [
-                    ["tokenizer_config.json", "tokenizer.json", "special_tokens_map.json", "vocab.json", "config.json", "merges.txt"],
-                    ["ZImageTurbo_VAE_bf16_config.json", "ZImageTurbo_VAE_bf16.safetensors", "ZImageTurbo_scheduler_config.json"],
+                    ["qwen_3_06b_base.safetensors"],
+                    ["qwen_image_vae.safetensors"],
                 ],
             }
         ]
@@ -85,9 +89,9 @@ class family_handler:
         **kwargs,
     ):
         from .anima_main import model_factory
+        from shared.utils import files_locator as _fl
 
         pipe_processor = model_factory(
-            checkpoint_dir="ckpts",
             model_filename=model_filename,
             model_type=model_type,
             model_def=model_def,
@@ -116,7 +120,8 @@ class family_handler:
     @staticmethod
     def update_default_settings(base_model_type, model_def, ui_defaults):
         ui_defaults.update({
-            "guidance_scale": 4,
+            "guidance_scale": 4.5,
             "num_inference_steps": 30,
-            "flow_shift": 6.0,
+            "flow_shift": 3.0,
+            "n_prompt": "worst quality, low quality, score_1, score_2, score_3, artist name",
         })

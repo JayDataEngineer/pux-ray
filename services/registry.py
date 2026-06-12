@@ -419,11 +419,11 @@ SERVICE_REGISTRY: dict[str, ServiceEntry] = {
 
     # ── Anima (anime/illustration image generation) ──────────────────────────────
     "anima": ServiceEntry(
-        deployment="forge", app="forge",
+        deployment="wan2gp", app="wan2gp",
         label="Anima", category="image",
-        needs_gpu=True, default_model="anima_base",
+        needs_gpu=True, default_model="anima",
         output_type="image",
-        description="Anima — anime/illustration image generation.",
+        description="Anima — anime/illustration image generation via Wan2GP.",
         params_schema=[
             ParamSpec(type="textarea", label="Prompt", required=True, placeholder="A beautiful anime girl..."),
             ParamSpec(type="number", label="Width", default=1024, placeholder="1024"),

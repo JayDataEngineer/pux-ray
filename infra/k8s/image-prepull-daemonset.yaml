@@ -1,0 +1,49 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: image-prepull
+  namespace: infra
+spec:
+  selector:
+    matchLabels:
+      app: image-prepull
+  template:
+    metadata:
+      labels:
+        app: image-prepull
+    spec:
+      hostPID: true
+      tolerations:
+      - operator: Exists
+      initContainers:
+      - name: prepull-images
+        image: alpine:latest
+        command:
+        - /bin/sh
+        - -c
+        - |
+          # Install ctr and curl
+          apk add --no-cache containerd curl
+          
+          # Pull required images using ctr with --plain-http
+          ctr -n k8s.io images pull --plain-http --local forge-reg.local:30500/tech-noir/gpu-all:natten-0.21.5 || \
+          ctr -n k8s.io images pull --plain-http forge-reg.local:30500/tech-noir/gpu-all:natten-0.21.5
+          
+          ctr -n k8s.io images pull --plain-http --local forge-reg.local:30500/tech-noir/model-sync:latest || \
+          ctr -n k8s.io images pull --plain-http forge-reg.local:30500/tech-noir/model-sync:latest
+          
+          echo "Images prepulled successfully"
+        securityContext:
+          privileged: true
+        volumeMounts:
+        - name: root
+          mountPath: /host
+          readOnly: false
+      containers:
+      - name: pause
+        image: registry.k8s.io/pause:3.9
+      volumes:
+      - name: root
+        hostPath:
+          path: /
+          type: Directory

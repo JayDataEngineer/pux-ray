@@ -1,0 +1,18 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: forge-registry-config
+  namespace: infra
+spec:
+  selector:
+    matchLabels:
+      app: forge-registry-config
+  template:
+    spec:
+      tolerations:
+      - operator: Exists
+      hostPID: true
+      hostNetwork: true
+      containers:
+      - name: pause
+        image: registry.k8s.io/pause:3.9

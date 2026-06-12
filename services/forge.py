@@ -62,10 +62,10 @@ MIN_COFREE_MB = 4_096
 SERVICE_MAP: dict[str, tuple[str, str]] = {
     # Wan2GP — unified model pool (mmgp-managed VRAM, vram_mb=0)
     # All vendor + custom family models: wan, flux, hunyuan, trellis, anigen,
-    # kokoro, index_tts, ace_step, moss, etc.
+    # kokoro, index_tts, ace_step, moss, anima, etc.
     "wan2gp":    ("services.wan2gp.forge_adapter",    "Wan2GPForgeService"),
-    # Anima — Direct integration (bypasses Wan2GP recursion)
-    "anima":     ("services.anima_service",            "get_anima_service"),
+    # Anima routes to Wan2GP with default_model="anima"
+    "anima":     ("services.wan2gp.forge_adapter",    "Wan2GPForgeService"),
     # ComfyUI — subprocess, separate GPU
     "comfyui":   ("services.image.comfyui",          "ComfyUIService"),
     # llama.cpp — subprocess, separate GPU
@@ -277,7 +277,16 @@ class ForgeCore:
     def _do_load(self, name: str, model: str | None = None,
                  quant: str | None = None, payload: dict | None = None) -> None:
         svc = self._get_service(name)
-        target_model = model or (payload.get("model") or payload.get("model_type") if payload else None) or svc.default_model
+        # Resolve default_model: check registry.py first, then fall back to service class
+        registry_default = None
+        try:
+            from services.registry import SERVICE_REGISTRY
+            entry = SERVICE_REGISTRY.get(name)
+            if entry and entry.default_model:
+                registry_default = entry.default_model
+        except Exception:
+            pass
+        target_model = model or (payload.get("model") or payload.get("model_type") if payload else None) or registry_default or svc.default_model
         estimate = svc.vram_mb
 
         self._loading.add(name)

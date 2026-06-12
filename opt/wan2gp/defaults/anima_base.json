@@ -2,7 +2,7 @@
     "model": {
         "name": "Anima Base 2B",
         "architecture": "anima_base",
-        "description": "Anima is a 2B anime and illustration text-to-image model by CircleStone Labs + Comfy Org, built on NVIDIA Cosmos architecture. Excels at anime characters, Danbooru-style tagging, and non-photorealistic art. 30-50 steps, CFG 4-5 recommended.",
+        "description": "2B anime/illustration text-to-image by CircleStone Labs + Comfy Org. Danbooru-style tagging, CFG 4-5, 30-50 steps. Recommended prefix: 'masterpiece, best quality, score_7, safe,'",
         "URLs": [
             "https://huggingface.co/circlestone-labs/Anima/resolve/main/split_files/diffusion_models/anima-base-v1.0.safetensors"
         ],
@@ -13,5 +13,5 @@
     "resolution": "1024x1024",
     "batch_size": 1,
     "num_inference_steps": 30,
-    "guidance_scale": 4
+    "guidance_scale": 4.5
 }

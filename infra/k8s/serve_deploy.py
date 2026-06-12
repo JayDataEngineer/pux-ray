@@ -17,6 +17,10 @@ applications:
     deployments:
       - name: forge
         autoscaling_config: { min_replicas: 1, max_replicas: 1, downscale_delay_s: 120 }
+        ray_actor_options:
+          resources:
+            GPU: 1
+          num_gpus: 1
   - name: workflow_engine
     import_path: serve_config:workflow_engine
     route_prefix: /wf

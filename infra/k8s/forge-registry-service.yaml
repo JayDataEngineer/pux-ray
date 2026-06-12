@@ -1,0 +1,26 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: forge-registry
+  namespace: infra
+spec:
+  selector:
+    app: forge-registry
+  ports:
+  - port: 30500
+    targetPort: 5000
+    nodePort: 30500
+  type: NodePort
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: forge-registry-internal
+  namespace: infra
+spec:
+  selector:
+    app: forge-registry
+  ports:
+  - port: 5000
+    targetPort: 5000
+  type: ClusterIP

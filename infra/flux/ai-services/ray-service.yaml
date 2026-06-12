@@ -58,6 +58,10 @@ spec:
           labels:
             app.kubernetes.io/name: tech-noir-ray-head
         spec:
+          hostAliases:
+          - ip: 192.168.86.184
+            hostnames:
+            - forge-reg.local
           containers:
             - name: ray-head
               image: forge-reg.local:30500/tech-noir/gpu-all:natten-0.21.5
@@ -171,6 +175,10 @@ spec:
           num-gpus: '1'
         template:
           spec:
+            hostAliases:
+            - ip: 192.168.86.184
+              hostnames:
+              - forge-reg.local
             initContainers:
               - name: model-sync
                 image: forge-reg.local:30500/tech-noir/model-sync:latest

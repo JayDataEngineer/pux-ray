@@ -1,0 +1,13 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: coredns-custom
+  namespace: kube-system
+data:
+  forge-registry.override: |
+    forge-reg.local:30500 {
+        hosts {
+            10.43.146.177 forge-reg.local
+            fallthrough
+        }
+    }

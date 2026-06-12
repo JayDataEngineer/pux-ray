@@ -597,8 +597,8 @@ def _find_weights(model_type: str, handler_path: str, registry, models_root: Pat
         if _has_weights(wan_fallback):
             return wan_fallback
 
-    # Fallback: ckpts/ (writable, used for auto-downloaded vendor models)
-    ckpts = Path("ckpts").resolve()
+    # Fallback: models_root/wan2gp (centralized model storage)
+    ckpts = models_root / "wan2gp"
     if (ckpts / f"{model_type}.safetensors").is_file() or \
        (ckpts / f"{model_type}.pth").is_file():
         return ckpts
@@ -894,6 +894,7 @@ class Wan2GPService:
 
         models_root = Path(Config().models_root)
         checkpoints = [str(models_root / "wan2gp"), str(models_root)]
+        loras_root = str(models_root / "wan2gp" / "loras")
 
         if not wgp.server_config:
             wgp.server_config = {
@@ -919,7 +920,7 @@ class Wan2GPService:
                 "preload_model_policy": [],
                 "UI_theme": "default",
                 "checkpoints_paths": checkpoints,
-                "loras_root": "loras",
+                "loras_root": loras_root,
                 "save_queue_if_crash": 1,
                 "queue_color_scheme": "pastel",
                 "process_queues_when_browser_unfocused": 1,
@@ -967,16 +968,23 @@ class Wan2GPService:
 
         # Patch Wan2GP's download root to /tmp when the models dir is read-only.
         # hf_hub_download creates .cache/huggingface in local_dir which fails
-        # on read-only PVCs.
+        # on read-only PVCs.  Also add the download target to checkpoints_paths
+        # so handlers can locate downloaded files (text encoders, VAE, etc.).
         from shared.utils import files_locator as _fl
         _orig_get_smart_download_root = _fl.get_smart_download_root
+        _download_root = _fl._checkpoints_paths[0] if _fl._checkpoints_paths else "/tmp"
         if _fl._checkpoints_paths and not os.access(_fl._checkpoints_paths[0], os.W_OK):
+            _download_root = "/tmp"
             def _patched_get_smart_download_root(force_path=None, _orig=_orig_get_smart_download_root):
                 result = _orig(force_path)
                 if result and not os.access(result, os.W_OK):
                     return "/tmp"
                 return result
             _fl.get_smart_download_root = _patched_get_smart_download_root
+            # Add /tmp to checkpoints_paths so handlers find downloaded files
+            if "/tmp" not in _fl._checkpoints_paths:
+                _fl._checkpoints_paths.append("/tmp")
+            logger.info("PVC read-only: download root → /tmp, added to checkpoints_paths")
 
         # wgp.py expects CWD to be /opt/wan2gp for relative paths like
         # models/_settings.json and ckpts/
@@ -1795,7 +1803,8 @@ class Wan2GPService:
 
                 # Merge files downloaded by _ensure_vendor_files into the
                 # overlay so the handler finds them in its expected model_dir.
-                ckpts_dir = Path("ckpts").resolve() / base_model_type
+                from registry.config import Config as _Cfg
+                ckpts_dir = Path(_Cfg().models_root) / "wan2gp" / base_model_type
                 if ckpts_dir.is_dir():
                     for f in ckpts_dir.iterdir():
                         dst = overlay / f.name
@@ -2024,17 +2033,18 @@ class Wan2GPService:
     def _ensure_download_dir(self, model_type: str, registry, cfg) -> Path | None:
         """Create a writable download directory for a model with no local weights.
 
-        PVC (/models) may be read-only. Use ckpts/ (writable working dir)
+        PVC (/models) may be read-only. Use models_root/wan2gp (writable working dir)
         as the download target for vendor models that auto-download.
         """
-        ckpts_base = Path("ckpts").resolve()
+        ckpts_base = Path(cfg.models_root) / "wan2gp"
         ckpts_base.mkdir(parents=True, exist_ok=True)
         return ckpts_base
 
     def _ensure_vendor_files(self, handler, base_model_type: str,
                               model_def: dict, model_path: Path | None = None) -> None:
         """Download missing model files via handler's query_model_files."""
-        ckpts_base = Path("ckpts").resolve()
+        from registry.config import Config as _Cfg
+        ckpts_base = Path(_Cfg().models_root) / "wan2gp"
         ckpts_base.mkdir(parents=True, exist_ok=True)
 
         # Step 1: query_model_files for supporting files (VAE, text encoders)
@@ -2397,8 +2407,8 @@ class Wan2GPService:
             if wan_fallback.is_dir() and any(wan_fallback.glob("*.safetensors")):
                 return wan_fallback
 
-        # Fallback: ckpts/ (writable, for auto-downloaded vendor models)
-        ckpts = Path("ckpts").resolve()
+        # Fallback: models_root/wan2gp (centralized model storage)
+        ckpts = Path(cfg.models_root) / "wan2gp"
         if any(ckpts.glob("*.safetensors")) or any(ckpts.glob("*.pth")):
             return ckpts
 

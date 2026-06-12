@@ -1,0 +1,94 @@
+# Self-bootstrapping registry DNS configuration
+# Adds forge-reg.local to /etc/hosts on all nodes pointing to the registry service
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: forge-registry-hosts
+  namespace: infra
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: forge-registry-hosts
+  namespace: infra
+rules:
+- apiGroups: [""]
+  resources: ["services"]
+  verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: forge-registry-hosts
+  namespace: infra
+subjects:
+- kind: ServiceAccount
+  name: forge-registry-hosts
+  namespace: infra
+roleRef:
+  kind: Role
+  name: forge-registry-hosts
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: forge-registry-hosts
+  namespace: infra
+spec:
+  selector:
+    matchLabels:
+      app: forge-registry-hosts
+  template:
+    metadata:
+      labels:
+        app: forge-registry-hosts
+    spec:
+      serviceAccountName: forge-registry-hosts
+      tolerations:
+      - operator: Exists
+      hostPID: true
+      initContainers:
+      - name: configure-hosts
+        image: bitnami/kubectl:latest
+        command:
+        - /bin/sh
+        - -c
+        - |
+          SVC_IP=$(kubectl get service forge-registry -n infra -o jsonpath='{.spec.clusterIP}')
+
+          if [ -z "$SVC_IP" ]; then
+            echo "Error: Could not get registry service IP"
+            exit 1
+          fi
+
+          echo "Registry service IP: $SVC_IP"
+
+          # Add entry to /etc/hosts if not present
+          if ! grep -q "forge-reg.local" /host/etc/hosts; then
+            echo "$SVC_IP forge-reg.local" >> /host/etc/hosts
+            echo "✓ Added forge-reg.local -> $SVC_IP to /etc/hosts"
+          else
+            echo "✓ forge-reg.local already in /etc/hosts"
+          fi
+        env:
+        - name: KUBECONFIG
+          value: ""
+        securityContext:
+          privileged: true
+        volumeMounts:
+        - name: hosts
+          mountPath: /host/etc
+          readOnly: false
+      containers:
+      - name: pause
+        image: registry.k8s.io/pause:3.9
+        resources:
+          requests:
+            cpu: 10m
+            memory: 10Mi
+      volumes:
+      - name: hosts
+        hostPath:
+          path: /etc
+          type: Directory

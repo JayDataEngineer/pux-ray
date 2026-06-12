@@ -1,30 +1,19 @@
-"""Anima model factory — Cosmos-Predict2-2B via diffusers Cosmos2TextToImagePipeline.
+"""Anima model factory — Cosmos-Predict2-2B text-to-image.
 
-Loads the Cosmos transformer, Qwen3 0.6B text encoder, Qwen-Image VAE,
-and constructs a standard Cosmos2TextToImagePipeline from diffusers.
+Loads the Cosmos transformer, Qwen3 0.6B text encoder, Cosmos VAE (16 latent
+channels), and builds a minimal generation pipeline.
 """
 import json
 import os
 import torch
 from accelerate import init_empty_weights
-from diffusers import FlowMatchEulerDiscreteScheduler, Cosmos2TextToImagePipeline
+from diffusers import FlowMatchEulerDiscreteScheduler
 from diffusers import CosmosTransformer3DModel
+from diffusers import AutoencoderKLCosmos
 from diffusers.utils import logging
 from mmgp import offload
 from shared.utils import files_locator as fl
 from transformers import AutoTokenizer, Qwen3ForCausalLM
-
-# Reuse Z-Image's AutoencoderKL — same VAE checkpoint, same interface.
-# Cosmos2TextToImagePipeline just calls vae.encode()/decode(), doesn't
-# care about the specific VAE class. Avoids config incompatibility with
-# diffusers' AutoencoderKLCosmos.
-import sys as _sys
-_zimg_dir = os.path.join(
-    os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "z_image"
-)
-if _zimg_dir not in _sys.path:
-    _sys.path.insert(0, _zimg_dir)
-from autoencoder_kl import AutoencoderKL
 
 logger = logging.get_logger(__name__)
 
@@ -135,7 +124,6 @@ def _convert_cosmos_state_dict(sd: dict) -> dict:
 class model_factory:
     def __init__(
         self,
-        checkpoint_dir,
         model_filename=None,
         model_type=None,
         model_def=None,
@@ -188,12 +176,15 @@ class model_factory:
                 transformer, model_type, transformer_filename, dtype, config_path
             )
 
-        # --- Text encoder (Qwen3 0.6B, only 1.2GB, no lm_head) ---
+        # --- Text encoder (Qwen3 0.6B, only ~1.2GB) ---
         # Load directly with PyTorch — small enough to not need mmgp offloading.
+        # Use AutoConfig/AutoTokenizer from the Qwen3-0.6B model on HuggingFace
+        # for config + tokenizer. The safetensors weights come from the Anima repo.
         from transformers import AutoConfig
-        te_config_dir = os.path.join("ckpts", "Qwen3-0.6B")
-        te_config = AutoConfig.from_pretrained(te_config_dir, trust_remote_code=True)
         import safetensors.torch
+        te_config = AutoConfig.from_pretrained("Qwen/Qwen3-0.6B", trust_remote_code=True)
+        if text_encoder_filename is None:
+            raise ValueError("text_encoder_filename not provided — download from circlestone-labs/Anima")
         te_sd = safetensors.torch.load_file(text_encoder_filename)
         te_sd["lm_head.weight"] = torch.zeros(
             te_config.vocab_size, te_config.hidden_size
@@ -216,30 +207,22 @@ class model_factory:
         text_encoder.forward = _te_forward
 
         # --- Tokenizer ---
-        text_encoder_folder = model_def.get("text_encoder_folder")
-        if text_encoder_folder:
-            tokenizer_path = os.path.dirname(
-                fl.locate_file(os.path.join(text_encoder_folder, "tokenizer_config.json"))
+        # Use Qwen3-0.6B tokenizer from HuggingFace (auto-downloads)
+        tokenizer = AutoTokenizer.from_pretrained("Qwen/Qwen3-0.6B", trust_remote_code=True)
+
+        # --- VAE (Cosmos VAE from Anima repo — 16 latent channels) ---
+        vae_filename = fl.locate_file("qwen_image_vae.safetensors", error_if_none=False)
+        if not vae_filename:
+            raise FileNotFoundError(
+                "qwen_image_vae.safetensors not found — download from circlestone-labs/Anima split_files/vae/"
             )
-        else:
-            tokenizer_path = os.path.dirname(text_encoder_filename)
-        tokenizer = AutoTokenizer.from_pretrained(tokenizer_path, trust_remote_code=True)
 
-        # --- VAE (Qwen-Image VAE - CORRECT ARCHITECTURE FOR ANIMA) ---
-        vae_filename = fl.locate_file("qwen_image_vae.safetensors")
-
-        # Qwen-Image VAE uses standard diffusers AutoencoderKL
-        vae = AutoencoderKL.from_pretrained(
-            "Comfy-Org/Qwen-Image_ComfyUI",
-            subfolder="vae",
-            use_safetensors=True,
-        )
-        # Load the VAE weights
+        # Load VAE weights into AutoencoderKLCosmos (16 latent channels, 3D convs)
         import safetensors.torch
-        vae_state_dict = safetensors.torch.load_file(vae_filename)
-        vae.load_state_dict(vae_state_dict, strict=False)
-        vae.to(VAE_dtype).to("cuda" if torch.cuda.is_available() else "cpu")
-        vae.eval()
+        vae_sd = safetensors.torch.load_file(vae_filename)
+        vae = AutoencoderKLCosmos()
+        vae.load_state_dict(vae_sd, strict=False, assign=True)
+        vae = vae.to(VAE_dtype)
 
         # Cosmos pipeline expects temporal downsampling attrs (2D VAE has none)
         if not hasattr(vae, 'temperal_downsample'):
@@ -248,38 +231,22 @@ class model_factory:
             vae.temporal_downsample = []
 
         # --- Scheduler ---
-        # Use standard FlowMatchEulerDiscreteScheduler config
-        scheduler_config = {
-            "num_train_timesteps": 1000,
-            "shift": 3.0,
-            "use_dynamic_shifting": True,
-            "base_shift": 0.5,
-            "max_shift": 1.15,
-            "base_image_seq_len": 256,
-            "max_image_seq_len": 4096,
-        }
-        scheduler = FlowMatchEulerDiscreteScheduler(**scheduler_config)
+        scheduler = FlowMatchEulerDiscreteScheduler(
+            num_train_timesteps=1000,
+            shift=3.0,
+            use_dynamic_shifting=False,
+        )
 
         # --- Pipeline ---
-        # Dummy safety checker to avoid cosmos_guardrail dependency
-        class _NoopSafetyChecker:
-            def to(self, *a, **kw): return self
-            def check_text_safety(self, *a, **kw): return True
-            def check_image_safety(self, *a, **kw): return True
-            def __call__(self, image, *a, **kw): return image, [False]
-        self.pipeline = Cosmos2TextToImagePipeline(
-            scheduler=scheduler,
-            vae=vae,
-            text_encoder=text_encoder,
-            tokenizer=tokenizer,
-            transformer=transformer,
-            safety_checker=_NoopSafetyChecker(),
-        )
+        # We bypass Cosmos2TextToImagePipeline entirely — generate() calls
+        # transformer, scheduler, and VAE directly. Just store references.
         self.transformer = transformer
         self.text_encoder = text_encoder
         self.tokenizer = tokenizer
         self.vae = vae
         self.scheduler = scheduler
+        self.pipeline = self  # Wan2GP expects .pipeline attribute
+        self._interrupt_flag = False
 
     def generate(
         self,
@@ -302,6 +269,9 @@ class model_factory:
         Bypasses Cosmos2TextToImagePipeline (RoPE shape issues, VRAM overhead).
         Directly calls transformer, scheduler, and VAE with cache clearing
         between steps to keep VRAM usage stable.
+
+        NOTE: Does NOT manually move modules — mmgp's offloadobj handles
+        device placement. Only creates tensors on the target device.
         """
         import gc
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -323,15 +293,13 @@ class model_factory:
         if seed is not None and seed >= 0:
             generator.manual_seed(int(seed))
 
-        # Move components to GPU for inference
-        self.transformer.to(device).to(dtype)
-        self.vae.to(device).to(torch.float32)
-        self.text_encoder.to("cpu")  # keep TE on CPU, encode once
+        # mmgp manages device placement — do NOT call .to() on modules.
+        # Only clear caches to ensure clean state.
         torch.cuda.empty_cache()
         gc.collect()
 
-        # Encode text (CPU, then move to GPU)
-        neg = n_prompt or "worst quality, low quality"
+        # Encode text — text_encoder stays where mmgp put it
+        neg = n_prompt or "worst quality, low quality, score_1, score_2, score_3, artist name"
         def _encode(text):
             ids = self.tokenizer(
                 text, return_tensors="pt", padding="max_length",
@@ -346,7 +314,7 @@ class model_factory:
         neg_embeds = _encode(neg)
         pos_embeds = _encode(input_prompt)
 
-        # Create latents
+        # Create latents on device
         vae_scale = 8  # Qwen VAE spatial compression
         latent_h, latent_w = height // vae_scale, width // vae_scale
         latents = torch.randn(
@@ -379,24 +347,27 @@ class model_factory:
             torch.cuda.empty_cache()
 
         # Decode latents → image
+        # Cosmos VAE is 3D (video) — add temporal dim for decode
         with torch.no_grad():
-            image = self.vae.decode(latents.float(), return_dict=False)[0]
+            latents_5d = latents.float().unsqueeze(2)  # [B, C, 1, H, W]
+            image = self.vae.decode(latents_5d, return_dict=False)[0]
+            image = image.squeeze(2)  # [B, C, H, W] — remove temporal dim
         image = image.clamp(0, 1)
 
         if not torch.is_tensor(image):
             image = torch.tensor(image)
 
-        # image is already [B, C, H, W] from VAE decode
-        return image
+        # Return 3D [C, H, W] for single image (deployment.py encodes
+        # 4D tensors as video, 3D as image)
+        return image[0]  # squeeze batch dim → [C, H, W]
 
     def get_loras_transformer(self, *args, **kwargs):
         return [], []
 
     @property
     def _interrupt(self):
-        return getattr(self.pipeline, "_interrupt", False)
+        return self._interrupt_flag
 
     @_interrupt.setter
     def _interrupt(self, value):
-        if hasattr(self, "pipeline"):
-            self.pipeline._interrupt = value
+        self._interrupt_flag = value

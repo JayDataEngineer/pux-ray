@@ -1,0 +1,15 @@
+# K3s Container Registry Configuration
+# Place at /etc/rancher/k3s/registries.yaml
+#
+# This configures k3s's bundled containerd to use HTTP (not HTTPS)
+# for the local forge registry. Key points:
+#   1. Use "endpoint" (singular), NOT "endpoints"
+#   2. Match the exact domain used in image references
+#   3. K3s has its own containerd — /etc/containerd/config.toml is NOT used
+mirrors:
+  "forge-reg.local:30500":
+    endpoint:
+      - "http://forge-reg.local:30500"
+  "forge-registry.infra.svc.cluster.local:5000":
+    endpoint:
+      - "http://forge-registry.infra.svc.cluster.local:5000"
