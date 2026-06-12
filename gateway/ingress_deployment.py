@@ -28,7 +28,7 @@ from gateway.routes.wf_engine import (
 )
 from gateway.routes.editor import (
     editor_page, editor_static,
-    llm_key_store, llm_key_list, llm_key_delete, llm_enhance
+    llm_key_store, llm_key_list, llm_key_delete, llm_enhance, llm_chat
 )
 
 
@@ -128,6 +128,8 @@ class APIIngressDeployment:
             return await llm_key_delete(_ParamsRequest(request, {"key_id": key_id}))
         if path == "/v1/llm/enhance" and method == "POST":
             return await llm_enhance(request)
+        if path == "/v1/llm/chat" and method == "POST":
+            return await llm_chat(request)
         if path == "/v1/audio/speech" and method == "POST":
             return await self._ingress.audio_speech(request)
         if path == "/v1/audio/transcriptions" and method == "POST":

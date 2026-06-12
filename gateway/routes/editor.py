@@ -316,3 +316,238 @@ async def llm_enhance(request: Request) -> JSONResponse:
     except Exception as e:
         logger.error(f"Error enhancing prompt: {e}")
         return JSONResponse({"error": str(e)}, status_code=500)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# AI Chat with web research tools (scrape / search / research)
+# ══════════════════════════════════════════════════════════════════════════════
+
+_WEB_RESEARCH_URL = os.environ.get("WEB_RESEARCH_URL", "http://localhost:8000/mcp")
+
+_WEB_TOOLS = [
+    {
+        "type": "function",
+        "function": {
+            "name": "scrape",
+            "description": "Scrape a URL and extract clean markdown content. Use this to read a specific web page.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "url": {"type": "string", "description": "URL to scrape"},
+                },
+                "required": ["url"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "search",
+            "description": "Search the web using multiple search engines. Returns titles, URLs, and short snippets.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string", "description": "Search query string"},
+                    "top_k": {"type": "integer", "description": "Max results to return (default 5)", "default": 5},
+                },
+                "required": ["query"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "research",
+            "description": "Search the web AND scrape the top results in one call. Best for researching a topic — you get actual page content, not just snippets.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string", "description": "Research query"},
+                    "max_results": {"type": "integer", "description": "Number of results to scrape (1-5, default 3)", "default": 3},
+                },
+                "required": ["query"],
+            },
+        },
+    },
+]
+
+_SYSTEM_PROMPT = (
+    "You are a helpful AI assistant with access to web research tools. "
+    "Use them when the user asks about anything that requires current information or web content. "
+    "Be concise. When you use a tool, summarize the key findings from the results."
+)
+
+
+async def _call_web_tool(name: str, args: dict) -> str:
+    """Call a tool on the web-research MCP server via HTTP JSON-RPC."""
+    import httpx
+
+    # Initialize session (stateless, so we do init + call in sequence)
+    async with httpx.AsyncClient(timeout=60.0) as client:
+        # Initialize
+        init_resp = await client.post(
+            _WEB_RESEARCH_URL,
+            headers={"Content-Type": "application/json", "Accept": "application/json, text/event-stream"},
+            json={
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "initialize",
+                "params": {
+                    "protocolVersion": "2024-11-05",
+                    "capabilities": {},
+                    "clientInfo": {"name": "editor-chat", "version": "1.0"},
+                },
+            },
+        )
+        session_id = None
+        if init_resp.ok:
+            text = init_resp.text
+            data_line = next((l for l in text.split("\n") if l.startswith("data: ")), None)
+            if data_line:
+                msg = json.loads(data_line[6:])
+                session_id = (msg.get("result") or {}).get("sessionId")
+
+        headers = {
+            "Content-Type": "application/json",
+            "Accept": "application/json, text/event-stream",
+        }
+        if session_id:
+            headers["Mcp-Session-Id"] = session_id
+
+        # Call tool
+        resp = await client.post(
+            _WEB_RESEARCH_URL,
+            headers=headers,
+            json={
+                "jsonrpc": "2.0",
+                "id": 2,
+                "method": "tools/call",
+                "params": {"name": name, "arguments": args},
+            },
+        )
+
+        if not resp.ok:
+            return f"Error: HTTP {resp.status_code} from web-research server"
+
+        text = resp.text
+        data_line = next((l for l in text.split("\n") if l.startswith("data: ")), None)
+        if not data_line:
+            return "Error: no data in MCP response"
+
+        msg = json.loads(data_line[6:])
+        if msg.get("error"):
+            return f"Tool error: {msg['error'].get('message', str(msg['error']))}"
+
+        content = (msg.get("result") or {}).get("content", [])
+        if content and content[0].get("type") == "text":
+            return content[0]["text"]
+
+        return json.dumps(msg.get("result"), default=str)
+
+
+async def llm_chat(request: Request) -> JSONResponse:
+    """POST /v1/llm/chat — Agentic chat loop with web research tools.
+
+    Sends the conversation to the LLM with tool definitions. If the LLM
+    requests tools, executes them and loops. Returns the final response
+    along with any tool-call metadata for the frontend to display.
+    """
+    try:
+        data = await request.json()
+        key_id = data.get("key_id")
+        messages = data.get("messages", [])
+
+        if not key_id:
+            return JSONResponse({"error": "Missing key_id"}, status_code=400)
+
+        if key_id not in _STORED_KEYS:
+            return JSONResponse({"error": "Key not found"}, status_code=404)
+
+        key_data = _STORED_KEYS[key_id]
+        api_key = _decrypt_key(key_data["encrypted_key"])
+        base_url = key_data["baseUrl"].rstrip("/")
+        model = key_data["model"]
+
+        # Build full message list with system prompt
+        full_messages = [{"role": "system", "content": _SYSTEM_PROMPT}] + messages
+
+        import httpx
+
+        tool_calls_log: list[dict] = []
+        max_iterations = 6  # safety limit
+
+        for _ in range(max_iterations):
+            async with httpx.AsyncClient(timeout=60.0) as client:
+                body: dict[str, Any] = {
+                    "model": model,
+                    "messages": full_messages,
+                    "max_tokens": 2048,
+                    "temperature": 0.7,
+                    "tools": _WEB_TOOLS,
+                }
+                resp = await client.post(
+                    f"{base_url}/chat/completions",
+                    headers={
+                        "Content-Type": "application/json",
+                        "Authorization": f"Bearer {api_key}",
+                    },
+                    json=body,
+                )
+
+            if resp.status_code != 200:
+                error_text = resp.text[:500]
+                return JSONResponse(
+                    {"error": f"LLM API error ({resp.status_code}): {error_text}"},
+                    status_code=resp.status_code,
+                )
+
+            result = resp.json()
+            choice = result.get("choices", [{}])[0]
+            assistant_msg = choice.get("message", {})
+            finish_reason = choice.get("finish_reason")
+
+            # If the LLM wants to call tools
+            if finish_reason == "tool_calls" and assistant_msg.get("tool_calls"):
+                full_messages.append(assistant_msg)
+
+                for tc in assistant_msg["tool_calls"]:
+                    fn = tc["function"]
+                    tool_name = fn["name"]
+                    try:
+                        tool_args = json.loads(fn["arguments"]) if isinstance(fn["arguments"], str) else fn["arguments"]
+                    except json.JSONDecodeError:
+                        tool_args = {}
+
+                    logger.info(f"Chat tool call: {tool_name}({json.dumps(tool_args)[:200]})")
+                    tool_calls_log.append({"name": tool_name, "args": tool_args})
+
+                    tool_result = await _call_web_tool(tool_name, tool_args)
+
+                    full_messages.append({
+                        "role": "tool",
+                        "tool_call_id": tc["id"],
+                        "content": tool_result[:15000],  # cap to protect context window
+                    })
+                # Loop back to LLM with tool results
+                continue
+
+            # Final text response
+            content = assistant_msg.get("content", "")
+            return JSONResponse({
+                "result": content.strip(),
+                "model": model,
+                "provider": key_data["name"],
+                "tool_calls": tool_calls_log,
+            })
+
+        # Exhausted iterations — return whatever we have
+        return JSONResponse({
+            "result": assistant_msg.get("content", "I wasn't able to complete the research in time.").strip(),
+            "model": model,
+            "provider": key_data["name"],
+            "tool_calls": tool_calls_log,
+        })
+
+    except Exception as e:
+        logger.error(f"Error in llm_chat: {e}")
+        return JSONResponse({"error": str(e)}, status_code=500)

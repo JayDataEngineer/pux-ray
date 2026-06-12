@@ -5,13 +5,19 @@ import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { useEnhanceStore } from "@/stores/enhancement"
-import { MessageSquare } from "lucide-react"
+import { MessageSquare, Globe } from "lucide-react"
 import { Loader2, Sparkles, RotateCcw } from "lucide-react"
+
+interface ToolCallInfo {
+  name: string
+  args: Record<string, unknown>
+}
 
 interface ChatMessage {
   role: "user" | "assistant" | "system"
   content: string
   timestamp: number
+  toolCalls?: ToolCallInfo[]
 }
 
 interface LLMChatDialogProps {
@@ -26,7 +32,7 @@ export function LLMChatDialog({ open, onOpenChange }: LLMChatDialogProps) {
   const [error, setError] = useState<string | null>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
-  
+
   const activeModel = useEnhanceStore((s) => s.activeModel())
 
   // Auto-scroll to bottom when new messages arrive
@@ -58,20 +64,22 @@ export function LLMChatDialog({ open, onOpenChange }: LLMChatDialogProps) {
       content: userMessage,
       timestamp: Date.now(),
     }
-    setMessages((prev) => [...prev, userMsg])
+    const newMessages = [...messages, userMsg]
+    setMessages(newMessages)
     setInput("")
     setIsLoading(true)
     setError(null)
 
     try {
-      // Call the secure enhance endpoint
-      const response = await fetch("/v1/llm/enhance", {
+      // Send full conversation history for multi-turn context
+      const apiMessages = newMessages.map(m => ({ role: m.role, content: m.content }))
+
+      const response = await fetch("/v1/llm/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           key_id: activeModel.keyId,
-          system_prompt: "You are a helpful AI assistant. Be concise and friendly.",
-          prompt: userMessage,
+          messages: apiMessages,
         }),
       })
 
@@ -81,12 +89,13 @@ export function LLMChatDialog({ open, onOpenChange }: LLMChatDialogProps) {
       }
 
       const data = await response.json()
-      
-      // Add assistant response
+
+      // Add assistant response (with optional tool call info)
       const assistantMsg: ChatMessage = {
         role: "assistant",
         content: data.result || "No response from model",
         timestamp: Date.now(),
+        toolCalls: data.tool_calls?.length > 0 ? data.tool_calls : undefined,
       }
       setMessages((prev) => [...prev, assistantMsg])
     } catch (err) {
@@ -115,6 +124,15 @@ export function LLMChatDialog({ open, onOpenChange }: LLMChatDialogProps) {
     }
   }
 
+  const toolLabel = (name: string) => {
+    switch (name) {
+      case "scrape": return "Scraped page"
+      case "search": return "Searched web"
+      case "research": return "Researched topic"
+      default: return name
+    }
+  }
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-[600px] w-[90vw] h-[70vh] max-h-[70vh] flex flex-col p-0 gap-0">
@@ -127,6 +145,10 @@ export function LLMChatDialog({ open, onOpenChange }: LLMChatDialogProps) {
                 {activeModel.name}
               </Badge>
             )}
+            <Badge variant="secondary" className="text-[9px] gap-1">
+              <Globe className="h-2.5 w-2.5" />
+              Web tools
+            </Badge>
           </div>
           <DialogDescription className="sr-only">
             Chat with AI using your configured LLM endpoint
@@ -141,10 +163,18 @@ export function LLMChatDialog({ open, onOpenChange }: LLMChatDialogProps) {
                 <div className="flex flex-col items-center justify-center h-full text-center py-12">
                   <Sparkles className="h-12 w-12 text-muted-foreground mb-3" />
                   <p className="text-sm text-muted-foreground mb-1">
-                    Start a conversation with AI
+                    Chat with AI — now with web access
                   </p>
-                  <p className="text-xs text-muted-foreground/60">
-                    {activeModel 
+                  <div className="flex gap-2 mt-2">
+                    {["Scrape", "Search", "Research"].map(t => (
+                      <Badge key={t} variant="outline" className="text-[9px] gap-1">
+                        <Globe className="h-2.5 w-2.5" />
+                        {t}
+                      </Badge>
+                    ))}
+                  </div>
+                  <p className="text-xs text-muted-foreground/60 mt-3">
+                    {activeModel
                       ? `Using ${activeModel.name} (${activeModel.model})`
                       : "Configure an LLM endpoint first"}
                   </p>
@@ -167,6 +197,23 @@ export function LLMChatDialog({ open, onOpenChange }: LLMChatDialogProps) {
                         : "bg-muted"
                     }`}
                   >
+                    {/* Tool usage badges */}
+                    {msg.toolCalls && msg.toolCalls.length > 0 && (
+                      <div className="flex flex-wrap gap-1 mb-1.5">
+                        {msg.toolCalls.map((tc, i) => (
+                          <Badge key={i} variant="secondary" className="text-[8px] gap-0.5 py-0 px-1">
+                            <Globe className="h-2 w-2" />
+                            {toolLabel(tc.name)}
+                            {tc.args.query && (
+                              <span className="opacity-60 ml-0.5">"{String(tc.args.query).slice(0, 30)}"</span>
+                            )}
+                            {tc.args.url && (
+                              <span className="opacity-60 ml-0.5 truncate max-w-[100px]">{String(tc.args.url).slice(0, 30)}</span>
+                            )}
+                          </Badge>
+                        ))}
+                      </div>
+                    )}
                     <p className="text-sm whitespace-pre-wrap break-words">
                       {msg.content}
                     </p>
@@ -220,7 +267,7 @@ export function LLMChatDialog({ open, onOpenChange }: LLMChatDialogProps) {
             {/* Input row */}
             <div className="flex gap-2">
               <Input
-                placeholder={activeModel ? "Type your message..." : "Configure an LLM endpoint first"}
+                placeholder={activeModel ? "Ask anything — I can search & scrape the web..." : "Configure an LLM endpoint first"}
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={handleKeyDown}
