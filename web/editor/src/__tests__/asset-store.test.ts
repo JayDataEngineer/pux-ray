@@ -136,11 +136,86 @@ describe('AssetStore — CRUD', () => {
 })
 
 describe('nextAssetName', () => {
-  it('generates sequential names', () => {
-    const n1 = nextAssetName('generate', 'png')
-    const n2 = nextAssetName('generate', 'png')
-    expect(n1).toMatch(/generate_\d+\.png/)
-    expect(n2).toMatch(/generate_\d+\.png/)
+  it('starts at 1 for an empty store', () => {
+    expect(nextAssetName('generate', 'png')).toBe('generate_1.png')
+  })
+
+  it('continues the counter from existing assets', () => {
+    useAssetStore.getState().addAsset({
+      name: 'generate_1.png', type: 'image', category: 'image',
+      mediaType: 'image/png', url: 'x', sizeBytes: 0, source: 'uploaded',
+    })
+    useAssetStore.getState().addAsset({
+      name: 'generate_2.png', type: 'image', category: 'image',
+      mediaType: 'image/png', url: 'x', sizeBytes: 0, source: 'uploaded',
+    })
+    expect(nextAssetName('generate', 'png')).toBe('generate_3.png')
+  })
+
+  it('handles gaps in numbering', () => {
+    useAssetStore.getState().addAsset({
+      name: 'generate_1.png', type: 'image', category: 'image',
+      mediaType: 'image/png', url: 'x', sizeBytes: 0, source: 'uploaded',
+    })
+    useAssetStore.getState().addAsset({
+      name: 'generate_5.png', type: 'image', category: 'image',
+      mediaType: 'image/png', url: 'x', sizeBytes: 0, source: 'uploaded',
+    })
+    expect(nextAssetName('generate', 'png')).toBe('generate_6.png')
+  })
+
+  it('ignores names with a different service prefix', () => {
+    useAssetStore.getState().addAsset({
+      name: 'ltx2_1.png', type: 'image', category: 'image',
+      mediaType: 'image/png', url: 'x', sizeBytes: 0, source: 'uploaded',
+    })
+    expect(nextAssetName('kokoro', 'wav')).toBe('kokoro_1.wav')
+  })
+})
+
+describe('addAsset — uniqueness guard', () => {
+  it('appends _2 when a bare name collides', () => {
+    useAssetStore.getState().addAsset({
+      name: 'dup.png', type: 'image', category: 'image',
+      mediaType: 'image/png', url: 'x', sizeBytes: 0, source: 'uploaded',
+    })
+    const a2 = useAssetStore.getState().addAsset({
+      name: 'dup.png', type: 'image', category: 'image',
+      mediaType: 'image/png', url: 'x', sizeBytes: 0, source: 'uploaded',
+    })
+    expect(a2.name).toBe('dup_2.png')
+  })
+
+  it('increments a trailing number on collision', () => {
+    useAssetStore.getState().addAsset({
+      name: 'ltx2_1.png', type: 'image', category: 'image',
+      mediaType: 'image/png', url: 'x', sizeBytes: 0, source: 'uploaded',
+    })
+    const a2 = useAssetStore.getState().addAsset({
+      name: 'ltx2_1.png', type: 'image', category: 'image',
+      mediaType: 'image/png', url: 'x', sizeBytes: 0, source: 'uploaded',
+    })
+    expect(a2.name).toBe('ltx2_2.png')
+  })
+
+  it('increments a prefixed name on collision', () => {
+    useAssetStore.getState().addAsset({
+      name: 'Alice_voice_1.wav', type: 'audio', category: 'voice',
+      mediaType: 'audio/wav', url: 'x', sizeBytes: 0, source: 'uploaded',
+    })
+    const a2 = useAssetStore.getState().addAsset({
+      name: 'Alice_voice_1.wav', type: 'audio', category: 'voice',
+      mediaType: 'audio/wav', url: 'x', sizeBytes: 0, source: 'uploaded',
+    })
+    expect(a2.name).toBe('Alice_voice_2.wav')
+  })
+
+  it('leaves unique names untouched', () => {
+    const a = useAssetStore.getState().addAsset({
+      name: 'unique.png', type: 'image', category: 'image',
+      mediaType: 'image/png', url: 'x', sizeBytes: 0, source: 'uploaded',
+    })
+    expect(a.name).toBe('unique.png')
   })
 })
 

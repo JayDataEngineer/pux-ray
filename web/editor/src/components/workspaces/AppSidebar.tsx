@@ -82,7 +82,7 @@ export function AppSidebar({ open, onToggle, onSelectAsset }: AppSidebarProps) {
           if (items.length === 0) return null
           const Icon = ICONS[cat]
           return (
-            <Collapsible key={cat} defaultOpen={cat === "image"}>
+            <Collapsible key={cat} defaultOpen={false}>
               <CollapsibleTrigger className="group/trigger flex w-full items-center gap-1 px-2 py-1 text-xs font-medium text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground">
                 <Icon className="h-3.5 w-3.5" />
                 <span className="flex-1 text-left">{CATEGORY_LABEL[cat]}</span>
@@ -122,14 +122,15 @@ export function AppSidebar({ open, onToggle, onSelectAsset }: AppSidebarProps) {
                   <div className="px-1 py-0.5 space-y-0.5">
                     {items.map((a) => (
                       <div key={a.id} className="flex flex-col gap-1">
-                        {/* Video preview */}
+                        {/* Video thumbnail — click opens modal like images */}
                         {a.type === 'video' && a.url ? (
                           <video
                             src={a.url}
-                            className="w-full rounded-md border border-white/10 bg-black aspect-video object-cover"
+                            className="w-full rounded-md border border-white/10 bg-black aspect-video object-cover cursor-pointer"
                             muted
-                            onMouseEnter={(e) => e.currentTarget.play()}
-                            onMouseLeave={(e) => e.currentTarget.pause()}
+                            playsInline
+                            preload="metadata"
+                            onClick={(e) => { e.stopPropagation(); onSelectAsset?.(a) }}
                           />
                         ) : null}
                         {/* Asset info row */}
@@ -203,7 +204,7 @@ export function AppSidebar({ open, onToggle, onSelectAsset }: AppSidebarProps) {
                   if (items.length === 0) return null
                   const Icon = ICONS[cat]
                   return (
-                    <Collapsible key={cat} defaultOpen={cat === "image"} className="group/collapsible">
+                    <Collapsible key={cat} defaultOpen={false} className="group/collapsible">
                       <CollapsibleTrigger className="flex w-full items-center gap-1 px-2 py-1 text-xs font-medium text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground">
                         <Icon className="h-3.5 w-3.5" />
                         <span className="flex-1 text-left">{CATEGORY_LABEL[cat]}</span>
@@ -243,14 +244,15 @@ export function AppSidebar({ open, onToggle, onSelectAsset }: AppSidebarProps) {
                           <div className="px-1 py-0.5 space-y-0.5">
                             {items.map((a) => (
                               <div key={a.id} className="flex flex-col gap-1">
-                                {/* Video preview */}
+                                {/* Video thumbnail — click opens modal like images */}
                                 {a.type === 'video' && a.url ? (
                                   <video
                                     src={a.url}
-                                    className="w-full rounded-md border border-white/10 bg-black aspect-video object-cover"
+                                    className="w-full rounded-md border border-white/10 bg-black aspect-video object-cover cursor-pointer"
                                     muted
-                                    onMouseEnter={(e) => e.currentTarget.play()}
-                                    onMouseLeave={(e) => e.currentTarget.pause()}
+                                    playsInline
+                                    preload="metadata"
+                                    onClick={(e) => { e.stopPropagation(); onSelectAsset?.(a) }}
                                   />
                                 ) : null}
                                 {/* Asset info row */}

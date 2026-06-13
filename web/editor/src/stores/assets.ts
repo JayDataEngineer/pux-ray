@@ -128,13 +128,7 @@ interface AssetStore {
 }
 
 let _nextId = 1
-let _nameCounters: Record<string, number> = {}
 function uid(): string { return `asset_${_nextId++}_${Date.now().toString(36)}` }
-export function nextAssetName(service: string, ext: string): string {
-  if (!_nameCounters[service]) _nameCounters[service] = 0
-  _nameCounters[service]++
-  return `${service}_${_nameCounters[service]}.${ext}`
-}
 
 // Load persisted assets on init
 async function loadPersisted(): Promise<Asset[]> {
@@ -227,6 +221,7 @@ export const useAssetStore = create<AssetStore>((set, get) => ({
   addAsset: (partial) => {
     const asset: Asset = {
       ...partial,
+      name: uniqueName(partial.name, get().assets),
       id: uid(),
       createdAt: new Date().toISOString(),
     }
@@ -272,3 +267,58 @@ export const useAssetStore = create<AssetStore>((set, get) => ({
     set({ assets: [] })
   },
 }))
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Naming helpers — survive page reloads.
+// The old in-memory counter reset to 0 on every reload, producing duplicate
+// names like "ltx2_1.png" over and over. These scan existing assets instead.
+// ═══════════════════════════════════════════════════════════════════════════
+
+function escapeRegex(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+/**
+ * Generate the next name for a service+ext combo by scanning existing assets.
+ * Continues the counter from the highest seen so names are stable across
+ * reloads:
+ *   nextAssetName('ltx2', 'png') → 'ltx2_1.png', 'ltx2_2.png', ...
+ */
+export function nextAssetName(service: string, ext: string): string {
+  const existing = useAssetStore.getState().assets
+  const pattern = new RegExp(`^${escapeRegex(service)}_(\\d+)\\.${escapeRegex(ext)}$`)
+  let max = 0
+  for (const a of existing) {
+    const m = a.name.match(pattern)
+    if (m) max = Math.max(max, parseInt(m[1], 10))
+  }
+  return `${service}_${max + 1}.${ext}`
+}
+
+/**
+ * Ensure a name is unique among existing assets by incrementing a trailing
+ * counter. Handles both bare names and names that already carry a number:
+ *   'foo.png' (collides)        → 'foo_2.png'
+ *   'ltx2_1.png' (collides)     → 'ltx2_2.png'
+ *   'Alice_voice_1.wav'         → 'Alice_voice_2.wav'
+ */
+function uniqueName(name: string, existing: Asset[]): string {
+  const taken = new Set(existing.map((a) => a.name))
+  if (!taken.has(name)) return name
+
+  const dot = name.lastIndexOf('.')
+  const base = dot > 0 ? name.slice(0, dot) : name
+  const ext = dot > 0 ? name.slice(dot) : ''
+
+  // If the base already ends with _N, continue from the highest N seen for
+  // that prefix; otherwise start at 2.
+  const m = base.match(/^(.+?)_(\d+)$/)
+  const prefix = m ? m[1] : base
+  const prefixPattern = new RegExp(`^${escapeRegex(prefix)}_(\\d+)${escapeRegex(ext)}$`)
+  let maxN = m ? parseInt(m[2], 10) : 1
+  for (const a of existing) {
+    const mm = a.name.match(prefixPattern)
+    if (mm) maxN = Math.max(maxN, parseInt(mm[1], 10))
+  }
+  return `${prefix}_${maxN + 1}${ext}`
+}

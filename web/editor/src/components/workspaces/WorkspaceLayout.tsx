@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from "react"
+import { useState, useEffect, useCallback, useRef, useMemo } from "react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { LoraPicker } from "@/components/LoraPicker"
@@ -723,18 +723,26 @@ function AssetPreviewDialog({ asset, onClose, onSelect }: { asset: Asset | null;
   const allAssets = useAssetStore((s) => s.assets)
   const [idx, setIdx] = useState(-1)
 
+  // Navigate within the current asset's category — matches the sidebar's
+  // grouped list, so "next" is the next item the user sees, not whatever
+  // happens to be adjacent across category boundaries.
+  const cat = asset?.category
+  const list = useMemo(
+    () => (cat ? allAssets.filter((a) => a.category === cat) : allAssets),
+    [allAssets, cat]
+  )
+
   useEffect(() => {
     if (asset) {
-      const i = allAssets.findIndex((a) => a.id === asset.id)
-      setIdx(i)
+      setIdx(list.findIndex((a) => a.id === asset.id))
     }
-  }, [asset, allAssets])
+  }, [asset, list])
 
   const hasPrev = idx > 0
-  const hasNext = idx >= 0 && idx < allAssets.length - 1
+  const hasNext = idx >= 0 && idx < list.length - 1
 
-  const goPrev = () => { if (hasPrev) onSelect(allAssets[idx - 1]) }
-  const goNext = () => { if (hasNext) onSelect(allAssets[idx + 1]) }
+  const goPrev = () => { if (hasPrev) onSelect(list[idx - 1]) }
+  const goNext = () => { if (hasNext) onSelect(list[idx + 1]) }
 
   useEffect(() => {
     if (!asset) return
@@ -758,6 +766,7 @@ function AssetPreviewDialog({ asset, onClose, onSelect }: { asset: Asset | null;
   if (!asset) return null
   const { url, name, mediaType, sizeBytes } = asset
   const isImage = mediaType.startsWith("image/") || url.startsWith("data:image/")
+  const isVideo = mediaType.startsWith("video/") || url.startsWith("data:video/")
 
   return (
     <Dialog open={!!asset} onOpenChange={(open) => { if (!open) onClose() }}>
@@ -775,6 +784,8 @@ function AssetPreviewDialog({ asset, onClose, onSelect }: { asset: Asset | null;
           )}
           {isImage ? (
             <img src={url} alt={name} className="max-w-full max-h-[70vh] object-contain rounded-lg select-none" />
+          ) : isVideo ? (
+            <video src={url} controls autoPlay className="max-w-full max-h-[70vh] rounded-lg" />
           ) : (
             <audio src={url} controls className="w-full max-w-lg" />
           )}
@@ -786,7 +797,7 @@ function AssetPreviewDialog({ asset, onClose, onSelect }: { asset: Asset | null;
           )}
         </div>
         <div className="px-4 py-2 border-t flex items-center justify-between">
-          <span className="text-[10px] text-muted-foreground">{idx + 1} / {allAssets.length}</span>
+          <span className="text-[10px] text-muted-foreground">{idx + 1} / {list.length}</span>
           <div className="flex items-center gap-3">
             <span className="text-[10px] text-muted-foreground">
               {sizeBytes ? `${Math.round(sizeBytes / 1024)} KB` : ""}{mediaType ? ` · ${mediaType}` : ""}
