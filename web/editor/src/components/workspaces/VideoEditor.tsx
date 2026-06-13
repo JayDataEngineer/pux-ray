@@ -34,6 +34,16 @@ function fmt(s: number) {
   return `${m}:${sec.toString().padStart(2, "0")}.${ms.toString().padStart(2, "0")}`
 }
 
+/** Strip the "data:*;base64," prefix from a data URL, returning just the base64 payload. Returns null if input is falsy. */
+function stripDataUrlPrefix(dataUrl: string | null): string | undefined {
+  if (!dataUrl) return undefined
+  const idx = dataUrl.indexOf(',')
+  return idx >= 0 ? dataUrl.slice(idx + 1) : dataUrl
+}
+
+/** LTX models require dimensions divisible by 32 (VAE 32x compression). Snaps to nearest valid. */
+function snapTo32(v: number): number { return Math.round(v / 32) * 32 }
+
 function segLabel(order: number) {
   return `K${String(order + 1).padStart(2, "0")}`
 }
@@ -61,19 +71,25 @@ interface CueDragInfo {
 function buildPayload(seg: TimelineSegment, _allSegments?: TimelineSegment[]) {
   const p = seg.params
   const isLtxModel = p.model.startsWith("ltx") || p.model === "ltx2" || p.model === "ltx2_19B" || p.model === "ltxv_098_13b"
+
+  // Snapped dimensions: ensure width/height are multiples of 32 for LTX VAE
+  const snappedW = isLtxModel ? snapTo32(p.width) : p.width
+  const snappedH = isLtxModel ? snapTo32(p.height) : p.height
+
   return {
     service: "wan2gp",
     params: {
       model: p.model,
-      image_b64: seg.firstFrameB64 || undefined,
-      image_end_b64: seg.lastFrameB64 || undefined,
+      image_b64: stripDataUrlPrefix(seg.firstFrameB64),
+      image_end_b64: stripDataUrlPrefix(seg.lastFrameB64),
       input_prompt: seg.prompt || "animate",
       n_prompt: seg.negativePrompt || undefined,
       seed: p.seed,
       frame_num: p.frames,
       fps: p.fps,
-      width: p.width,
-      height: p.height,
+      width: snappedW,
+      height: snappedH,
+      resize_method: p.resizeMethod,
       guide_scale: p.guideScale,
       sampling_steps: p.samplingSteps,
       guide_phases: p.guidePhases || undefined,
@@ -393,7 +409,7 @@ export function VideoEditor({ jobs, onAddJob }: VideoEditorProps) {
       )
       const firstAudio = overlappingAudio[0]
       if (firstAudio?.audioB64) {
-        payload.params.audio_b64 = firstAudio.audioB64
+        payload.params.audio_b64 = stripDataUrlPrefix(firstAudio.audioB64)
         payload.params.audio_scale = String(firstAudio.volume)
         payload.params.audio_prompt_type = "A"
       }
@@ -506,17 +522,18 @@ export function VideoEditor({ jobs, onAddJob }: VideoEditorProps) {
             model: firstSeg.params.model,
             input_prompt: firstSeg.prompt || "animate",
             _relay_config: JSON.stringify(relayConfig),
-            image_b64: firstSeg.firstFrameB64 || undefined,
-            image_end_b64: lastSeg.lastFrameB64 || undefined,
+            image_b64: stripDataUrlPrefix(firstSeg.firstFrameB64),
+            image_end_b64: stripDataUrlPrefix(lastSeg.lastFrameB64),
             n_prompt: firstSeg.negativePrompt || undefined,
             seed: firstSeg.params.seed,
             fps,
             frame_num: totalFrames,
             sampling_steps: firstSeg.params.samplingSteps,
             guide_scale: firstSeg.params.guideScale,
-            width: firstSeg.params.width,
-            height: firstSeg.params.height,
-            audio_b64: firstAudio?.audioB64 || undefined,
+            width: snapTo32(firstSeg.params.width),
+            height: snapTo32(firstSeg.params.height),
+            resize_method: firstSeg.params.resizeMethod,
+            audio_b64: stripDataUrlPrefix(firstAudio?.audioB64),
             audio_scale: firstAudio ? String(firstAudio.volume) : undefined,
             audio_prompt_type: firstAudio ? "A" : undefined,
             loras_selected: firstSeg.params.loras || undefined,
@@ -909,6 +926,13 @@ export function VideoEditor({ jobs, onAddJob }: VideoEditorProps) {
                     </SelectContent>
                   </Select>
                 </InspectorField>
+                {/* Dimension snap hint for LTX models (VAE needs multiples of 32) */}
+                {isLtx && (sel.params.width % 32 !== 0 || sel.params.height % 32 !== 0) && (
+                  <div className="text-[10px] text-amber-400/70 mt-1 flex items-center gap-1">
+                    <svg className="h-3 w-3 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+                    Snaps to {snapTo32(sel.params.width)}×{snapTo32(sel.params.height)} (VAE needs ÷32)
+                  </div>
+                )}
                 <div className="text-[10px] text-white/25 mt-1 font-mono">
                   {(sel.params.frames / sel.params.fps).toFixed(1)}s · {sel.params.width}×{sel.params.height} · {sel.params.frames}f @ {sel.params.fps}fps
                 </div>

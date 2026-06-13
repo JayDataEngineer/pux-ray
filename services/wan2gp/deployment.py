@@ -1141,12 +1141,18 @@ class Wan2GPService:
 
         # Base64 → file/object conversions for native models.
         # Wan2GP generate() expects file paths or PIL images, not base64.
+        resize_method = payload.get("resize_method", "fit")
+        target_w = payload.get("width", 768)
+        target_h = payload.get("height", 512)
+
         if "audio_guide" in param_names and "audio_b64" in payload:
             kwargs["audio_guide"] = self._decode_audio_b64(payload["audio_b64"])
         if "image_start" in param_names and "image_b64" in payload:
-            kwargs["image_start"] = self._decode_image_b64(payload["image_b64"])
+            img = self._decode_image_b64(payload["image_b64"])
+            kwargs["image_start"] = self._resize_image(img, target_w, target_h, resize_method)
         if "image_end" in param_names and "image_end_b64" in payload:
-            kwargs["image_end"] = self._decode_image_b64(payload["image_end_b64"])
+            img = self._decode_image_b64(payload["image_end_b64"])
+            kwargs["image_end"] = self._resize_image(img, target_w, target_h, resize_method)
 
         for name, param in sig.parameters.items():
             if name in kwargs:
@@ -1196,7 +1202,9 @@ class Wan2GPService:
             for item in kwargs[_ref_key]:
                 if isinstance(item, str):
                     decoded.append(
-                        Image.open(_io.BytesIO(base64.b64decode(item))).convert("RGB")
+                        Image.open(_io.BytesIO(base64.b64decode(
+                            self._strip_data_url(item)
+                        ))).convert("RGB")
                     )
                 else:
                     decoded.append(item)
@@ -1237,9 +1245,18 @@ class Wan2GPService:
         return self._encode_output(result, payload, defaults)
 
     @staticmethod
+    def _strip_data_url(data: str) -> str:
+        """Strip data: URL prefix if present — backend expects clean base64."""
+        if data.startswith("data:"):
+            comma = data.find(",")
+            if comma != -1:
+                return data[comma + 1:]
+        return data
+
+    @staticmethod
     def _decode_audio_b64(audio_b64: str) -> str:
         import tempfile
-        raw = base64.b64decode(audio_b64)
+        raw = base64.b64decode(Wan2GPService._strip_data_url(audio_b64))
         tmp = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
         tmp.write(raw)
         tmp.close()
@@ -1249,7 +1266,56 @@ class Wan2GPService:
     def _decode_image_b64(image_b64: str):
         from PIL import Image
         import io
-        return Image.open(io.BytesIO(base64.b64decode(image_b64))).convert("RGB")
+        return Image.open(io.BytesIO(base64.b64decode(
+            Wan2GPService._strip_data_url(image_b64)
+        ))).convert("RGB")
+
+    @staticmethod
+    def _resize_image(img, target_w: int, target_h: int, method: str = "fit"):
+        """Resize a PIL image to target dimensions using the requested method.
+
+        Methods:
+          fit    — scale to fit within, add black bars (letterbox)
+          crop   — scale to fill, center crop excess (default model behavior)
+          stretch — stretch to exactly fill (distorts aspect ratio)
+          pad    — center image without scaling, pad with black bars
+        """
+        from PIL import Image
+        iw, ih = img.size
+        if iw == target_w and ih == target_h:
+            return img
+
+        if method == "stretch":
+            return img.resize((target_w, target_h), Image.LANCZOS)
+
+        if method == "pad":
+            # Place image centered on black canvas without scaling
+            canvas = Image.new("RGB", (target_w, target_h), (0, 0, 0))
+            ox = (target_w - iw) // 2
+            oy = (target_h - ih) // 2
+            canvas.paste(img, (ox, oy))
+            return canvas
+
+        if method == "crop":
+            # Scale to fill, then center crop
+            scale = max(target_w / iw, target_h / ih)
+            new_w = int(iw * scale)
+            new_h = int(ih * scale)
+            img = img.resize((new_w, new_h), Image.LANCZOS)
+            left = (new_w - target_w) // 2
+            top = (new_h - target_h) // 2
+            return img.crop((left, top, left + target_w, top + target_h))
+
+        # Default: "fit" — scale to fit within, pad with black bars (letterbox)
+        scale = min(target_w / iw, target_h / ih)
+        new_w = int(iw * scale)
+        new_h = int(ih * scale)
+        img = img.resize((new_w, new_h), Image.LANCZOS)
+        canvas = Image.new("RGB", (target_w, target_h), (0, 0, 0))
+        ox = (target_w - new_w) // 2
+        oy = (target_h - new_h) // 2
+        canvas.paste(img, (ox, oy))
+        return canvas
 
     # ── Inference ─────────────────────────────────────────────────────────
 
@@ -1340,7 +1406,9 @@ class Wan2GPService:
             if image_b64 and base_model_type in ("i2v", "i2v_2_2"):
                 from PIL import Image
                 import io
-                img = Image.open(io.BytesIO(base64.b64decode(image_b64))).convert("RGB")
+                img = Image.open(io.BytesIO(base64.b64decode(
+                    self._strip_data_url(image_b64)
+                ))).convert("RGB")
                 kwargs["image_start"] = img
             elif image_b64 and base_model_type in ("see-through",):
                 # Decode and resize to handler's default resolution (1280).
@@ -1349,7 +1417,9 @@ class Wan2GPService:
                 # Pass as bytes (PNG) since handler expects bytes or base64.
                 from PIL import Image
                 import io as _io
-                _img = Image.open(_io.BytesIO(base64.b64decode(image_b64))).convert("RGBA")
+                _img = Image.open(_io.BytesIO(base64.b64decode(
+                    self._strip_data_url(image_b64)
+                ))).convert("RGBA")
                 _default_res = defaults.get("resolution", 1280)
                 if _img.size[0] != _default_res or _img.size[1] != _default_res:
                     _img = _img.resize((_default_res, _default_res), Image.LANCZOS)
@@ -1358,13 +1428,15 @@ class Wan2GPService:
                 kwargs["image"] = _buf.getvalue()
             elif image_b64 and base_model_type == "anigen":
                 # AniGen expects raw image bytes — it opens with PIL internally
-                kwargs["image"] = base64.b64decode(image_b64)
+                kwargs["image"] = base64.b64decode(self._strip_data_url(image_b64))
 
             # Handle second image for last-frame conditioning (WDC FFLF)
             if payload.get("image_end_b64"):
                 from PIL import Image
                 import io
-                img = Image.open(io.BytesIO(base64.b64decode(payload["image_end_b64"]))).convert("RGB")
+                img = Image.open(io.BytesIO(base64.b64decode(
+                    self._strip_data_url(payload["image_end_b64"])
+                ))).convert("RGB")
                 kwargs["image_end"] = img
 
             # Handle reference_images / input_ref_images for VNCCS + QWEN (base64 → PIL)
@@ -1380,7 +1452,9 @@ class Wan2GPService:
                 for img_b64 in kwargs[_ref_key]:
                     if isinstance(img_b64, str):
                         decoded.append(
-                            Image.open(io.BytesIO(base64.b64decode(img_b64))).convert("RGB")
+                            Image.open(io.BytesIO(base64.b64decode(
+                                self._strip_data_url(img_b64)
+                            ))).convert("RGB")
                         )
                 if decoded:
                     kwargs[_ref_key] = decoded
