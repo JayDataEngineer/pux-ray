@@ -848,6 +848,7 @@ class LTX2:
 
         def _append_preload_lora(signature, multiplier):
             signature = signature.lower()
+            # 1. Search preload URLs first (mmgp-managed files)
             for file_name in preload_urls:
                 local_filename = fl.get_local_model_filename(file_name, lora_dir=lora_dir)
                 base_name = os.path.basename(local_filename)
@@ -860,6 +861,16 @@ class LTX2:
                     loras.append(local_filename)
                     loras_mult.append(multiplier)
                     return
+            # 2. Fallback: search lora directory directly (for lazy-loaded LoRAs
+            #    excluded from preload_urls via _LAZY_LORA_KEYS)
+            if lora_dir and os.path.isdir(lora_dir):
+                for fname in sorted(os.listdir(lora_dir)):
+                    if signature in fname.lower() and fname.endswith((".safetensors", ".pt", ".bin")):
+                        if any(signature in lora for lora in loras): return
+                        full_path = os.path.join(lora_dir, fname)
+                        loras.append(full_path)
+                        loras_mult.append(multiplier)
+                        return
 
         if pipeline_kind != "distilled" and guidance_phases > 1:
             use_hq_sampler = sample_solver == "res2s"

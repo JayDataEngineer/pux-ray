@@ -212,6 +212,7 @@ class family_handler:
         spec = _get_arch_spec(base_model_type)
         if isinstance(preload_urls, list):
             # migrate old finetunes — skip lazy LoRAs (loaded dynamically at inference)
+            lazy_lora_names = {spec[key] for key in _LAZY_LORA_KEYS if key in spec}
             lora_filenames = {spec[key] for key in _LORA_SPEC_KEYS if key in spec and key not in _LAZY_LORA_KEYS}
             def add_lora_dir_suffix(entry):
                 if not isinstance(entry, str) or "|%lora_dir" in entry:
@@ -220,6 +221,12 @@ class family_handler:
                 if source_entry.startswith("http") and os.path.basename(source_entry) in lora_filenames:
                     return f"{source_entry}|%lora_dir"
                 return entry
+            # Strip lazy LoRA URLs entirely — they must not be loaded by mmgp at all
+            # (even without |%lora_dir, mmgp would merge them as raw weights, corrupting the model)
+            preload_urls = [
+                entry for entry in preload_urls
+                if os.path.basename(str(entry).split("|", 1)[0]) not in lazy_lora_names
+            ]
             model_def["preload_URLs"] = [add_lora_dir_suffix(entry) for entry in preload_urls]
 
         pipeline_kind = model_def.get("ltx2_pipeline", "two_stage")
