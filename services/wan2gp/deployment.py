@@ -1243,6 +1243,41 @@ class Wan2GPService:
                         "phase3": lora_strengths[:len(resolved)],
                         "shared": [True] * len(resolved),
                     }
+        # Load distilled LoRA for LTX2 models (native path bypasses wgp.py's
+        # get_loras_transformer, so we must load it here).
+        distilled_strength = float(payload.get("distilled_lora_strength", 0.5))
+        base_model_type = entry.get("base_model_type", "")
+        if base_model_type in ("ltx2_19B", "ltx2_22B") and distilled_strength > 0:
+            # Find the distilled LoRA in the lora directory
+            from pathlib import Path as _Path
+            from registry.config import Config as _Cfg
+            lora_root = _Path(_Cfg().models_root) / "wan2gp" / "loras" / "ltx2"
+            if lora_root.is_dir():
+                for f in sorted(lora_root.iterdir()):
+                    if "distilled" in f.name.lower() and f.suffix in (".safetensors", ".pt", ".bin"):
+                        # Load alongside user LoRAs if not already loaded
+                        if not any(f.name in str(r) for r in kwargs.get("loras_slists", {}).get("phase1", [])):
+                            from mmgp import offload as _moff
+                            pipe = getattr(model, 'pipe', model)
+                            transformer = None
+                            for attr in ("transformer", "model", "unet", "dit"):
+                                candidate = getattr(pipe, attr, None) if isinstance(pipe, object) else None
+                                if candidate is not None and hasattr(candidate, 'parameters'):
+                                    transformer = candidate
+                                    break
+                            if transformer is not None:
+                                _moff.load_loras_into_model(
+                                    transformer, [str(f)],
+                                    [distilled_strength],
+                                    activate_all_loras=True,
+                                )
+                                # Prepend to loras_slists so it's active
+                                slist = kwargs.setdefault("loras_slists", {"phase1": [], "phase2": [], "phase3": []})
+                                for phase in ("phase1", "phase2", "phase3"):
+                                    slist[phase] = [distilled_strength] + (slist.get(phase, []) if isinstance(slist.get(phase), list) else [])
+                                logger.info("LTX2 distilled LoRA loaded: %s strength=%.2f", f.name, distilled_strength)
+                        break
+
         kwargs.setdefault("loras_slists", {"phase1": [], "phase2": [], "phase3": []})
 
         if not hasattr(model, '_interrupt'):
