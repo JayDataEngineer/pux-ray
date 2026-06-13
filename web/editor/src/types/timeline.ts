@@ -220,10 +220,10 @@ export const DEFAULT_SEGMENT_PARAMS: SegmentParams = {
   height: 512,
   frames: 121,
   fps: 24,
-  guideScale: 5.0,
-  samplingSteps: 8,
+  guideScale: 1.0,     // WDC ComfyUI distilled default (CFG 1.0)
+  samplingSteps: 8,     // distilled
   model: 'ltx2',
-  guidePhases: 2,
+  guidePhases: 1,       // distilled uses single-phase
   epsilon: 0.001,
   denoisingStrength: 1.0,
   inputVideoStrength: 1.0,

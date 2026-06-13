@@ -1065,13 +1065,33 @@ export function VideoEditor({ jobs, onAddJob }: VideoEditorProps) {
                   <div className="mb-2 flex items-center justify-between">
                     <Label className="text-[9px] font-medium text-white/30 uppercase tracking-wider">Distilled Mode (8 steps)</Label>
                     <button className="text-white/40 hover:text-white/70"
-                      onClick={() => updateSegment(sel.id, {
-                        params: {
-                          ...sel.params,
-                          distilledMode: !sel.params.distilledMode,
-                          samplingSteps: !sel.params.distilledMode ? 8 : (sel.params.model === 'ltx2' ? 30 : 40),
-                        }
-                      })}>
+                      onClick={() => {
+                        const switchingToDistilled = !sel.params.distilledMode
+                        updateSegment(sel.id, {
+                          params: {
+                            ...sel.params,
+                            distilledMode: switchingToDistilled,
+                            // ── Distilled (matches WDC ComfyUI ltx_director workflow) ──
+                            // CFG 1.0, 8 steps, euler, linear_quadratic, NAG guidance
+                            // ── Non-distilled (matches LTX handler _default_dev_settings) ──
+                            // CFG 3.0, 30/40 steps, euler, 2-phase, APG/CFG-Star off
+                            samplingSteps: switchingToDistilled ? 8 : (sel.params.model === 'ltx2' ? 30 : 40),
+                            guideScale: switchingToDistilled ? 1.0 : 3.0,
+                            guidePhases: switchingToDistilled ? 1 : 2,
+                            sampleSolver: 'euler',
+                            // Reset guidance toggles to off for clean state
+                            apgSwitch: false,
+                            cfgStarSwitch: false,
+                            nagScale: 1.0,
+                            nagTau: 3.5,
+                            nagAlpha: 0.5,
+                            altGuideScale: 1.0,
+                            altScale: 0.0,
+                            audioGuideScale: 1.0,
+                            audioCfgScale: 1.0,
+                          }
+                        })
+                      }}>
                       {sel.params.distilledMode
                         ? <ToggleRight className="h-5 w-5 text-[#6366f1]" />
                         : <ToggleLeft className="h-5 w-5" />}
