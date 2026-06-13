@@ -236,7 +236,7 @@ export const DEFAULT_SEGMENT_PARAMS: SegmentParams = {
   cameraPanX: 0,
   cameraPanY: 0,
   cameraZoom: 1.0,
-  resizeMethod: 'fit',
+  resizeMethod: 'crop',
   distilledMode: true,
 
   // Advanced guidance

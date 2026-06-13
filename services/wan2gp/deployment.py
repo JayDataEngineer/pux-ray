@@ -1141,18 +1141,17 @@ class Wan2GPService:
 
         # Base64 → file/object conversions for native models.
         # Wan2GP generate() expects file paths or PIL images, not base64.
-        resize_method = payload.get("resize_method", "fit")
-        target_w = payload.get("width", 768)
-        target_h = payload.get("height", 512)
-
+        # NOTE: Do NOT pre-resize images here. The model's internal pipeline
+        # (load_image_conditioning → resize_and_center_crop) handles resizing
+        # with VAE-correct dimensions. Pre-resizing causes double-processing
+        # and quality loss. The resize_method param is forwarded to the model
+        # for future pipeline-level support.
         if "audio_guide" in param_names and "audio_b64" in payload:
             kwargs["audio_guide"] = self._decode_audio_b64(payload["audio_b64"])
         if "image_start" in param_names and "image_b64" in payload:
-            img = self._decode_image_b64(payload["image_b64"])
-            kwargs["image_start"] = self._resize_image(img, target_w, target_h, resize_method)
+            kwargs["image_start"] = self._decode_image_b64(payload["image_b64"])
         if "image_end" in param_names and "image_end_b64" in payload:
-            img = self._decode_image_b64(payload["image_end_b64"])
-            kwargs["image_end"] = self._resize_image(img, target_w, target_h, resize_method)
+            kwargs["image_end"] = self._decode_image_b64(payload["image_end_b64"])
 
         for name, param in sig.parameters.items():
             if name in kwargs:

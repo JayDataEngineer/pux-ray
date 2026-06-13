@@ -41,8 +41,27 @@ function stripDataUrlPrefix(dataUrl: string | null): string | undefined {
   return idx >= 0 ? dataUrl.slice(idx + 1) : dataUrl
 }
 
-/** LTX models require dimensions divisible by 32 (VAE 32x compression). Snaps to nearest valid. */
-function snapTo32(v: number): number { return Math.round(v / 32) * 32 }
+/** Map model families to the resolution granularity their VAE requires.
+ *  LTX: 32× spatial compression. Wan: 16×. Default: 8 (safe fallback). */
+const MODEL_VAE_STEP: Record<string, number> = {
+  ltx2: 32, ltx2_19B: 32, ltxv_098_13b: 32,
+  'wan/t2v_1.3B': 16, 'wan/t2v': 16, 'wan/i2v': 16,
+}
+function getVaeStep(model: string): number {
+  // Match by prefix for LTX family
+  if (model.startsWith('ltx')) return 32
+  return MODEL_VAE_STEP[model] ?? 8
+}
+function snapDims(v: number, model: string): number {
+  const step = getVaeStep(model)
+  return Math.round(v / step) * step
+}
+
+/** True if dimensions need snapping for the given model. */
+function dimsNeedSnap(width: number, height: number, model: string): boolean {
+  const step = getVaeStep(model)
+  return width % step !== 0 || height % step !== 0
+}
 
 function segLabel(order: number) {
   return `K${String(order + 1).padStart(2, "0")}`
@@ -72,9 +91,9 @@ function buildPayload(seg: TimelineSegment, _allSegments?: TimelineSegment[]) {
   const p = seg.params
   const isLtxModel = p.model.startsWith("ltx") || p.model === "ltx2" || p.model === "ltx2_19B" || p.model === "ltxv_098_13b"
 
-  // Snapped dimensions: ensure width/height are multiples of 32 for LTX VAE
-  const snappedW = isLtxModel ? snapTo32(p.width) : p.width
-  const snappedH = isLtxModel ? snapTo32(p.height) : p.height
+  // Snapped dimensions: ensure width/height align with model's VAE step
+  const snappedW = snapDims(p.width, p.model)
+  const snappedH = snapDims(p.height, p.model)
 
   return {
     service: "wan2gp",
@@ -530,8 +549,8 @@ export function VideoEditor({ jobs, onAddJob }: VideoEditorProps) {
             frame_num: totalFrames,
             sampling_steps: firstSeg.params.samplingSteps,
             guide_scale: firstSeg.params.guideScale,
-            width: snapTo32(firstSeg.params.width),
-            height: snapTo32(firstSeg.params.height),
+            width: snapDims(firstSeg.params.width, firstSeg.params.model),
+            height: snapDims(firstSeg.params.height, firstSeg.params.model),
             resize_method: firstSeg.params.resizeMethod,
             audio_b64: stripDataUrlPrefix(firstAudio?.audioB64),
             audio_scale: firstAudio ? String(firstAudio.volume) : undefined,
@@ -926,11 +945,11 @@ export function VideoEditor({ jobs, onAddJob }: VideoEditorProps) {
                     </SelectContent>
                   </Select>
                 </InspectorField>
-                {/* Dimension snap hint for LTX models (VAE needs multiples of 32) */}
-                {isLtx && (sel.params.width % 32 !== 0 || sel.params.height % 32 !== 0) && (
+                {/* Dimension snap hint — VAE spatial compression requires aligned dims */}
+                {dimsNeedSnap(sel.params.width, sel.params.height, sel.params.model) && (
                   <div className="text-[10px] text-amber-400/70 mt-1 flex items-center gap-1">
                     <svg className="h-3 w-3 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
-                    Snaps to {snapTo32(sel.params.width)}×{snapTo32(sel.params.height)} (VAE needs ÷32)
+                    Snaps to {snapDims(sel.params.width, sel.params.model)}×{snapDims(sel.params.height, sel.params.model)} (VAE needs ÷{getVaeStep(sel.params.model)})
                   </div>
                 )}
                 <div className="text-[10px] text-white/25 mt-1 font-mono">
