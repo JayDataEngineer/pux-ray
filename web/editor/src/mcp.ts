@@ -225,10 +225,10 @@ export function sseUrl(specName: string, runId: string) {
 }
 
 export async function loadKimodo(): Promise<{ status: string }> {
-  const res = await fetch('/forge', {
+  const res = await fetch('/admin/load', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ action: 'preload', service: 'kimodo_demo' }),
+    body: JSON.stringify({ service: 'kimodo_demo' }),
   })
   if (!res.ok) {
     const body = await res.json().catch(() => ({ error: '' }))
@@ -285,12 +285,21 @@ export async function invokeServiceFormData(
 }
 
 export async function loadService(name: string, model?: string): Promise<ServiceResult> {
-  const res = await fetch('/forge', {
+  const res = await fetch('/admin/load', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ action: 'preload', service: name, model }),
+    body: JSON.stringify({ service: name, model }),
   })
   if (!res.ok) throw new Error(`Failed to load service: ${res.status}`)
+  return res.json()
+}
+
+export async function unloadAllServices(): Promise<ServiceResult> {
+  const res = await fetch('/admin/unload', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+  })
+  if (!res.ok) throw new Error(`Failed to unload services: ${res.status}`)
   return res.json()
 }
 

@@ -69,11 +69,18 @@ SERVICE_REGISTRY: dict[str, ServiceEntry] = {
         label="Wan2GP Pool", category="creative",
         needs_gpu=True, default_model="wan/t2v",
         output_type="video",
-        model_aliases={"wan-t2v": "wan/t2v", "wan-i2v": "wan/i2v"},
+        model_aliases={
+            "wan-t2v": "wan/t2v", "wan-i2v": "wan/i2v",
+            "ltx2": "ltx2", "ltx2-22b": "ltx2", "ltx2-19b": "ltx2_19B",
+            "ltxv": "ltxv_098_13b",
+        },
         description="Wan2GP — unified model pool with mmgp VRAM management.",
         params_schema=[
             ParamSpec(type="text", label="Prompt", required=True, placeholder="Describe what to generate..."),
-            ParamSpec(type="select", label="Model", default="wan/t2v", options=["wan/t2v", "wan/i2v"]),
+            ParamSpec(type="select", label="Model", default="wan/t2v", options=[
+                "wan/t2v", "wan/i2v",
+                "ltx2", "ltx2_19B", "ltxv_098_13b",
+            ]),
         ],
     ),
 

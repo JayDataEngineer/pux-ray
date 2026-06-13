@@ -393,10 +393,9 @@ function GpuStatus() {
 
     setUnloading(true)
     try {
-      const res = await fetch('/forge', {
+      const res = await fetch('/admin/unload', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'unload' }),
       })
       if (!res.ok) throw new Error(`Failed to unload: ${res.status}`)
 
@@ -628,10 +627,10 @@ function KimodoDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (o:
     setLoading(true)
     setError(null)
 
-    fetch('/forge', {
+    fetch('/admin/load', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: 'preload', service: 'kimodo_demo' }),
+      body: JSON.stringify({ service: 'kimodo_demo' }),
       signal: controller.signal,
     })
       .then(async (res) => {
