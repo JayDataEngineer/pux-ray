@@ -39,7 +39,8 @@ def _resolve_loras_base() -> Path:
     # Fallback: source-relative path (dev workstations where repo == models root)
     return Path(__file__).resolve().parents[2] / "opt" / "wan2gp" / "loras"
 
-# Map frontend model IDs to the lora subdirectory on disk
+# Map frontend model IDs to the lora subdirectory on disk.
+# Values MUST match actual subdirs under <models_root>/wan2gp/loras/.
 _MODEL_TO_LORA_DIR: dict[str, str] = {
     "wan/t2v_1.3B": "wan_1.3B",
     "wan/t2v": "wan_5B",
@@ -51,16 +52,19 @@ _MODEL_TO_LORA_DIR: dict[str, str] = {
     "z_image": "z_image",
     "z_image_base": "z_image",
     "anima_base": "anima",
+    # Flux models
     "flux": "flux",
     "flux_schnell": "flux",
     "flux_chroma": "flux",
     "flux2_dev": "flux2",
-    "flux2_klein_4b": "flux2_klein",
-    "flux2_klein_9b": "flux2_klein",
-    "qwen_image_20B": "qwen_image",
-    "qwen_image_2512_20B": "qwen_image",
-    "hidream_o1": "hidream",
-    "hidream_o1_dev": "hidream",
+    "flux2_klein_4b": "flux2_klein_4b",
+    "flux2_klein_9b": "flux2_klein_9b",
+    # Qwen models
+    "qwen_image_20B": "qwen",
+    "qwen_image_2512_20B": "qwen",
+    # HiDream
+    "hidream_o1": "hidream_o1",
+    "hidream_o1_dev": "hidream_o1",
 }
 
 

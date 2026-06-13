@@ -1116,7 +1116,7 @@ class Wan2GPService:
     # Universal defaults for common generate() parameters
     _GENERATE_DEFAULTS = {
         "offloadobj": None,
-        "loras_slists": {"phase1": [], "phase2": [], "phase3": []},
+        "loras_slists": {"phase1": [], "phase2": [], "phase3": [], "shared": []},
         "callback": lambda *a, **kw: None,
         "model_mode": 0,
         "audio_guide": None,
@@ -1240,7 +1240,7 @@ class Wan2GPService:
                     transformer = candidate
                     break
             if transformer is not None:
-                resolved = self._resolve_lora_paths(lora_names)
+                resolved = self._resolve_lora_paths(lora_names, base_model_type)
                 if resolved:
                     from mmgp import offload as _moff
                     _moff.load_loras_into_model(
@@ -1287,13 +1287,14 @@ class Wan2GPService:
                                     activate_all_loras=True,
                                 )
                                 # Prepend to loras_slists so it's active
-                                slist = kwargs.setdefault("loras_slists", {"phase1": [], "phase2": [], "phase3": []})
+                                slist = kwargs.setdefault("loras_slists", {"phase1": [], "phase2": [], "phase3": [], "shared": []})
                                 for phase in ("phase1", "phase2", "phase3"):
                                     slist[phase] = [distilled_strength] + (slist.get(phase, []) if isinstance(slist.get(phase), list) else [])
+                                slist["shared"] = [True] + slist.get("shared", [])
                                 logger.info("LTX2 distilled LoRA loaded: %s strength=%.2f", f.name, distilled_strength)
                         break
 
-        kwargs.setdefault("loras_slists", {"phase1": [], "phase2": [], "phase3": []})
+        kwargs.setdefault("loras_slists", {"phase1": [], "phase2": [], "phase3": [], "shared": []})
 
         if not hasattr(model, '_interrupt'):
             model._interrupt = False
@@ -1557,7 +1558,7 @@ class Wan2GPService:
                 pipe_dict = m.get("pipe", {})
                 transformer = self._find_transformer(pipe_dict)
                 if transformer is not None:
-                    resolved = self._resolve_lora_paths(lora_names)
+                    resolved = self._resolve_lora_paths(lora_names, base_model_type)
                     if resolved:
                         from mmgp import offload as _moff
                         _moff.load_loras_into_model(
@@ -1565,13 +1566,17 @@ class Wan2GPService:
                             lora_strengths[:len(resolved)],
                             activate_all_loras=True,
                         )
-                        # Build slists so update_loras_slists activates them
+                        # Build slists so update_loras_slists activates them.
+                        # Format MUST match loras_mutipliers.parse_loras_multipliers
+                        # output: flat float per lora, all 3 phases + "shared" key.
+                        strengths = lora_strengths[:len(resolved)]
                         kwargs["loras_slists"] = {
-                            "phase1": [[s] for s in lora_strengths[:len(resolved)]],
-                            "phase2": [],
-                            "phase3": [],
+                            "phase1": list(strengths),
+                            "phase2": list(strengths),
+                            "phase3": list(strengths),
+                            "shared": [True] * len(strengths),
                         }
-            kwargs.setdefault("loras_slists", {"phase1": [], "phase2": [], "phase3": []})
+            kwargs.setdefault("loras_slists", {"phase1": [], "phase2": [], "phase3": [], "shared": []})
             # Wan models call callback() for progress — provide a no-op
             kwargs.setdefault("callback", lambda *a, **kw: None)
 
@@ -1827,24 +1832,37 @@ class Wan2GPService:
         return entries
 
     @staticmethod
-    def _resolve_lora_paths(loras_selected: list[str]) -> list[str]:
+    def _resolve_lora_paths(loras_selected: list[str], model_type: str = "") -> list[str]:
         """Resolve LoRA filenames to full paths.
 
         Handles 'name:strength' format — strips strength before resolving.
-        Searches models_root/loras/ and Wan2GP's files_locator paths.
+        Searches models_root/wan2gp/loras/ subdirs (model-specific first),
+        then legacy comfyui lora dirs, then Wan2GP's files_locator paths.
         """
         from pathlib import Path
         from registry.config import Config
 
         models_root = Path(Config().models_root)
-        lora_dirs = [
-            models_root / "loras",
-            models_root / "wan2gp" / "loras",
-            models_root / "wan2gp" / "loras" / "ltx2",
-            models_root / "image-gen" / "comfyui" / "loras" / "ltx2",
-            models_root / "image-gen" / "comfyui" / "loras" / "qwen",
-            models_root / "image-gen" / "comfyui" / "loras",
-        ]
+        wan2gp_loras = models_root / "wan2gp" / "loras"
+
+        # Build search dirs: model-specific subdir first, then all subdirs,
+        # then legacy comfyui paths.
+        lora_dirs: list[Path] = []
+        if model_type:
+            lora_dirs.append(wan2gp_loras / model_type)
+        lora_dirs.append(wan2gp_loras)
+        # Add every subdir under wan2gp/loras/ (handles any model)
+        if wan2gp_loras.is_dir():
+            for sub in sorted(wan2gp_loras.iterdir()):
+                if sub.is_dir() and sub not in lora_dirs:
+                    lora_dirs.append(sub)
+        # Legacy comfyui paths
+        comfy_loras = models_root / "image-gen" / "comfyui" / "loras"
+        if comfy_loras.is_dir():
+            lora_dirs.append(comfy_loras)
+            for sub in sorted(comfy_loras.iterdir()):
+                if sub.is_dir():
+                    lora_dirs.append(sub)
 
         resolved = []
         for name in loras_selected:

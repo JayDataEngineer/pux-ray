@@ -152,8 +152,9 @@ class LTXGenerateStep(StepExecutor):
                     resolved[key] = base64.b64encode(path.read_bytes()).decode()
                 else:
                     resolved[key] = value
-            elif key == "loras_selected" and isinstance(value, str) and "," in value:
-                # Convert comma-separated string to list
+            elif key == "loras_selected" and isinstance(value, str) and value.strip():
+                # Normalize comma-separated string to list, preserving
+                # "name:strength" entries intact (deployment.py parses them).
                 resolved[key] = [v.strip() for v in value.split(",") if v.strip()]
             else:
                 resolved[key] = value
