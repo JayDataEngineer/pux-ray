@@ -7,11 +7,16 @@ spec:
   entryPoints:
     - web
   routes:
+  # The Vite editor SPA is served by the gateway api-ingress (editor_page /
+  # editor_static in gateway/routes/editor.py), NOT wan2gp-studio-web which is
+  # the Next.js chat UI at /studio. Routing /editor to wan2gp-studio-web:3000
+  # returned 404 for the SPA and all its static assets.
   - match: PathPrefix(`/editor`)
     kind: Rule
     services:
-    - name: wan2gp-studio-web
-      port: 3000
+    - name: tech-noir-ray-serve-svc
+      namespace: ai-services
+      port: 8000
   # /v1/* REST calls from the editor (services, run, loras, models, wf) are
   # served by the Tech Noir api-ingress (Ray Serve), NOT the MCP server which
   # only handles /mcp JSON-RPC. Without this the editor's listServices(),
