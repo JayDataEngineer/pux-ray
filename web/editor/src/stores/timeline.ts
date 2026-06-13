@@ -194,6 +194,10 @@ async function loadPersistedTimeline(): Promise<{
       if (isBlobRef(clone.controlVideoUrl)) {
         clone.controlVideoUrl = await tlLoad(clone.controlVideoUrl)
       }
+      // Migrate old empty-string params to 'off' (ShadCN Select can't render '')
+      if (clone.params.videoPromptType === '') clone.params.videoPromptType = 'off'
+      if (clone.params.audioPromptType === '') clone.params.audioPromptType = 'off'
+      if (clone.params.maskingSource === '') clone.params.maskingSource = 'off'
       segments.push(clone)
     }
 

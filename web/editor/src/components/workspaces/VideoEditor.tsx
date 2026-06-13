@@ -1363,7 +1363,7 @@ export function VideoEditor({ jobs, onAddJob }: VideoEditorProps) {
               <InspectorSection title="Control Video (IC-LoRA)" icon={<Film className="h-3 w-3" />} defaultOpen={false}>
                 <div className="space-y-2">
                   <InspectorField label="Control Mode">
-                    <Select value={sel.params.videoPromptType} onValueChange={(v) => updateSegment(sel.id, { params: { ...sel.params, videoPromptType: v } })}>
+                    <Select value={sel.params.videoPromptType || 'off'} onValueChange={(v) => updateSegment(sel.id, { params: { ...sel.params, videoPromptType: v } })}>
                       <SelectTrigger className="h-7 text-xs bg-white/5 border-white/10 text-white/80 rounded-md">
                         <SelectValue />
                       </SelectTrigger>
@@ -1389,7 +1389,7 @@ export function VideoEditor({ jobs, onAddJob }: VideoEditorProps) {
                         </InspectorField>
                       </div>
                       <InspectorField label="Mask Mode">
-                        <Select value={sel.params.maskingSource} onValueChange={(v) => updateSegment(sel.id, { params: { ...sel.params, maskingSource: v } })}>
+                        <Select value={sel.params.maskingSource || 'off'} onValueChange={(v) => updateSegment(sel.id, { params: { ...sel.params, maskingSource: v } })}>
                           <SelectTrigger className="h-7 text-xs bg-white/5 border-white/10 text-white/80 rounded-md">
                             <SelectValue />
                           </SelectTrigger>
@@ -1421,7 +1421,7 @@ export function VideoEditor({ jobs, onAddJob }: VideoEditorProps) {
               <InspectorSection title="Audio Mode" icon={<Headphones className="h-3 w-3" />} defaultOpen={false}>
                 <div className="space-y-2">
                   <InspectorField label="Conditioning Mode">
-                    <Select value={sel.params.audioPromptType} onValueChange={(v) => updateSegment(sel.id, { params: { ...sel.params, audioPromptType: v } })}>
+                    <Select value={sel.params.audioPromptType || 'off'} onValueChange={(v) => updateSegment(sel.id, { params: { ...sel.params, audioPromptType: v } })}>
                       <SelectTrigger className="h-7 text-xs bg-white/5 border-white/10 text-white/80 rounded-md">
                         <SelectValue />
                       </SelectTrigger>
