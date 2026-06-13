@@ -9,10 +9,32 @@ interface LoraPickerProps {
   variant?: "dark" | "light"
 }
 
+/** Parse comma-separated "name:strength" string into {name, strength} pairs.
+ *  Missing strength defaults to 1.0. Backward-compat with bare names. */
+function parseLoras(raw: string): { name: string; strength: number }[] {
+  if (!raw) return []
+  return raw.split(",").map(s => s.trim()).filter(Boolean).map(entry => {
+    const idx = entry.lastIndexOf(":")
+    if (idx === -1) return { name: entry, strength: 1.0 }
+    const name = entry.slice(0, idx).trim()
+    const str = parseFloat(entry.slice(idx + 1))
+    return { name, strength: isNaN(str) ? 1.0 : str }
+  })
+}
+
+/** Encode parsed entries back to comma-separated "name:strength" string.
+ *  Strengths of 1.0 are omitted for compactness. */
+function encodeLoras(entries: { name: string; strength: number }[]): string {
+  return entries.map(e =>
+    e.strength === 1.0 ? e.name : `${e.name}:${e.strength}`
+  ).join(", ")
+}
+
 export function LoraPicker({ model, value, onChange, variant = "dark" }: LoraPickerProps) {
   const [available, setAvailable] = useState<string[]>([])
   const [loading, setLoading] = useState(true)
-  const selected = value ? value.split(",").map(s => s.trim()).filter(Boolean) : []
+  const entries = parseLoras(value)
+  const selectedNames = new Set(entries.map(e => e.name))
 
   useEffect(() => {
     setLoading(true)
@@ -26,10 +48,15 @@ export function LoraPicker({ model, value, onChange, variant = "dark" }: LoraPic
   }, [model])
 
   const toggle = (name: string) => {
-    const next = selected.includes(name)
-      ? selected.filter(s => s !== name)
-      : [...selected, name]
-    onChange(next.join(", "))
+    const next = selectedNames.has(name)
+      ? entries.filter(e => e.name !== name)
+      : [...entries, { name, strength: 1.0 }]
+    onChange(encodeLoras(next))
+  }
+
+  const setStrength = (name: string, strength: number) => {
+    const next = entries.map(e => e.name === name ? { ...e, strength: Math.round(strength * 100) / 100 } : e)
+    onChange(encodeLoras(next))
   }
 
   const isDark = variant === "dark"
@@ -55,7 +82,7 @@ export function LoraPicker({ model, value, onChange, variant = "dark" }: LoraPic
       <Label className={labelClass}>Available LoRAs</Label>
       <div className={`space-y-0.5 max-h-40 overflow-y-auto ${isDark ? "scrollbar-thin" : ""}`}>
         {available.map(name => {
-          const active = selected.includes(name)
+          const active = selectedNames.has(name)
           const shortLabel = name
             .replace(".safetensors", "")
             .replace(/^ltx-2\.?3?-?/, "")
@@ -66,14 +93,27 @@ export function LoraPicker({ model, value, onChange, variant = "dark" }: LoraPic
             .replace(/-lora-384(-\d[\d.]*)?$/, "")
             .replace(/distilled/, "distilled")
             .replace(/^-/, "")
+          const entry = entries.find(e => e.name === name)
+          const strength = entry?.strength ?? 1.0
           return (
-            <button key={name} onClick={() => toggle(name)}
-              className={`w-full flex items-center gap-2 px-2 py-1 rounded text-left text-[10px] transition-colors ${active ? activeBg : inactiveText}`}>
-              <div className={`w-2.5 h-2.5 rounded-sm border shrink-0 flex items-center justify-center ${active ? checkBg : borderClass}`}>
-                {active && <svg className="w-2 h-2 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="3"><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>}
-              </div>
-              <span className="truncate" title={name}>{shortLabel || name}</span>
-            </button>
+            <div key={name}>
+              <button onClick={() => toggle(name)}
+                className={`w-full flex items-center gap-2 px-2 py-1 rounded text-left text-[10px] transition-colors ${active ? activeBg : inactiveText}`}>
+                <div className={`w-2.5 h-2.5 rounded-sm border shrink-0 flex items-center justify-center ${active ? checkBg : borderClass}`}>
+                  {active && <svg className="w-2 h-2 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="3"><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>}
+                </div>
+                <span className="truncate flex-1" title={name}>{shortLabel || name}</span>
+                {active && <span className="text-[9px] opacity-60 tabular-nums">{strength.toFixed(2)}</span>}
+              </button>
+              {active && (
+                <div className="flex items-center gap-1.5 px-2 pb-1">
+                  <input type="range" min={0} max={2} step={0.05} value={strength}
+                    onChange={e => setStrength(name, Number(e.target.value))}
+                    className="flex-1 h-1 appearance-none bg-white/10 rounded-full accent-[#6366f1] [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:h-2.5 [&::-webkit-slider-thumb]:w-2.5 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white/70" />
+                  <span className="text-[9px] font-mono text-white/30 w-7 tabular-nums">{strength.toFixed(2)}</span>
+                </div>
+              )}
+            </div>
           )
         })}
       </div>

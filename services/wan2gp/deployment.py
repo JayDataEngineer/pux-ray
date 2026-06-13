@@ -1209,10 +1209,17 @@ class Wan2GPService:
                     decoded.append(item)
             kwargs[_ref_key] = decoded
 
-        # Load LoRAs for native models (QWEN, etc.)
+        # Load LoRAs for native models (QWEN, etc.) with per-lora strengths.
         loras_selected = payload.get("loras_selected", [])
+        # Step executor may pass as string; normalize to list.
+        if isinstance(loras_selected, str) and loras_selected.strip():
+            loras_selected = [s.strip() for s in loras_selected.split(",") if s.strip()]
         if loras_selected and isinstance(loras_selected, list):
             kwargs["loras_selected"] = loras_selected
+            # Parse name:strength entries
+            lora_entries = self._parse_lora_entries(loras_selected)
+            lora_names = [e[0] for e in lora_entries]
+            lora_strengths = [e[1] for e in lora_entries]
             # Find the transformer in the model for LoRA injection
             pipe = getattr(model, 'pipe', model)
             transformer = None
@@ -1222,18 +1229,18 @@ class Wan2GPService:
                     transformer = candidate
                     break
             if transformer is not None:
-                resolved = self._resolve_lora_paths(loras_selected)
+                resolved = self._resolve_lora_paths(lora_names)
                 if resolved:
                     from mmgp import offload as _moff
                     _moff.load_loras_into_model(
                         transformer, resolved,
-                        [1.0] * len(resolved),
+                        lora_strengths[:len(resolved)],
                         activate_all_loras=True,
                     )
                     kwargs["loras_slists"] = {
-                        "phase1": [1.0] * len(resolved),
-                        "phase2": [1.0] * len(resolved),
-                        "phase3": [1.0] * len(resolved),
+                        "phase1": lora_strengths[:len(resolved)],
+                        "phase2": lora_strengths[:len(resolved)],
+                        "phase3": lora_strengths[:len(resolved)],
                         "shared": [True] * len(resolved),
                     }
         kwargs.setdefault("loras_slists", {"phase1": [], "phase2": [], "phase3": []})
@@ -1479,24 +1486,29 @@ class Wan2GPService:
             if "_attention" not in _moff.shared_state:
                 _moff.shared_state["_attention"] = "sdpa"
 
-            # Load LoRAs if requested (loras_selected was silently ignored before)
+            # Load LoRAs if requested with per-lora strengths
             loras_selected = payload.get("loras_selected", [])
+            if isinstance(loras_selected, str) and loras_selected.strip():
+                loras_selected = [s.strip() for s in loras_selected.split(",") if s.strip()]
             if loras_selected and isinstance(loras_selected, list):
-                kwargs["loras_selected"] = loras_selected
+                lora_entries = self._parse_lora_entries(loras_selected)
+                lora_names = [e[0] for e in lora_entries]
+                lora_strengths = [e[1] for e in lora_entries]
+                kwargs["loras_selected"] = lora_names
                 pipe_dict = m.get("pipe", {})
                 transformer = self._find_transformer(pipe_dict)
                 if transformer is not None:
-                    resolved = self._resolve_lora_paths(loras_selected)
+                    resolved = self._resolve_lora_paths(lora_names)
                     if resolved:
                         from mmgp import offload as _moff
                         _moff.load_loras_into_model(
                             transformer, resolved,
-                            [1.0] * len(resolved),
+                            lora_strengths[:len(resolved)],
                             activate_all_loras=True,
                         )
                         # Build slists so update_loras_slists activates them
                         kwargs["loras_slists"] = {
-                            "phase1": [[1.0]] * len(resolved),
+                            "phase1": [[s] for s in lora_strengths[:len(resolved)]],
                             "phase2": [],
                             "phase3": [],
                         }
@@ -1738,9 +1750,28 @@ class Wan2GPService:
         return None
 
     @staticmethod
+    def _parse_lora_entries(loras_selected: list[str]) -> list[tuple[str, float]]:
+        """Parse 'name:strength' entries into (name, strength) pairs.
+        Missing strength defaults to 1.0."""
+        entries = []
+        for item in loras_selected:
+            item = item.strip()
+            if ":" in item:
+                name_part, str_part = item.rsplit(":", 1)
+                try:
+                    strength = float(str_part)
+                except ValueError:
+                    strength = 1.0
+                entries.append((name_part.strip(), strength))
+            else:
+                entries.append((item, 1.0))
+        return entries
+
+    @staticmethod
     def _resolve_lora_paths(loras_selected: list[str]) -> list[str]:
         """Resolve LoRA filenames to full paths.
 
+        Handles 'name:strength' format — strips strength before resolving.
         Searches models_root/loras/ and Wan2GP's files_locator paths.
         """
         from pathlib import Path
@@ -1756,16 +1787,18 @@ class Wan2GPService:
 
         resolved = []
         for name in loras_selected:
+            # Strip strength suffix if present (name:strength format)
+            clean_name = name.rsplit(":", 1)[0].strip() if ":" in name else name.strip()
             found = None
             for ld in lora_dirs:
-                candidate = ld / name
+                candidate = ld / clean_name
                 if candidate.exists():
                     found = str(candidate)
                     break
             if found is None:
                 try:
                     from shared.utils import files_locator as fl
-                    found = fl.locate_file(name)
+                    found = fl.locate_file(clean_name)
                 except Exception:
                     pass
             if found:

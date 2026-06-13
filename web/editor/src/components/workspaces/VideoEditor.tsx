@@ -1463,7 +1463,7 @@ export function VideoEditor({ jobs, onAddJob }: VideoEditorProps) {
                 <Button
                   size="sm"
                   className="w-full h-9 text-xs gap-2 bg-[#6366f1] hover:bg-[#5558e6] text-white rounded-lg font-medium"
-                  disabled={generating || (sel.status !== 'empty' && sel.status !== 'failed')}
+                  disabled={generating || sel.status === 'generating'}
                   onClick={() => generateSegment(sel)}>
                   {generating && sel.id === generatingSegId ? (
                     <>
