@@ -276,19 +276,20 @@ function JobsButton({ jobs, onCancelJob }: { jobs: JobEntry[]; onCancelJob: (id:
   }, [jobs])
 
   const running = jobs.filter((j) => j.status === "running")
+  const active = jobs.filter((j) => j.status === "running" || j.status === "pending")
 
   return (
     <div ref={ref} className="relative">
       <Button variant="ghost" size="icon" className="h-7 w-7 relative" onClick={() => setOpen(!open)}
-        title={`${jobs.length} job(s)`}>
+        title={`${active.length} active, ${jobs.length} total`}>
         {running.length > 0 ? (
           <Loader2 className="h-4 w-4 animate-spin text-primary" />
         ) : (
           <ListTodo className="h-4 w-4" />
         )}
-        {jobs.length > 0 && (
+        {active.length > 0 && (
           <span className="absolute -top-0.5 -right-0.5 flex h-3.5 w-3.5 items-center justify-center rounded-full bg-primary text-[8px] text-primary-foreground">
-            {jobs.length > 9 ? "9+" : jobs.length}
+            {active.length > 9 ? "9+" : active.length}
           </span>
         )}
       </Button>
@@ -346,7 +347,7 @@ function GpuStatus() {
       // The real GPU info is in gpu.total_mb and gpu.reserved_mb from torch.cuda
       // Forge's vram_free_mb is wrong (returns system RAM, not VRAM)
       const gpu_total = s.gpu?.total_mb
-      const gpu_reserved = s.gpu?.reserved_mb
+      const gpu_reserved = (s.gpu as any)?.reserved_mb ?? s.gpu?.allocated_mb
 
       // Calculate actual free VRAM from torch.cuda data
       const vram_total = gpu_total || 22528
@@ -1207,7 +1208,7 @@ function AssetsTab({ selectedService, jobs, onAddJob, nextJobId, onOpenKimodo, o
         toast("success", `${jobName} generated (${successCount}/${totalItems} successful)`)
         onAddJob((prev) => prev.map((j) => j.id === jobId ? { ...j, status: "completed", endedAt: Date.now() } : j))
       } else if (successCount > 0) {
-        toast("warning", `${jobName} partially complete (${successCount}/${totalItems} successful, ${failCount} failed)`)
+        toast("info", `${jobName} partially complete (${successCount}/${totalItems} successful, ${failCount} failed)`)
         onAddJob((prev) => prev.map((j) => j.id === jobId ? { ...j, status: "completed", endedAt: Date.now() } : j))
       } else {
         onAddJob((prev) => prev.map((j) => j.id === jobId ? { ...j, status: "failed", endedAt: Date.now(), error: "All items failed" } : j))
@@ -1907,9 +1908,9 @@ function AssetsTab({ selectedService, jobs, onAddJob, nextJobId, onOpenKimodo, o
                         <div className="font-semibold text-xs mb-2">Anima Base Recommended Settings</div>
                         <div className="grid grid-cols-2 gap-x-4 gap-y-1">
                           <span className="text-muted-foreground">Steps:</span>
-                          <span>30-50 (default: {values.sampling_steps ?? "30"})</span>
+                          <span>30-50 (default: {String(values.sampling_steps ?? "30")})</span>
                           <span className="text-muted-foreground">CFG Scale:</span>
-                          <span>4-5 (default: {values.guide_scale ?? "4.0"})</span>
+                          <span>4-5 (default: {String(values.guide_scale ?? "4.0")})</span>
                           <span className="text-muted-foreground">Resolution:</span>
                           <span>512² - 1536² px</span>
                         </div>
@@ -1942,9 +1943,9 @@ function AssetsTab({ selectedService, jobs, onAddJob, nextJobId, onOpenKimodo, o
                         <div className="font-semibold text-xs mb-2">Z-Image Base Recommended Settings</div>
                         <div className="grid grid-cols-2 gap-x-4 gap-y-1">
                           <span className="text-muted-foreground">Steps:</span>
-                          <span>50 (default: {values.sampling_steps ?? "50"})</span>
+                          <span>50 (default: {String(values.sampling_steps ?? "50")})</span>
                           <span className="text-muted-foreground">CFG Scale:</span>
-                          <span>4.0 (default: {values.guide_scale ?? "4.0"})</span>
+                          <span>4.0 (default: {String(values.guide_scale ?? "4.0")})</span>
                           <span className="text-muted-foreground">Negative Prompt:</span>
                           <span>Active</span>
                         </div>
@@ -1957,7 +1958,7 @@ function AssetsTab({ selectedService, jobs, onAddJob, nextJobId, onOpenKimodo, o
                         <div className="font-semibold text-xs mb-2">Flux Recommended Settings</div>
                         <div className="grid grid-cols-2 gap-x-4 gap-y-1">
                           <span className="text-muted-foreground">Resolution:</span>
-                          <span>{values.width ?? "1280"}×{values.height ?? "720"}</span>
+                          <span>{String(values.width ?? "1280")}×{String(values.height ?? "720")}</span>
                           <span className="text-muted-foreground">Steps:</span>
                           <span>{String(values.model || "")?.includes("schnell") || String(values.model || "")?.includes("klein") ? "4" : String(values.model || "")?.startsWith("flux2") ? "30" : "20"}</span>
                         </div>
