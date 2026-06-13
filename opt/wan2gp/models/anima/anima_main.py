@@ -608,8 +608,9 @@ class model_factory:
             del velocity_cfg
             torch.cuda.empty_cache()
 
-        # Offload transformer before VAE decode to free VRAM
-        self.transformer.to("cpu")
+        # Let mmgp handle offloading the transformer before VAE decode —
+        # calling self.transformer.to("cpu") triggers infinite recursion in
+        # nn.Module._apply() because mmgp hooks create circular references.
         torch.cuda.empty_cache()
         gc.collect()
 
@@ -619,8 +620,8 @@ class model_factory:
         # The diffusion process produces normalized latents, so we must undo
         # the normalization that was applied during encoding.
         with torch.no_grad():
-            if hasattr(self.vae, 'device') and self.vae.device.type != device.type:
-                self.vae.to(device)
+            # mmgp moves the VAE to GPU automatically during decode — do not
+            # call self.vae.to(device) (same recursion issue as transformer).
             latents_5d = latents.float().unsqueeze(2)  # [B, C, 1, H, W]
             if hasattr(self.vae, 'config') and hasattr(self.vae.config, 'latents_mean'):
                 vae_z_dim = latents_5d.shape[1]
