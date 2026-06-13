@@ -2,14 +2,17 @@
 # Diffusion Schedule
 # =============================================================================
 
-# Noise schedule for the distilled pipeline. These sigma values control noise
-# levels at each denoising step and were tuned to match the distillation process.
+# Noise schedule for the distilled pipeline — matched to WDC ComfyUI
+# ltx_director.json BasicScheduler('linear_quadratic', 8, 1) and (4, 0.42).
+# Stage 1: 8 steps, evenly spaced from 1.0 → 0.0
+# Stage 2: 4 steps, starting at 0.42 from stage 1's 5th sigma
 from ...ltx_core.types import SpatioTemporalScaleFactors
 
-DISTILLED_SIGMA_VALUES = [1.0, 0.99375, 0.9875, 0.98125, 0.975, 0.909375, 0.725, 0.421875, 0.0]
+DISTILLED_SIGMA_VALUES = [1.0, 0.875, 0.75, 0.625, 0.5, 0.375, 0.25, 0.125, 0.0]
 
-# Reduced schedule for super-resolution stage 2 (subset of distilled values)
-STAGE_2_DISTILLED_SIGMA_VALUES = [0.909375, 0.725, 0.421875, 0.0]
+# Reduced schedule for super-resolution stage 2 (subset of distilled values).
+# Matches WDC BasicScheduler('linear_quadratic', 4, 0.42).
+STAGE_2_DISTILLED_SIGMA_VALUES = [0.42, 0.315, 0.21, 0.105, 0.0]
 
 
 # =============================================================================
