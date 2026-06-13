@@ -1141,17 +1141,20 @@ class Wan2GPService:
 
         # Base64 → file/object conversions for native models.
         # Wan2GP generate() expects file paths or PIL images, not base64.
-        # NOTE: Do NOT pre-resize images here. The model's internal pipeline
-        # (load_image_conditioning → resize_and_center_crop) handles resizing
-        # with VAE-correct dimensions. Pre-resizing causes double-processing
-        # and quality loss. The resize_method param is forwarded to the model
-        # for future pipeline-level support.
+        # Pre-resize images to target dimensions using the UI's resize method
+        # so mismatched aspect ratios don't produce distorted output.
+        resize_method = payload.get("resize_method", "crop")
+        target_w = payload.get("width", 768)
+        target_h = payload.get("height", 512)
+
         if "audio_guide" in param_names and "audio_b64" in payload:
             kwargs["audio_guide"] = self._decode_audio_b64(payload["audio_b64"])
         if "image_start" in param_names and "image_b64" in payload:
-            kwargs["image_start"] = self._decode_image_b64(payload["image_b64"])
+            img = self._decode_image_b64(payload["image_b64"])
+            kwargs["image_start"] = self._resize_image(img, target_w, target_h, resize_method)
         if "image_end" in param_names and "image_end_b64" in payload:
-            kwargs["image_end"] = self._decode_image_b64(payload["image_end_b64"])
+            img = self._decode_image_b64(payload["image_end_b64"])
+            kwargs["image_end"] = self._resize_image(img, target_w, target_h, resize_method)
 
         for name, param in sig.parameters.items():
             if name in kwargs:
@@ -1297,7 +1300,12 @@ class Wan2GPService:
     @staticmethod
     def _decode_audio_b64(audio_b64: str) -> str:
         import tempfile
-        raw = base64.b64decode(Wan2GPService._strip_data_url(audio_b64))
+        raw = Wan2GPService._strip_data_url(audio_b64)
+        # Restore missing base64 padding stripped by browser/HTTP transport
+        missing = len(raw) % 4
+        if missing:
+            raw += '=' * (4 - missing)
+        raw = base64.b64decode(raw)
         tmp = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
         tmp.write(raw)
         tmp.close()
@@ -1307,9 +1315,12 @@ class Wan2GPService:
     def _decode_image_b64(image_b64: str):
         from PIL import Image
         import io
-        return Image.open(io.BytesIO(base64.b64decode(
-            Wan2GPService._strip_data_url(image_b64)
-        ))).convert("RGB")
+        raw = Wan2GPService._strip_data_url(image_b64)
+        # Restore missing base64 padding stripped by browser/HTTP transport
+        missing = len(raw) % 4
+        if missing:
+            raw += '=' * (4 - missing)
+        return Image.open(io.BytesIO(base64.b64decode(raw))).convert("RGB")
 
     @staticmethod
     def _resize_image(img, target_w: int, target_h: int, method: str = "fit"):
