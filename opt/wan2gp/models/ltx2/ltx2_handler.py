@@ -10,10 +10,13 @@ from pathlib import Path
 
 from .lora_utils import control_video_phase2_message
 
+# _GEMMA_FOLDER is the tokenizer directory name (searched via fl.locate_folder).
+# On disk: image-gen/comfyui/text_encoders/gemma-3-12b-it/
 _GEMMA_FOLDER_URL = "https://huggingface.co/google/gemma-3-12b-it/resolve/main/"
-_GEMMA_FOLDER = "gemma_3_12B_it_fp4_mixed"
-_GEMMA_FILENAME = f"{_GEMMA_FOLDER}.safetensors"
-_GEMMA_QUANTO_FILENAME = f"{_GEMMA_FOLDER}_quanto_bf16_int8.safetensors"
+_GEMMA_FOLDER = "gemma-3-12b-it"
+# Weights file is a single safetensors — different name from the tokenizer folder.
+_GEMMA_FILENAME = "gemma_3_12B_it_fp4_mixed.safetensors"
+_GEMMA_QUANTO_FILENAME = "gemma_3_12B_it_fp4_mixed_quanto_bf16_int8.safetensors"
 _LORAS_MIGRATED = False
 _LORA_SPEC_KEYS = ("distilled_lora", "distilled_1_1_lora", "union_control_lora", "id_lora", "outpaint_lora", "hdr_lora")
 # LoRAs that should NOT be pre-merged by mmgp — loaded dynamically at inference
@@ -246,8 +249,8 @@ class family_handler:
         extra_model_def = {
             "text_encoder_folder": _GEMMA_FOLDER,
             "text_encoder_URLs": [
-                build_hf_url("google/gemma-3-12b-it", _GEMMA_FOLDER, _GEMMA_FILENAME),
-                build_hf_url("google/gemma-3-12b-it", _GEMMA_FOLDER, _GEMMA_QUANTO_FILENAME),
+                "https://huggingface.co/Comfy-Org/ltx-2/resolve/main/split_files/text_encoders/gemma_3_12B_it_fp4_mixed.safetensors",
+                "https://huggingface.co/Comfy-Org/ltx-2/resolve/main/split_files/text_encoders/gemma_3_12B_it_fp4_mixed_quanto_bf16_int8.safetensors",
             ],
             "dtype": "bf16",
             "fps": 24,
@@ -438,8 +441,8 @@ class family_handler:
                 "fileList": [file_list],
             },
             {
-                "repoId": "google/gemma-3-12b-it",
-                "sourceFolderList": [_GEMMA_FOLDER],
+                "repoId": "Comfy-Org/ltx-2",
+                "sourceFolderList": ["split_files/text_encoders"],
                 "fileList": [gemma_files],
             },
         ]
