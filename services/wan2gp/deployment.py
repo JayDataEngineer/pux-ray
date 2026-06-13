@@ -1131,7 +1131,7 @@ class Wan2GPService:
         "audio_scale": 1.0,
     }
 
-    def _infer_native(self, model, payload: dict, defaults: dict) -> dict:
+    def _infer_native(self, model, payload: dict, defaults: dict, base_model_type: str = "") -> dict:
         """Inference via model.generate() with automatic parameter matching.
 
         Inspects the model's generate() signature and maps our payload
@@ -1257,7 +1257,6 @@ class Wan2GPService:
         # Load distilled LoRA for LTX2 models (native path bypasses wgp.py's
         # get_loras_transformer, so we must load it here).
         distilled_strength = float(payload.get("distilled_lora_strength", 0.5))
-        base_model_type = entry.get("base_model_type", "")
         if base_model_type in ("ltx2_19B", "ltx2_22B") and distilled_strength > 0:
             # Find the distilled LoRA — search wan2gp and comfyui lora dirs
             from pathlib import Path as _Path
@@ -1458,7 +1457,8 @@ class Wan2GPService:
             # Wan2GP handles device placement (via offloadobj) and dtype
             # internally — do NOT wrap with autocast or set_default_device.
             if self._native_loaded:
-                gen = self._infer_native(model, payload, defaults)
+                gen = self._infer_native(model, payload, defaults,
+                                         base_model_type=info.get("base_model_type", ""))
                 gen["model"] = self._loaded_model
                 return gen
 

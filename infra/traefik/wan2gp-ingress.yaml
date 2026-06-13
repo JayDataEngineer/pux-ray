@@ -32,8 +32,3 @@ spec:
     services:
     - name: wan2gp-studio-mcp
       port: 8002
-  - match: PathPrefix(`/forge`)
-    kind: Rule
-    services:
-    - name: wan2gp-studio-mcp
-      port: 8002
