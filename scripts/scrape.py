@@ -183,6 +183,11 @@ def tier_browser(url: str, timeout: int) -> Result:
     if not chrome:
         r.error = "no browser binary"; return r
     try:
+        # Preflight: reject non-2xx (browser --dump-dom hides HTTP status, so check first).
+        # Cheap HEAD-equivalent via curl; only launch the browser for real pages.
+        code, _, _ = _curl(url, min(timeout, 10), extra=["-I", "-o", "/dev/null"])
+        if code and not (200 <= code < 300):
+            r.error = f"http {code}"; return r
         proc = subprocess.run(
             [chrome, "--headless=new", "--no-sandbox", "--disable-gpu",
              "--disable-dev-shm-usage", "--disable-crash-reporter",
