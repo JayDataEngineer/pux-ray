@@ -444,66 +444,6 @@ class model_factory:
                 raise FileNotFoundError("No VAE file found")
         vae = vae.to(VAE_dtype)
 
-        # --- Patch transformer blocks to skip AdaLN gate ---
-        # ComfyUI's Cosmos Block.forward() discards the gate from AdaLN:
-        #   x = x + self.self_attn(self.norm1(x, t_emb)[0], ...)
-        # But diffusers applies it:
-        #   hidden_states = hidden_states + gate * attn_output
-        # The ComfyUI checkpoint was trained WITHOUT gating, so the gate weights
-        # produce arbitrary values (range -60 to +60). Applying them destroys the
-        # model output.  Monkey-patch each block to skip gate multiplication.
-        def _make_ungated_forward(blk):
-            def _ungated_forward(
-                hidden_states,
-                encoder_hidden_states=None,
-                embedded_timestep=None,
-                temb=None,
-                image_rotary_emb=None,
-                extra_pos_emb=None,
-                attention_mask=None,
-                controlnet_residual=None,
-                latents=None,
-                block_idx=None,
-                **kwargs,
-            ):
-                if blk.before_proj is not None:
-                    hidden_states = blk.before_proj(hidden_states)
-                    if latents is not None:
-                        hidden_states = hidden_states + latents
-
-                if extra_pos_emb is not None:
-                    hidden_states = hidden_states + extra_pos_emb
-
-                # 1. Self Attention — skip gate
-                norm_hidden_states, _gate = blk.norm1(hidden_states, embedded_timestep, temb)
-                attn_output = blk.attn1(norm_hidden_states, image_rotary_emb=image_rotary_emb)
-                hidden_states = hidden_states + attn_output
-
-                # 2. Cross Attention — skip gate
-                norm_hidden_states, _gate = blk.norm2(hidden_states, embedded_timestep, temb)
-                attn_output = blk.attn2(
-                    norm_hidden_states, encoder_hidden_states=encoder_hidden_states, attention_mask=attention_mask,
-                )
-                hidden_states = hidden_states + attn_output
-
-                # 3. Feed Forward — skip gate
-                norm_hidden_states, _gate = blk.norm3(hidden_states, embedded_timestep, temb)
-                ff_output = blk.ff(norm_hidden_states)
-                hidden_states = hidden_states + ff_output
-
-                if controlnet_residual is not None:
-                    hidden_states = hidden_states + controlnet_residual
-
-                if blk.after_proj is not None:
-                    hs_proj = blk.after_proj(hidden_states)
-                    return hidden_states, hs_proj
-
-                return hidden_states
-            return _ungated_forward
-
-        for _blk in transformer.transformer_blocks:
-            _blk.forward = _make_ungated_forward(_blk)
-
         # --- Scheduler ---
         scheduler = FlowMatchEulerDiscreteScheduler(
             num_train_timesteps=1000,
@@ -612,42 +552,67 @@ class model_factory:
         neg_embeds = self._encode_text(neg, device)
         pos_embeds = self._encode_text(input_prompt, device)
 
-        # Create latents
+        # Create latents — x_0 is noise for flow matching (CONST type)
+        # Anima flow matching (matching ComfyUI's ModelSamplingDiscreteFlow):
+        #   sigma_schedule: time_snr_shift(3.0, t) for t in linspace(1/steps, 1, steps)
+        #   forward:        x_t = sigma * noise + (1 - sigma) * x_0
+        #   timestep to model: sigma (multiplier=1.0, so timestep == sigma)
+        #   model predicts:  velocity v
+        #   denoised:        x_0 = x_t - sigma * v
+        #   euler step:      x_{i+1} = x_i + (sigma_{i+1} - sigma_i) * v
         vae_scale = 8
         latent_h, latent_w = height // vae_scale, width // vae_scale
         latents = torch.randn(
             1, 16, latent_h, latent_w, generator=generator,
             device="cpu", dtype=dtype,
         ).to(device)
-        self.scheduler.set_timesteps(sampling_steps, device=device)
 
-        # Denoising loop
-        # When concat_padding_mask=True, the model expects a binary mask [1, 1, H, W]
-        # concatenated to the latent input (adding 1 channel → 17 channels → 68 after patch).
-        # The diffusers transformer handles batch repeating internally.
+        # Compute sigma schedule: time_snr_shift(3.0, t) for t in [1, 0]
+        def _time_snr_shift(alpha, t):
+            if alpha == 1.0:
+                return t
+            return alpha * t / (1.0 + (alpha - 1.0) * t)
+
+        # "simple" scheduler: evenly spaced from sigma_max to sigma_min
+        t_lin = torch.linspace(1.0, 0.0, sampling_steps + 1, device=device)
+        sigmas = torch.tensor(
+            [_time_snr_shift(3.0, t.item()) for t in t_lin],
+            device=device, dtype=dtype,
+        )
+        # sigma[0] = sigma_max ≈ 1.0, sigma[-1] = 0.0
+
         padding_mask = torch.ones(
             1, 1, latent_h, latent_w, device=device, dtype=dtype,
         )
 
-        for t in self.scheduler.timesteps:
+        # Denoising loop: iterate from sigma_max → 0
+        for i in range(sampling_steps):
+            sigma_cur = sigmas[i]
+            sigma_next = sigmas[i + 1]
+
+            # Timestep = sigma (multiplier=1.0 in ComfyUI's ModelSamplingDiscreteFlow)
+            timestep = sigma_cur.expand(2)
+
             with torch.no_grad():
                 latent_in = torch.cat([latents] * 2).unsqueeze(2)  # [2, C, 1, H, W]
                 embeds = torch.cat([neg_embeds, pos_embeds])
-                noise_pred = self.transformer(
+                velocity = self.transformer(
                     hidden_states=latent_in,
                     encoder_hidden_states=embeds,
-                    timestep=t.expand(2),
+                    timestep=timestep,
                     padding_mask=padding_mask,
                     return_dict=False,
                 )[0]
-            np_u, np_t = noise_pred.chunk(2)
-            del noise_pred, latent_in, embeds
-            noise_pred = np_u + guide_scale * (np_t - np_u)
+
+            np_u, np_t = velocity.chunk(2)
+            del velocity, latent_in, embeds
+            velocity_cfg = np_u + guide_scale * (np_t - np_u)
             del np_u, np_t
-            latents = self.scheduler.step(
-                noise_pred.squeeze(2), t, latents, return_dict=False
-            )[0]
-            del noise_pred
+
+            # Flow matching Euler step: x_{next} = x_cur + (sigma_next - sigma_cur) * v
+            # Since sigma_next < sigma_cur, this moves toward x_0
+            latents = latents + (sigma_next - sigma_cur) * velocity_cfg.squeeze(2)
+            del velocity_cfg
             torch.cuda.empty_cache()
 
         # Offload transformer before VAE decode to free VRAM
