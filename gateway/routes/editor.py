@@ -19,7 +19,25 @@ from starlette.responses import HTMLResponse, JSONResponse, Response
 logger = logging.getLogger(__name__)
 
 _EDITOR_DIR = Path(__file__).resolve().parents[1] / "editor"
-_LORAS_DIR = Path(__file__).resolve().parents[2] / "opt" / "wan2gp" / "loras"
+
+
+def _resolve_loras_base() -> Path:
+    """Resolve the wan2gp loras root via Config().models_root.
+
+    Mirrors the inference code (services/wan2gp/deployment.py) which searches
+    ``<models_root>/wan2gp/loras/<model>``.  The old source-relative path
+    (``<repo>/opt/wan2gp/loras``) was wrong inside the container where the
+    code lives under /app but models are mounted at models_root (e.g. /models).
+    """
+    try:
+        from registry.config import Config
+        base = Path(Config().models_root) / "wan2gp" / "loras"
+        if base.is_dir():
+            return base
+    except Exception:
+        pass
+    # Fallback: source-relative path (dev workstations where repo == models root)
+    return Path(__file__).resolve().parents[2] / "opt" / "wan2gp" / "loras"
 
 # Map frontend model IDs to the lora subdirectory on disk
 _MODEL_TO_LORA_DIR: dict[str, str] = {
@@ -50,14 +68,15 @@ async def lora_list(request: Request) -> JSONResponse:
     """GET /v1/loras?model=ltx2 — list available LoRA files for a model."""
     model = request.query_params.get("model", "")
     lora_dir_name = _MODEL_TO_LORA_DIR.get(model, model)
-    lora_dir = _LORAS_DIR / lora_dir_name
+    loras_base = _resolve_loras_base()
+    lora_dir = loras_base / lora_dir_name
 
     if not lora_dir.exists() or not lora_dir.is_dir():
         return JSONResponse({"model": model, "loras": []})
 
     # Prevent directory traversal
     try:
-        lora_dir.resolve().relative_to(_LORAS_DIR.resolve())
+        lora_dir.resolve().relative_to(loras_base.resolve())
     except ValueError:
         return JSONResponse({"error": "invalid model"}, status_code=400)
 
