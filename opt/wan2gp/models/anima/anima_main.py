@@ -1,112 +1,231 @@
 """Anima model factory — Cosmos-Predict2-2B text-to-image.
 
-Loads the Cosmos transformer, Qwen3 0.6B text encoder, Cosmos VAE (16 latent
-channels), and builds a minimal generation pipeline.
+Loads the Cosmos transformer, Qwen3 0.6B text encoder, Qwen-Image VAE
+(16 latent channels via AutoencoderKLQwenImage), and builds a minimal
+generation pipeline that includes the LLM adapter for text conditioning.
+
+Architecture flow (matching ComfyUI's Anima node):
+  1. Tokenize text with Qwen3 tokenizer → Qwen3 token IDs
+  2. Tokenize text with T5 tokenizer → T5 token IDs
+  3. Qwen3 text encoder → hidden states [B, seq, 1024]
+  4. LLM adapter: cross-attend T5 embeddings to Qwen3 hidden states
+     → transformed embeddings [B, t5_seq, 1024]
+  5. Pad to 512 tokens
+  6. Cosmos transformer: denoise latents conditioned on transformed embeddings
+  7. VAE decode: latents → image
 """
+import gc
 import json
+import math
 import os
+import re
+
 import torch
+import torch.nn as nn
+import torch.nn.functional as F
 from accelerate import init_empty_weights
-from diffusers import FlowMatchEulerDiscreteScheduler
-from diffusers import CosmosTransformer3DModel
-from diffusers import AutoencoderKLCosmos
+from diffusers import FlowMatchEulerDiscreteScheduler, CosmosTransformer3DModel
 from diffusers.utils import logging
 from mmgp import offload
 from shared.utils import files_locator as fl
-from transformers import AutoTokenizer, Qwen3ForCausalLM
+from transformers import AutoTokenizer, AutoConfig, Qwen3ForCausalLM
 
 logger = logging.get_logger(__name__)
 
 
-def _attach_llm_adapter(transformer: CosmosTransformer3DModel, text_embed_dim: int = 1024):
-    """Build and attach the LLM adapter module to the diffusers transformer.
+# ---------------------------------------------------------------------------
+# RMSNorm — ComfyUI's operations.RMSNorm equivalent.  LayerNorm would
+# silently load weights but compute a different normalisation.
+# ---------------------------------------------------------------------------
+class _RMSNorm(nn.Module):
+    def __init__(self, dim: int, eps: float = 1e-6):
+        super().__init__()
+        self.weight = nn.Parameter(torch.ones(dim))
+        self.eps = eps
 
-    The ComfyUI Anima checkpoint contains a `net.llm_adapter` sub-network that
-    processes text embeddings before feeding them to the transformer blocks.
-    It has: embed, norm, N adapter blocks (self_attn + cross_attn + mlp), out_proj.
-    diffusers' CosmosTransformer3DModel doesn't include this, so we attach it
-    as a custom submodule so its weights load via load_state_dict.
-    """
-    import torch.nn as nn
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return x * torch.rsqrt(x.float().pow(2).mean(-1, keepdim=True) + self.eps).to(x.dtype) * self.weight
 
-    class _LLMAdapterBlock(nn.Module):
-        def __init__(self, dim=1024, ff_dim=4096, num_heads=16, head_dim=64):
-            super().__init__()
-            self.norm_self_attn = nn.LayerNorm(dim, elementwise_affine=True)
-            self.self_attn = nn.ModuleDict({
-                "q_proj": nn.Linear(dim, dim, bias=False),
-                "k_proj": nn.Linear(dim, dim, bias=False),
-                "v_proj": nn.Linear(dim, dim, bias=False),
-                "o_proj": nn.Linear(dim, dim, bias=False),
-                "q_norm": nn.LayerNorm(head_dim, elementwise_affine=True),
-                "k_norm": nn.LayerNorm(head_dim, elementwise_affine=True),
-            })
-            self.norm_cross_attn = nn.LayerNorm(dim, elementwise_affine=True)
-            self.cross_attn = nn.ModuleDict({
-                "q_proj": nn.Linear(dim, dim, bias=False),
-                "k_proj": nn.Linear(dim, dim, bias=False),
-                "v_proj": nn.Linear(dim, dim, bias=False),
-                "o_proj": nn.Linear(dim, dim, bias=False),
-                "q_norm": nn.LayerNorm(head_dim, elementwise_affine=True),
-                "k_norm": nn.LayerNorm(head_dim, elementwise_affine=True),
-            })
-            self.norm_mlp = nn.LayerNorm(dim, elementwise_affine=True)
-            self.mlp = nn.Sequential(
-                nn.Linear(dim, ff_dim),
-                nn.GELU(),
-                nn.Linear(ff_dim, dim),
-            )
 
-    class _LLMAdapter(nn.Module):
-        def __init__(self, vocab_size=32128, dim=1024, num_blocks=6,
-                     ff_dim=4096, num_heads=16, head_dim=64):
-            super().__init__()
-            self.embed = nn.Embedding(vocab_size, dim)
-            self.norm = nn.LayerNorm(dim, elementwise_affine=True)
-            self.blocks = nn.ModuleList([
-                _LLMAdapterBlock(dim, ff_dim, num_heads, head_dim)
-                for _ in range(num_blocks)
-            ])
-            self.out_proj = nn.Linear(dim, dim)
+# ---------------------------------------------------------------------------
+# LLM Adapter — mirrors ComfyUI's comfy/ldm/anima/model.py exactly:
+#   LLMAdapter(source_dim=1024, target_dim=1024, model_dim=1024,
+#              num_layers=6, use_self_attn=True, layer_norm=False)
+#
+# The adapter takes:
+#   source_hidden_states: Qwen3 hidden states [B, src_len, 1024]
+#   target_input_ids:     T5 token IDs [B, tgt_len]
+# And returns transformed embeddings [B, tgt_len, 1024].
+#
+# Key structure must match the checkpoint's llm_adapter.* keys exactly.
+# ---------------------------------------------------------------------------
+def _rotate_half(x):
+    x1 = x[..., : x.shape[-1] // 2]
+    x2 = x[..., x.shape[-1] // 2:]
+    return torch.cat((-x2, x1), dim=-1)
 
-    adapter = _LLMAdapter()
-    # Attach as a named submodule so load_state_dict picks up llm_adapter.* keys
-    transformer.llm_adapter = adapter
+
+def _apply_rotary_pos_emb(x, cos, sin, unsqueeze_dim=1):
+    cos = cos.unsqueeze(unsqueeze_dim)
+    sin = sin.unsqueeze(unsqueeze_dim)
+    return (x * cos) + (_rotate_half(x) * sin)
+
+
+class _RotaryEmbedding(nn.Module):
+    def __init__(self, head_dim: int):
+        super().__init__()
+        inv_freq = 1.0 / (10000.0 ** (torch.arange(0, head_dim, 2, dtype=torch.float) / head_dim))
+        self.register_buffer("inv_freq", inv_freq, persistent=False)
+
+    @torch.no_grad()
+    def forward(self, x, position_ids):
+        inv_freq_expanded = self.inv_freq[None, :, None].float().expand(position_ids.shape[0], -1, 1).to(x.device)
+        position_ids_expanded = position_ids[:, None, :].float()
+        with torch.autocast(device_type=x.device.type if x.device.type != "mps" else "cpu", enabled=False):
+            freqs = (inv_freq_expanded.float() @ position_ids_expanded.float()).transpose(1, 2)
+            emb = torch.cat((freqs, freqs), dim=-1)
+        return emb.cos().to(dtype=x.dtype), emb.sin().to(dtype=x.dtype)
+
+
+class _AdapterAttention(nn.Module):
+    """Attention matching ComfyUI's anima Attention (RMSNorm q/k norms, o_proj)."""
+
+    def __init__(self, query_dim, context_dim, n_heads, head_dim):
+        super().__init__()
+        inner_dim = head_dim * n_heads
+        self.n_heads = n_heads
+        self.head_dim = head_dim
+        self.q_proj = nn.Linear(query_dim, inner_dim, bias=False)
+        self.q_norm = _RMSNorm(head_dim)
+        self.k_proj = nn.Linear(context_dim, inner_dim, bias=False)
+        self.k_norm = _RMSNorm(head_dim)
+        self.v_proj = nn.Linear(context_dim, inner_dim, bias=False)
+        self.o_proj = nn.Linear(inner_dim, query_dim, bias=False)
+
+    def forward(self, x, context=None, position_embeddings=None, position_embeddings_context=None):
+        context = x if context is None else context
+        B, S, _ = x.shape
+        _, C, _ = context.shape
+        q = self.q_norm(self.q_proj(x).view(B, S, self.n_heads, self.head_dim)).transpose(1, 2)
+        k = self.k_norm(self.k_proj(context).view(B, C, self.n_heads, self.head_dim)).transpose(1, 2)
+        v = self.v_proj(context).view(B, C, self.n_heads, self.head_dim).transpose(1, 2)
+
+        if position_embeddings is not None:
+            cos, sin = position_embeddings
+            q = _apply_rotary_pos_emb(q, cos, sin)
+            cos, sin = position_embeddings_context
+            k = _apply_rotary_pos_emb(k, cos, sin)
+
+        out = F.scaled_dot_product_attention(q, k, v)
+        return self.o_proj(out.transpose(1, 2).reshape(B, S, -1).contiguous())
+
+
+class _AdapterBlock(nn.Module):
+    """TransformerBlock from ComfyUI anima (use_self_attn=True, layer_norm=False → RMSNorm)."""
+
+    def __init__(self, source_dim=1024, model_dim=1024, num_heads=16):
+        super().__init__()
+        head_dim = model_dim // num_heads
+        self.norm_self_attn = _RMSNorm(model_dim)
+        self.self_attn = _AdapterAttention(model_dim, model_dim, num_heads, head_dim)
+        self.norm_cross_attn = _RMSNorm(model_dim)
+        self.cross_attn = _AdapterAttention(model_dim, source_dim, num_heads, head_dim)
+        self.norm_mlp = _RMSNorm(model_dim)
+        self.mlp = nn.Sequential(
+            nn.Linear(model_dim, model_dim * 4, bias=True),
+            nn.GELU(),
+            nn.Linear(model_dim * 4, model_dim, bias=True),
+        )
+
+    def forward(self, x, context, pos_emb=None, pos_emb_ctx=None):
+        # Self-attention with RoPE
+        attn_out = self.self_attn(
+            self.norm_self_attn(x),
+            position_embeddings=pos_emb,
+            position_embeddings_context=pos_emb,
+        )
+        x = x + attn_out
+        # Cross-attention with RoPE
+        attn_out = self.cross_attn(
+            self.norm_cross_attn(x),
+            context=context,
+            position_embeddings=pos_emb,
+            position_embeddings_context=pos_emb_ctx,
+        )
+        x = x + attn_out
+        # MLP
+        x = x + self.mlp(self.norm_mlp(x))
+        return x
+
+
+class _LLMAdapter(nn.Module):
+    """Exact replica of ComfyUI's LLMAdapter for weight compatibility."""
+
+    def __init__(self, source_dim=1024, target_dim=1024, model_dim=1024,
+                 num_layers=6, num_heads=16):
+        super().__init__()
+        self.embed = nn.Embedding(32128, target_dim)
+        self.in_proj = nn.Identity()  # model_dim == target_dim
+        self.rotary_emb = _RotaryEmbedding(model_dim // num_heads)
+        self.blocks = nn.ModuleList([
+            _AdapterBlock(source_dim, model_dim, num_heads)
+            for _ in range(num_layers)
+        ])
+        self.out_proj = nn.Linear(model_dim, target_dim, bias=True)
+        self.norm = _RMSNorm(target_dim)
+
+    def forward(self, source_hidden_states, target_input_ids):
+        """Transform text embeddings via cross-attention.
+
+        Args:
+            source_hidden_states: [B, src_len, source_dim] — Qwen3 hidden states
+            target_input_ids: [B, tgt_len] or [tgt_len] — T5 token IDs
+
+        Returns:
+            [B, tgt_len, target_dim] — transformed embeddings
+        """
+        if target_input_ids.ndim == 1:
+            target_input_ids = target_input_ids.unsqueeze(0)
+
+        context = source_hidden_states
+        x = self.embed(target_input_ids).to(context.dtype)
+
+        B, L, _ = x.shape
+        pos_ids = torch.arange(L, device=x.device).unsqueeze(0).expand(B, -1)
+        pos_ids_ctx = torch.arange(context.shape[1], device=x.device).unsqueeze(0).expand(B, -1)
+        pos_emb = self.rotary_emb(x, pos_ids)
+        pos_emb_ctx = self.rotary_emb(x, pos_ids_ctx)
+
+        for block in self.blocks:
+            x = block(x, context, pos_emb=pos_emb, pos_emb_ctx=pos_emb_ctx)
+
+        return self.norm(self.out_proj(x))
+
+
+def _attach_llm_adapter(transformer, text_embed_dim=1024):
+    """Build and attach the LLM adapter as a named submodule of the transformer."""
+    transformer.llm_adapter = _LLMAdapter(source_dim=text_embed_dim)
+
+
+# ---------------------------------------------------------------------------
+# State-dict conversion: ComfyUI keys → diffusers CosmosTransformer3DModel keys
+# ---------------------------------------------------------------------------
+_ADALN_RE = re.compile(r'adaln_modulation_(self_attn|cross_attn|mlp)\.(\d)\.(weight|bias)')
+_NORMS = {'self_attn': 'norm1', 'cross_attn': 'norm2', 'mlp': 'norm3'}
+_BLOCK_RE = re.compile(r'^blocks\.(\d+)\.(.+)$')
 
 
 def _convert_cosmos_state_dict(sd: dict) -> dict:
-    """Remap ComfyUI Cosmos state dict keys to diffusers CosmosTransformer3DModel format.
-
-    ComfyUI serializes under 'net.' prefix with different internal naming.
-    Key mapping (ComfyUI → diffusers):
-      blocks.N.self_attn.*       → transformer_blocks.N.attn1.*
-      blocks.N.cross_attn.*      → transformer_blocks.N.attn2.*
-      blocks.N.adaln_modulation_*.1.* → norm{1,2,3}.linear_1.*
-      blocks.N.adaln_modulation_*.2.* → norm{1,2,3}.linear_2.*
-      blocks.N.mlp.layer{1,2}    → ff.net.{0.proj,2}
-      x_embedder.proj.1.*        → patch_embed.proj.*
-      final_layer.adaln_modulation.* → norm_out.linear_*.weight
-      final_layer.linear.*       → proj_out.*
-      llm_adapter.*              → llm_adapter.* (kept as-is, loaded into custom module)
-
-    NOTE: positional embeddings are NOT in the checkpoint and are NOT
-    overwritten — the model keeps its randomly initialized values.
-    """
-    import re
     out = {}
-    block_re = re.compile(r'^blocks\.(\d+)\.(.+)$')
-    ADALN_RE = re.compile(r'adaln_modulation_(self_attn|cross_attn|mlp)\.(\d)\.(weight|bias)')
-    NORMS = {'self_attn': 'norm1', 'cross_attn': 'norm2', 'mlp': 'norm3'}
-
     for key, tensor in sd.items():
-        # Strip net. prefix (ComfyUI wrapper)
         k = key[4:] if key.startswith('net.') else key
 
-        # === Global keys ===
+        # --- Global keys ---
         if k == 'x_embedder.proj.1.weight':
-            out['patch_embed.proj.weight'] = tensor[:, :64]
+            # ComfyUI: Linear [model_ch, 64]; diffusers: same shape [model_ch, 64]
+            out['patch_embed.proj.weight'] = tensor
         elif k == 'x_embedder.proj.1.bias':
-            out['patch_embed.proj.bias'] = tensor[:64]
+            out['patch_embed.proj.bias'] = tensor
         elif k == 't_embedder.1.linear_1.weight':
             out['time_embed.t_embedder.linear_1.weight'] = tensor
         elif k == 't_embedder.1.linear_2.weight':
@@ -125,61 +244,74 @@ def _convert_cosmos_state_dict(sd: dict) -> dict:
             out['norm_out.linear_2.weight'] = tensor
         elif k == 'final_layer.adaln_modulation.2.bias':
             out['norm_out.linear_2.bias'] = tensor
+        # LLM adapter — keep as-is
         elif k.startswith('llm_adapter.'):
-            # Keep llm_adapter keys as-is — they load into a custom module
             out[k] = tensor
-        # === Block-level keys ===
+        # --- Block-level keys ---
         else:
-            m = block_re.match(k)
+            m = _BLOCK_RE.match(k)
             if not m:
-                continue  # skip unknown
-            blk = m.group(1)
-            rest = m.group(2)
+                continue
+            blk, rest = m.group(1), m.group(2)
 
             # AdaLN modulation
-            am = ADALN_RE.match(rest)
+            am = _ADALN_RE.match(rest)
             if am:
-                norm_name = NORMS[am.group(1)]  # norm1/norm2/norm3
-                idx = am.group(2)  # 1 or 2
-                wb = am.group(3)   # weight or bias
+                norm_name = _NORMS[am.group(1)]
+                idx, wb = am.group(2), am.group(3)
                 out[f'transformer_blocks.{blk}.{norm_name}.linear_{idx}.{wb}'] = tensor
                 continue
 
             # Self-attention → attn1
             if rest.startswith('self_attn.'):
                 sub = rest[len('self_attn.'):]
-                sub = sub.replace('q_proj', 'to_q').replace('k_proj', 'to_k').replace('v_proj', 'to_v')
-                sub = sub.replace('output_proj', 'to_out.0').replace('q_norm', 'norm_q').replace('k_norm', 'norm_k')
+                sub = sub.replace('q_proj', 'to_q').replace('k_proj', 'to_k')
+                sub = sub.replace('v_proj', 'to_v').replace('output_proj', 'to_out.0')
+                sub = sub.replace('q_norm', 'norm_q').replace('k_norm', 'norm_k')
                 out[f'transformer_blocks.{blk}.attn1.{sub}'] = tensor
                 continue
 
             # Cross-attention → attn2
             if rest.startswith('cross_attn.'):
                 sub = rest[len('cross_attn.'):]
-                sub = sub.replace('q_proj', 'to_q').replace('k_proj', 'to_k').replace('v_proj', 'to_v')
-                sub = sub.replace('output_proj', 'to_out.0').replace('q_norm', 'norm_q').replace('k_norm', 'norm_k')
+                sub = sub.replace('q_proj', 'to_q').replace('k_proj', 'to_k')
+                sub = sub.replace('v_proj', 'to_v').replace('output_proj', 'to_out.0')
+                sub = sub.replace('q_norm', 'norm_q').replace('k_norm', 'norm_k')
                 out[f'transformer_blocks.{blk}.attn2.{sub}'] = tensor
                 continue
 
             # MLP → ff
             if rest.startswith('mlp.'):
                 sub = rest[len('mlp.'):]
-                if sub == 'layer1.weight':
-                    out[f'transformer_blocks.{blk}.ff.net.0.proj.weight'] = tensor
-                elif sub == 'layer1.bias':
-                    out[f'transformer_blocks.{blk}.ff.net.0.proj.bias'] = tensor
-                elif sub == 'layer2.weight':
-                    out[f'transformer_blocks.{blk}.ff.net.2.weight'] = tensor
-                elif sub == 'layer2.bias':
-                    out[f'transformer_blocks.{blk}.ff.net.2.bias'] = tensor
+                mapping = {
+                    'layer1.weight': 'ff.net.0.proj.weight',
+                    'layer1.bias': 'ff.net.0.proj.bias',
+                    'layer2.weight': 'ff.net.2.weight',
+                    'layer2.bias': 'ff.net.2.bias',
+                }
+                if sub in mapping:
+                    out[f'transformer_blocks.{blk}.{mapping[sub]}'] = tensor
                 continue
 
-    # Do NOT add zero positional embeddings — the model was trained without
-    # them (uses RoPE in attention) and zeroing them destroys spatial info.
+    # The diffusers CosmosTransformer3DModel always creates learnable_pos_embed
+    # parameters (pos_emb_h, pos_emb_t, pos_emb_w) even though the ComfyUI
+    # checkpoint doesn't include them. Initialize them to zeros so loading
+    # doesn't fail with "Missing keys". Since the model uses RoPE for attention,
+    # these per-block absolute positional embeddings have no effect when zeroed.
+    if 'learnable_pos_embed.pos_emb_h' not in out:
+        max_t = 128  # matches max_size[0]
+        max_hw = 120  # matches max_size[1] // patch_size[1]
+        model_ch = 2048  # attention_head_dim * num_attention_heads
+        out['learnable_pos_embed.pos_emb_t'] = torch.zeros(max_t, model_ch)
+        out['learnable_pos_embed.pos_emb_h'] = torch.zeros(max_hw, model_ch)
+        out['learnable_pos_embed.pos_emb_w'] = torch.zeros(max_hw, model_ch)
 
     return out
 
 
+# ---------------------------------------------------------------------------
+# model_factory — main entry point
+# ---------------------------------------------------------------------------
 class model_factory:
     def __init__(
         self,
@@ -211,19 +343,15 @@ class model_factory:
             os.path.dirname(os.path.abspath(__file__)),
             "configs", f"{base_model_type}.json"
         )
-
         with open(config_path, "r") as f:
             config = json.load(f)
         config.pop("_class_name", None)
         config.pop("_diffusers_version", None)
 
-        # Load transformer with config, stripping net. prefix from weights
         with init_empty_weights():
             transformer = CosmosTransformer3DModel(**config)
 
-        # The ComfyUI checkpoint includes an llm_adapter module that transforms
-        # text embeddings before they reach the transformer. Diffusers' model
-        # doesn't have this — add it as a submodule so its weights load correctly.
+        # Attach LLM adapter so its weights load via load_state_dict
         _attach_llm_adapter(transformer, config.get("text_embed_dim", 1024))
 
         offload.load_model_data(
@@ -240,59 +368,141 @@ class model_factory:
                 transformer, model_type, transformer_filename, dtype, config_path
             )
 
-        # --- Text encoder (Qwen3 0.6B, only ~1.2GB) ---
-        # Load directly with PyTorch — small enough to not need mmgp offloading.
-        # Use AutoConfig/AutoTokenizer from the Qwen3-0.6B model on HuggingFace
-        # for config + tokenizer. The safetensors weights come from the Anima repo.
-        from transformers import AutoConfig
-        import safetensors.torch
-        te_config = AutoConfig.from_pretrained("Qwen/Qwen3-0.6B", trust_remote_code=True)
+        # --- Text encoder (Qwen3 0.6B) ---
+        import safetensors.torch as _st
+
+        # Locate the Qwen3-0.6B model directory (has config.json + tokenizer)
+        te_model_dir = None
+        for _cp in fl._checkpoints_paths:
+            _cand = os.path.join(_cp, "Qwen3-0.6B")
+            if os.path.isdir(_cand) and os.path.isfile(os.path.join(_cand, "config.json")):
+                te_model_dir = _cand
+                break
+        if not te_model_dir:
+            raise FileNotFoundError("Qwen3-0.6B model directory not found in checkpoint paths")
+
+        te_config = AutoConfig.from_pretrained(te_model_dir, trust_remote_code=True, local_files_only=True)
         if text_encoder_filename is None:
-            raise ValueError("text_encoder_filename not provided — download from circlestone-labs/Anima")
-        te_sd = safetensors.torch.load_file(text_encoder_filename)
-        te_sd["lm_head.weight"] = torch.zeros(
-            te_config.vocab_size, te_config.hidden_size
-        )
+            raise ValueError("text_encoder_filename not provided")
+        te_sd = _st.load_file(text_encoder_filename)
+        te_sd["lm_head.weight"] = torch.zeros(te_config.vocab_size, te_config.hidden_size)
         with init_empty_weights():
             text_encoder = Qwen3ForCausalLM(te_config)
         text_encoder.load_state_dict(te_sd, strict=False, assign=True)
         text_encoder.to(dtype).to("cuda" if torch.cuda.is_available() else "cpu")
         text_encoder.eval()
-        # Pipeline expects .last_hidden_state like T5, but Qwen3 returns
-        # CausalLMOutputWithPast. Wrap forward to return compatible output.
+
         _orig_forward = text_encoder.forward
         def _te_forward(*a, **kw):
             kw.setdefault("output_hidden_states", True)
             out = _orig_forward(*a, **kw)
-            # Return hidden states as last_hidden_state
             if hasattr(out, "hidden_states") and out.hidden_states:
                 out.last_hidden_state = out.hidden_states[-1]
             return out
         text_encoder.forward = _te_forward
 
-        # --- Tokenizer ---
-        # Use Qwen3-0.6B tokenizer from HuggingFace (auto-downloads)
-        tokenizer = AutoTokenizer.from_pretrained("Qwen/Qwen3-0.6B", trust_remote_code=True)
+        # --- Tokenizers ---
+        # Qwen3 tokenizer for text encoding (from local model dir)
+        tokenizer = AutoTokenizer.from_pretrained(te_model_dir, trust_remote_code=True, local_files_only=True)
+        # T5 tokenizer for LLM adapter input (vocab_size=32128)
+        t5_tok_dir = None
+        for _cp in fl._checkpoints_paths:
+            _cand = os.path.join(_cp, "t5-base-tokenizer")
+            if os.path.isdir(_cand) and os.path.isfile(os.path.join(_cand, "tokenizer.json")):
+                t5_tok_dir = _cand
+                break
+        if not t5_tok_dir:
+            raise FileNotFoundError("t5-base-tokenizer directory not found in checkpoint paths")
+        t5_tokenizer = AutoTokenizer.from_pretrained(t5_tok_dir, local_files_only=True, legacy=False)
 
-        # --- VAE (Cosmos VAE from Anima repo — 16 latent channels) ---
-        vae_filename = fl.locate_file("qwen_image_vae.safetensors", error_if_none=False)
-        if not vae_filename:
-            raise FileNotFoundError(
-                "qwen_image_vae.safetensors not found — download from circlestone-labs/Anima split_files/vae/"
+        # --- VAE (Qwen-Image VAE via AutoencoderKLQwenImage) ---
+        # Use the same VAE class as the Qwen Image models — the checkpoint
+        # file qwen_image_vae.safetensors from circlestone-labs/Anima is in
+        # ComfyUI format and does NOT match AutoencoderKLCosmos (0/310 keys).
+        # Instead we download the diffusers-format VAE from DeepBeepMeep/Qwen_image.
+        from models.qwen.autoencoder_kl_qwenimage import AutoencoderKLQwenImage
+        vae_filename = fl.locate_file("qwen_vae.safetensors", error_if_none=False)
+        vae_config = fl.locate_file("qwen_vae_config.json", error_if_none=False)
+        if vae_filename and vae_config:
+            vae = offload.fast_load_transformers_model(
+                vae_filename,
+                writable_tensors=False,
+                modelClass=AutoencoderKLQwenImage,
+                defaultConfigPath=vae_config,
             )
-
-        # Load VAE weights into AutoencoderKLCosmos (16 latent channels, 3D convs)
-        import safetensors.torch
-        vae_sd = safetensors.torch.load_file(vae_filename)
-        vae = AutoencoderKLCosmos()
-        vae.load_state_dict(vae_sd, strict=False, assign=True)
+        else:
+            # Fallback: try AutoencoderKLCosmos (won't produce correct images
+            # but at least won't crash during loading).
+            logger.warning("qwen_vae.safetensors not found — falling back to AutoencoderKLCosmos")
+            from diffusers import AutoencoderKLCosmos
+            alt_vae = fl.locate_file("qwen_image_vae.safetensors", error_if_none=False)
+            if alt_vae:
+                vae_sd = _st.load_file(alt_vae)
+                vae = AutoencoderKLCosmos()
+                vae.load_state_dict(vae_sd, strict=False, assign=True)
+            else:
+                raise FileNotFoundError("No VAE file found")
         vae = vae.to(VAE_dtype)
 
-        # Cosmos pipeline expects temporal downsampling attrs (2D VAE has none)
-        if not hasattr(vae, 'temperal_downsample'):
-            vae.temperal_downsample = []
-        if not hasattr(vae, 'temporal_downsample'):
-            vae.temporal_downsample = []
+        # --- Patch transformer blocks to skip AdaLN gate ---
+        # ComfyUI's Cosmos Block.forward() discards the gate from AdaLN:
+        #   x = x + self.self_attn(self.norm1(x, t_emb)[0], ...)
+        # But diffusers applies it:
+        #   hidden_states = hidden_states + gate * attn_output
+        # The ComfyUI checkpoint was trained WITHOUT gating, so the gate weights
+        # produce arbitrary values (range -60 to +60). Applying them destroys the
+        # model output.  Monkey-patch each block to skip gate multiplication.
+        def _make_ungated_forward(blk):
+            def _ungated_forward(
+                hidden_states,
+                encoder_hidden_states=None,
+                embedded_timestep=None,
+                temb=None,
+                image_rotary_emb=None,
+                extra_pos_emb=None,
+                attention_mask=None,
+                controlnet_residual=None,
+                latents=None,
+                block_idx=None,
+                **kwargs,
+            ):
+                if blk.before_proj is not None:
+                    hidden_states = blk.before_proj(hidden_states)
+                    if latents is not None:
+                        hidden_states = hidden_states + latents
+
+                if extra_pos_emb is not None:
+                    hidden_states = hidden_states + extra_pos_emb
+
+                # 1. Self Attention — skip gate
+                norm_hidden_states, _gate = blk.norm1(hidden_states, embedded_timestep, temb)
+                attn_output = blk.attn1(norm_hidden_states, image_rotary_emb=image_rotary_emb)
+                hidden_states = hidden_states + attn_output
+
+                # 2. Cross Attention — skip gate
+                norm_hidden_states, _gate = blk.norm2(hidden_states, embedded_timestep, temb)
+                attn_output = blk.attn2(
+                    norm_hidden_states, encoder_hidden_states=encoder_hidden_states, attention_mask=attention_mask,
+                )
+                hidden_states = hidden_states + attn_output
+
+                # 3. Feed Forward — skip gate
+                norm_hidden_states, _gate = blk.norm3(hidden_states, embedded_timestep, temb)
+                ff_output = blk.ff(norm_hidden_states)
+                hidden_states = hidden_states + ff_output
+
+                if controlnet_residual is not None:
+                    hidden_states = hidden_states + controlnet_residual
+
+                if blk.after_proj is not None:
+                    hs_proj = blk.after_proj(hidden_states)
+                    return hidden_states, hs_proj
+
+                return hidden_states
+            return _ungated_forward
+
+        for _blk in transformer.transformer_blocks:
+            _blk.forward = _make_ungated_forward(_blk)
 
         # --- Scheduler ---
         scheduler = FlowMatchEulerDiscreteScheduler(
@@ -301,105 +511,135 @@ class model_factory:
             use_dynamic_shifting=False,
         )
 
-        # --- Pipeline ---
-        # We bypass Cosmos2TextToImagePipeline entirely — generate() calls
-        # transformer, scheduler, and VAE directly. Just store references.
+        # --- Store references ---
         self.transformer = transformer
         self.text_encoder = text_encoder
         self.tokenizer = tokenizer
+        self.t5_tokenizer = t5_tokenizer
         self.vae = vae
         self.scheduler = scheduler
-        self.pipeline = self  # Wan2GP expects .pipeline attribute
+        self.pipeline = self
         self._interrupt_flag = False
 
+    # ------------------------------------------------------------------
+    # Text encoding with LLM adapter
+    # ------------------------------------------------------------------
+    def _encode_text(self, text: str, device: torch.device) -> torch.Tensor:
+        """Encode text through Qwen3 → LLM adapter → padded embeddings."""
+        # 1. Qwen3 encoding
+        qwen_ids = self.tokenizer(
+            text, return_tensors="pt", padding="max_length",
+            max_length=256, truncation=True,
+        ).input_ids
+        # Move token IDs to same device as text encoder (mmgp may place it on GPU)
+        te_device = next(self.text_encoder.parameters()).device
+        qwen_ids = qwen_ids.to(te_device)
+        with torch.no_grad():
+            te_out = self.text_encoder(input_ids=qwen_ids, output_hidden_states=True)
+        qwen_hidden = te_out.hidden_states[-1]  # [1, 256, 1024]
+
+        # 2. T5 tokenization (no special tokens, matching ComfyUI)
+        t5_ids = self.t5_tokenizer.encode(text, add_special_tokens=False)
+        # Both T5 IDs and Qwen3 hidden states must be on the adapter's device
+        # (may be CPU if mmgp hasn't offloaded the adapter to GPU yet)
+        adapter_device = next(self.transformer.llm_adapter.parameters()).device
+        qwen_hidden = qwen_hidden.to(adapter_device)
+        t5_ids_tensor = torch.tensor(t5_ids, dtype=torch.long, device=adapter_device).unsqueeze(0)
+
+        # 3. LLM adapter: cross-attend T5 tokens to Qwen3 hidden states
+        with torch.no_grad():
+            adapter_out = self.transformer.llm_adapter(
+                qwen_hidden, t5_ids_tensor
+            )  # [1, t5_len, 1024]
+        adapter_out = adapter_out.to(device)  # Move to target device for transformer
+
+        # 4. Pad to 512 tokens (matching ComfyUI's preprocess_text_embeds)
+        if adapter_out.shape[1] < 512:
+            pad_len = 512 - adapter_out.shape[1]
+            adapter_out = F.pad(adapter_out, (0, 0, 0, pad_len))
+
+        return adapter_out
+
+    # ------------------------------------------------------------------
+    # Generation
+    # ------------------------------------------------------------------
     def generate(
         self,
-        seed: int | None = None,
-        input_prompt: str = "",
-        n_prompt: str | None = None,
-        sampling_steps: int = 30,
-        width: int = 512,
-        height: int = 512,
-        guide_scale: float = 4.0,
-        batch_size: int = 1,
+        seed=None,
+        input_prompt="",
+        n_prompt=None,
+        sampling_steps=30,
+        width=512,
+        height=512,
+        guide_scale=4.0,
+        batch_size=1,
         callback=None,
-        max_sequence_length: int = 512,
+        max_sequence_length=512,
         VAE_tile_size=None,
         loras_slists=None,
         **kwargs,
     ):
-        """Minimal T2I generation using raw components.
-
-        Bypasses Cosmos2TextToImagePipeline (RoPE shape issues, VRAM overhead).
-        Directly calls transformer, scheduler, and VAE with cache clearing
-        between steps to keep VRAM usage stable.
-
-        NOTE: Does NOT manually move modules — mmgp's offloadobj handles
-        device placement. Only creates tensors on the target device.
-        """
-        import gc
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         dtype = self.transformer.dtype
 
+        # Move models to GPU for inference (mmgp handles this in production via
+        # offload.profile, but for standalone use we do it explicitly)
+        if self.transformer.device.type != device.type:
+            self.transformer.to(device)
+        if hasattr(self, 'vae') and hasattr(self.vae, 'device') and self.vae.device.type != device.type:
+            self.vae.to(device)
+        # LLM adapter might not be on GPU even if transformer is
+        if hasattr(self.transformer, 'llm_adapter'):
+            adapter_dev = next(self.transformer.llm_adapter.parameters()).device
+            if adapter_dev.type != device.type:
+                self.transformer.llm_adapter.to(device)
+
         if VAE_tile_size is not None and hasattr(self.vae, "use_tiling"):
             if isinstance(VAE_tile_size, int):
-                tiling = VAE_tile_size > 0
-                tile_size = max(VAE_tile_size, 0)
-            else:
-                tiling = bool(VAE_tile_size[0])
-                tile_size = VAE_tile_size[1] if len(VAE_tile_size) > 1 else 0
-            self.vae.use_tiling = tiling
-            self.vae.tile_latent_min_height = tile_size
-            self.vae.tile_latent_min_width = tile_size
+                self.vae.use_tiling = VAE_tile_size > 0
+                self.vae.tile_latent_min_height = max(VAE_tile_size, 0)
+                self.vae.tile_latent_min_width = max(VAE_tile_size, 0)
 
-        # Seed
-        generator = torch.Generator(device=device)
+        generator = torch.Generator()
         if seed is not None and seed >= 0:
             generator.manual_seed(int(seed))
 
-        # mmgp manages device placement — do NOT call .to() on modules.
-        # Only clear caches to ensure clean state.
         torch.cuda.empty_cache()
         gc.collect()
 
-        # Encode text — text_encoder stays where mmgp put it
+        # Encode text via Qwen3 → LLM adapter
         neg = n_prompt or "worst quality, low quality, score_1, score_2, score_3, artist name"
-        def _encode(text):
-            ids = self.tokenizer(
-                text, return_tensors="pt", padding="max_length",
-                max_length=256, truncation=True,
-            ).input_ids
-            with torch.no_grad():
-                out = self.text_encoder(
-                    input_ids=ids, output_hidden_states=True
-                )
-            return out.hidden_states[-1].to(device)
+        neg_embeds = self._encode_text(neg, device)
+        pos_embeds = self._encode_text(input_prompt, device)
 
-        neg_embeds = _encode(neg)
-        pos_embeds = _encode(input_prompt)
-
-        # Create latents on device
-        vae_scale = 8  # Qwen VAE spatial compression
+        # Create latents
+        vae_scale = 8
         latent_h, latent_w = height // vae_scale, width // vae_scale
         latents = torch.randn(
             1, 16, latent_h, latent_w, generator=generator,
-            device=device, dtype=dtype,
-        )
+            device="cpu", dtype=dtype,
+        ).to(device)
         self.scheduler.set_timesteps(sampling_steps, device=device)
 
         # Denoising loop
+        # When concat_padding_mask=True, the model expects a binary mask [1, 1, H, W]
+        # concatenated to the latent input (adding 1 channel → 17 channels → 68 after patch).
+        # The diffusers transformer handles batch repeating internally.
+        padding_mask = torch.ones(
+            1, 1, latent_h, latent_w, device=device, dtype=dtype,
+        )
+
         for t in self.scheduler.timesteps:
             with torch.no_grad():
-                # CFG: duplicate latents and embeds for conditional/unconditional
-                latent_in = torch.cat([latents] * 2).unsqueeze(2)  # [2B, C, 1, H, W]
+                latent_in = torch.cat([latents] * 2).unsqueeze(2)  # [2, C, 1, H, W]
                 embeds = torch.cat([neg_embeds, pos_embeds])
                 noise_pred = self.transformer(
                     hidden_states=latent_in,
                     encoder_hidden_states=embeds,
                     timestep=t.expand(2),
+                    padding_mask=padding_mask,
                     return_dict=False,
                 )[0]
-            # CFG split
             np_u, np_t = noise_pred.chunk(2)
             del noise_pred, latent_in, embeds
             noise_pred = np_u + guide_scale * (np_t - np_u)
@@ -410,20 +650,40 @@ class model_factory:
             del noise_pred
             torch.cuda.empty_cache()
 
+        # Offload transformer before VAE decode to free VRAM
+        self.transformer.to("cpu")
+        torch.cuda.empty_cache()
+        gc.collect()
+
         # Decode latents → image
-        # Cosmos VAE is 3D (video) — add temporal dim for decode
+        # The Qwen-Image VAE expects denormalized latents:
+        #   latents_denorm = latents * std + mean
+        # The diffusion process produces normalized latents, so we must undo
+        # the normalization that was applied during encoding.
         with torch.no_grad():
+            if hasattr(self.vae, 'device') and self.vae.device.type != device.type:
+                self.vae.to(device)
             latents_5d = latents.float().unsqueeze(2)  # [B, C, 1, H, W]
-            image = self.vae.decode(latents_5d, return_dict=False)[0]
-            image = image.squeeze(2)  # [B, C, H, W] — remove temporal dim
-        image = image.clamp(0, 1)
+            if hasattr(self.vae, 'config') and hasattr(self.vae.config, 'latents_mean'):
+                vae_z_dim = latents_5d.shape[1]
+                latents_mean = (
+                    torch.tensor(self.vae.config.latents_mean)
+                    .view(1, vae_z_dim, 1, 1, 1)
+                    .to(latents_5d.device, latents_5d.dtype)
+                )
+                latents_std = (
+                    torch.tensor(self.vae.config.latents_std)
+                    .view(1, vae_z_dim, 1, 1, 1)
+                    .to(latents_5d.device, latents_5d.dtype)
+                )
+                latents_5d = latents_5d * latents_std + latents_mean
 
-        if not torch.is_tensor(image):
-            image = torch.tensor(image)
-
-        # Return 3D [C, H, W] for single image (deployment.py encodes
-        # 4D tensors as video, 3D as image)
-        return image[0]  # squeeze batch dim → [C, H, W]
+            # Decode using the standard decode path (returns float tensor)
+            # decode_to_cpu_uint8 can return None in some edge cases
+            decoded = self.vae.decode(latents_5d, return_dict=False)[0]
+            image = decoded.squeeze(2)  # [B, C, H, W] — remove temporal dim
+            image = image.clamp(-1, 1)  # VAE output is typically [-1, 1]
+            return image[0]  # [C, H, W] float
 
     def get_loras_transformer(self, *args, **kwargs):
         return [], []

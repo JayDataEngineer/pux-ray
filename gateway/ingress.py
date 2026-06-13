@@ -455,13 +455,19 @@ class APIIngress:
             "params": dict(request.query_params),
             "raw": True,
         }
-        if request.method == "POST":
+        if request.method in ("POST", "PUT"):
             ct = request.headers.get("content-type", "")
             if "application/json" in ct:
                 try:
                     payload["body"] = await request.json()
                 except Exception:
                     pass
+            else:
+                # Forward raw binary body (screenshots, exports, etc.)
+                body_bytes = await request.body()
+                if body_bytes:
+                    payload["body_b64"] = base64.b64encode(body_bytes).decode()
+                    payload["content_type"] = ct or "application/octet-stream"
         result = await forge.invoke.remote("kimodo_demo", payload)
         if isinstance(result, dict) and result.get("raw_response"):
             return Response(
@@ -477,21 +483,36 @@ class APIIngress:
         Viser's client computes the WS URL from the page URL:
         page /kimodo/ → ws://host/kimodo
         We strip the prefix and proxy to the Viser server root.
+
+        Viser requires the client to send a viser-vVERSION sub-protocol.
+        We forward it from the browser's handshake so the version check passes.
         """
         import websockets
         from starlette.websockets import WebSocketDisconnect
 
-        await ws.accept()
+        # Extract Viser sub-protocol from browser's WebSocket handshake.
+        # Viser rejects connections that don't carry viser-vVERSION.
+        subprotocols = ws.scope.get("subprotocols", [])
+        viser_proto = next(
+            (p for p in subprotocols if p.startswith("viser-v")),
+            None,
+        )
+
+        await ws.accept(subprotocol=viser_proto)
         path = ws.url.path.replace("/kimodo", "") or "/"
         query = ws.url.query
         target = f"ws://127.0.0.1:18470{path}"
         if query:
             target += f"?{query}"
 
-        logger.info("Kimodo WS proxy: %s -> %s", ws.url.path, target)
+        logger.info("Kimodo WS proxy: %s -> %s (subproto=%s)", ws.url.path, target, viser_proto)
+
+        connect_kwargs: dict[str, Any] = {}
+        if viser_proto:
+            connect_kwargs["subprotocols"] = [viser_proto]
 
         try:
-            async with websockets.connect(target) as backend:
+            async with websockets.connect(target, **connect_kwargs) as backend:
                 async def to_backend():
                     try:
                         while True:
@@ -772,6 +793,7 @@ def create_app() -> Starlette:
         Route("/kimodo/{path:path}", ingress.kimodo_proxy, methods=["GET", "POST", "PUT", "DELETE"]),
         Route("/kimodo", ingress.kimodo_proxy, methods=["GET", "POST", "PUT", "DELETE"]),
         WebSocketRoute("/kimodo", ingress.kimodo_ws_proxy),
+        WebSocketRoute("/kimodo/{path:path}", ingress.kimodo_ws_proxy),
         # ComfyUI (proxy all paths — ComfyUI has its own routing)
         Route("/comfyui/{path:path}", ingress.comfyui_proxy, methods=["GET", "POST", "PUT", "DELETE"]),
         Route("/comfyui", ingress.comfyui_proxy, methods=["GET", "POST", "PUT", "DELETE"]),

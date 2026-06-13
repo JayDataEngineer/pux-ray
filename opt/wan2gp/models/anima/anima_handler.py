@@ -2,12 +2,14 @@
 
 Anima is a 2B anime/illustration model by CircleStone Labs + Comfy Org,
 built on NVIDIA Cosmos architecture. Uses Qwen3 0.6B text encoder and
-Qwen-Image VAE — same VAE as the Qwen/Z-Image family.
+Qwen-Image VAE (same VAE as the Qwen/Z-Image family, loaded via
+AutoencoderKLQwenImage in diffusers format).
 
-HuggingFace repo structure:
-  split_files/diffusion_models/anima-base-v1.0.safetensors
-  split_files/text_encoders/qwen_3_06b_base.safetensors
-  split_files/vae/qwen_image_vae.safetensors
+Files downloaded:
+  - Transformer: from defaults/anima_base.json URL (ComfyUI format, key-converted)
+  - Text encoder: circlestone-labs/Anima → split_files/text_encoders/qwen_3_06b_base.safetensors
+  - VAE: DeepBeepMeep/Qwen_image → qwen_vae.safetensors (diffusers format)
+  - VAE config: DeepBeepMeep/Qwen_image → qwen_vae_config.json
 """
 import os
 import torch
@@ -62,13 +64,24 @@ class family_handler:
     def query_model_files(computeList, base_model_type, model_def=None):
         download_def = [
             {
+                # Text encoder from Anima repo (ComfyUI format)
                 "repoId": "circlestone-labs/Anima",
-                "sourceFolderList": ["split_files/text_encoders", "split_files/vae"],
+                "sourceFolderList": ["split_files/text_encoders"],
                 "fileList": [
                     ["qwen_3_06b_base.safetensors"],
-                    ["qwen_image_vae.safetensors"],
                 ],
-            }
+            },
+            {
+                # VAE in diffusers format from Qwen Image repo — the ComfyUI-format
+                # VAE from circlestone-labs/Anima has different state_dict keys that
+                # don't match AutoencoderKLCosmos OR AutoencoderKLQwenImage (0/194
+                # keys matched).  The diffusers-format file has matching keys.
+                "repoId": "DeepBeepMeep/Qwen_image",
+                "sourceFolderList": [""],
+                "fileList": [
+                    ["qwen_vae.safetensors", "qwen_vae_config.json"],
+                ],
+            },
         ]
         return download_def
 

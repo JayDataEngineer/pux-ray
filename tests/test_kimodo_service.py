@@ -25,25 +25,12 @@ import pytest
 
 FORGE_URL = os.environ.get("FORGE_URL", "")
 
-# Read wrapper script from source file without importing (avoids ray dependency)
-_WRAPPER_SCRIPT: str | None = None
-
 def _get_wrapper_script() -> str:
-    global _WRAPPER_SCRIPT
-    if _WRAPPER_SCRIPT is None:
-        src = Path(__file__).resolve().parent.parent / "services" / "motion" / "kimodo_demo.py"
-        if not src.exists():
-            pytest.skip("services/motion/kimodo_demo.py not found")
-        content = src.read_text()
-        # Extract _WRAPPER_SCRIPT = textwrap.dedent("""...""")
-        import textwrap
-        start = content.find('"""\\') + 4  # after the opening """\
-        # Find the end: the closing """) right after the wrapper content
-        end = content.find('""")', start)
-        if start < 4 or end < 0:
-            pytest.skip("Could not parse _WRAPPER_SCRIPT from source")
-        _WRAPPER_SCRIPT = textwrap.dedent(content[start:end])
-    return _WRAPPER_SCRIPT
+    """Read the kimodo launcher script (monkey-patches huggingface_hub)."""
+    src = Path(__file__).resolve().parent.parent / "services" / "motion" / "_run_kimodo.py"
+    if not src.exists():
+        pytest.skip("services/motion/_run_kimodo.py not found")
+    return src.read_text()
 
 
 def _forge_req(payload: dict, timeout: int = 30) -> dict:
@@ -241,11 +228,11 @@ class TestKimodoServiceConfig:
         assert "_FakeModelInfo" in wrapper
         assert "huggingface_hub" in wrapper
 
-    def test_wrapper_resolves_cache_paths(self):
-        """Verify wrapper resolves repo IDs to local snapshot paths."""
+    def test_wrapper_sets_offline_mode(self):
+        """Verify wrapper sets HF offline environment variables."""
         wrapper = _get_wrapper_script()
-        assert "scan_cache_dir" in wrapper
-        assert "_repo_to_local" in wrapper
+        assert "HF_HUB_OFFLINE" in wrapper
+        assert "TRANSFORMERS_OFFLINE" in wrapper
 
     def test_wrapper_starts_kimodo(self):
         """Verify wrapper calls kimodo.demo.main()."""

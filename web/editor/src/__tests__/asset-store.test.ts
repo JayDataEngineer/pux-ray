@@ -26,7 +26,7 @@ describe('AssetStore — CRUD', () => {
     expect(asset.source).toBe('uploaded')
   })
 
-  it('addAsset persists to localStorage', () => {
+  it('addAsset persists metadata to localStorage', () => {
     useAssetStore.getState().addAsset({
       name: 'persist.png',
       type: 'image',
@@ -41,6 +41,55 @@ describe('AssetStore — CRUD', () => {
     const parsed = JSON.parse(raw!)
     expect(parsed).toHaveLength(1)
     expect(parsed[0].name).toBe('persist.png')
+  })
+
+  it('addAsset strips data URLs from localStorage (uses IndexedDB placeholder)', () => {
+    const bigDataUrl = 'data:image/png;base64,' + 'A'.repeat(5000)
+    useAssetStore.getState().addAsset({
+      name: 'big.png',
+      type: 'image',
+      category: 'image',
+      mediaType: 'image/png',
+      url: bigDataUrl,
+      sizeBytes: 3750,
+      source: 'generated',
+    })
+    const raw = localStorage.getItem('tech_noir_assets')
+    const parsed = JSON.parse(raw!)
+    // The stored url should be the asset ID (placeholder), NOT the data URL
+    expect(parsed[0].url).not.toBe(bigDataUrl)
+    expect(parsed[0].url).toBeTruthy() // should be the ID
+  })
+
+  it('addAsset leaves non-data URLs as-is in localStorage', () => {
+    useAssetStore.getState().addAsset({
+      name: 'server.png',
+      type: 'image',
+      category: 'image',
+      mediaType: 'image/png',
+      url: '/v1/artifacts/123/image.png',
+      sizeBytes: 0,
+      source: 'uploaded',
+    })
+    const raw = localStorage.getItem('tech_noir_assets')
+    const parsed = JSON.parse(raw!)
+    expect(parsed[0].url).toBe('/v1/artifacts/123/image.png')
+  })
+
+  it('in-memory asset retains the full data URL', () => {
+    const dataUrl = 'data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQAAAAA='
+    useAssetStore.getState().addAsset({
+      name: 'voice.wav',
+      type: 'audio',
+      category: 'voice',
+      mediaType: 'audio/wav',
+      url: dataUrl,
+      sizeBytes: 44,
+      source: 'generated',
+    })
+    // The in-memory asset should still have the full URL
+    const assets = useAssetStore.getState().assets
+    expect(assets[0].url).toBe(dataUrl)
   })
 
   it('removeAsset removes the asset', () => {

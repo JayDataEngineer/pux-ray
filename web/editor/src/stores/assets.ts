@@ -1,11 +1,12 @@
 import { create } from 'zustand'
 
 // ═══════════════════════════════════════════════════════════════════════════
-// IndexedDB for large video assets (beyond localStorage ~5MB limit)
+// IndexedDB for all asset blobs (images, audio, video — anything with data: URL)
+// localStorage only holds metadata (~few KB). Base64 blobs go to IndexedDB.
 // ═══════════════════════════════════════════════════════════════════════════
 const DB_NAME = 'TechNoirAssetsDB'
-const DB_VERSION = 1
-const STORE_NAME = 'videos'
+const DB_VERSION = 2  // bumped: renamed store semantics
+const STORE_NAME = 'blobs'
 
 let dbPromise: Promise<IDBDatabase> | null = null
 
@@ -20,8 +21,14 @@ function getDB(): Promise<IDBDatabase> {
 
     request.onupgradeneeded = (event) => {
       const db = (event.target as IDBOpenDBRequest).result
+      // If old 'videos' store exists from v1, rename isn't possible — just
+      // create 'blobs' and rely on loadPersisted to migrate data.
       if (!db.objectStoreNames.contains(STORE_NAME)) {
         db.createObjectStore(STORE_NAME)
+      }
+      // Delete the old v1 'videos' store if it exists
+      if (db.objectStoreNames.contains('videos')) {
+        db.deleteObjectStore('videos')
       }
     }
   })
@@ -29,24 +36,21 @@ function getDB(): Promise<IDBDatabase> {
   return dbPromise
 }
 
-async function saveVideoToIndexedDB(assetId: string, dataUrl: string): Promise<void> {
+async function saveBlob(assetId: string, dataUrl: string): Promise<void> {
   const db = await getDB()
   const tx = db.transaction(STORE_NAME, 'readwrite')
-  const store = tx.objectStore(STORE_NAME)
-  store.put(dataUrl, assetId)
+  tx.objectStore(STORE_NAME).put(dataUrl, assetId)
   await new Promise<void>((resolve, reject) => {
     tx.oncomplete = () => resolve()
     tx.onerror = () => reject(tx.error)
   })
 }
 
-async function loadVideoFromIndexedDB(assetId: string): Promise<string | null> {
+async function loadBlob(assetId: string): Promise<string | null> {
   try {
     const db = await getDB()
     const tx = db.transaction(STORE_NAME, 'readonly')
-    const store = tx.objectStore(STORE_NAME)
-    const request = store.get(assetId)
-
+    const request = tx.objectStore(STORE_NAME).get(assetId)
     return new Promise((resolve, reject) => {
       request.onsuccess = () => resolve(request.result || null)
       request.onerror = () => reject(request.error)
@@ -56,15 +60,34 @@ async function loadVideoFromIndexedDB(assetId: string): Promise<string | null> {
   }
 }
 
-async function deleteVideoFromIndexedDB(assetId: string): Promise<void> {
+async function deleteBlob(assetId: string): Promise<void> {
   const db = await getDB()
   const tx = db.transaction(STORE_NAME, 'readwrite')
-  const store = tx.objectStore(STORE_NAME)
-  store.delete(assetId)
+  tx.objectStore(STORE_NAME).delete(assetId)
   await new Promise<void>((resolve, reject) => {
     tx.oncomplete = () => resolve()
     tx.onerror = () => reject(tx.error)
   })
+}
+
+async function clearBlobs(): Promise<void> {
+  const db = await getDB()
+  const tx = db.transaction(STORE_NAME, 'readwrite')
+  tx.objectStore(STORE_NAME).clear()
+  await new Promise<void>((resolve, reject) => {
+    tx.oncomplete = () => resolve()
+    tx.onerror = () => reject(tx.error)
+  })
+}
+
+// Backward-compatible aliases (used by timeline store which imports the old names)
+export const _saveVideoToIndexedDB = saveBlob
+export const _loadVideoFromIndexedDB = loadBlob
+export const _deleteVideoFromIndexedDB = deleteBlob
+
+/** Check if a URL is a base64 data: URL (large — must go to IndexedDB) */
+function isDataUrl(url: string | undefined): url is string {
+  return typeof url === 'string' && url.startsWith('data:')
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -116,36 +139,36 @@ export function nextAssetName(service: string, ext: string): string {
 // Load persisted assets on init
 async function loadPersisted(): Promise<Asset[]> {
   try {
-    // Load non-video assets
+    // Load metadata from localStorage (single key now)
     const raw = localStorage.getItem('tech_noir_assets')
-    const assets: Asset[] = raw ? JSON.parse(raw) : []
+    if (!raw) {
+      console.log('[Assets] No persisted assets found')
+      return []
+    }
 
-    // Load video metadata and merge with assets
-    const rawVideos = localStorage.getItem('tech_noir_videos')
-    const videoMetadata: Asset[] = rawVideos ? JSON.parse(rawVideos) : []
+    const assets: Asset[] = JSON.parse(raw)
 
-    // Merge video metadata with other assets
-    const allAssets = [...assets, ...videoMetadata]
-
-    // Restore video data URLs from IndexedDB
-    const videos = allAssets.filter(a => a.type === 'video')
-    for (const video of videos) {
-      if (!video.url.startsWith('data:')) {
-        // URL is a placeholder (just asset ID), load actual data from IndexedDB
-        const dataUrl = await loadVideoFromIndexedDB(video.id)
+    // Restore data URLs from IndexedDB for any asset whose url is a blob placeholder
+    let restoredCount = 0
+    let failedCount = 0
+    for (const asset of assets) {
+      // Placeholder format: url is just the asset ID (meaning blob is in IndexedDB)
+      if (!isDataUrl(asset.url) && asset.url === asset.id) {
+        const dataUrl = await loadBlob(asset.id)
         if (dataUrl) {
-          video.url = dataUrl
+          asset.url = dataUrl
+          restoredCount++
         } else {
-          // Video not found in IndexedDB, remove from assets
-          console.warn('[Assets] Video not found in IndexedDB:', video.name)
-          const idx = allAssets.indexOf(video)
-          if (idx > -1) allAssets.splice(idx, 1)
+          console.warn('[Assets] Blob not found in IndexedDB:', asset.name, asset.id)
+          // Don't remove — keep metadata so user knows it existed
+          asset.url = ''
+          failedCount++
         }
       }
     }
 
-    console.log('[Assets] Loaded', allAssets.length, 'assets from localStorage + IndexedDB')
-    return allAssets
+    console.log(`[Assets] Loaded ${assets.length} assets from localStorage + IndexedDB (${restoredCount} restored, ${failedCount} missing)`)
+    return assets
   } catch (e) {
     console.error('[Assets] Failed to load assets:', e)
     return []
@@ -154,37 +177,38 @@ async function loadPersisted(): Promise<Asset[]> {
 
 function persist(assets: Asset[]) {
   try {
-    // Separate videos from other assets
-    const videos = assets.filter(a => a.type === 'video')
-    const others = assets.filter(a => a.type !== 'video')
+    // Collect blob saves
+    const blobSaves: Promise<void>[] = []
 
-    // Save non-video assets to localStorage (images, audio - small enough)
-    localStorage.setItem('tech_noir_assets', JSON.stringify(others))
-    console.log('[Assets] Persisted', others.length, 'non-video assets to localStorage (tech_noir_assets)')
+    // Build metadata: strip data: URLs, replace with ID placeholder
+    const metadata = assets.map(a => {
+      if (isDataUrl(a.url)) {
+        // Queue the blob save
+        blobSaves.push(saveBlob(a.id, a.url))
+        // Return metadata with placeholder
+        const { url: _url, thumbnailUrl: _thumb, ...rest } = a
+        return { ...rest, url: a.id } as Asset
+      }
+      // Also handle thumbnailUrl if it's a data URL
+      if (isDataUrl(a.thumbnailUrl) && !isDataUrl(a.url)) {
+        blobSaves.push(saveBlob(a.id + '_thumb', a.thumbnailUrl!))
+        const { thumbnailUrl: _thumb, ...rest } = a
+        return { ...rest, thumbnailUrl: a.id + '_thumb' } as Asset
+      }
+      return a
+    })
 
-    // Save video data URLs to IndexedDB, store placeholder in localStorage
-    const videoMetadata = videos.map(({ id, name, type, category, mediaType, sizeBytes, source, createdAt, prompt }) => ({
-      id, name, type, category, mediaType, sizeBytes, source, createdAt, prompt,
-      url: id  // Placeholder - actual data loaded from IndexedDB
-    }))
+    // Save only metadata to localStorage (small — no base64 blobs)
+    localStorage.setItem('tech_noir_assets', JSON.stringify(metadata))
+    console.log('[Assets] Persisted', metadata.length, 'asset metadata to localStorage')
 
-    // Save video metadata to separate localStorage key
-    localStorage.setItem('tech_noir_videos', JSON.stringify(videoMetadata))
-    console.log('[Assets] Persisted', videoMetadata.length, 'video metadata to localStorage (tech_noir_videos)')
-
-    // Save actual video data to IndexedDB
-    Promise.all(
-      videos.map(v => {
-        if (v.url.startsWith('data:')) {
-          return saveVideoToIndexedDB(v.id, v.url)
-        }
-        return Promise.resolve()
-      })
-    ).then(() => {
-      console.log('[Assets] Successfully saved', videos.length, 'videos to IndexedDB')
-    }).catch(err => console.error('[Assets] Failed to save videos to IndexedDB:', err))
-
-    console.log('[Assets] Total assets persisted:', assets.length, `(${others.length} non-video, ${videos.length} videos)`)
+    // Fire-and-forget blob saves to IndexedDB
+    const blobCount = blobSaves.length
+    if (blobCount > 0) {
+      Promise.all(blobSaves).then(() => {
+        console.log('[Assets] Saved', blobCount, 'blobs to IndexedDB')
+      }).catch(err => console.error('[Assets] Failed to save blobs to IndexedDB:', err))
+    }
   } catch (e) {
     console.error('[Assets] Failed to persist assets:', e)
   }
@@ -213,24 +237,14 @@ export const useAssetStore = create<AssetStore>((set, get) => ({
       return { assets: updated }
     })
 
-    // Save video data to IndexedDB if it's a video with data URL
-    if (asset.type === 'video' && asset.url.startsWith('data:')) {
-      saveVideoToIndexedDB(asset.id, asset.url).catch(err =>
-        console.error('[Assets] Failed to save video to IndexedDB:', err)
-      )
-    }
-
     return asset
   },
 
   removeAsset: (id) => {
-    // Delete from IndexedDB if it's a video
-    const existing = get().assets.find(a => a.id === id)
-    if (existing?.type === 'video') {
-      deleteVideoFromIndexedDB(id).catch(err =>
-        console.error('[Assets] Failed to delete video from IndexedDB:', err)
-      )
-    }
+    // Delete blob from IndexedDB
+    deleteBlob(id).catch(err =>
+      console.error('[Assets] Failed to delete blob from IndexedDB:', err)
+    )
 
     set((s) => {
       const updated = s.assets.filter((a) => a.id !== id)
@@ -249,13 +263,11 @@ export const useAssetStore = create<AssetStore>((set, get) => ({
 
   clear: () => {
     localStorage.removeItem('tech_noir_assets')
+    // Also clean up old v1 key if present
     localStorage.removeItem('tech_noir_videos')
 
     // Clear IndexedDB
-    getDB().then(db => {
-      const tx = db.transaction(STORE_NAME, 'readwrite')
-      tx.objectStore(STORE_NAME).clear()
-    }).catch(err => console.error('[Assets] Failed to clear IndexedDB:', err))
+    clearBlobs().catch(err => console.error('[Assets] Failed to clear IndexedDB:', err))
 
     set({ assets: [] })
   },

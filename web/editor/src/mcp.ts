@@ -272,7 +272,7 @@ export async function invokeService(
 }
 
 export async function invokeServiceFormData(
-  service: string,
+  _service: string,
   formData: FormData,
 ): Promise<ServiceResult> {
   const res = await fetch('/v1/run', {

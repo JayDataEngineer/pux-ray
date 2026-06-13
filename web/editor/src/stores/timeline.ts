@@ -8,6 +8,230 @@ function uid(): string {
   return `seg_${_nextId++}_${Date.now().toString(36)}`
 }
 
+// ═══════════════════════════════════════════════════════════════════════════
+// IndexedDB for large timeline data (video URLs, frame b64, relay video)
+// ═══════════════════════════════════════════════════════════════════════════
+const TL_DB_NAME = 'TechNoirTimelineDB'
+const TL_DB_VERSION = 1
+const TL_STORE = 'blobs'
+
+let tlDbPromise: Promise<IDBDatabase> | null = null
+
+function getTLDB(): Promise<IDBDatabase> {
+  if (tlDbPromise) return tlDbPromise
+  tlDbPromise = new Promise((resolve, reject) => {
+    const req = indexedDB.open(TL_DB_NAME, TL_DB_VERSION)
+    req.onerror = () => reject(req.error)
+    req.onsuccess = () => resolve(req.result)
+    req.onupgradeneeded = (ev) => {
+      const db = (ev.target as IDBOpenDBRequest).result
+      if (!db.objectStoreNames.contains(TL_STORE)) {
+        db.createObjectStore(TL_STORE)
+      }
+    }
+  })
+  return tlDbPromise
+}
+
+async function tlSave(key: string, value: string): Promise<void> {
+  const db = await getTLDB()
+  const tx = db.transaction(TL_STORE, 'readwrite')
+  tx.objectStore(TL_STORE).put(value, key)
+  await new Promise<void>((res, rej) => { tx.oncomplete = () => res(); tx.onerror = () => rej(tx.error) })
+}
+
+async function tlLoad(key: string): Promise<string | null> {
+  try {
+    const db = await getTLDB()
+    const tx = db.transaction(TL_STORE, 'readonly')
+    const req = tx.objectStore(TL_STORE).get(key)
+    return new Promise((res, rej) => { req.onsuccess = () => res(req.result || null); req.onerror = () => rej(req.error) })
+  } catch { return null }
+}
+
+export async function _tlDelete(key: string): Promise<void> {
+  const db = await getTLDB()
+  const tx = db.transaction(TL_STORE, 'readwrite')
+  tx.objectStore(TL_STORE).delete(key)
+  await new Promise<void>((res, rej) => { tx.oncomplete = () => res(); tx.onerror = () => rej(tx.error) })
+}
+
+async function tlClearAll(): Promise<void> {
+  const db = await getTLDB()
+  const tx = db.transaction(TL_STORE, 'readwrite')
+  tx.objectStore(TL_STORE).clear()
+  await new Promise<void>((res, rej) => { tx.oncomplete = () => res(); tx.onerror = () => rej(tx.error) })
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Timeline persistence helpers
+// ═══════════════════════════════════════════════════════════════════════════
+
+// Fields that may contain large base64 data URLs — stored in IndexedDB
+const BLOB_FIELDS = ['videoUrl', 'firstFrameB64', 'lastFrameB64', 'thumbnailUrl'] as const
+
+function isDataUrl(val: unknown): val is string {
+  return typeof val === 'string' && val.startsWith('data:')
+}
+
+// Blob keys use "TLB:" prefix to avoid collision with segment IDs ("seg_")
+const BLOB_PREFIX = 'TLB:'
+
+function blobKey(segId: string, field: string): string {
+  return `${BLOB_PREFIX}${segId}_${field}`
+}
+
+function isBlobRef(val: unknown): val is string {
+  return typeof val === 'string' && val.startsWith(BLOB_PREFIX)
+}
+
+// Save: strip large blobs from segments, store them in IndexedDB
+async function persistTimeline(
+  segments: TimelineSegment[],
+  audioCues: AudioCue[],
+  audioTracks: AudioTrackDef[],
+  relayVideoUrl: string | null,
+  relaySegmentIds: string[],
+  relayAssetId: string | null,
+) {
+  try {
+    // Collect blob saves
+    const blobSaves: Promise<void>[] = []
+
+    // Strip blobs from segments, replace with keys
+    const strippedSegments = segments.map(seg => {
+      const clone = { ...seg, params: { ...seg.params } }
+      for (const field of BLOB_FIELDS) {
+        const val = clone[field] as string | null
+        if (isDataUrl(val)) {
+          const key = blobKey(seg.id, field)
+          blobSaves.push(tlSave(key, val))
+          ;(clone as any)[field] = key // placeholder
+        }
+      }
+      // Also handle controlVideoUrl
+      if (isDataUrl(clone.controlVideoUrl)) {
+        const key = blobKey(seg.id, 'controlVideoUrl')
+        blobSaves.push(tlSave(key, clone.controlVideoUrl!))
+        clone.controlVideoUrl = key
+      }
+      return clone
+    })
+
+    // Strip blobs from audio cues
+    const strippedCues = audioCues.map(cue => {
+      const clone = { ...cue }
+      if (isDataUrl(clone.audioUrl)) {
+        const key = `${BLOB_PREFIX}cue_${cue.id}_audioUrl`
+        blobSaves.push(tlSave(key, clone.audioUrl!))
+        clone.audioUrl = key
+      }
+      if (isDataUrl(clone.audioB64)) {
+        const key = `${BLOB_PREFIX}cue_${cue.id}_audioB64`
+        blobSaves.push(tlSave(key, clone.audioB64!))
+        clone.audioB64 = key
+      }
+      return clone
+    })
+
+    // Relay video blob
+    let relayBlobKey: string | null = null
+    if (isDataUrl(relayVideoUrl)) {
+      relayBlobKey = `${BLOB_PREFIX}relay_video`
+      blobSaves.push(tlSave(relayBlobKey, relayVideoUrl))
+    }
+
+    // Save metadata to localStorage
+    const metadata = {
+      segments: strippedSegments,
+      audioCues: strippedCues,
+      audioTracks,
+      relayVideoUrl: relayBlobKey || relayVideoUrl,
+      relaySegmentIds,
+      relayAssetId,
+    }
+    localStorage.setItem('tech_noir_timeline', JSON.stringify(metadata))
+
+    // Fire-and-forget blob saves
+    Promise.all(blobSaves).catch(err =>
+      console.error('[Timeline] Failed to save blobs to IndexedDB:', err)
+    )
+
+    console.log('[Timeline] Persisted', segments.length, 'segments,', audioCues.length, 'cues,', blobSaves.length, 'blobs')
+  } catch (e) {
+    console.error('[Timeline] Failed to persist:', e)
+  }
+}
+
+// Load: read metadata from localStorage, restore blobs from IndexedDB
+async function loadPersistedTimeline(): Promise<{
+  segments: TimelineSegment[]
+  audioCues: AudioCue[]
+  audioTracks: AudioTrackDef[]
+  relayVideoUrl: string | null
+  relaySegmentIds: string[]
+  relayAssetId: string | null
+} | null> {
+  try {
+    const raw = localStorage.getItem('tech_noir_timeline')
+    if (!raw) return null
+
+    const meta = JSON.parse(raw)
+    if (!meta.segments) return null
+
+    // Restore segment blobs
+    const segments: TimelineSegment[] = []
+    for (const seg of meta.segments) {
+      const clone = { ...seg, params: { ...seg.params } }
+      for (const field of BLOB_FIELDS) {
+        const val = clone[field] as string | null
+        if (isBlobRef(val)) {
+          const data = await tlLoad(val)
+          ;(clone as any)[field] = data
+        }
+      }
+      // Restore controlVideoUrl
+      if (isBlobRef(clone.controlVideoUrl)) {
+        clone.controlVideoUrl = await tlLoad(clone.controlVideoUrl)
+      }
+      segments.push(clone)
+    }
+
+    // Restore audio cue blobs
+    const audioCues: AudioCue[] = []
+    for (const cue of meta.audioCues || []) {
+      const clone = { ...cue }
+      if (isBlobRef(clone.audioUrl)) {
+        clone.audioUrl = await tlLoad(clone.audioUrl)
+      }
+      if (isBlobRef(clone.audioB64)) {
+        clone.audioB64 = await tlLoad(clone.audioB64)
+      }
+      audioCues.push(clone)
+    }
+
+    // Restore relay video
+    let relayVideoUrl = meta.relayVideoUrl || null
+    if (isBlobRef(relayVideoUrl)) {
+      relayVideoUrl = await tlLoad(relayVideoUrl)
+    }
+
+    console.log('[Timeline] Loaded', segments.length, 'segments,', audioCues.length, 'cues from localStorage + IndexedDB')
+
+    return {
+      segments,
+      audioCues,
+      audioTracks: meta.audioTracks || [],
+      relayVideoUrl,
+      relaySegmentIds: meta.relaySegmentIds || [],
+      relayAssetId: meta.relayAssetId || null,
+    }
+  } catch (e) {
+    console.error('[Timeline] Failed to load persisted state:', e)
+    return null
+  }
+}
+
 // ── Undo/Redo history ─────────────────────────────────────────────────────────
 const _history: { segments: TimelineSegment[]; audioCues: AudioCue[] }[] = []
 let _historyIdx = -1
@@ -75,6 +299,9 @@ interface TimelineStore {
   relaySegmentIds: string[]
   relayAssetId: string | null
 
+  initialized: boolean
+  initialize: () => Promise<void>
+
   addSegment: (partial?: Partial<TimelineSegment>) => TimelineSegment
   removeSegment: (id: string) => void
   updateSegment: (id: string, patch: Partial<TimelineSegment>) => void
@@ -82,7 +309,7 @@ interface TimelineStore {
   undo: () => void
   redo: () => void
 
-  addAudioCue: (cue: Omit<AudioCue, 'id'>) => void
+  addAudioCue: (cue: Omit<AudioCue, 'id'>) => AudioCue
   removeAudioCue: (id: string) => void
   updateAudioCue: (id: string, patch: Partial<AudioCue>) => void
 
@@ -119,6 +346,11 @@ const DEFAULT_DRAG: DragState = {
   ghostOrder: 0,
 }
 
+// Helper: trigger persistence after state changes
+function persistNow(state: { segments: TimelineSegment[]; audioCues: AudioCue[]; audioTracks: AudioTrackDef[]; relayVideoUrl: string | null; relaySegmentIds: string[]; relayAssetId: string | null }) {
+  persistTimeline(state.segments, state.audioCues, state.audioTracks, state.relayVideoUrl, state.relaySegmentIds, state.relayAssetId)
+}
+
 export const useTimelineStore = create<TimelineStore>((set, get) => ({
   segments: [],
   audioCues: [],
@@ -131,6 +363,43 @@ export const useTimelineStore = create<TimelineStore>((set, get) => ({
   relayVideoUrl: null,
   relaySegmentIds: [],
   relayAssetId: null,
+  initialized: false,
+
+  initialize: async () => {
+    if (get().initialized) return
+    const loaded = await loadPersistedTimeline()
+    if (loaded) {
+      // Restore _nextId to avoid ID collisions
+      const allIds = [
+        ...loaded.segments.map(s => s.id),
+        ...loaded.audioCues.map(c => c.id),
+        ...loaded.audioTracks.map(t => t.id),
+      ]
+      for (const id of allIds) {
+        const numMatch = id.match(/^seg_(\d+)_/)
+        if (numMatch) {
+          const num = parseInt(numMatch[1], 10)
+          if (num >= _nextId) _nextId = num + 1
+        }
+      }
+
+      const totalDuration = loaded.segments.reduce((t, seg) => Math.max(t, seg.start + seg.duration), 0)
+      set({
+        segments: loaded.segments,
+        audioCues: loaded.audioCues,
+        audioTracks: loaded.audioTracks,
+        relayVideoUrl: loaded.relayVideoUrl,
+        relaySegmentIds: loaded.relaySegmentIds,
+        relayAssetId: loaded.relayAssetId,
+        playback: { isPlaying: false, currentTime: 0, totalDuration },
+        initialized: true,
+      })
+      // Seed undo history with loaded state
+      pushHistory(loaded.segments, loaded.audioCues)
+    } else {
+      set({ initialized: true })
+    }
+  },
 
   addSegment: (partial) => {
     const state = get()
@@ -160,41 +429,51 @@ export const useTimelineStore = create<TimelineStore>((set, get) => ({
       pushHistory(segments, s.audioCues)
       return { segments, playback: { ...s.playback, totalDuration } }
     })
+    persistNow(get())
     return seg
   },
 
-  removeSegment: (id) => set((s) => {
-    const segments = s.segments.filter((seg) => seg.id !== id).map((seg, i) => ({ ...seg, order: i }))
-    pushHistory(segments, s.audioCues)
-    // Invalidate relay if removed segment was part of it
-    const relayActive = s.relaySegmentIds.includes(id)
-    return {
-      segments,
-      selectedSegmentId: s.selectedSegmentId === id ? null : s.selectedSegmentId,
-      ...(relayActive ? { relayVideoUrl: null, relaySegmentIds: [] } : {}),
-    }
-  }),
+  removeSegment: (id) => {
+    set((s) => {
+      const segments = s.segments.filter((seg) => seg.id !== id).map((seg, i) => ({ ...seg, order: i }))
+      pushHistory(segments, s.audioCues)
+      // Invalidate relay if removed segment was part of it
+      const relayActive = s.relaySegmentIds.includes(id)
+      return {
+        segments,
+        selectedSegmentId: s.selectedSegmentId === id ? null : s.selectedSegmentId,
+        ...(relayActive ? { relayVideoUrl: null, relaySegmentIds: [] } : {}),
+      }
+    })
+    persistNow(get())
+  },
 
-  updateSegment: (id, patch) => set((s) => {
-    const segments = s.segments.map((seg) => seg.id === id ? { ...seg, ...patch } : seg)
-    pushHistory(segments, s.audioCues)
-    return { segments }
-  }),
+  updateSegment: (id, patch) => {
+    set((s) => {
+      const segments = s.segments.map((seg) => seg.id === id ? { ...seg, ...patch } : seg)
+      pushHistory(segments, s.audioCues)
+      return { segments }
+    })
+    persistNow(get())
+  },
 
-  reorderSegments: (orderedIds) => set((s) => {
-    const map = new Map(s.segments.map((seg) => [seg.id, seg]))
-    let cursor = 0
-    const segments = orderedIds.map((id, i) => {
-      const seg = map.get(id)
-      if (!seg) return null
-      const newSeg = { ...seg, order: i, start: cursor }
-      cursor += seg.duration
-      return newSeg
-    }).filter(Boolean) as TimelineSegment[]
-    const totalDuration = segments.reduce((t, seg) => Math.max(t, seg.start + seg.duration), 0)
-    pushHistory(segments, s.audioCues)
-    return { segments, playback: { ...s.playback, totalDuration } }
-  }),
+  reorderSegments: (orderedIds) => {
+    set((s) => {
+      const map = new Map(s.segments.map((seg) => [seg.id, seg]))
+      let cursor = 0
+      const segments = orderedIds.map((id, i) => {
+        const seg = map.get(id)
+        if (!seg) return null
+        const newSeg = { ...seg, order: i, start: cursor }
+        cursor += seg.duration
+        return newSeg
+      }).filter(Boolean) as TimelineSegment[]
+      const totalDuration = segments.reduce((t, seg) => Math.max(t, seg.start + seg.duration), 0)
+      pushHistory(segments, s.audioCues)
+      return { segments, playback: { ...s.playback, totalDuration } }
+    })
+    persistNow(get())
+  },
 
   addAudioTrack: (label) => {
     const state = get()
@@ -207,30 +486,45 @@ export const useTimelineStore = create<TimelineStore>((set, get) => ({
       height: 48,
     }
     set((s) => ({ audioTracks: [...s.audioTracks, track] }))
+    persistNow(get())
     return track
   },
 
-  removeAudioTrack: (id) => set((s) => ({
-    audioTracks: s.audioTracks.filter((t) => t.id !== id),
-    audioCues: s.audioCues.filter((c) => c.track !== id),
-    selectedAudioCueId: s.selectedAudioCueId && s.audioCues.find(c => c.id === s.selectedAudioCueId)?.track === id ? null : s.selectedAudioCueId,
-  })),
+  removeAudioTrack: (id) => {
+    set((s) => ({
+      audioTracks: s.audioTracks.filter((t) => t.id !== id),
+      audioCues: s.audioCues.filter((c) => c.track !== id),
+      selectedAudioCueId: s.selectedAudioCueId && s.audioCues.find(c => c.id === s.selectedAudioCueId)?.track === id ? null : s.selectedAudioCueId,
+    }))
+    persistNow(get())
+  },
 
   addAudioCue: (cue) => {
     const full: AudioCue = { ...cue, id: uid() }
     set((s) => ({ audioCues: [...s.audioCues, full] }))
+    persistNow(get())
+    return full
   },
 
-  removeAudioCue: (id) => set((s) => ({
-    audioCues: s.audioCues.filter((c) => c.id !== id),
-    selectedAudioCueId: s.selectedAudioCueId === id ? null : s.selectedAudioCueId,
-  })),
+  removeAudioCue: (id) => {
+    set((s) => ({
+      audioCues: s.audioCues.filter((c) => c.id !== id),
+      selectedAudioCueId: s.selectedAudioCueId === id ? null : s.selectedAudioCueId,
+    }))
+    persistNow(get())
+  },
 
-  updateAudioCue: (id, patch) => set((s) => ({
-    audioCues: s.audioCues.map((c) => c.id === id ? { ...c, ...patch } : c),
-  })),
+  updateAudioCue: (id, patch) => {
+    set((s) => ({
+      audioCues: s.audioCues.map((c) => c.id === id ? { ...c, ...patch } : c),
+    }))
+    persistNow(get())
+  },
 
-  setRelayVideo: (url, segmentIds, assetId) => set({ relayVideoUrl: url, relaySegmentIds: segmentIds, relayAssetId: assetId }),
+  setRelayVideo: (url, segmentIds, assetId) => {
+    set({ relayVideoUrl: url, relaySegmentIds: segmentIds, relayAssetId: assetId })
+    persistNow(get())
+  },
 
   setViewport: (patch) => set((s) => ({ viewport: { ...s.viewport, ...patch } })),
   setPlayback: (patch) => set((s) => ({ playback: { ...s.playback, ...patch } })),
@@ -325,33 +619,45 @@ export const useTimelineStore = create<TimelineStore>((set, get) => ({
       selectedSegmentId: null,
       selectedAudioCueId: null,
     })
+    persistNow(get())
   },
 
-  reset: () => set({
-    segments: [],
-    audioCues: [],
-    audioTracks: [],
-    viewport: { ...DEFAULT_VIEWPORT },
-    playback: { ...DEFAULT_PLAYBACK },
-    drag: { ...DEFAULT_DRAG },
-    selectedSegmentId: null,
-    selectedAudioCueId: null,
-    relayVideoUrl: null,
-    relaySegmentIds: [],
-    relayAssetId: null,
-  }),
+  reset: () => {
+    set({
+      segments: [],
+      audioCues: [],
+      audioTracks: [],
+      viewport: { ...DEFAULT_VIEWPORT },
+      playback: { ...DEFAULT_PLAYBACK },
+      drag: { ...DEFAULT_DRAG },
+      selectedSegmentId: null,
+      selectedAudioCueId: null,
+      relayVideoUrl: null,
+      relaySegmentIds: [],
+      relayAssetId: null,
+    })
+    // Clear persisted data
+    localStorage.removeItem('tech_noir_timeline')
+    tlClearAll().catch(() => {})
+  },
 
   undo: () => {
     if (_historyIdx <= 0) return
     _historyIdx--
     const snap = _history[_historyIdx]
-    if (snap) set({ segments: snap.segments, audioCues: snap.audioCues })
+    if (snap) {
+      set({ segments: snap.segments, audioCues: snap.audioCues })
+      persistNow(get())
+    }
   },
 
   redo: () => {
     if (_historyIdx >= _history.length - 1) return
     _historyIdx++
     const snap = _history[_historyIdx]
-    if (snap) set({ segments: snap.segments, audioCues: snap.audioCues })
+    if (snap) {
+      set({ segments: snap.segments, audioCues: snap.audioCues })
+      persistNow(get())
+    }
   },
 }))

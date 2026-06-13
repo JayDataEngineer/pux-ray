@@ -253,6 +253,7 @@ export function WorkspaceLayout() {
 function JobsButton({ jobs, onCancelJob }: { jobs: JobEntry[]; onCancelJob: (id: number) => void }) {
   const [open, setOpen] = useState(false)
   const [currentTime, setCurrentTime] = useState(Date.now())
+  const [viewedIds, setViewedIds] = useState<Set<number>>(new Set())
   const ref = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -277,19 +278,35 @@ function JobsButton({ jobs, onCancelJob }: { jobs: JobEntry[]; onCancelJob: (id:
 
   const running = jobs.filter((j) => j.status === "running")
   const active = jobs.filter((j) => j.status === "running" || j.status === "pending")
+  const finished = jobs.filter((j) => j.status === "completed" || j.status === "failed" || j.status === "cancelled")
+  const unviewedFinished = finished.filter((j) => !viewedIds.has(j.id))
+  const notifyCount = active.length + unviewedFinished.length
+
+  const handleToggle = () => {
+    const nextOpen = !open
+    setOpen(nextOpen)
+    // When opening the dropdown, mark all currently finished jobs as viewed
+    if (nextOpen && finished.length > 0) {
+      setViewedIds((prev) => {
+        const next = new Set(prev)
+        for (const j of finished) next.add(j.id)
+        return next
+      })
+    }
+  }
 
   return (
     <div ref={ref} className="relative">
-      <Button variant="ghost" size="icon" className="h-7 w-7 relative" onClick={() => setOpen(!open)}
-        title={`${active.length} active, ${jobs.length} total`}>
+      <Button variant="ghost" size="icon" className="h-7 w-7 relative" onClick={handleToggle}
+        title={`${active.length} active, ${finished.length} finished`}>
         {running.length > 0 ? (
           <Loader2 className="h-4 w-4 animate-spin text-primary" />
         ) : (
           <ListTodo className="h-4 w-4" />
         )}
-        {active.length > 0 && (
+        {notifyCount > 0 && (
           <span className="absolute -top-0.5 -right-0.5 flex h-3.5 w-3.5 items-center justify-center rounded-full bg-primary text-[8px] text-primary-foreground">
-            {active.length > 9 ? "9+" : active.length}
+            {notifyCount > 9 ? "9+" : notifyCount}
           </span>
         )}
       </Button>

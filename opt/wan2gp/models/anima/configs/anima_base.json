@@ -24,8 +24,7 @@
         1.0,
         1.0
     ],
-    "concat_padding_mask": false,
-    "extra_pos_embed_type": "learnable",
+    "concat_padding_mask": true,
     "use_crossattn_projection": false,
     "crossattn_proj_in_channels": 1024,
     "encoder_hidden_states_channels": 1024,

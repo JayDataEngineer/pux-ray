@@ -3,13 +3,14 @@
 Follows the ComfyUI subprocess pattern: start kimodo_demo as a subprocess,
 proxy HTTP + WebSocket requests to it. Runs on port 18470 (matches Traefik ingress).
 
-Uses a wrapper script that patches transformers + huggingface_hub to avoid
-network calls during model loading (tokenizer's is_base_mistral check, etc.).
+Uses _run_kimodo.py (in this same directory) to monkey-patch transformers +
+huggingface_hub before kimodo loads, avoiding network calls that crash on
+air-gapped pods (transformers' _patch_mistral_regex calls model_info()).
 """
 from __future__ import annotations
 
 import logging
-import textwrap
+from pathlib import Path
 
 from services.forge_base import ForgeService
 from services.forge_persistence import Persistence
@@ -17,38 +18,7 @@ from services.forge_subprocess import ForgeSubprocessMixin
 
 logger = logging.getLogger(__name__)
 
-# Wrapper script that monkey-patches transformers before kimodo loads.
-# Fixes: transformers' _patch_mistral_regex calls model_info() which hits
-# the network and fails on air-gapped pods. Patch it to skip the check.
-_WRAPPER_SCRIPT = textwrap.dedent("""\
-    import os, sys
-
-    # ── Patch 1: Kill all network calls from huggingface_hub ──
-    # transformers' _patch_mistral_regex calls model_info() which hits the
-    # network. On air-gapped pods this triggers OfflineModeIsEnabled.
-    # Replace model_info at the module level so ALL imports see the patch.
-    class _FakeModelInfo:
-        tags = []
-        library_name = None
-        def __init__(self, *a, **kw): pass
-
-    import huggingface_hub
-    import huggingface_hub.hf_api as _hfapi
-    _hfapi.model_info = lambda *a, **kw: _FakeModelInfo()
-    huggingface_hub.model_info = _hfapi.model_info
-
-    # ── Patch 2: Set offline mode so transformers uses local cache ──
-    # With HF_HUB_CACHE set and model_info patched to be a no-op,
-    # transformers should resolve cached models automatically.
-    os.environ["HF_HUB_OFFLINE"] = "1"
-    os.environ["TRANSFORMERS_OFFLINE"] = "1"
-
-    # ── Start kimodo ──
-    import kimodo.demo
-    model = os.environ.get("KIMODO_MODEL", "kimodo-soma-rp")
-    sys.argv = ["kimodo_demo", "--model", model]
-    kimodo.demo.main()
-""")
+_WRAPPER_SCRIPT = Path(__file__).resolve().parent / "_run_kimodo.py"
 
 
 class KimodoDemoService(ForgeSubprocessMixin, ForgeService):
@@ -69,31 +39,32 @@ class KimodoDemoService(ForgeSubprocessMixin, ForgeService):
             from registry.models import ModelRegistry
             reg = ModelRegistry()
             model_path = reg.get_path("motion", variant)
-            from pathlib import Path
             parent = Path(model_path).parent
             if parent.is_dir():
                 checkpoint_dir = str(parent)
         except Exception:
             pass
 
-        # Write wrapper script to /tmp (same machine as the subprocess)
-        wrapper_path = "/tmp/kimodo_wrapper.py"
-        try:
-            with open(wrapper_path, "w") as f:
-                f.write(_WRAPPER_SCRIPT)
-            logger.info("Wrote kimodo wrapper to %s", wrapper_path)
-        except Exception as e:
-            logger.error("Failed to write wrapper: %s", e)
-            raise
+        if not _WRAPPER_SCRIPT.exists():
+            raise FileNotFoundError(f"Kimodo wrapper not found: {_WRAPPER_SCRIPT}")
+
+        # Resolve kimodo package directory for cwd.
+        # K8s mounts vendor/ → /opt/vendor, so kimodo is at /opt/vendor/kimodo.
+        # Local dev has it at <project>/vendor/kimodo.
+        # Fallback to /opt/kimodo for legacy setups.
+        _VENDOR_DIR = Path(__file__).resolve().parents[2] / "vendor" / "kimodo"
+        cwd = "/opt/vendor/kimodo"  # K8s mount path
+        if _VENDOR_DIR.is_dir():
+            cwd = str(_VENDOR_DIR)  # Local dev
 
         self.start_subprocess(
             cmd=[
-                "python3", wrapper_path,
+                "python3", str(_WRAPPER_SCRIPT),
             ],
             port=self.PORT,
             health_path="/",
             timeout=600,
-            cwd="/opt/kimodo",
+            cwd=cwd,
             env={
                 "KIMODO_MODEL": variant,
                 "SERVER_PORT": str(self.PORT),
@@ -117,12 +88,19 @@ class KimodoDemoService(ForgeSubprocessMixin, ForgeService):
         if "path" in payload:
             try:
                 if payload.get("raw"):
-                    return self._call_raw_full(
-                        method=payload.get("method", "GET"),
-                        path=payload["path"],
-                        params=payload.get("params"),
-                        timeout=payload.get("timeout", 600),
-                    )
+                    kwargs: dict = {
+                        "method": payload.get("method", "GET"),
+                        "path": payload["path"],
+                        "params": payload.get("params"),
+                        "timeout": payload.get("timeout", 600),
+                    }
+                    # Forward binary POST bodies (screenshots, exports)
+                    if payload.get("body_b64"):
+                        import base64
+                        kwargs["content"] = base64.b64decode(payload["body_b64"])
+                        if payload.get("content_type"):
+                            kwargs["headers"] = {"content-type": payload["content_type"]}
+                    return self._call_raw_full(**kwargs)
                 result = self._call(
                     method=payload.get("method", "GET"),
                     path=payload["path"],

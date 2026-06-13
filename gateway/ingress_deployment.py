@@ -27,7 +27,7 @@ from gateway.routes.wf_engine import (
     wf_get_artifact, wf_events,
 )
 from gateway.routes.editor import (
-    editor_page, editor_static,
+    editor_page, editor_static, lora_list,
     llm_key_store, llm_key_list, llm_key_delete, llm_enhance, llm_chat
 )
 
@@ -104,6 +104,10 @@ class APIIngressDeployment:
         if path.startswith("/v1/services/") and method == "GET":
             service = path.split("/v1/services/")[1].rstrip("/")
             return await self._ingress.service_info(request, service_name=service)
+
+        # LoRA listing (for editor LoRA picker)
+        if path == "/v1/loras" and method == "GET":
+            return await lora_list(request)
 
         # Generic TNAP generate
         if path.startswith("/v1/") and path.endswith("/generate") and method == "POST":

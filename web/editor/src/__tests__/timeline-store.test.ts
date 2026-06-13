@@ -292,3 +292,151 @@ describe('TimelineStore — reset', () => {
     expect(state.playback.currentTime).toBe(0)
   })
 })
+
+describe('TimelineStore — persistence', () => {
+  it('persists segments to localStorage on addSegment', () => {
+    useTimelineStore.getState().addSegment({ prompt: 'test persistence', duration: 7 })
+    const raw = localStorage.getItem('tech_noir_timeline')
+    expect(raw).toBeTruthy()
+    const parsed = JSON.parse(raw!)
+    expect(parsed.segments).toHaveLength(1)
+    expect(parsed.segments[0].prompt).toBe('test persistence')
+    expect(parsed.segments[0].duration).toBe(7)
+  })
+
+  it('persists segments on updateSegment', () => {
+    const seg = useTimelineStore.getState().addSegment()
+    useTimelineStore.getState().updateSegment(seg.id, { prompt: 'updated prompt', status: 'ready' })
+
+    const raw = localStorage.getItem('tech_noir_timeline')
+    const parsed = JSON.parse(raw!)
+    expect(parsed.segments[0].prompt).toBe('updated prompt')
+    expect(parsed.segments[0].status).toBe('ready')
+  })
+
+  it('persists on removeSegment', () => {
+    useTimelineStore.getState().addSegment()
+    useTimelineStore.getState().addSegment()
+    const segs = useTimelineStore.getState().segments
+    useTimelineStore.getState().removeSegment(segs[0].id)
+
+    const raw = localStorage.getItem('tech_noir_timeline')
+    const parsed = JSON.parse(raw!)
+    expect(parsed.segments).toHaveLength(1)
+  })
+
+  it('persists audio cues on addAudioCue', () => {
+    useTimelineStore.getState().addAudioCue({
+      track: 'music', start: 0, duration: 5, label: 'BGM',
+      audioUrl: '/music.mp3', volume: 0.5, waveformPeaks: null, sourceStepId: null,
+    })
+
+    const raw = localStorage.getItem('tech_noir_timeline')
+    const parsed = JSON.parse(raw!)
+    expect(parsed.audioCues).toHaveLength(1)
+    expect(parsed.audioCues[0].label).toBe('BGM')
+  })
+
+  it('persists audio tracks', () => {
+    useTimelineStore.getState().addAudioTrack('Test Track')
+
+    const raw = localStorage.getItem('tech_noir_timeline')
+    const parsed = JSON.parse(raw!)
+    expect(parsed.audioTracks).toHaveLength(1)
+    expect(parsed.audioTracks[0].label).toBe('Test Track')
+  })
+
+  it('persists relay video state', () => {
+    const seg = useTimelineStore.getState().addSegment()
+    useTimelineStore.getState().setRelayVideo('http://example.com/video.mp4', [seg.id], 'asset-1')
+
+    const raw = localStorage.getItem('tech_noir_timeline')
+    const parsed = JSON.parse(raw!)
+    expect(parsed.relayVideoUrl).toBe('http://example.com/video.mp4')
+    expect(parsed.relaySegmentIds).toEqual([seg.id])
+    expect(parsed.relayAssetId).toBe('asset-1')
+  })
+
+  it('strip large data URLs from localStorage metadata (use IndexedDB placeholders)', () => {
+    const fakeB64 = 'data:video/mp4;base64,' + 'A'.repeat(1000)
+    useTimelineStore.getState().addSegment({
+      videoUrl: fakeB64,
+      firstFrameB64: 'data:image/png;base64,AAABBB',
+    })
+
+    const raw = localStorage.getItem('tech_noir_timeline')
+    const parsed = JSON.parse(raw!)
+    const seg = parsed.segments[0]
+    // The videoUrl and firstFrameB64 should be placeholder keys, NOT the actual data
+    expect(seg.videoUrl).not.toBe(fakeB64)
+    expect(seg.videoUrl).toMatch(/^TLB:/)
+    expect(seg.firstFrameB64).toMatch(/^TLB:/)
+  })
+
+  it('leaves non-data-URL values as-is (no stripping for server URLs)', () => {
+    useTimelineStore.getState().addSegment({
+      videoUrl: '/v1/wf/test/runs/123/artifacts/step/video.mp4',
+    })
+
+    const raw = localStorage.getItem('tech_noir_timeline')
+    const parsed = JSON.parse(raw!)
+    expect(parsed.segments[0].videoUrl).toBe('/v1/wf/test/runs/123/artifacts/step/video.mp4')
+  })
+
+  it('reset clears localStorage timeline data', () => {
+    useTimelineStore.getState().addSegment()
+    expect(localStorage.getItem('tech_noir_timeline')).toBeTruthy()
+
+    useTimelineStore.getState().reset()
+    expect(localStorage.getItem('tech_noir_timeline')).toBeNull()
+  })
+
+  it('initialize restores segments from localStorage', async () => {
+    // Write some timeline data directly to localStorage
+    const segId = 'seg_restore_test'
+    localStorage.setItem('tech_noir_timeline', JSON.stringify({
+      segments: [{
+        id: segId, order: 0, start: 0, duration: 5,
+        prompt: 'restored!', negativePrompt: '', thumbnailUrl: null,
+        videoUrl: null, firstFrameB64: null, lastFrameB64: null,
+        params: { seed: 42, width: 768, height: 512, frames: 121, fps: 24,
+          guideScale: 5, samplingSteps: 8, model: 'ltx2', guidePhases: 2,
+          epsilon: 0.001, denoisingStrength: 1, inputVideoStrength: 1,
+          spatialUpscale: false, loras: '', perturbationSwitch: 0,
+          perturbationLayers: [28], perturbationStartPerc: 0, perturbationEndPerc: 100,
+          cameraPanX: 0, cameraPanY: 0, cameraZoom: 1, resizeMethod: 'fit',
+          distilledMode: true, apgSwitch: false, cfgStarSwitch: false,
+          nagScale: 1, nagTau: 3.5, nagAlpha: 0.5, altGuideScale: 1,
+          altScale: 0, audioGuideScale: 1, audioCfgScale: 1, sampleSolver: 'euler',
+          selfRefinerSetting: 0, selfRefinerPlan: '', selfRefinerFUncertainty: 0.1,
+          selfRefinerCertainPercentage: 0.999, slidingWindow: false,
+          slidingWindowSize: 241, slidingWindowOverlap: 9, videoPromptType: '',
+          maskingStrength: 0, maskingSource: '', outpaintingEnabled: false,
+          outpaintingRatio: '', audioPromptType: '', enhancePrompt: false,
+        },
+        trimStart: 0, sourceStepId: null, status: 'ready', error: null,
+        controlVideoUrl: null,
+      }],
+      audioCues: [],
+      audioTracks: [],
+      relayVideoUrl: null,
+      relaySegmentIds: [],
+      relayAssetId: null,
+    }))
+
+    await useTimelineStore.getState().initialize()
+
+    const { segments, initialized } = useTimelineStore.getState()
+    expect(initialized).toBe(true)
+    expect(segments).toHaveLength(1)
+    expect(segments[0].prompt).toBe('restored!')
+    expect(segments[0].status).toBe('ready')
+  })
+
+  it('initialize handles empty localStorage gracefully', async () => {
+    localStorage.removeItem('tech_noir_timeline')
+    await useTimelineStore.getState().initialize()
+    expect(useTimelineStore.getState().initialized).toBe(true)
+    expect(useTimelineStore.getState().segments).toHaveLength(0)
+  })
+})
