@@ -249,8 +249,12 @@ class family_handler:
         extra_model_def = {
             "text_encoder_folder": _GEMMA_FOLDER,
             "text_encoder_URLs": [
+                # NOTE: only the fp4_mixed weights exist on Comfy-Org/ltx-2.
+                # A "_quanto_bf16_int8" variant was listed previously, but it 404s
+                # and get_model_filename() selected it when text_encoder_quantization
+                # == "int8" (token match), breaking auto-download.  Keeping a single
+                # valid entry makes the selection deterministic.
                 "https://huggingface.co/Comfy-Org/ltx-2/resolve/main/split_files/text_encoders/gemma_3_12B_it_fp4_mixed.safetensors",
-                "https://huggingface.co/Comfy-Org/ltx-2/resolve/main/split_files/text_encoders/gemma_3_12B_it_fp4_mixed_quanto_bf16_int8.safetensors",
             ],
             "dtype": "bf16",
             "fps": 24,
@@ -416,10 +420,16 @@ class family_handler:
     @staticmethod
     def query_model_files(computeList, base_model_type, model_def=None):
         spec = _get_arch_spec(base_model_type)
-        gemma_files = [
+        # Tokenizer / config files for the Gemma 3 12B text encoder.
+        # These live in google/gemma-3-12b-it (NOT Comfy-Org/ltx-2 which only
+        # has the quantized weights).  targetFolderList=["gemma-3-12b-it"] makes
+        # process_files_def check <ckpt_path>/gemma-3-12b-it/<file> before
+        # downloading — matching the on-disk layout so pre-provisioned files
+        # are found and the download is skipped.
+        gemma_tokenizer_files = [
             "added_tokens.json",
             "chat_template.json",
-            "config_light.json",
+            "config.json",
             "generation_config.json",
             "preprocessor_config.json",
             "processor_config.json",
@@ -428,6 +438,8 @@ class family_handler:
             "tokenizer.model",
             "tokenizer_config.json",
         ]
+        # The quantized weights file — downloaded from Comfy-Org (flat, no subfolder).
+        gemma_weights_files = ["gemma_3_12B_it_fp4_mixed.safetensors"]
 
         file_list = [spec["spatial_upscaler"], spec["temporal_upscaler"]]
         for name in _get_multi_file_names(model_def, base_model_type).values():
@@ -440,10 +452,19 @@ class family_handler:
                 "sourceFolderList": [""],
                 "fileList": [file_list],
             },
+            # Gemma 3 12B text encoder weights (quantized fp4) from Comfy-Org.
             {
                 "repoId": "Comfy-Org/ltx-2",
                 "sourceFolderList": ["split_files/text_encoders"],
-                "fileList": [gemma_files],
+                "fileList": [gemma_weights_files],
+            },
+            # Gemma tokenizer + config files from the official Google repo,
+            # stored under the gemma-3-12b-it/ subfolder.
+            {
+                "repoId": "google/gemma-3-12b-it",
+                "sourceFolderList": [""],
+                "fileList": [gemma_tokenizer_files],
+                "targetFolderList": ["gemma-3-12b-it"],
             },
         ]
         return download_def

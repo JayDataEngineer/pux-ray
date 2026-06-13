@@ -1092,6 +1092,20 @@ class Wan2GPService:
     @staticmethod
     def _native_defaults(model_type: str) -> dict:
         """Default inference params for native Wan models."""
+        # LTX2 family only supports the 'euler' / 'res2s' samplers (not 'unipc')
+        # and uses different defaults for steps/guidance/resolution.
+        if "ltx2" in model_type.lower():
+            is_22b = "22b" in model_type.lower()
+            return {
+                "sampling_steps": 30 if is_22b else 40,
+                "guide_scale": 3.0,
+                "shift": 5.0,
+                "frame_num": 25,
+                "width": 768,
+                "height": 512,
+                "fps": 24,
+                "sample_solver": "euler",
+            }
         return {
             "sampling_steps": 30 if "_1.3B" not in model_type else 20,
             "guide_scale": 5.0,

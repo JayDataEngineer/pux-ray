@@ -319,6 +319,79 @@ def _preprocess_gemma_state_dict(sd, qm, twm):
     return sd, qm, twm
 
 
+# Flattened text-only config for Gemma 3 12B (Gemma3ForCausalLM).
+# The multimodal config.json from google/gemma-3-12b-it nests the text config
+# under "text_config" and omits vocab_size, so it cannot be used directly with
+# Gemma3ForCausalLM.  config_light.json ships in the qat-q4_0-unquantized
+# download; if absent, we materialise it from these known architecture params.
+_GEMMA3_12B_CONFIG_LIGHT = {
+    "architectures": ["Gemma3ForCausalLM"],
+    "eos_token_id": [1, 106],
+    "attention_bias": False,
+    "attention_dropout": 0.0,
+    "attn_logit_softcapping": None,
+    "cache_implementation": "hybrid",
+    "final_logit_softcapping": None,
+    "head_dim": 256,
+    "hidden_activation": "gelu_pytorch_tanh",
+    "hidden_size": 3840,
+    "initializer_range": 0.02,
+    "intermediate_size": 15360,
+    "max_position_embeddings": 131072,
+    "model_type": "gemma3_text",
+    "num_attention_heads": 16,
+    "num_hidden_layers": 48,
+    "num_key_value_heads": 8,
+    "query_pre_attn_scalar": 256,
+    "rms_norm_eps": 1e-06,
+    "rope_local_base_freq": 10000,
+    "rope_scaling": {"factor": 8.0, "rope_type": "linear"},
+    "rope_theta": 1000000,
+    "sliding_window": 1024,
+    "sliding_window_pattern": 6,
+    "torch_dtype": "bfloat16",
+    "transformers_version": "4.52.0.dev0",
+    "use_cache": True,
+    "vocab_size": 262208,
+}
+
+
+def _resolve_gemma_config() -> str:
+    """Locate config_light.json for the Gemma3ForCausalLM text encoder.
+
+    Searches the primary gemma folder, then the qat-q4_0-unquantized variant
+    (which ships config_light.json).  If neither is present (fresh install with
+    only google/gemma-3-12b-it tokenizer files), materialises config_light.json
+    into the primary folder from the known Gemma 3 12B architecture so the
+    encoder self-bootstraps without manual provisioning.
+    """
+    import json
+
+    candidate_folders = [
+        _GEMMA_FOLDER,
+        "gemma-3-12b-it-qat-q4_0-unquantized",
+    ]
+    for folder in candidate_folders:
+        p = fl.locate_file(os.path.join(folder, "config_light.json"), error_if_none=False)
+        if p and os.path.isfile(p):
+            return p
+    # Self-bootstrap: write config_light.json into the primary gemma folder.
+    for folder in candidate_folders:
+        gemma_dir = fl.locate_folder(folder, error_if_none=False)
+        if gemma_dir and os.path.isdir(gemma_dir):
+            target = os.path.join(gemma_dir, "config_light.json")
+            try:
+                with open(target, "w") as fh:
+                    json.dump(_GEMMA3_12B_CONFIG_LIGHT, fh, indent=2)
+                return target
+            except OSError:
+                continue
+    raise FileNotFoundError(
+        "config_light.json not found and could not be generated. "
+        "Ensure checkpoints_paths includes a gemma-3-12b-it* folder."
+    )
+
+
 def build_gemma_text_encoder(
     gemma_root: str, default_dtype: torch.dtype = torch.bfloat16
 ) -> GemmaTextEncoderModelBase:
@@ -328,7 +401,7 @@ def build_gemma_text_encoder(
         raise FileNotFoundError(f"Gemma checkpoint not found: {gemma_root}")
     gemma_dir = os.path.dirname(gemma_path)
     tokenizer_path = fl.locate_folder(os.path.join(_GEMMA_FOLDER))
-    config_path = fl.locate_file(os.path.join(_GEMMA_FOLDER, "config_light.json"))
+    config_path = _resolve_gemma_config()
     from accelerate import init_empty_weights
     with init_empty_weights():
         text_encoder = GemmaTextEncoderModelBase(feature_extractor_linear=None, tokenizer=None, model=None, dtype=default_dtype)
