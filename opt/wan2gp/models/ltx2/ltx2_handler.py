@@ -246,8 +246,8 @@ class family_handler:
         extra_model_def = {
             "text_encoder_folder": _GEMMA_FOLDER,
             "text_encoder_URLs": [
-                build_hf_url("DeepBeepMeep/LTX-2", _GEMMA_FOLDER, _GEMMA_FILENAME),
-                build_hf_url("DeepBeepMeep/LTX-2", _GEMMA_FOLDER, _GEMMA_QUANTO_FILENAME),
+                build_hf_url("google/gemma-3-12b-it", _GEMMA_FOLDER, _GEMMA_FILENAME),
+                build_hf_url("google/gemma-3-12b-it", _GEMMA_FOLDER, _GEMMA_QUANTO_FILENAME),
             ],
             "dtype": "bf16",
             "fps": 24,
@@ -438,7 +438,7 @@ class family_handler:
                 "fileList": [file_list],
             },
             {
-                "repoId": "DeepBeepMeep/LTX-2",
+                "repoId": "google/gemma-3-12b-it",
                 "sourceFolderList": [_GEMMA_FOLDER],
                 "fileList": [gemma_files],
             },
