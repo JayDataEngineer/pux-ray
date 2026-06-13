@@ -127,7 +127,7 @@ export interface SegmentParams {
 
 /** Control video modes for IC-LoRA (distilled only) */
 export const CONTROL_VIDEO_MODES = [
-  { id: '', label: 'None' },
+  { id: 'off', label: 'None' },
   { id: 'VG', label: 'Raw Control Video' },
   { id: 'PVG', label: 'Transfer Human Motion' },
   { id: 'OVG', label: 'Transfer Motion + Pose Alignment' },
@@ -139,7 +139,7 @@ export const CONTROL_VIDEO_MODES = [
 
 /** Audio conditioning modes */
 export const AUDIO_PROMPT_MODES = [
-  { id: '', label: 'Text Only (video + optional soundtrack)' },
+  { id: 'off', label: 'Text Only (video + optional soundtrack)' },
   { id: 'A', label: 'Audio-Driven (video from soundtrack)' },
   { id: 'A1OF', label: 'Reference Voice + ID-LoRA (dev)' },
   { id: 'K', label: 'Control Video Audio (distilled)' },
@@ -148,7 +148,7 @@ export const AUDIO_PROMPT_MODES = [
 
 /** Mask preprocessing modes */
 export const MASK_MODES = [
-  { id: '', label: 'None' },
+  { id: 'off', label: 'None' },
   { id: 'A', label: 'Auto Mask' },
   { id: 'NA', label: 'No Auto Mask' },
   { id: 'XA', label: 'Extended Auto' },
@@ -266,14 +266,14 @@ export const DEFAULT_SEGMENT_PARAMS: SegmentParams = {
   slidingWindowOverlap: 9,
 
   // Control video
-  videoPromptType: '',
+  videoPromptType: 'off',
   maskingStrength: 0.0,
-  maskingSource: '',
+  maskingSource: 'off',
   outpaintingEnabled: false,
   outpaintingRatio: '',
 
   // Audio
-  audioPromptType: '',
+  audioPromptType: 'off',
 
   // Prompt enhancement
   enhancePrompt: false,

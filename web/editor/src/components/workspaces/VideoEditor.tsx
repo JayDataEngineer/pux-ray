@@ -131,11 +131,11 @@ function buildPayload(seg: TimelineSegment, _allSegments?: TimelineSegment[]) {
       self_refiner_plan: p.selfRefinerPlan || undefined,
       self_refiner_f_uncertainty: p.selfRefinerSetting ? p.selfRefinerFUncertainty : undefined,
       self_refiner_certain_percentage: p.selfRefinerSetting ? p.selfRefinerCertainPercentage : undefined,
-      video_prompt_type: p.videoPromptType || undefined,
-      denoising_strength: p.videoPromptType ? p.denoisingStrength : (p.denoisingStrength !== 1.0 ? p.denoisingStrength : undefined),
+      video_prompt_type: p.videoPromptType !== 'off' ? p.videoPromptType : undefined,
+      denoising_strength: p.videoPromptType !== 'off' ? p.denoisingStrength : (p.denoisingStrength !== 1.0 ? p.denoisingStrength : undefined),
       masking_strength: p.maskingStrength !== 0.0 ? p.maskingStrength : undefined,
-      masking_source: p.maskingSource || undefined,
-      audio_prompt_type: p.audioPromptType || undefined,
+      masking_source: p.maskingSource !== 'off' ? p.maskingSource : undefined,
+      audio_prompt_type: p.audioPromptType !== 'off' ? p.audioPromptType : undefined,
       loras_selected: p.loras || undefined,
       distilled_lora_strength: isLtxModel ? p.distilledLoraStrength : undefined,
       enhance_prompt: p.enhancePrompt ? "true" : undefined,
@@ -934,7 +934,7 @@ export function VideoEditor({ jobs, onAddJob }: VideoEditorProps) {
                   </InspectorField>
                 </div>
                 <InspectorField label="Resize Method">
-                  <Select value={sel.params.resizeMethod || 'crop'} onValueChange={(v) => updateSegment(sel.id, { params: { ...sel.params, resizeMethod: v as 'stretch' | 'fit' | 'crop' | 'pad' } })}>
+                  <Select value={sel.params.resizeMethod} onValueChange={(v) => updateSegment(sel.id, { params: { ...sel.params, resizeMethod: v as 'stretch' | 'fit' | 'crop' | 'pad' } })}>
                     <SelectTrigger className="h-7 text-xs bg-white/5 border-white/10 text-white/80 rounded-md">
                       <SelectValue />
                     </SelectTrigger>
@@ -1363,18 +1363,18 @@ export function VideoEditor({ jobs, onAddJob }: VideoEditorProps) {
               <InspectorSection title="Control Video (IC-LoRA)" icon={<Film className="h-3 w-3" />} defaultOpen={false}>
                 <div className="space-y-2">
                   <InspectorField label="Control Mode">
-                    <Select value={sel.params.videoPromptType || "__none__"} onValueChange={(v) => updateSegment(sel.id, { params: { ...sel.params, videoPromptType: v === "__none__" ? "" : v } })}>
+                    <Select value={sel.params.videoPromptType} onValueChange={(v) => updateSegment(sel.id, { params: { ...sel.params, videoPromptType: v } })}>
                       <SelectTrigger className="h-7 text-xs bg-white/5 border-white/10 text-white/80 rounded-md">
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
                         {CONTROL_VIDEO_MODES.map(m => (
-                          <SelectItem key={m.id} value={m.id || "__none__"}>{m.label}</SelectItem>
+                          <SelectItem key={m.id} value={m.id}>{m.label}</SelectItem>
                         ))}
                       </SelectContent>
                     </Select>
                   </InspectorField>
-                  {sel.params.videoPromptType && (
+                  {sel.params.videoPromptType && sel.params.videoPromptType !== 'off' && (
                     <>
                       <div className="grid grid-cols-2 gap-2">
                         <InspectorField label="Control Strength">
@@ -1389,13 +1389,13 @@ export function VideoEditor({ jobs, onAddJob }: VideoEditorProps) {
                         </InspectorField>
                       </div>
                       <InspectorField label="Mask Mode">
-                        <Select value={sel.params.maskingSource || "__none__"} onValueChange={(v) => updateSegment(sel.id, { params: { ...sel.params, maskingSource: v === "__none__" ? "" : v } })}>
+                        <Select value={sel.params.maskingSource} onValueChange={(v) => updateSegment(sel.id, { params: { ...sel.params, maskingSource: v } })}>
                           <SelectTrigger className="h-7 text-xs bg-white/5 border-white/10 text-white/80 rounded-md">
                             <SelectValue />
                           </SelectTrigger>
                           <SelectContent>
                             {MASK_MODES.map(m => (
-                              <SelectItem key={m.id} value={m.id || "__none__"}>{m.label}</SelectItem>
+                              <SelectItem key={m.id} value={m.id}>{m.label}</SelectItem>
                             ))}
                           </SelectContent>
                         </Select>
@@ -1421,7 +1421,7 @@ export function VideoEditor({ jobs, onAddJob }: VideoEditorProps) {
               <InspectorSection title="Audio Mode" icon={<Headphones className="h-3 w-3" />} defaultOpen={false}>
                 <div className="space-y-2">
                   <InspectorField label="Conditioning Mode">
-                    <Select value={sel.params.audioPromptType || "__none__"} onValueChange={(v) => updateSegment(sel.id, { params: { ...sel.params, audioPromptType: v === "__none__" ? "" : v } })}>
+                    <Select value={sel.params.audioPromptType} onValueChange={(v) => updateSegment(sel.id, { params: { ...sel.params, audioPromptType: v } })}>
                       <SelectTrigger className="h-7 text-xs bg-white/5 border-white/10 text-white/80 rounded-md">
                         <SelectValue />
                       </SelectTrigger>
@@ -1431,7 +1431,7 @@ export function VideoEditor({ jobs, onAddJob }: VideoEditorProps) {
                           if ((m.id === 'K' || m.id === '2') && !sel.params.distilledMode) return false
                           return true
                         }).map(m => (
-                          <SelectItem key={m.id} value={m.id || "__none__"}>{m.label}</SelectItem>
+                          <SelectItem key={m.id} value={m.id}>{m.label}</SelectItem>
                         ))}
                       </SelectContent>
                     </Select>
