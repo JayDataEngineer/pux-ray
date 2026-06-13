@@ -400,7 +400,7 @@ async def _call_web_tool(name: str, args: dict) -> str:
             },
         )
         session_id = None
-        if init_resp.ok:
+        if init_resp.status_code < 400:
             text = init_resp.text
             data_line = next((l for l in text.split("\n") if l.startswith("data: ")), None)
             if data_line:
@@ -426,7 +426,7 @@ async def _call_web_tool(name: str, args: dict) -> str:
             },
         )
 
-        if not resp.ok:
+        if resp.status_code >= 400:
             return f"Error: HTTP {resp.status_code} from web-research server"
 
         text = resp.text
