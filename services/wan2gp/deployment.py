@@ -893,7 +893,15 @@ class Wan2GPService:
         from registry.config import Config
 
         models_root = Path(Config().models_root)
-        checkpoints = [str(models_root / "wan2gp"), str(models_root)]
+        _wdc = models_root / "image-gen" / "comfyui"
+        checkpoints = [
+            str(models_root / "wan2gp"),
+            str(_wdc / "checkpoints"),    # dev-fp8, distilled-1.1
+            str(_wdc / "vae"),            # LTX23_video_vae_bf16, LTX23_audio_vae_bf16
+            str(_wdc / "text_encoders"),  # gemma_3_12B_it_fp4_mixed
+            str(_wdc / "latent_upscale_models"),  # spatial/temporal upscalers
+            str(models_root),
+        ]
         loras_root = str(models_root / "wan2gp" / "loras")
 
         if not wgp.server_config:
@@ -1251,11 +1259,16 @@ class Wan2GPService:
         distilled_strength = float(payload.get("distilled_lora_strength", 0.5))
         base_model_type = entry.get("base_model_type", "")
         if base_model_type in ("ltx2_19B", "ltx2_22B") and distilled_strength > 0:
-            # Find the distilled LoRA in the lora directory
+            # Find the distilled LoRA — search wan2gp and comfyui lora dirs
             from pathlib import Path as _Path
             from registry.config import Config as _Cfg
-            lora_root = _Path(_Cfg().models_root) / "wan2gp" / "loras" / "ltx2"
-            if lora_root.is_dir():
+            lora_dirs = [
+                _Path(_Cfg().models_root) / "wan2gp" / "loras" / "ltx2",
+                _Path(_Cfg().models_root) / "image-gen" / "comfyui" / "loras" / "ltx2",
+            ]
+            for lora_root in lora_dirs:
+                if not lora_root.is_dir():
+                    continue
                 for f in sorted(lora_root.iterdir()):
                     if "distilled" in f.name.lower() and f.suffix in (".safetensors", ".pt", ".bin"):
                         # Load alongside user LoRAs if not already loaded
@@ -1827,6 +1840,8 @@ class Wan2GPService:
         lora_dirs = [
             models_root / "loras",
             models_root / "wan2gp" / "loras",
+            models_root / "wan2gp" / "loras" / "ltx2",
+            models_root / "image-gen" / "comfyui" / "loras" / "ltx2",
             models_root / "image-gen" / "comfyui" / "loras" / "qwen",
             models_root / "image-gen" / "comfyui" / "loras",
         ]
