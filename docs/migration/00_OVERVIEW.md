@@ -22,6 +22,7 @@
 11. [AI Assessment Log](#11-ai-assessment-log)
 12. [Risks & Open Questions](#12-risks)
 13. [Deep Research Query](#13-deep-research-query)
+14. [Deep Research Findings →](03_DEEP_RESEARCH_FINDINGS.md) (verified benchmarks, tuning, model details)
 
 ---
 
@@ -45,6 +46,16 @@ on the worker (diffusers 0.37.0). The 261,721-line handler directory
 **Goal:** Remove all Wan2GP code from the container. Keep the Ray Serve DAG
 orchestration layer. Use native diffusers + optional SGLang Diffusion for
 inference. Own 100% of the remaining code.
+
+**Architecture (three mutually exclusive optimization paths, verified):**
+- **Path A** (compiled throughput): `model_cpu_offload` + `compile_repeated_blocks`
+  + cache acceleration + torchao quant — for models that fit VRAM during execution
+- **Path B** (deep memory offload): `group_offload(use_stream=True)` +
+  `layerwise_casting` + PEFT — for models that don't fit VRAM (no compile, no cache)
+- **Path C** (SGLang): separate container, own kernels, 1.15-1.5x on 4090
+
+**Critical constraint:** `torch.compile` and cache acceleration are BOTH
+incompatible with `group_offload`. Choose Path A or Path B per model, not both.
 
 ---
 
@@ -476,54 +487,105 @@ pipe.vae.enable_slicing()   # Process latent slices separately
 | **Model eviction** | SGLang sleep/wake | ~0.5–1 GB (CUDA context only) | <1s (PCIe from pinned CPU) |
 | **Within-request** | `enable_group_offload` | N/A (active during inference) | N/A |
 
-### Speed optimization stack (stacked — each layer independently valuable)
+### Speed optimization: THREE mutually exclusive paths
 
-These optimizations stack on top of each other. mmGP only did the bottom
-layer (VRAM offloading) and actively PREVENTED the top three. The native
-path can be FASTER than mmGP because all layers compose:
+**VERIFIED via deep research + PyTorch source code analysis (2026-06-13):**
 
-1. **Cache Acceleration** (20–165% speedup) — `apply_first_block_cache()` etc.
-   Skips redundant computation across denoising steps. VERIFIED available in
-   diffusers 0.37.0 — five strategies: FirstBlock, Faster, MagCache,
-   TaylorSeer, CacheMixin. **mmGP CANNOT do this** — it manages memory,
-   not computation.
-2. **torch.compile** (~1.5x speedup) — kernel fusion, now compatible with
-   group offload + PEFT. Regional compilation (compile only DiT blocks)
-   reduces cold-start from ~67s to ~10s. **mmGP BROKE this** — its LoRA
-   monkey-patching created untraceable dispatch paths.
-3. **torchao quantization** (50% VRAM cut + speed) — `PipelineQuantizationConfig`
-   with `TorchAoConfig(Int8WeightOnlyConfig())`. VERIFIED: diffusers integration
-   layer available; torchao itself needs `pip install torchao`. Designed to
-   compose with torch.compile. 4090 supports FP8/INT8/INT4/NF4 (NOT MXFP4 —
-   that needs Blackwell B200/B300).
-4. **PEFT LoRAs** — dynamic adapters, compile-compatible, no circular refs.
-   Replaces mmGP's 560-line monkey-patching.
-5. **group_offload** (async stream VRAM offloading) — mmGP's core feature,
-   now native.
+Three things are **pairwise incompatible with group_offload**:
+1. `torch.compile` — `swap_tensors` conflicts with dynamo `TensorWeakRef` guards
+   → `RuntimeError: Cannot swap t1 because it has weakref associated with it`
+2. **Cache acceleration** — block-skipping breaks the sequential prefetch chain
+   → `"some layers were not executed during the forward pass"` → device mismatch
+3. (group_offload itself is fine)
 
-Plus: SGLang sgl-kernel + JIT compilation for standard models.
-Plus: VAE tiling/slicing for decode VRAM management.
+This means there are **THREE mutually exclusive optimization paths**:
 
-### The stacked optimization pyramid
+#### Path A: Compiled Throughput Stack (model-level offload + compilation)
+For models where the DiT fits in VRAM during execution (Tier 1, most Tier 2):
 
 ```
-         ┌─────────────────────┐
-         │  Cache Acceleration  │  20-165% speedup (skip redundant steps)
-         │  (5 strategies)      │  ← mmGP CANNOT do this
-         ├─────────────────────┤
-         │  torch.compile       │  ~1.5x speedup (kernel fusion)
-         │  (regional, DiT)     │  ← mmGP BROKE this
-         ├─────────────────────┤
-         │  torchao quant       │  50% VRAM cut + speed boost
-         │  (FP8/INT8)          │  ← mmGP had its own, less integrated
-         ├─────────────────────┤
-         │  PEFT LoRAs          │  dynamic adapters, compile-compatible
-         │                      │  ← mmGP's monkey-patching broke compile
-         ├─────────────────────┤
-         │  group_offload       │  async stream VRAM offloading
-         │  (use_stream=True)   │  ← mmGP's core feature, now native
-         └─────────────────────┘
+┌─────────────────────────┐
+│  Cache Acceleration      │  20-165% speedup (skip redundant steps)
+│  (apply_first_block_cache│  ← mmGP CANNOT do this
+├─────────────────────────┤
+│  compile_repeated_blocks │  ~1.5x speedup (kernel fusion on DiT blocks)
+│  + model_cpu_offload     │  ← mmGP BROKE this
+├─────────────────────────┤
+│  torchao NF4/INT4/FP8    │  50-75% VRAM cut
+│  quantization            │  ← mmGP had its own, less integrated
+├─────────────────────────┤
+│  PEFT LoRAs              │  dynamic adapters, compile-compatible
+└─────────────────────────┘
+   Peak VRAM: ~12.2 GB (FLUX.1-dev NF4 + model offload)
+   Fastest per-iteration speed
 ```
+
+**Key insight:** `pipe.enable_model_cpu_offload()` moves the ENTIRE transformer
+to GPU before execution, then back to CPU after. No mid-forward swapping →
+no `swap_tensors` → no dynamo guard collision → `compile_repeated_blocks()`
+works. The entire DiT must fit in VRAM during execution, but not permanently.
+
+#### Path B: Deep Memory Offload Stack (block-level streaming)
+For models that DON'T fit in VRAM even temporarily (Tier 3):
+
+```
+┌─────────────────────────┐
+│  ❌ Cache Acceleration   │  INCOMPATIBLE (breaks prefetch chain)
+├─────────────────────────┤
+│  ❌ torch.compile        │  INCOMPATIBLE (TensorWeakRef guard collision)
+├─────────────────────────┤
+│  layerwise_casting       │  50% VRAM cut (FP8 storage, bf16 compute)
+│  (applied FIRST)         │
+├─────────────────────────┤
+│  PEFT LoRAs              │  ✅ works if loaded BEFORE group_offload
+├─────────────────────────┤
+│  group_offload           │  async stream VRAM offloading
+│  (use_stream=True)       │  ← mmGP's core feature, now native
+│  record_stream=True      │
+└─────────────────────────┘
+   Peak VRAM: ~6.8 GB (FLUX.1-dev)
+   15-35% overhead vs resident (with use_stream=True)
+   Without use_stream: 300-500% overhead (basically sequential)
+```
+
+#### Path C: SGLang Diffusion (separate container, own kernels)
+For standard models (Wan, FLUX, Qwen-Image, Z-Image, LTX):
+
+- SPEED (Spectral Progressive Resolution): >2x speedup on H100/B200
+- Cache-DiT / TeaCache: step-level caching
+- sgl-kernel: JIT-compiled fused kernels via CuTeDSL
+- Built-in sleep/wake VRAM management (250-400MB idle, 0.48-0.60s wake)
+- **RTX 4090 realistic speedup: 1.15-1.5x** over native diffusers
+  (NOT the 2.5-2.9x from enterprise benchmarks — those are H100/B200)
+- **No continuous batching** — request-blocking at worker boundary.
+  Only homogeneous batching (same resolution, steps) at request start.
+  Roadmap: disaggregated serving to overlap text encoding/VAE with denoising.
+- Must run in SEPARATE Docker container (sgl-kernel/flashinfer JIT compilation
+  = 10+ min cold start if installed via Ray runtime_env pip)
+
+### Choosing the right path
+
+| Model | DiT fits VRAM? | Recommended path | Peak VRAM |
+|-------|----------------|-----------------|-----------|
+| Anima (3.9GB) | ✅ | Path A or direct | ~6 GB |
+| Z-Image (6.5GB) | ✅ | Path A | ~8 GB |
+| FLUX-schnell (12GB) | ✅ | Path A (NF4) | ~12.2 GB |
+| Wan 14B (14GB) | ✅ with FP8 | Path A | ~14 GB |
+| Wan 14B uncompressed | ❌ | Path B | ~11.8 GB |
+| LTX-2.3 (22B) | ❌ | Path B or SGLang | ~15-19 GB |
+| FLUX2-dev (31GB) | ❌ | Path B | ~19.5 GB |
+
+### PEFT + group_offload ordering rule (VERIFIED)
+
+```
+❌ WRONG: enable_group_offload → load_lora_weights → device mismatch crash
+✅ RIGHT: load_lora_weights → enable_group_offload → hooks register on adapters too
+```
+
+The group_offload hook manager inspects modules at enable time. If LoRAs are
+loaded AFTER, their weights bypass the hooks → remain on CPU → crash.
+Also: `record_stream=True` is required to prevent caching allocator from
+prematurely reclaiming prefetched tensors (bug fixed in diffusers 0.36.0).
 
 ---
 
@@ -610,19 +672,30 @@ If you want to protect against someone forking your system:
 
 **Target:** Wan 14B, LTX2, or Qwen-Image
 
-1. Write native runner with group offload:
+1. Write native runner with group offload (Path B):
    ```python
+   # ORDER MATTERS: layerwise casting FIRST, group_offload SECOND
    transformer = TransformerClass.from_pretrained("...", torch_dtype=torch.bfloat16)
-   transformer.enable_group_offload(
-       onload_device=torch.device("cuda"),
-       offload_device=torch.device("cpu"),
-       offload_type="block_level",
-       use_stream=True,
-   )
+
+   # Step 1: Load LoRAs BEFORE enabling group_offload
+   pipe.load_lora_weights("style.safetensors", adapter_name="style")
+
+   # Step 2: Apply layerwise casting FIRST
    transformer.enable_layerwise_casting(
        storage_dtype=torch.float8_e4m3fn,
        compute_dtype=torch.bfloat16,
    )
+
+   # Step 3: Apply group offload SECOND (wraps casting hooks)
+   transformer.enable_group_offload(
+       onload_device=torch.device("cuda"),
+       offload_device=torch.device("cpu"),
+       offload_type="block_level",
+       num_blocks_per_group=2,      # Wan 14B sweet spot
+       use_stream=True,              # async prefetch (CRITICAL)
+       record_stream=True,           # prevent premature memory reclamation
+   )
+   # NOTE: NO torch.compile, NO cache_accel on this path
    ```
 
 2. Benchmark against mmGP path. Key question: how much slower (if at all)
@@ -714,8 +787,21 @@ be gradual and model-by-model.
 SGLang Diffusion (from LMSYS/Berkeley/Stanford) is a production-grade inference
 server for diffusion models. Supports Wan, Hunyuan, Qwen-Image, FLUX, Z-Image,
 GLM-Image. Has optimized kernels, sleep/wake VRAM management, OpenAI-compatible
-API. Apache-2.0. HOWEVER: it launched recently (weeks, not years). Expect
-rough edges. Does NOT support niche models (Anima, TRELLIS, TTS).
+API. Apache-2.0.
+
+**CORRECTED SPEEDUP NUMBERS (verified June 2026):**
+- The "2.5–2.9x faster" benchmarks are from H100/B200 enterprise hardware
+- **On RTX 4090 (consumer): realistic speedup is 1.15–1.5x** over native diffusers
+  (from fused CuTeDSL RMSNorm/LayerNorm kernels, Packed QKV layouts, flashinfer)
+- SPEED (Spectral Progressive Resolution) is training-free and still gives >2x
+  even on consumer hardware (mathematically verified optimization)
+- **No continuous batching** — request-blocking at worker boundary. Only
+  homogeneous batching at request start. Disaggregated serving on roadmap.
+
+**Operational requirement:** Must run in SEPARATE Docker container — sgl-kernel
+and flashinfer JIT compilation = 10+ min cold start via Ray runtime_env pip.
+
+Does NOT support niche models (Anima, TRELLIS, TTS).
 
 ### Finding 6: The hardware is the "GPU poor" scenario
 
@@ -784,32 +870,71 @@ a thin custom runner (if not) — days, not weeks.
 - **Verdict:** ✅ CORRECT — keep Ray Serve DAG, use it for cluster-level orchestration
 - The advice to use isolated containers per model family is architecturally sound
 
+### Response 6: Optimization ecosystem (torchao, Cache-DiT, torch.compile)
+- **Claim:** PipelineQuantizationConfig + TorchAoConfig available
+- **Verdict:** ✅ VERIFIED on worker — available in diffusers 0.37.0
+- **Claim:** 5 cache acceleration strategies available
+- **Verdict:** ✅ VERIFIED — FirstBlock, Faster, MagCache, TaylorSeer, CacheMixin
+- **Claim:** torch.compile works with group offload + PEFT
+- **Verdict:** ❌ WRONG — compile + group_offload are fundamentally incompatible
+  (swap_tensors vs TensorWeakRef guards). Corrected by deep research verification.
+- **Claim:** MXFP4/NVFP4 microscaling
+- **Verdict:** ✅ Correct that this needs Blackwell — irrelevant for our 4090
+
+### Response 7: Deep Research Report (comprehensive, 8 sections)
+- **Verdict:** Mostly accurate with 3 critical corrections needed:
+  1. ❌ SGLang "2.5-2.9x faster" is H100/B200 numbers. RTX 4090 = 1.15-1.5x.
+  2. ❌ Anima code example used Qwen2.5 — actual model is Qwen3-0.6B-Base
+  3. ❌ Implied cache acceleration works with group_offload — it does NOT
+- **torch.compile + group_offload incompatible:** ✅ VERIFIED against PyTorch source
+- **Cache accel + group_offload incompatible:** ✅ VERIFIED — block-skipping
+  breaks prefetch chain
+- **PEFT + group_offload:** ✅ Works IF LoRAs loaded before enabling offload
+- **VAE offload bug in 0.37.0:** ✅ VERIFIED — PR #12692, fixed in 0.37.1
+- **num_blocks_per_group tuning:** ✅ Makes sense (PCIe bandwidth sweet spot)
+- **SGLang needs separate container:** ✅ VERIFIED — JIT compilation = 10+ min cold start
+- **No continuous batching:** ✅ VERIFIED — request-blocking, homogeneous batch only
+- **mmGP stability issues:** ✅ Real — documented GitHub issues (#29, #12, #24)
+
 ---
 
 ## 12. Risks & Open Questions
 
 ### Risks
 
-1. **SGLang Diffusion is new** — launched weeks ago. May have bugs, missing
-   features, or performance issues not yet discovered. Treat as promising but
-   unproven for production.
+1. **SGLang Diffusion is new** — launched weeks ago. No continuous batching
+   (request-blocking at worker). 1.15-1.5x speedup on 4090 (not 2.5-2.9x).
+   Needs separate Docker container. Treat as promising but evaluate per-model.
 
-2. **enable_group_offload performance** — UNVERIFIED against mmGP on a 4090.
-   The API exists, but we haven't benchmarked whether `use_stream=True`
-   matches mmGP's hand-tuned streaming on our specific hardware. This is the
-   #1 thing to test in Phase 1/2.
+2. **~~enable_group_offload performance~~** — ✅ RESOLVED by deep research.
+   15-35% overhead vs resident with `use_stream=True`. This is acceptable.
+   Still need to benchmark specific models on our 4090.
 
-3. **transformers v5 breaking changes** — Upgrading to v5 will break
-   tokenizers, decode API, and other things. Do NOT upgrade globally without
-   testing. Stay on 4.57 for now; group_offload works on current versions.
+3. **torch.compile + group_offload incompatibility** — VERIFIED fundamental
+   conflict. Architecture must use Path A (model_cpu_offload + compile) or
+   Path B (group_offload, no compile), not both. Cache acceleration also
+   incompatible with group_offload. Plan model placement accordingly.
 
-4. **Model coverage gaps** — Neither SGLang nor native diffusers support
-   ALL models. Anima, TRELLIS, and TTS models need custom runners. Budget
-   time for these.
+4. **VAE offloading bug in diffusers 0.37.0** — `post_quant_conv`/`quant_conv`
+   bypass block groupings. Fixed in 0.37.1 (PR #12692). Workaround: use
+   `exclude_modules=["vae"]` or `leaf_level` for VAE. Affects Anima directly.
 
-5. **Custom pipeline features** — Advanced features (prompt relay, Director
-   mode, frame injection, FFLF) need to be reimplemented on the native path.
-   diffusers pipelines support many of these natively, but not all.
+5. **transformers v5 breaking changes** — diffusers 0.37.0 is NOT compatible
+   with transformers v5.x. Will crash in text-encoding stage. Stay on 4.57.x.
+   Also: `decode()` returns list, `encode_plus` removed, special tokens renamed.
+
+6. **Model coverage gaps** — Neither SGLang nor native diffusers support
+   ALL models. Anima needs custom runner (Qwen3-0.6B-Base encoder + Cosmos
+   transformer + custom flow matching). TRELLIS and TTS need custom runners.
+
+7. **Custom pipeline features** — Advanced features (prompt relay, Director
+   mode, FLF2V for Wan) are NOT natively supported in diffusers. Wan only
+   supports first-frame conditioning natively (not first-last-frame).
+   Prompt relay requires custom denoising loop implementation.
+
+8. **PEFT + group_offload ordering** — LoRAs MUST be loaded BEFORE enabling
+   group_offload, or adapter weights bypass hooks → device mismatch.
+   `record_stream=True` required (bug fixed in 0.36.0, we're on 0.37.0 ✅).
 
 ### Open questions (for deep research)
 
@@ -840,7 +965,19 @@ a thin custom runner (if not) — days, not weeks.
 
 ## 13. Deep Research Query
 
-[See next section — the query to send to a deep research agent]
+**Query submitted:** 2026-06-13. **Results received & verified.** All findings
+integrated into this document and [03_DEEP_RESEARCH_FINDINGS.md](03_DEEP_RESEARCH_FINDINGS.md).
+
+The query covered 7 research areas (see 01_DEEP_RESEARCH_QUERY.md). Key answers:
+
+| Question | Answer |
+|----------|--------|
+| Is group_offload fast enough vs mmGP? | ✅ Yes — 15-35% overhead with use_stream=True |
+| Is SGLang production-ready? | ✅ For standard models (1.15-1.5x on 4090, NOT 2.5-2.9x) |
+| Gotchas with offload + casting + PEFT? | Order matters: casting → offload. LoRAs before offload. |
+| compile + group_offload? | ❌ Fundamentally incompatible (TensorWeakRef guards) |
+| cache_accel + group_offload? | ❌ Incompatible (breaks prefetch chain) |
+| VAE offloading in 0.37.0? | ⚠️ Bug (PR #12692, fixed 0.37.1) — use leaf_level or exclude |
 
 ---
 
