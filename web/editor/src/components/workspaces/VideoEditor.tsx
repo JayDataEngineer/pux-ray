@@ -1079,7 +1079,7 @@ export function VideoEditor({ jobs, onAddJob }: VideoEditorProps) {
                             samplingSteps: switchingToDistilled ? 8 : (sel.params.model === 'ltx2' ? 30 : 40),
                             distilledLoraStrength: switchingToDistilled ? 0.5 : 1.0,
                             guideScale: switchingToDistilled ? 1.0 : 3.0,
-                            guidePhases: switchingToDistilled ? 1 : 2,
+                            guidePhases: 2,  // always 2 for distilled (stage 1+2), 2 for dev (2-phase CFG)
                             sampleSolver: 'euler',
                             // Reset guidance toggles to off for clean state
                             apgSwitch: false,

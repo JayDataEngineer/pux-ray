@@ -225,7 +225,7 @@ export const DEFAULT_SEGMENT_PARAMS: SegmentParams = {
   guideScale: 1.0,     // WDC ComfyUI distilled default (CFG 1.0)
   samplingSteps: 8,     // distilled
   model: 'ltx2',
-  guidePhases: 1,       // distilled uses single-phase
+  guidePhases: 2,       // >=2 enables stage 2 spatial upscale (WDC always runs it)
   epsilon: 0.001,
   denoisingStrength: 1.0,
   inputVideoStrength: 1.0,
