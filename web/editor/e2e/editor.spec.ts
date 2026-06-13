@@ -321,3 +321,148 @@ test.describe('Inspector — Edit properties', () => {
     await expect(page.getByText('Video Length (seconds)')).toBeVisible()
   })
 })
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 7. SIDEBAR — Asset list, modal navigation, video handling
+// ═══════════════════════════════════════════════════════════════════════════
+
+/** Assets injected into localStorage before the page boots.  Using non-data:
+  * URLs keeps IndexedDB out of the loop — they load as broken images/video
+  * which is fine for interaction tests. */
+const SIDEBAR_TEST_ASSETS = [
+  { id: 't_img1', name: 'img1.png', type: 'image', category: 'image', mediaType: 'image/png', url: '/img1.png', sizeBytes: 100, source: 'uploaded', createdAt: '2024-01-01T00:00:00.000Z' },
+  { id: 't_img2', name: 'img2.png', type: 'image', category: 'image', mediaType: 'image/png', url: '/img2.png', sizeBytes: 100, source: 'uploaded', createdAt: '2024-01-01T00:00:01.000Z' },
+  { id: 't_vid1', name: 'vid1.mp4', type: 'video', category: 'video', mediaType: 'video/mp4', url: '/vid1.mp4', sizeBytes: 100, source: 'uploaded', createdAt: '2024-01-01T00:00:02.000Z' },
+  { id: 't_snd1', name: 'song.mp3', type: 'audio', category: 'music', mediaType: 'audio/mp3', url: '/song.mp3', sizeBytes: 100, source: 'uploaded', createdAt: '2024-01-01T00:00:03.000Z' },
+]
+
+async function gotoEditorWithAssets(page: Page) {
+  await page.addInitScript((assets) => {
+    localStorage.setItem('tech_noir_assets', JSON.stringify(assets))
+  }, SIDEBAR_TEST_ASSETS)
+  await page.goto('/editor/')
+  await page.waitForSelector('text=TECH NOIR', { timeout: 10000 })
+  // Wait for the loading overlay to clear
+  await page.waitForSelector('text=Assets', { timeout: 5000 })
+}
+
+test.describe('Sidebar — Assets & modal', () => {
+  test.beforeEach(async ({ page }) => {
+    await gotoEditorWithAssets(page)
+  })
+
+  // ── (a) Images default to folded in ──────────────────────────────────────
+  test('(a) Images section is collapsed by default', async ({ page }) => {
+    const sidebar = page.locator('.bg-sidebar').first()
+    const trigger = sidebar.getByRole('button', { name: /Images/ })
+    await expect(trigger).toBeVisible()
+    await expect(trigger).toHaveAttribute('aria-expanded', 'false')
+    // Thumbnails are not rendered while collapsed
+    await expect(page.locator('img[alt="img1.png"]')).toHaveCount(0)
+  })
+
+  test('(a) every category section is collapsed by default', async ({ page }) => {
+    const sidebar = page.locator('.bg-sidebar').first()
+    for (const label of ['Images', 'Video', 'Music']) {
+      const trigger = sidebar.getByRole('button', { name: new RegExp(label) })
+      await expect(trigger).toHaveAttribute('aria-expanded', 'false')
+    }
+  })
+
+  test('(a) expanding Images reveals thumbnails', async ({ page }) => {
+    const sidebar = page.locator('.bg-sidebar').first()
+    await sidebar.getByRole('button', { name: /Images/ }).click()
+    await expect(page.locator('img[alt="img1.png"]')).toBeVisible()
+  })
+
+  // ── (b) Modal "next" matches the sidebar list order (same category) ───────
+  test('(b) modal navigates within the current category', async ({ page }) => {
+    const sidebar = page.locator('.bg-sidebar').first()
+    await sidebar.getByRole('button', { name: /Images/ }).click()
+    await page.locator('img[alt="img1.png"]').click()
+
+    const dialog = page.getByRole('dialog')
+    await expect(dialog).toBeVisible()
+    // Counter is scoped to the image category: 1 / 2 (not 1 / 4)
+    await expect(dialog.getByText('1 / 2')).toBeVisible()
+
+    // Next should advance to img2, staying inside the dialog
+    await dialog.locator('svg.lucide-chevron-right').click()
+    await expect(dialog.getByText('2 / 2')).toBeVisible()
+    await expect(dialog.locator('img[alt="img2.png"]')).toBeVisible()
+  })
+
+  test('(b) modal prev wraps to the start of the category', async ({ page }) => {
+    const sidebar = page.locator('.bg-sidebar').first()
+    await sidebar.getByRole('button', { name: /Images/ }).click()
+    // Click the second image so we can go back to the first
+    await page.locator('img[alt="img2.png"]').click()
+
+    const dialog = page.getByRole('dialog')
+    await expect(dialog.getByText('2 / 2')).toBeVisible()
+    await dialog.locator('svg.lucide-chevron-left').click()
+    await expect(dialog.getByText('1 / 2')).toBeVisible()
+    await expect(dialog.locator('img[alt="img1.png"]')).toBeVisible()
+  })
+
+  // ── (c) Videos open the modal instead of playing inline ───────────────────
+  test('(c) clicking a video thumbnail opens the modal', async ({ page }) => {
+    const sidebar = page.locator('.bg-sidebar').first()
+    await sidebar.getByRole('button', { name: /Video/ }).click()
+
+    // The sidebar video should be there — click it (no inline controls)
+    const sidebarVideo = sidebar.locator('video').first()
+    await expect(sidebarVideo).toBeVisible()
+    await sidebarVideo.click()
+
+    // A dialog with a <video> should appear
+    const dialog = page.getByRole('dialog')
+    await expect(dialog).toBeVisible()
+    await expect(dialog.locator('video')).toBeVisible()
+    // The sidebar video had no controls; the modal one should (it's a real player)
+    await expect(dialog.locator('video')).toHaveAttribute('controls')
+  })
+
+  // ── (d) Generated names get numbered instead of colliding ────────────────
+  test('(d) addAsset de-duplicates names with a counter', async ({ page }) => {
+    // The store is not on window, but addAsset writes to localStorage, so we
+    // can use the same zustand store via the page's module graph by going
+    // through the exposed import path.  Instead, verify the persisted result:
+    // call addAsset through the dev-only hook exposed on window.
+    const result = await page.evaluate(() => {
+      // @ts-expect-error — store is attached in dev for testing (see main.tsx)
+      const store = window.__assetStore
+      if (!store) return { error: 'store not exposed' }
+      const a1 = store.getState().addAsset({
+        name: 'ltx2_1.png', type: 'image', category: 'image',
+        mediaType: 'image/png', url: 'x', sizeBytes: 0, source: 'generated',
+      })
+      const a2 = store.getState().addAsset({
+        name: 'ltx2_1.png', type: 'image', category: 'image',
+        mediaType: 'image/png', url: 'y', sizeBytes: 0, source: 'generated',
+      })
+      return { first: a1.name, second: a2.name }
+    })
+    expect(result.first).toBe('ltx2_1.png')
+    expect(result.second).toBe('ltx2_2.png')
+  })
+
+  test('(d) nextAssetName continues from existing assets', async ({ page }) => {
+    const result = await page.evaluate(() => {
+      // @ts-expect-error — dev-only hook
+      const store = window.__assetStore
+      if (!store) return { error: 'store not exposed' }
+      // The sidebar test data has img1.png / img2.png but no "gen_*" names
+      const n1 = store.getState().addAsset({
+        name: 'gen_1.png', type: 'image', category: 'image',
+        mediaType: 'image/png', url: 'a', sizeBytes: 0, source: 'generated',
+      }).name
+      // Simulate a second generation pass producing the "next" name
+      // @ts-expect-error — dev-only hook
+      const next = window.__nextAssetName?.('gen', 'png') ?? 'gen_1.png'
+      return { first: n1, next }
+    })
+    expect(result.first).toBe('gen_1.png')
+    expect(result.next).toBe('gen_2.png')
+  })
+})
