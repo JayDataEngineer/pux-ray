@@ -1635,15 +1635,14 @@ wan2gp:
     description: Z-Image Base 6B (non-distilled, high quality). Downloaded by Wan2GP
       job.
   ltx2-22b:
-    path: wan2gp/ltx-2.3-22b-dev_diffusion_model.safetensors
-    source: hf://DeepBeepMeep/LTX-Video
-    download: manual
+    path: image-gen/comfyui/checkpoints/ltx-2.3-22b-dev-fp8.safetensors
+    source: hf://Lightricks/LTX-2.3-fp8/ltx-2.3-22b-dev-fp8.safetensors
+    download: file
     sha256: null
-    size_gb: 22.0
+    size_gb: 23.0
     vram_estimate_gb: 22.0
     device: gpu
-    description: LTX-2.3 22B dev. Used by WDC/workflow video stages. Downloaded by
-      Wan2GP job.
+    description: LTX-2.3 22B dev FP8 checkpoint (WDC-matched). Loaded by Wan2GP distilled pipeline.
   ltx2-19b:
     path: wan2gp/ltx-2-19b-dev_diffusion_model.safetensors
     source: hf://DeepBeepMeep/LTX-Video
