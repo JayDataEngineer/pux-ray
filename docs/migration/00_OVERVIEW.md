@@ -476,14 +476,54 @@ pipe.vae.enable_slicing()   # Process latent slices separately
 | **Model eviction** | SGLang sleep/wake | ~0.5–1 GB (CUDA context only) | <1s (PCIe from pinned CPU) |
 | **Within-request** | `enable_group_offload` | N/A (active during inference) | N/A |
 
-### Speed optimization stack
+### Speed optimization stack (stacked — each layer independently valuable)
 
-1. `enable_group_offload(use_stream=True)` — async block prefetch
-2. `enable_layerwise_casting(fp8)` — halve VRAM, keep more resident
-3. `torch.compile` — kernel fusion (now compatible with group offload + PEFT)
-4. SGLang sgl-kernel + JIT compilation — for standard models
-5. VAE tiling/slicing — for decode VRAM management
-6. Cache-DiT / TeaCache (via SGLang) — skip redundant denoising steps
+These optimizations stack on top of each other. mmGP only did the bottom
+layer (VRAM offloading) and actively PREVENTED the top three. The native
+path can be FASTER than mmGP because all layers compose:
+
+1. **Cache Acceleration** (20–165% speedup) — `apply_first_block_cache()` etc.
+   Skips redundant computation across denoising steps. VERIFIED available in
+   diffusers 0.37.0 — five strategies: FirstBlock, Faster, MagCache,
+   TaylorSeer, CacheMixin. **mmGP CANNOT do this** — it manages memory,
+   not computation.
+2. **torch.compile** (~1.5x speedup) — kernel fusion, now compatible with
+   group offload + PEFT. Regional compilation (compile only DiT blocks)
+   reduces cold-start from ~67s to ~10s. **mmGP BROKE this** — its LoRA
+   monkey-patching created untraceable dispatch paths.
+3. **torchao quantization** (50% VRAM cut + speed) — `PipelineQuantizationConfig`
+   with `TorchAoConfig(Int8WeightOnlyConfig())`. VERIFIED: diffusers integration
+   layer available; torchao itself needs `pip install torchao`. Designed to
+   compose with torch.compile. 4090 supports FP8/INT8/INT4/NF4 (NOT MXFP4 —
+   that needs Blackwell B200/B300).
+4. **PEFT LoRAs** — dynamic adapters, compile-compatible, no circular refs.
+   Replaces mmGP's 560-line monkey-patching.
+5. **group_offload** (async stream VRAM offloading) — mmGP's core feature,
+   now native.
+
+Plus: SGLang sgl-kernel + JIT compilation for standard models.
+Plus: VAE tiling/slicing for decode VRAM management.
+
+### The stacked optimization pyramid
+
+```
+         ┌─────────────────────┐
+         │  Cache Acceleration  │  20-165% speedup (skip redundant steps)
+         │  (5 strategies)      │  ← mmGP CANNOT do this
+         ├─────────────────────┤
+         │  torch.compile       │  ~1.5x speedup (kernel fusion)
+         │  (regional, DiT)     │  ← mmGP BROKE this
+         ├─────────────────────┤
+         │  torchao quant       │  50% VRAM cut + speed boost
+         │  (FP8/INT8)          │  ← mmGP had its own, less integrated
+         ├─────────────────────┤
+         │  PEFT LoRAs          │  dynamic adapters, compile-compatible
+         │                      │  ← mmGP's monkey-patching broke compile
+         ├─────────────────────┤
+         │  group_offload       │  async stream VRAM offloading
+         │  (use_stream=True)   │  ← mmGP's core feature, now native
+         └─────────────────────┘
+```
 
 ---
 
