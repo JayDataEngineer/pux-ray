@@ -12,11 +12,16 @@ spec:
     services:
     - name: wan2gp-studio-web
       port: 3000
+  # /v1/* REST calls from the editor (services, run, loras, models, wf) are
+  # served by the Tech Noir api-ingress (Ray Serve), NOT the MCP server which
+  # only handles /mcp JSON-RPC. Without this the editor's listServices(),
+  # invokeService(), LoraPicker, and workflow-artifact fetches all 404.
   - match: PathPrefix(`/v1`)
     kind: Rule
     services:
-    - name: wan2gp-studio-mcp
-      port: 8002
+    - name: tech-noir-ray-serve-svc
+      namespace: ai-services
+      port: 8000
 ---
 apiVersion: traefik.io/v1alpha1
 kind: IngressRoute
