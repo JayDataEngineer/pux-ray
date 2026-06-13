@@ -10,8 +10,8 @@ from pathlib import Path
 
 from .lora_utils import control_video_phase2_message
 
-_GEMMA_FOLDER_URL = "https://huggingface.co/DeepBeepMeep/LTX-2/resolve/main/gemma-3-12b-it-qat-q4_0-unquantized/"
-_GEMMA_FOLDER = "gemma-3-12b-it-qat-q4_0-unquantized"
+_GEMMA_FOLDER_URL = "https://huggingface.co/google/gemma-3-12b-it/resolve/main/"
+_GEMMA_FOLDER = "gemma_3_12B_it_fp4_mixed"
 _GEMMA_FILENAME = f"{_GEMMA_FOLDER}.safetensors"
 _GEMMA_QUANTO_FILENAME = f"{_GEMMA_FOLDER}_quanto_bf16_int8.safetensors"
 _LORAS_MIGRATED = False
@@ -45,15 +45,15 @@ _ARCH_SPECS = {
         "config_file": "ltx2_22b_config.json",
         "spatial_upscaler": "ltx-2.3-spatial-upscaler-x2-1.1.safetensors",
         "temporal_upscaler": "ltx-2.3-temporal-upscaler-x2-1.0.safetensors",
-        "distilled_lora": "ltx-2.3-22b-distilled-lora-384.safetensors",
+        "distilled_lora": "ltx-2.3-22b-distilled-lora-dynamic_fro09_avg_rank_105_bf16.safetensors",
         "distilled_1_1_lora": "ltx-2.3-22b-distilled-lora-384-1.1.safetensors",
         "union_control_lora": "ltx-2.3-22b-ic-lora-union-control-ref0.5.safetensors",
         "id_lora": "id-lora-celebvhq-ltx2.3.safetensors",
         "outpaint_lora": "ltx-2.3-22b-ic-lora-outpaint.safetensors",
         "hdr_lora": "ltx-2.3-22b-ic-lora-hdr-0.9.safetensors",
         "hdr_scene_embeddings": "ltx-2.3-22b-ic-lora-hdr-scene-emb.safetensors",
-        "video_vae": "ltx-2.3-22b_vae.safetensors",
-        "audio_vae": "ltx-2.3-22b_audio_vae.safetensors",
+        "video_vae": "LTX23_video_vae_bf16.safetensors",
+        "audio_vae": "LTX23_audio_vae_bf16.safetensors",
         "vocoder": "ltx-2.3-22b_vocoder.safetensors",
         "text_embedding_projection": "ltx-2.3-22b_text_embedding_projection.safetensors",
         "embeddings_connector": "ltx-2.3-22b_embeddings_connector.safetensors",
