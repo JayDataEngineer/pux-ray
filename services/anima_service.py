@@ -63,51 +63,61 @@ class AnimaService:
                 "status": "error",
                 "error": "Model not loaded. Call load() first."
             }
-        
+
         try:
-            # Import and create factory
-            from models.anima.anima_main import model_factory
-            
-            self._factory = model_factory(
-                checkpoint_dir="/opt/wan2gp/ckpts",
-                model_filename=["anima-base-v1.0.safetensors"],
-                text_encoder_filename="qwen_3_06b_base.safetensors"
-            )
-            
+            # Lazy-load model on first generation
+            if self._factory is None:
+                from models.anima.anima_main import model_factory
+                from shared.utils import files_locator as fl
+                fl.set_checkpoints_paths(['/models/wan2gp', '/tmp'])
+
+                # Locate the checkpoint files
+                transformer_path = fl.locate_file("anima-base-v1.0.safetensors")
+                te_path = fl.locate_file("qwen_3_06b_base.safetensors")
+
+                self._factory = model_factory(
+                    model_filename=transformer_path,
+                    base_model_type='anima_base',
+                    text_encoder_filename=te_path,
+                )
+                logger.info("AnimaService: model loaded")
+
             # Extract parameters from payload
             prompt = payload.get("prompt") or payload.get("input_prompt") or payload.get("text", "")
-            width = payload.get("width", 512)
-            height = payload.get("height", 512)
-            steps = payload.get("steps", payload.get("sampling_steps", payload.get("num_inference_steps", 4)))
+            n_prompt = payload.get("n_prompt") or payload.get("negative_prompt")
+            width = payload.get("width", 1024)
+            height = payload.get("height", 1024)
+            steps = payload.get("steps", payload.get("sampling_steps", payload.get("num_inference_steps", 30)))
             seed = payload.get("seed", 42)
-            
-            logger.info(f"AnimaService generating: {prompt[:50]}...")
-            
+            guidance_scale = payload.get("guidance_scale", payload.get("cfg", payload.get("guide_scale", 4.0)))
+
+            logger.info(f"AnimaService generating ({width}x{height}, {steps} steps): {prompt[:50]}...")
+
             # Generate image
             image_tensor = self._factory.generate(
-                prompt=prompt,
+                seed=seed,
+                input_prompt=prompt,
+                n_prompt=n_prompt,
                 width=width,
                 height=height,
-                steps=steps,
-                seed=seed
+                sampling_steps=steps,
+                guide_scale=guidance_scale,
             )
-            
-            # Convert tensor to PIL Image
-            image_np = image_tensor[0].cpu().numpy().transpose(1, 2, 0)
-            if image_np.min() < 0:  # Range [-1, 1]
-                image_np = ((image_np + 1) / 2 * 255).astype('uint8')
-            else:  # Range [0, 1]
-                image_np = (image_np * 255).astype('uint8')
-            
+
+            # Convert tensor to PIL Image (result is [C, H, W] float in [-1, 1])
+            img = image_tensor.float().clamp(-1, 1)
+            img = ((img + 1) / 2 * 255).clamp(0, 255).to(torch.uint8)
+            image_np = img.permute(1, 2, 0).cpu().numpy()
+
             image = Image.fromarray(image_np, 'RGB')
-            
+
             # Convert to base64
             buffer = io.BytesIO()
             image.save(buffer, format='PNG')
             image_base64 = base64.b64encode(buffer.getvalue()).decode()
-            
+
             logger.info(f"AnimaService generation complete: {len(image_base64)} bytes")
-            
+
             return {
                 "status": "success",
                 "media_type": "image/png",
@@ -117,7 +127,7 @@ class AnimaService:
                 "width": width,
                 "height": height
             }
-            
+
         except Exception as e:
             logger.error(f"AnimaService generation failed: {e}")
             import traceback
