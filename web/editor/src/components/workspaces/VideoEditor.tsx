@@ -1104,10 +1104,9 @@ export function VideoEditor({ jobs, onAddJob }: VideoEditorProps) {
                 {isLtx && sel.params.distilledMode && (
                   <div className="mb-2 flex items-center gap-2">
                     <Label className="text-[9px] font-medium text-white/30 uppercase tracking-wider shrink-0">Distilled Strength</Label>
-                    <input type="range" min={0} max={1.5} step={0.05} value={sel.params.distilledLoraStrength}
+                    <input type="number" value={sel.params.distilledLoraStrength} step={0.05} min={0} max={2}
                       onChange={e => updateSegment(sel.id, { params: { ...sel.params, distilledLoraStrength: Number(e.target.value) } })}
-                      className="flex-1 h-1 appearance-none bg-white/10 rounded-full accent-[#6366f1] [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:h-2.5 [&::-webkit-slider-thumb]:w-2.5 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white/70" />
-                    <span className="text-[9px] font-mono text-white/30 w-7 tabular-nums">{sel.params.distilledLoraStrength.toFixed(2)}</span>
+                      className="h-7 w-16 text-xs bg-white/5 border-white/10 text-white/80 rounded-md font-mono text-center" />
                   </div>
                 )}
                 <LoraPicker model={sel.params.model} value={sel.params.loras}
