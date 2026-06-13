@@ -872,6 +872,8 @@ class LTX2:
                 mult = "0;1"
             _append_preload_lora("distilled", mult)
         if pipeline_kind == "distilled":
+            # Distilled LoRA loaded dynamically at user-specified strength (WDC default: 0.5)
+            _append_preload_lora("distilled", str(distilled_lora_strength))
             if resolved_base_model_type == "ltx2_22B" and VIDEO_PROMPT_HDR_OUTPUT_FLAG in video_prompt_type:
                 _append_preload_lora("ic-lora-hdr", 1.0)
             if any(letter in video_prompt_type for letter in control_map):
@@ -940,6 +942,7 @@ class LTX2:
         set_progress_status=None,
         VAE_tile_size=None,
         guide_phases= 1,
+        distilled_lora_strength: float = 0.5,   # matches WDC ComfyUI default
         **kwargs,
     ):
         if self._interrupt:

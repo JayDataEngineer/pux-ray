@@ -137,6 +137,7 @@ function buildPayload(seg: TimelineSegment, _allSegments?: TimelineSegment[]) {
       masking_source: p.maskingSource || undefined,
       audio_prompt_type: p.audioPromptType || undefined,
       loras_selected: p.loras || undefined,
+      distilled_lora_strength: isLtxModel ? p.distilledLoraStrength : undefined,
       enhance_prompt: p.enhancePrompt ? "true" : undefined,
       ...(p.slidingWindow ? {
         sliding_window_size: p.slidingWindowSize,
@@ -1072,10 +1073,11 @@ export function VideoEditor({ jobs, onAddJob }: VideoEditorProps) {
                             ...sel.params,
                             distilledMode: switchingToDistilled,
                             // ── Distilled (matches WDC ComfyUI ltx_director workflow) ──
-                            // CFG 1.0, 8 steps, euler, linear_quadratic, NAG guidance
+                            // CFG 1.0, 8 steps, euler, linear_quadratic, NAG guidance, LoRA 0.5
                             // ── Non-distilled (matches LTX handler _default_dev_settings) ──
                             // CFG 3.0, 30/40 steps, euler, 2-phase, APG/CFG-Star off
                             samplingSteps: switchingToDistilled ? 8 : (sel.params.model === 'ltx2' ? 30 : 40),
+                            distilledLoraStrength: switchingToDistilled ? 0.5 : 1.0,
                             guideScale: switchingToDistilled ? 1.0 : 3.0,
                             guidePhases: switchingToDistilled ? 1 : 2,
                             sampleSolver: 'euler',
@@ -1096,6 +1098,16 @@ export function VideoEditor({ jobs, onAddJob }: VideoEditorProps) {
                         ? <ToggleRight className="h-5 w-5 text-[#6366f1]" />
                         : <ToggleLeft className="h-5 w-5" />}
                     </button>
+                  </div>
+                )}
+                {/* Distilled LoRA strength (matches WDC ComfyUI 0.5 default) */}
+                {isLtx && sel.params.distilledMode && (
+                  <div className="mb-2 flex items-center gap-2">
+                    <Label className="text-[9px] font-medium text-white/30 uppercase tracking-wider shrink-0">Distilled Strength</Label>
+                    <input type="range" min={0} max={1.5} step={0.05} value={sel.params.distilledLoraStrength}
+                      onChange={e => updateSegment(sel.id, { params: { ...sel.params, distilledLoraStrength: Number(e.target.value) } })}
+                      className="flex-1 h-1 appearance-none bg-white/10 rounded-full accent-[#6366f1] [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:h-2.5 [&::-webkit-slider-thumb]:w-2.5 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white/70" />
+                    <span className="text-[9px] font-mono text-white/30 w-7 tabular-nums">{sel.params.distilledLoraStrength.toFixed(2)}</span>
                   </div>
                 )}
                 <LoraPicker model={sel.params.model} value={sel.params.loras}

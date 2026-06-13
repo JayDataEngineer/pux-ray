@@ -61,6 +61,8 @@ export interface SegmentParams {
   resizeMethod: 'stretch' | 'fit' | 'crop' | 'pad'
   /** Use distilled mode (loads distilled LoRA, fewer steps) */
   distilledMode: boolean
+  /** Distilled LoRA strength (matches WDC ComfyUI default 0.5) */
+  distilledLoraStrength: number
 
   // ── Advanced guidance ──
   /** APG (Adaptive Projected Guidance) — dev only */
@@ -238,6 +240,7 @@ export const DEFAULT_SEGMENT_PARAMS: SegmentParams = {
   cameraZoom: 1.0,
   resizeMethod: 'crop',
   distilledMode: true,
+  distilledLoraStrength: 0.5,  // WDC ComfyUI default
 
   // Advanced guidance
   apgSwitch: false,

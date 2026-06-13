@@ -16,6 +16,9 @@ _GEMMA_FILENAME = f"{_GEMMA_FOLDER}.safetensors"
 _GEMMA_QUANTO_FILENAME = f"{_GEMMA_FOLDER}_quanto_bf16_int8.safetensors"
 _LORAS_MIGRATED = False
 _LORA_SPEC_KEYS = ("distilled_lora", "distilled_1_1_lora", "union_control_lora", "id_lora", "outpaint_lora", "hdr_lora")
+# LoRAs that should NOT be pre-merged by mmgp — loaded dynamically at inference
+# so their strength can be controlled per-generation (e.g. WDC uses 0.5).
+_LAZY_LORA_KEYS = {"distilled_lora", "distilled_1_1_lora"}
 
 _ARCH_SPECS = {
     "ltx2_19B": {
@@ -207,9 +210,9 @@ class family_handler:
     def query_model_def(base_model_type, model_def):
         preload_urls = model_def.get("preload_URLs")
         spec = _get_arch_spec(base_model_type)
-        if isinstance(preload_urls, list): 
-            # migrate old finetunes
-            lora_filenames = {spec[key] for key in _LORA_SPEC_KEYS if key in spec}
+        if isinstance(preload_urls, list):
+            # migrate old finetunes — skip lazy LoRAs (loaded dynamically at inference)
+            lora_filenames = {spec[key] for key in _LORA_SPEC_KEYS if key in spec and key not in _LAZY_LORA_KEYS}
             def add_lora_dir_suffix(entry):
                 if not isinstance(entry, str) or "|%lora_dir" in entry:
                     return entry
