@@ -466,10 +466,12 @@ class model_factory:
     # ------------------------------------------------------------------
     def _encode_text(self, text: str, device: torch.device) -> torch.Tensor:
         """Encode text through Qwen3 → LLM adapter → padded embeddings."""
-        # 1. Qwen3 encoding
+        # 1. Qwen3 encoding — NO padding, NO special tokens (matching ComfyUI's
+        # Qwen3Tokenizer: pad_to_max_length=False, has_start_token=False,
+        # has_end_token=False). Padding tokens pollute the hidden states that
+        # feed into the LLM adapter cross-attention, degrading image quality.
         qwen_ids = self.tokenizer(
-            text, return_tensors="pt", padding="max_length",
-            max_length=256, truncation=True,
+            text, return_tensors="pt", add_special_tokens=False,
         ).input_ids
         # Move token IDs to same device as text encoder (mmgp may place it on GPU)
         te_device = next(self.text_encoder.parameters()).device
@@ -566,7 +568,6 @@ class model_factory:
                 return t
             return alpha * t / (1.0 + (alpha - 1.0) * t)
 
-        # "simple" scheduler: evenly spaced from sigma_max to sigma_min
         t_lin = torch.linspace(1.0, 0.0, sampling_steps + 1, device=device)
         sigmas = torch.tensor(
             [_time_snr_shift(3.0, t.item()) for t in t_lin],
@@ -583,7 +584,8 @@ class model_factory:
             sigma_cur = sigmas[i]
             sigma_next = sigmas[i + 1]
 
-            # Timestep = sigma (multiplier=1.0 in ComfyUI's ModelSamplingDiscreteFlow)
+            # Timestep = sigma * multiplier. ComfyUI's Anima sampling_settings
+            # use multiplier=1.0, so timestep == sigma (0-1 range).
             timestep = sigma_cur.expand(2)
 
             with torch.no_grad():
@@ -614,31 +616,17 @@ class model_factory:
         torch.cuda.empty_cache()
         gc.collect()
 
-        # Decode latents → image
-        # The Qwen-Image VAE expects denormalized latents:
-        #   latents_denorm = latents * std + mean
-        # The diffusion process produces normalized latents, so we must undo
-        # the normalization that was applied during encoding.
+        # Decode latents → image.
+        # ComfyUI's Wan21 latent format (used by Anima) does NOT apply
+        # latents_mean/std denormalization — the raw diffusion latents go
+        # directly to the VAE. Applying the Qwen VAE's latents_mean/std
+        # produces watercolor-like blurred images.
         with torch.no_grad():
             # mmgp moves the VAE to GPU automatically during decode — do not
             # call self.vae.to(device) (same recursion issue as transformer).
             latents_5d = latents.float().unsqueeze(2)  # [B, C, 1, H, W]
-            if hasattr(self.vae, 'config') and hasattr(self.vae.config, 'latents_mean'):
-                vae_z_dim = latents_5d.shape[1]
-                latents_mean = (
-                    torch.tensor(self.vae.config.latents_mean)
-                    .view(1, vae_z_dim, 1, 1, 1)
-                    .to(latents_5d.device, latents_5d.dtype)
-                )
-                latents_std = (
-                    torch.tensor(self.vae.config.latents_std)
-                    .view(1, vae_z_dim, 1, 1, 1)
-                    .to(latents_5d.device, latents_5d.dtype)
-                )
-                latents_5d = latents_5d * latents_std + latents_mean
 
             # Decode using the standard decode path (returns float tensor)
-            # decode_to_cpu_uint8 can return None in some edge cases
             decoded = self.vae.decode(latents_5d, return_dict=False)[0]
             image = decoded.squeeze(2)  # [B, C, H, W] — remove temporal dim
             image = image.clamp(-1, 1)  # VAE output is typically [-1, 1]
