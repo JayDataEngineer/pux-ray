@@ -85,6 +85,15 @@ export function LLMChatDialog({ open, onOpenChange }: LLMChatDialogProps) {
 
       if (!response.ok) {
         const errorText = await response.text()
+        // If the key was lost (backend restarted), auto-clear stale local config
+        if (errorText.includes("Key not found")) {
+          try {
+            const { useEnhanceStore } = await import("@/stores/enhancement")
+            const store = useEnhanceStore.getState()
+            if (activeModel.keyId) store.removeModel(activeModel.id)
+          } catch {}
+          throw new Error("API key not found on server (it was likely restarted). Please re-add your LLM endpoint in settings.")
+        }
         throw new Error(`LLM error (${response.status}): ${errorText.slice(0, 200)}`)
       }
 
