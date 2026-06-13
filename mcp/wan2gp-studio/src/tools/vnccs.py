@@ -173,10 +173,15 @@ async def edit(
             "service": "wan2gp",
             "model": "qwen-image-edit",
             "input_prompt": assembled_prompt,
-            "image_b64": image_b64,
+            "reference_images": [image_b64],
             "sampling_steps": sampling_steps,
             "guide_scale": guide_scale,
             "seed": seed,
+            "video_prompt_type": "KI",
+            "sample_solver": "lightning",
+            "loras_selected": [
+                "Qwen-Image-Edit-2511-Lightning-4steps-V1.0-bf16.safetensors",
+            ],
         })
 
     # ── Pose reference provided: VNCCS Pose Studio pipeline ──
