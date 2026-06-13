@@ -522,17 +522,10 @@ class model_factory:
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         dtype = self.transformer.dtype
 
-        # Move models to GPU for inference (mmgp handles this in production via
-        # offload.profile, but for standalone use we do it explicitly)
-        if self.transformer.device.type != device.type:
-            self.transformer.to(device)
-        if hasattr(self, 'vae') and hasattr(self.vae, 'device') and self.vae.device.type != device.type:
-            self.vae.to(device)
-        # LLM adapter might not be on GPU even if transformer is
-        if hasattr(self.transformer, 'llm_adapter'):
-            adapter_dev = next(self.transformer.llm_adapter.parameters()).device
-            if adapter_dev.type != device.type:
-                self.transformer.llm_adapter.to(device)
+        # NOTE: Do NOT call self.transformer.to(device) — mmgp's offload system
+        # hooks the model and creates circular module references that cause
+        # infinite recursion in nn.Module._apply(). mmgp handles device
+        # placement automatically during forward passes.
 
         if VAE_tile_size is not None and hasattr(self.vae, "use_tiling"):
             if isinstance(VAE_tile_size, int):
