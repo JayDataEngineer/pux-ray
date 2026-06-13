@@ -826,7 +826,7 @@ export function VideoEditor({ jobs, onAddJob }: VideoEditorProps) {
 
               {/* ── Model Section ── */}
               <InspectorSection title="Model" icon={<FilmIcon className="h-3 w-3" />}>
-                <Select value={sel.params.model} onValueChange={(v) => handleModelChange(sel.id, v)}>
+                <Select value={sel.params.model || 'ltx2'} onValueChange={(v) => handleModelChange(sel.id, v)}>
                   <SelectTrigger className="h-8 text-xs bg-white/5 border-white/10 text-white/80 rounded-md">
                     <SelectValue />
                   </SelectTrigger>
