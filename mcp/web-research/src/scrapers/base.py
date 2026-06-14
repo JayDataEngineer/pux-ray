@@ -270,6 +270,97 @@ def build_error_response(url: str, method: str, error) -> dict:
     }
 
 
+async def scrape_httpx(url: str, cleaner, css_selector: str = None) -> dict:
+    """Fast HTTP scraper using httpx + trafilatura — no browser, no Chrome, no crashes.
+
+    Handles static and server-rendered pages (~70% of the web). Falls back to
+    ContentCleaner if trafilatura extracts nothing useful.
+    """
+    import httpx
+    from ..utils.proxy import create_proxied_client
+
+    html_headers = {
+        "User-Agent": DEFAULT_HEADERS["User-Agent"],
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.9",
+        "Accept-Encoding": "gzip, deflate, br",
+    }
+
+    try:
+        async with create_proxied_client(timeout=15.0, target_url=url) as client:
+            response = await client.get(url, headers=html_headers, follow_redirects=True)
+            response.raise_for_status()
+
+            content_type = response.headers.get("content-type", "")
+            if "text/html" not in content_type and "application/xhtml" not in content_type:
+                return build_error_response(url, "httpx", f"Not HTML: {content_type}")
+
+            html = response.text
+
+        # Try trafilatura (best for article/news extraction)
+        try:
+            import trafilatura
+            extracted = trafilatura.extract(
+                html,
+                url=url,
+                include_tables=True,
+                include_links=False,
+                favor_recall=True,
+                deduplicate=True,
+            )
+            if extracted and len(extracted) >= MIN_CONTENT_LENGTH:
+                try:
+                    from bs4 import BeautifulSoup
+                    soup = BeautifulSoup(html, "html.parser")
+                    title_tag = soup.find("title")
+                    title = title_tag.get_text(strip=True) if title_tag else ""
+                except Exception:
+                    title = ""
+
+                if is_security_checkpoint(title, extracted, url):
+                    return build_error_response(url, "httpx", "Blocked: Security checkpoint")
+
+                clean = postprocess_markdown(extracted)
+                return build_scrape_response(
+                    success=True, url=url, method="httpx",
+                    title=title, content=clean,
+                    metadata=_build_metadata(len(clean.split())),
+                )
+        except Exception as te:
+            logger.debug(f"trafilatura failed for {url}: {te}")
+
+        # Fallback: ContentCleaner
+        clean = cleaner.clean(html, url, css_selector)
+        if len(clean) < MIN_CONTENT_LENGTH:
+            return build_content_too_short_response(url, "httpx", len(clean))
+
+        try:
+            from bs4 import BeautifulSoup
+            soup = BeautifulSoup(html, "html.parser")
+            title_tag = soup.find("title")
+            title = title_tag.get_text(strip=True) if title_tag else ""
+        except Exception:
+            title = ""
+
+        if is_security_checkpoint(title, clean, url):
+            return build_error_response(url, "httpx", "Blocked: Security checkpoint")
+
+        clean = postprocess_markdown(clean)
+        return build_scrape_response(
+            success=True, url=url, method="httpx",
+            title=title, content=clean,
+            metadata=_build_metadata(len(clean.split())),
+        )
+
+    except httpx.HTTPStatusError as e:
+        return build_error_response(url, "httpx", f"HTTP {e.response.status_code}")
+    except httpx.TimeoutException:
+        return build_error_response(url, "httpx", "Request timed out")
+    except Exception as e:
+        logger.debug(f"httpx scrape error for {url}: {e}")
+        return build_error_response(url, "httpx", str(e))
+
+
 async def scrape_crawl4ai(url: str, cleaner, css_selector: str = None, text_only: bool = False) -> dict:
     """
     Scrape using Crawl4AI (fast, JS-enabled) with stealth mode
@@ -297,10 +388,10 @@ async def scrape_crawl4ai(url: str, cleaner, css_selector: str = None, text_only
                 user_agent_mode="random",
                 text_mode=text_only,
                 verbose=False,
-                # Crashpad handler crashes (SIGTRAP) in minimal containers when it
-                # can't initialise its database — disable it entirely. This was the
-                # root cause of the 0% scrape success rate on the web-research MCP.
-                extra_args=["--disable-crash-reporter"],
+                # --no-zygote disables the Chrome zygote process that requires
+                # Linux namespaces — without it Chrome SIGTRAPs in containers
+                # with allowPrivilegeEscalation=false.
+                extra_args=["--disable-crash-reporter", "--no-zygote"],
             )
             # Route through VPN proxy (never hit the internet bare)
             proxy_url = _get_browser_proxy_url(url)
@@ -638,6 +729,7 @@ async def scrape_playwright(url: str, cleaner, css_selector: str = None,
                     "--disable-dev-shm-usage",
                     "--disable-crash-reporter",
                     "--disable-gpu",
+                    "--no-zygote",
                     "--disable-blink-features=AutomationControlled",
                     "--no-first-run",
                     "--no-default-browser-check",
@@ -784,12 +876,26 @@ async def scrape_with_fallback(
     preferred = await db.get_domain_method(domain)
 
     # ========== RETRY LOGIC ==========
-    # 1. If selenium-only preferred, try Selenium first (3x)
-    # 2. Always try Crawl4AI (3x) - this prevents false "selenium-only" marks
-    # 3. If Crawl4AI fails, mark selenium-only and try Selenium (3x)
+    # 0. Try httpx first (fast, no browser, works for ~70%+ of sites)
+    #    Skip if DB knows this site needs a browser (selenium/crawl4ai preferred).
+    # 1. If selenium-only preferred, try Selenium first (2x)
+    # 2. Try Crawl4AI (2x) - JS-capable browser scraper
+    # 3. If Crawl4AI fails → raw Playwright → Selenium (2x)
 
     import asyncio
     selenium_tried_first = False
+
+    # Step 0: fast httpx scraper (skip only if site requires JS rendering)
+    # Try httpx for all domains except those DB-marked as selenium-only.
+    # "crawl4ai" in DB just means Chrome worked before — httpx may be faster.
+    if preferred != "selenium":
+        logger.info(f"Trying httpx (fast) for {url}")
+        httpx_result = await scrape_httpx(url, cleaner, css_selector)
+        if httpx_result["success"]:
+            await db.record_success(domain, "httpx")
+            await record_metric(True, "httpx", content=httpx_result.get("content"))
+            return httpx_result
+        logger.info(f"httpx failed for {domain}: {httpx_result.get('error', 'no content')}, falling back to browser")
 
     # If domain is already selenium-only, start with Selenium retries
     if preferred == "selenium":
@@ -993,7 +1099,9 @@ def format_reddit_content(url: str, data: dict) -> tuple[str, str]:
 
 async def _scrape_with_method(url: str, method: str, cleaner, css_selector: str = None, text_only: bool = False) -> dict:
     """Scrape using specific method"""
-    if method == "crawl4ai":
+    if method == "httpx":
+        return await scrape_httpx(url, cleaner, css_selector)
+    elif method == "crawl4ai":
         return await scrape_crawl4ai(url, cleaner, css_selector, text_only)
     elif method == "selenium":
         return await scrape_selenium(url, cleaner, css_selector)

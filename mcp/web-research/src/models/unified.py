@@ -7,6 +7,7 @@ from enum import Enum
 
 
 class ScrapingMethod(str, Enum):
+    HTTPX = "httpx"
     CRAWL4AI = "crawl4ai"
     SELENIUM = "selenium"
     REDDIT_API = "reddit_api"

@@ -275,7 +275,7 @@ async def search(
 
 async def scrape(
     url: Annotated[str, Field(description="URL to scrape")],
-    method: Annotated[Literal["crawl4ai", "selenium", "pdf"] | None, Field(
+    method: Annotated[Literal["httpx", "crawl4ai", "selenium", "pdf"] | None, Field(
         description="Force specific scraping method"
     )] = None,
     css_selector: Annotated[str | None, Field(

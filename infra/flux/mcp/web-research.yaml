@@ -34,7 +34,7 @@ spec:
             allowPrivilegeEscalation: false
           env:
             - name: PLAYWRIGHT_BROWSERS_PATH
-              value: /app/.cache/ms-playwright
+              value: /app/.playwright
             - name: MCP_PORT
               value: "8000"
             - name: POSTGRES_HOST

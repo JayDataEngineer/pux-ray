@@ -107,48 +107,44 @@ class Database:
             return result.scalar_one_or_none()
 
     async def record_success(self, domain: str, method: str):
-        """Record successful scrape"""
+        """Record successful scrape — upsert to handle concurrent inserts safely."""
+        from sqlalchemy.dialects.postgresql import insert as pg_insert
+        from .models import Domain as DomainModel
+
         async with self._get_session() as session:
-            # Check if domain exists
-            result = await session.execute(
-                select(Domain).where(Domain.domain == domain)
+            stmt = pg_insert(DomainModel).values(
+                domain=domain,
+                preferred_method=method,
+                last_success=datetime.now(timezone.utc),
+                failure_count=0,
+                is_blacklisted=False,
+            ).on_conflict_do_update(
+                index_elements=["domain"],
+                set_={
+                    "preferred_method": method,
+                    "last_success": datetime.now(timezone.utc),
+                    "failure_count": 0,
+                    "is_blacklisted": False,
+                }
             )
-            db_domain = result.scalar_one_or_none()
-
-            if db_domain:
-                # Update existing
-                db_domain.preferred_method = method
-                db_domain.last_success = func.now()
-                db_domain.failure_count = 0
-                db_domain.is_blacklisted = False
-            else:
-                # Insert new
-                new_domain = Domain(
-                    domain=domain,
-                    preferred_method=method,
-                    last_success=datetime.now(timezone.utc),
-                    failure_count=0,
-                    is_blacklisted=False
-                )
-                session.add(new_domain)
-
+            await session.execute(stmt)
             await session.commit()
             logger.debug(f"Success recorded: {domain} -> {method}")
 
     async def set_selenium_only(self, domain: str):
-        """Mark domain as selenium-only"""
+        """Mark domain as selenium-only — upsert to handle concurrent inserts."""
+        from sqlalchemy.dialects.postgresql import insert as pg_insert
+        from .models import Domain as DomainModel
+
         async with self._get_session() as session:
-            result = await session.execute(
-                select(Domain).where(Domain.domain == domain)
+            stmt = pg_insert(DomainModel).values(
+                domain=domain,
+                preferred_method="selenium",
+            ).on_conflict_do_update(
+                index_elements=["domain"],
+                set_={"preferred_method": "selenium"}
             )
-            db_domain = result.scalar_one_or_none()
-
-            if db_domain:
-                db_domain.preferred_method = "selenium"
-            else:
-                new_domain = Domain(domain=domain, preferred_method="selenium")
-                session.add(new_domain)
-
+            await session.execute(stmt)
             await session.commit()
 
     async def blacklist(self, domain: str):
