@@ -83,16 +83,42 @@ types. The optimization strategy applies to TYPES, not individual models.
 ### Degradation chain (applied in order)
 
 ```
-BF16 resident → BF16 + group_offload → FP8 resident → FP8 + group_offload → queue
-                                                                                 ↑
-                                                                         (wait for VRAM)
+BF16 resident → BF16 + group_offload → FP8 resident → FP8 + group_offload → GGUF → queue
+                                                                                 ↑      ↑
+                                                                          last resort  (wait for VRAM)
 ```
 
 The system degrades gracefully. It sacrifices:
-1. First: residency (start streaming) — same quality, slower
-2. Second: text encoder precision — invisible quality impact
-3. Last: transformer precision — visible quality impact
-4. Never: VAE precision (keep BF16 always)
+1. First: residency (start streaming) — **same quality, slower**
+2. Second: text encoder precision — **invisible quality impact**
+3. Third: transformer precision — **visible quality impact**
+4. Last resort: GGUF with CPU offload — **quality loss, but runs**
+5. Never: VAE precision (keep BF16 always)
+
+### The BF16 streaming insight (KEY ADVANTAGE)
+
+group_offload enables BF16 transformer quality at low VRAM by streaming
+blocks instead of quantizing. A 20GB BF16 transformer only needs ~1GB of
+VRAM (2 blocks at a time) when streaming. This means:
+
+- **8GB VRAM can run BF16 quality** for models up to ~20B params
+- No need for GGUF Q5 unless VRAM < 4GB
+- The Quality tier NEVER needs to quantize the transformer (just stream it)
+- This is fundamentally better than ComfyUI workflows that jump to Q5 GGUF
+
+```
+Quality tier VRAM budget (Qwen-Image-Edit 20B):
+  VLM FP8 resident:        ~3.5 GB
+  Transformer BF16 stream: ~1.0 GB  (2 blocks, ~800MB)
+  VAE BF16 resident:       ~0.25 GB
+  Activations:             ~2.0 GB
+  CUDA overhead:           ~1.0 GB
+  Total:                   ~7.75 GB  ← BF16 quality on 8GB
+```
+
+Tradeoff: BF16 streaming is slower than BF16 resident (PCIe transfer per
+block per step). But quality stays at BF16 level. Speed is sacrificed,
+NOT quality. For the Quality tier, this is the right tradeoff.
 
 ---
 
