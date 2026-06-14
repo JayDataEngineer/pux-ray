@@ -64,7 +64,7 @@ spec:
             - forge-reg.local
           containers:
             - name: ray-head
-              image: forge-reg.local:30500/tech-noir/gpu-all:natten-0.21.5
+              image: forge-reg.local:30500/tech-noir/native:latest
               imagePullPolicy: IfNotPresent
               ports:
                 - containerPort: 6379
@@ -194,7 +194,7 @@ spec:
             runtimeClassName: nvidia
             containers:
               - name: ray-worker
-                image: forge-reg.local:30500/tech-noir/gpu-all:natten-0.21.5
+                image: forge-reg.local:30500/tech-noir/native:latest
                 imagePullPolicy: IfNotPresent
                 ports:
                   - containerPort: 18465
