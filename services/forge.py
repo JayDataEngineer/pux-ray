@@ -60,12 +60,15 @@ MIN_COFREE_MB = 4_096
 # ─── Service Registry ────────────────────────────────────────────────────────
 
 SERVICE_MAP: dict[str, tuple[str, str]] = {
-    # Wan2GP — unified model pool (mmgp-managed VRAM, vram_mb=0)
-    # All vendor + custom family models: wan, flux, hunyuan, trellis, anigen,
-    # kokoro, index_tts, ace_step, moss, anima, etc.
+    # Native diffusers — direct pipeline calls with adaptive VRAM optimization
+    # Supports: Z-Image, Anima, FLUX, Wan, LTX, Qwen-Image + LoRA + multi-format
+    "native":    ("services.native.forge_adapter",    "NativeForgeService"),
+    # Route specific model families to native service
+    "z-image":   ("services.native.forge_adapter",    "NativeForgeService"),
+    "anima":     ("services.native.forge_adapter",    "NativeForgeService"),
+    # Wan2GP — legacy unified model pool (mmgp-managed VRAM, vram_mb=0)
+    # Kept as fallback for models not yet migrated to native
     "wan2gp":    ("services.wan2gp.forge_adapter",    "Wan2GPForgeService"),
-    # Anima routes to Wan2GP with default_model="anima"
-    "anima":     ("services.wan2gp.forge_adapter",    "Wan2GPForgeService"),
     # ComfyUI — subprocess, separate GPU
     "comfyui":   ("services.image.comfyui",          "ComfyUIService"),
     # llama.cpp — subprocess, separate GPU

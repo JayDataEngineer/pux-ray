@@ -1772,6 +1772,76 @@ wan2gp:
     vram_estimate_gb: 12.0
     device: gpu
     description: Mistral 3 Small quantized. Alternative text backbone for some models.
+
+# ── Native Diffusers Models ─────────────────────────────────────────────────────
+# Direct diffusers pipeline calls with adaptive VRAM optimization.
+# These replace the Wan2GP handler layer with from_pretrained() calls.
+# Models are served via services.native.forge_adapter → NativeForgeService
+native:
+  z-image-diffusers:
+    path: native/z-image
+    source: hf://Tongyi-MAI/Z-Image
+    download: snapshot
+    sha256: null
+    size_gb: 6.5
+    vram_estimate_gb: 8.0
+    device: gpu
+    description: "Z-Image Base (Apache-2.0). Full quality T2I, 30 steps. S3-DiT architecture."
+  z-image-turbo-diffusers:
+    path: native/z-image-turbo
+    source: hf://Tongyi-MAI/Z-Image-Turbo
+    download: snapshot
+    sha256: null
+    size_gb: 6.5
+    vram_estimate_gb: 8.0
+    device: gpu
+    description: "Z-Image Turbo (Apache-2.0). 8-step distilled, sub-second generation."
+  anima-diffusers:
+    path: native/anima
+    source: hf://circlestone-labs/Anima-Base-v1.0-Diffusers
+    download: snapshot
+    sha256: null
+    size_gb: 5.7
+    vram_estimate_gb: 6.0
+    device: gpu
+    description: "Anima Base v1.0 diffusers format. Cosmos-Predict2 + Qwen3-0.6B. ModularPipeline."
+  flux-schnell-diffusers:
+    path: native/flux-schnell
+    source: hf://black-forest-labs/FLUX.1-schnell
+    download: snapshot
+    sha256: null
+    size_gb: 23.0
+    vram_estimate_gb: 12.5
+    device: gpu
+    description: "FLUX.1-schnell diffusers (Apache-2.0). 4-step generation. Already cached."
+  flux-dev-diffusers:
+    path: native/flux-dev
+    source: hf://black-forest-labs/FLUX.1-dev
+    download: snapshot
+    sha256: null
+    size_gb: 23.0
+    vram_estimate_gb: 12.5
+    device: gpu
+    description: "FLUX.1-dev diffusers (non-commercial). 20-step generation. Already cached."
+  ltx-video-diffusers:
+    path: native/ltx-video
+    source: hf://Lightricks/LTX-Video
+    download: snapshot
+    sha256: null
+    size_gb: 5.0
+    vram_estimate_gb: 6.0
+    device: gpu
+    description: "LTX-Video 2B diffusers (Apache-2.0). Fast video gen. Small enough for resident."
+  ltx-2-diffusers:
+    path: native/ltx-2
+    source: hf://Lightricks/LTX-2
+    download: snapshot
+    sha256: null
+    size_gb: 19.0
+    vram_estimate_gb: 14.0
+    device: gpu
+    description: "LTX-2 diffusers. Two-stage pipeline (base + latent upscaler)."
+
 lance:
   lance-video-gguf-q5km:
     path: lance/Lance_3B_Video-Q5_K_M.gguf
