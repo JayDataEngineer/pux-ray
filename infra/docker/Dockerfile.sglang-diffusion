@@ -1,0 +1,25 @@
+# Dockerfile.sglang-diffusion — Dedicated SGLang Diffusion serving container
+# Separate from forge/diffusers container to avoid dependency conflicts
+FROM forge-reg.local:30500/tech-noir/gpu-all:natten-0.21.5
+
+LABEL description="SGLang Diffusion server for mainstream video/image models"
+
+# SGLang with diffusion support (pulls sgl-kernel, flashinfer, cache-dit)
+RUN pip install "sglang[diffusion]"
+
+# Environment required for sgl_kernel on RTX 4090 (sm89)
+ENV LD_LIBRARY_PATH="/usr/local/lib/python3.10/dist-packages/nvidia/cu13/lib:/usr/local/lib/python3.10/dist-packages/nvidia/cuda_nvrtc/lib:${LD_LIBRARY_PATH}"
+ENV SAFETENSORS_DISABLE_MMAP=1
+ENV PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+
+# Expose SGLang API port
+EXPOSE 30010
+
+# Models are mounted from /models volume (shared with other services)
+# VOLUME ["/models"]
+
+# Serve a model — override MODEL_PATH at runtime
+ENV MODEL_PATH="/models/ltx-video"
+ENV SERVER_WARMUP=false
+
+CMD ["sh", "-c", "sglang serve --model-path ${MODEL_PATH} --port 30010 --host 0.0.0.0 --model-type diffusion --server-warmup ${SERVER_WARMUP}"]

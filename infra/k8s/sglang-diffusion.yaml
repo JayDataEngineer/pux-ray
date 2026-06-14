@@ -1,0 +1,60 @@
+# SGLang Diffusion Server — Dedicated deployment for video/image generation
+# Separate from forge to avoid dependency conflicts (sgl-kernel, flashinfer)
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: sglang-diffusion
+  namespace: ai-services
+  labels:
+    app: sglang-diffusion
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: sglang-diffusion
+  template:
+    metadata:
+      labels:
+        app: sglang-diffusion
+    spec:
+      nodeSelector:
+        ray.io/accelerator-type: G
+      containers:
+      - name: sglang
+        image: forge-reg.local:30500/tech-noir/sglang-diffusion:latest
+        ports:
+        - containerPort: 30010
+          name: api
+        env:
+        - name: MODEL_PATH
+          value: "/models/ltx-video"
+        - name: SERVER_WARMUP
+          value: "false"
+        resources:
+          limits:
+            nvidia.com/gpu: 1
+            memory: 48Gi
+          requests:
+            nvidia.com/gpu: 1
+            memory: 32Gi
+        volumeMounts:
+        - name: models
+          mountPath: /models
+          readOnly: true
+      volumes:
+      - name: models
+        persistentVolumeClaim:
+          claimName: model-storage
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: sglang-diffusion
+  namespace: ai-services
+spec:
+  selector:
+    app: sglang-diffusion
+  ports:
+  - port: 30010
+    targetPort: 30010
+    name: api
