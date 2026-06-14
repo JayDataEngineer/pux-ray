@@ -75,7 +75,7 @@ ENV SAFETENSORS_DISABLE_MMAP=1
 ENV PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 ENV HF_HOME=/models/hf_cache
 ENV HF_HUB_CACHE=/models/hf_cache/hub
-ENV PYTHONPATH=/app:${PYTHONPATH}
+ENV PYTHONPATH=/app
 
 # ── Application code ──────────────────────────────────────────────────────────
 WORKDIR /app
