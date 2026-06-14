@@ -4,6 +4,7 @@ Uses pattern matching (pro+pattern) and TRY for error handling.
 """
 
 import asyncio
+import inspect
 from typing import Any, Callable
 from functools import wraps
 from loguru import logger
@@ -13,13 +14,23 @@ from ..db.database import Database
 from ..services.content_cleaner import get_content_cleaner
 
 
+def _resolve(coro: Any) -> Any:
+    """Accept either a coroutine or a zero-arg callable returning one.
+
+    Callers historically passed both shapes: ``run_async(lambda: foo())``
+    (callable) and ``run_async(foo())`` (coroutine). The latter crashed with
+    ``TypeError: 'coroutine' object is not callable``.
+    """
+    return coro if inspect.iscoroutine(coro) else coro()
+
+
 def run_sync(coro: Callable[[], Any]) -> Any:
     """Run async coroutine in sync context with cached event loop"""
     loop = asyncio.get_event_loop()
     if loop.is_closed():
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
-    return loop.run_until_complete(coro())
+    return loop.run_until_complete(_resolve(coro))
 
 
 def try_async(coro: Callable[[], Any], default: Any = None, reraise: bool = False) -> Any:
@@ -57,7 +68,7 @@ class AsyncMixin:
 
     def run_async(self, coro: Callable[[], Any]) -> Any:
         """Run async coroutine in this task's event loop"""
-        return self.loop.run_until_complete(coro())
+        return self.loop.run_until_complete(_resolve(coro))
 
 
 class DatabaseMixin:
@@ -82,7 +93,7 @@ class DatabaseMixin:
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
         try:
-            return loop.run_until_complete(coro())
+            return loop.run_until_complete(_resolve(coro))
         finally:
             loop.close()
 
@@ -122,7 +133,7 @@ class CacheMixin:
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
         try:
-            return loop.run_until_complete(coro())
+            return loop.run_until_complete(_resolve(coro))
         finally:
             loop.close()
 

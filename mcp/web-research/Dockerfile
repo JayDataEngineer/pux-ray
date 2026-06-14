@@ -58,9 +58,11 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     --force-reinstall \
     torch torchvision --index-url https://download.pytorch.org/whl/cpu
 
-# Install Playwright Chromium to /app/.cache
-RUN mkdir -p /app/.cache && \
-    PLAYWRIGHT_BROWSERS_PATH=/app/.cache/ms-playwright \
+# Install Playwright Chromium to /app/.playwright (NOT /app/.cache — the
+# deployment mounts an emptyDir at /app/.cache which would shadow image-baked
+# browsers, making them invisible at runtime).
+RUN mkdir -p /app/.cache /app/.playwright && \
+    PLAYWRIGHT_BROWSERS_PATH=/app/.playwright \
     .venv/bin/playwright install --with-deps chromium
 
 # Install Google Chrome for SeleniumBase fallback
@@ -133,8 +135,8 @@ COPY docs_config.yaml /app/docs_config.yaml
 COPY profiling/ /app/profiling/
 COPY tests/ /app/tests/
 COPY pyproject.toml /app/pyproject.toml
-# Copy Playwright browser cache
-COPY --from=builder /app/.cache /app/.cache
+# Copy Playwright browser cache (at /app/.playwright — outside the emptyDir mount)
+COPY --from=builder /app/.playwright /app/.playwright
 
 # Create data directory
 RUN mkdir -p /app/data
@@ -143,7 +145,7 @@ RUN mkdir -p /app/data
 ENV PATH="/app/.venv/bin:$PATH" \
     PYTHONPATH=/app \
     PYTHONWARNINGS="ignore::RequestsDependencyWarning,ignore::DeprecationWarning" \
-    PLAYWRIGHT_BROWSERS_PATH=/app/.cache/ms-playwright
+    PLAYWRIGHT_BROWSERS_PATH=/app/.playwright
 
 EXPOSE 8000
 

@@ -297,6 +297,10 @@ async def scrape_crawl4ai(url: str, cleaner, css_selector: str = None, text_only
                 user_agent_mode="random",
                 text_mode=text_only,
                 verbose=False,
+                # Crashpad handler crashes (SIGTRAP) in minimal containers when it
+                # can't initialise its database — disable it entirely. This was the
+                # root cause of the 0% scrape success rate on the web-research MCP.
+                extra_args=["--disable-crash-reporter"],
             )
             # Route through VPN proxy (never hit the internet bare)
             proxy_url = _get_browser_proxy_url(url)
@@ -614,6 +618,73 @@ async def scrape_pdf(url: str, cleaner=None) -> dict:
         return build_error_response(url, "pdf", str(e))
 
 
+async def scrape_playwright(url: str, cleaner, css_selector: str = None,
+                            text_only: bool = False) -> dict:
+    """Raw Playwright scraper — bypasses Crawl4AI's launch wrapper.
+
+    Crawl4AI's internal launch path SIGTRAPs in minimal containers (crashpad
+    handler incompatibility with certain flag combinations). Raw
+    ``playwright.chromium.launch()`` with a minimal flag set works reliably.
+    This is the guaranteed-to-work tier between Crawl4AI and Selenium.
+    """
+    from playwright.async_api import async_playwright
+
+    try:
+        async with async_playwright() as p:
+            browser = await p.chromium.launch(
+                headless=True,
+                args=[
+                    "--no-sandbox",
+                    "--disable-dev-shm-usage",
+                    "--disable-crash-reporter",
+                    "--disable-gpu",
+                    "--disable-blink-features=AutomationControlled",
+                    "--no-first-run",
+                    "--no-default-browser-check",
+                ],
+            )
+            try:
+                context = await browser.new_context(
+                    user_agent=DEFAULT_HEADERS.get("User-Agent", ""),
+                    ignore_https_errors=True,
+                )
+                page = await context.new_page()
+                await page.goto(url, wait_until="domcontentloaded", timeout=30000)
+                # Give JS frameworks a moment to hydrate/render
+                await page.wait_for_timeout(2000)
+
+                html = await page.content()
+                title = await page.title()
+
+                if not html or len(html) < MIN_CONTENT_LENGTH:
+                    return build_error_response(
+                        url, "playwright", "Page rendered empty or too short")
+
+                clean_markdown = cleaner.clean(html, url, css_selector)
+                if len(clean_markdown) < MIN_CONTENT_LENGTH:
+                    return build_error_response(
+                        url, "playwright",
+                        f"Content too short: {len(clean_markdown)} chars")
+
+                clean_markdown = postprocess_markdown(clean_markdown)
+
+                if is_security_checkpoint(title, clean_markdown, url) is True:
+                    return build_error_response(
+                        url, "playwright",
+                        "Blocked: Security checkpoint - bot verification required")
+
+                return build_scrape_response(
+                    success=True, url=url, method="playwright",
+                    title=title, content=clean_markdown,
+                    metadata=_build_metadata(len(clean_markdown.split())),
+                )
+            finally:
+                await browser.close()
+    except Exception as e:
+        logger.warning(f"Raw Playwright scrape error for {url}: {e}")
+        return build_error_response(url, "playwright", str(e))
+
+
 async def scrape_with_fallback(
     url: str,
     cleaner,
@@ -782,8 +853,17 @@ async def scrape_with_fallback(
 
         logger.warning(f"Crawl4AI attempt {attempt} failed for {url}")
 
-    # Crawl4AI exhausted - mark domain for Selenium and try Selenium
-    logger.warning(f"All Crawl4AI attempts failed for {domain}, trying Selenium")
+    # Crawl4AI exhausted - try raw Playwright before Selenium (lighter, more reliable)
+    logger.info(f"Trying raw Playwright for {url} (Crawl4AI exhausted)")
+    pw_result = await scrape_playwright(url, cleaner, css_selector, text_only)
+    if pw_result["success"]:
+        await db.record_success(domain, "playwright")
+        await record_metric(True, "playwright", content=pw_result.get("content"))
+        return pw_result
+    logger.warning(f"Raw Playwright failed for {domain}: {pw_result.get('error')}")
+
+    # Playwright exhausted - mark domain for Selenium and try Selenium
+    logger.warning(f"All Crawl4AI + Playwright attempts failed for {domain}, trying Selenium")
     await db.set_selenium_only(domain)
 
     # Try Selenium with retries (skip if we already tried it first and it failed)
@@ -808,7 +888,7 @@ async def scrape_with_fallback(
             logger.warning(f"Selenium attempt {attempt} failed for {url}")
 
     # All attempts failed - record failure and metric
-    logger.error(f"All scraping attempts failed for {domain} (3x Crawl4AI + 3x Selenium)")
+    logger.error(f"All scraping attempts failed for {domain} (3x Crawl4AI + 1x Playwright + 3x Selenium)")
     await db.record_failure(domain, "all_methods_failed")
     await record_metric(False, "all_methods_failed", error="All scraping methods failed")
 
