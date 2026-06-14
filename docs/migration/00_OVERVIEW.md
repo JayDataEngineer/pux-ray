@@ -24,6 +24,7 @@
 13. [Deep Research Query](#13-deep-research-query)
 14. [Deep Research Findings →](03_DEEP_RESEARCH_FINDINGS.md) (verified benchmarks, tuning, model details)
 15. [Phase 1 Benchmark Results →](04_PHASE1_RESULTS.md) (REAL numbers from 4090)
+16. [Tier Architecture & Adaptive Optimization →](05_TIER_ARCHITECTURE.md) (product design)
 
 ---
 
