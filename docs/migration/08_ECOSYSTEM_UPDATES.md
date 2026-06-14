@@ -287,3 +287,70 @@ The real work is:
 2. Integrating with Ray Serve DAG
 3. Testing quality across configurations
 4. Handling the 4-5 models that need custom runners
+
+---
+
+## 6. Diffusers Design Philosophy — Why We Keep Hitting Friction
+
+> Source: HuggingFace's own design philosophy documentation
+
+diffusers is explicitly designed for **researchers, not production serving**:
+- "Models are always loaded with highest precision and lowest optimization by default"
+- "Pipelines should loosely be seen as examples, not feature-complete"
+- "Prefer copy-pasted code over hasty abstractions"
+
+This explains every problem we hit:
+- Exit 137 crashes: FP32 default → double RAM allocation → OOM
+- Missing QKV fusion at pipeline level: copy-paste means no unified API
+- group_offload/compile/cache incompatibilities: pipelines are examples, not robust
+- No prompt relay, no FLF2V: "not feature-complete" by design
+
+### The architectural implication
+
+**Do NOT try to turn diffusers into a production serving engine.**
+Use it for what it's good at: tweakable, readable pipelines for niche models.
+
+```
+SGLang Diffusion (Apache-2.0):
+  - Built for performance, throughput, memory optimization
+  - Custom CUDA kernels (sgl-kernel), native QKV merge, compiled execution
+  - For: FLUX, Wan, Z-Image, Qwen-Image, LTX (mainstream, high-traffic)
+
+Native diffusers:
+  - Built for researcher tweakability and readability  
+  - For: Anima, custom pipelines, research models (low-traffic, high-flexibility)
+
+Ray Serve DAG:
+  - Routes between them, handles scale-to-zero, isolation
+```
+
+### What our benchmarks actually tell us
+
+The diffusers benchmarks (group_offload, model_cpu_offload, cache, compile)
+are the performance ceiling for NICHE models served through diffusers.
+They are NOT the target performance for mainstream models — those should
+use SGLang, which has its own optimization stack entirely.
+
+For FLUX on SGLang: expected 1.15-1.5x faster than native diffusers on 4090
+(from deep research, corrected from the H100/B200 numbers).
+
+---
+
+## 7. QKV Fusion Correction
+
+**Pipeline level:** `pipe.fuse_qkv_projections()` → ❌ NOT on FluxPipeline in 0.37.0
+**Model level:** `pipe.transformer.fuse_qkv_projections()` → ✅ VERIFIED AVAILABLE
+
+```python
+# CORRECT: call on the transformer model, not the pipeline
+pipe.transformer.fuse_qkv_projections()  # ✅ works
+pipe.vae.fuse_qkv_projections()           # ✅ works
+# pipe.fuse_qkv_projections()             # ❌ AttributeError on FluxPipeline
+
+# ⚠️ Load LoRAs BEFORE fusing — fusion renames to_q/to_k/to_v → to_qkv
+# PEFT can't find target layers after fusion
+```
+
+This is a direct example of the copy-paste philosophy: older pipelines (SDXL)
+have the pipeline-level wrapper, newer ones (FLUX) don't. Same optimization,
+different API surface, because nobody wrote the wrapper.

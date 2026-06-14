@@ -53,6 +53,10 @@ RUN python3 -m spacy download en_core_web_sm 2>/dev/null || pip install en_core_
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv pip install xformers || echo "xformers skipped"
 
+# torchao (PyTorch Architecture Optimization — quantization + compile synergy)
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv pip install torchao
+
 # VibeVoice (registers custom model_type with transformers — use pip with --no-deps to avoid downgrade)
 RUN pip install vibevoice --no-deps 2>/dev/null || echo "vibevoice skipped"
 

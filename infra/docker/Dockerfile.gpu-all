@@ -113,7 +113,8 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     openai huggingface-hub \
     pyyaml click rich \
     "protobuf>=6,<7" packaging webcolors \
-    geffnet
+    geffnet \
+    torchao
 
 # natten — pre-compiled CUDA wheel (source build fails silently, gives CPU-only)
 RUN --mount=type=cache,target=/root/.cache/uv \
