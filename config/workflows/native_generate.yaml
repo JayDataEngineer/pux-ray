@@ -1,0 +1,73 @@
+name: native_generate
+version: "1.0"
+description: "Native diffusers generation — Z-Image, Anima, FLUX, Qwen-Image"
+
+inputs:
+  prompt:
+    type: string
+    required: true
+    description: "Generation prompt"
+  model:
+    type: string
+    default: "z-image-turbo"
+    enum: [z-image, z-image-turbo, anima, flux-schnell, flux-dev, flux2-klein-4b, qwen-image]
+    description: "Model to use"
+  seed:
+    type: integer
+    default: -1
+  steps:
+    type: integer
+    default: -1
+    description: "Override steps (-1 = model default)"
+  width:
+    type: integer
+    default: 1024
+  height:
+    type: integer
+    default: 1024
+  guidance:
+    type: float
+    default: -1
+    description: "Override guidance (-1 = model default)"
+  negative_prompt:
+    type: string
+    default: ""
+  loras:
+    type: array
+    description: "LoRA files to load [{path, scale, name}]"
+    required: false
+  prompt_enhance:
+    type: boolean
+    default: false
+    description: "Run prompt enhancement before generation"
+
+steps:
+  # ── Optional: Prompt Enhancement ─────────────────────────────────────────
+  enhance:
+    type: forge
+    service: llm
+    depends_on: []
+    condition: "{{ inputs.prompt_enhance }}"
+    params:
+      prompt: "Enhance this image generation prompt with vivid details, lighting, composition: {{ inputs.prompt }}"
+      max_tokens: 200
+    outputs:
+      enhanced_prompt: { media_type: text/plain }
+
+  # ── Generate ──────────────────────────────────────────────────────────────
+  generate:
+    type: forge
+    service: native
+    model: "{{ inputs.model }}"
+    depends_on: []
+    params:
+      prompt: "{{ inputs.prompt_enhance ? enhance.outputs.enhanced_prompt : inputs.prompt }}"
+      seed: "{{ inputs.seed }}"
+      steps: "{{ inputs.steps }}"
+      width: "{{ inputs.width }}"
+      height: "{{ inputs.height }}"
+      guidance: "{{ inputs.guidance }}"
+      n_prompt: "{{ inputs.negative_prompt }}"
+      loras: "{{ inputs.loras }}"
+    outputs:
+      image: { media_type: image/png }

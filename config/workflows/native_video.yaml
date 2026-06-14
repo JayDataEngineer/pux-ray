@@ -1,0 +1,51 @@
+name: native_video
+version: "1.0"
+description: "Native diffusers video generation — LTX, Wan"
+
+inputs:
+  prompt:
+    type: string
+    required: true
+  model:
+    type: string
+    default: "ltx-video"
+    enum: [ltx-video, ltx-2, wan-t2v-14b]
+  seed:
+    type: integer
+    default: -1
+  steps:
+    type: integer
+    default: -1
+  width:
+    type: integer
+    default: 768
+  height:
+    type: integer
+    default: 512
+  num_frames:
+    type: integer
+    default: 121
+  guidance:
+    type: float
+    default: -1
+  image_b64:
+    type: string
+    description: "First frame for I2V models (optional)"
+    required: false
+
+steps:
+  generate_video:
+    type: forge
+    service: native
+    model: "{{ inputs.model }}"
+    params:
+      prompt: "{{ inputs.prompt }}"
+      seed: "{{ inputs.seed }}"
+      steps: "{{ inputs.steps }}"
+      width: "{{ inputs.width }}"
+      height: "{{ inputs.height }}"
+      num_frames: "{{ inputs.num_frames }}"
+      guidance: "{{ inputs.guidance }}"
+      image_b64: "{{ inputs.image_b64 }}"
+    outputs:
+      video: { media_type: video/mp4 }

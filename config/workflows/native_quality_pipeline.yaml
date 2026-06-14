@@ -1,0 +1,57 @@
+name: native_quality_pipeline
+version: "1.0"
+description: "Quality pipeline — prompt enhance → Z-Image base → upscale"
+
+inputs:
+  prompt:
+    type: string
+    required: true
+  seed:
+    type: integer
+    default: 42
+  upscale:
+    type: boolean
+    default: true
+
+steps:
+  # Step 1: Enhance prompt with LLM
+  enhance_prompt:
+    type: forge
+    service: llm
+    params:
+      prompt: >-
+        You are an expert image prompt engineer. Enhance this prompt for
+        a high-quality image generation model. Add details about lighting,
+        composition, camera angle, and style. Keep it under 100 words.
+        Original prompt: {{ inputs.prompt }}
+      max_tokens: 150
+    outputs:
+      enhanced: { media_type: text/plain }
+
+  # Step 2: Generate at higher step count (quality tier)
+  generate:
+    type: forge
+    service: native
+    model: z-image
+    depends_on: [enhance_prompt]
+    params:
+      prompt: "{{ enhance_prompt.outputs.enhanced }}"
+      seed: "{{ inputs.seed }}"
+      steps: 30
+      width: 1024
+      height: 1024
+      guidance: 4.0
+    outputs:
+      image: { media_type: image/png }
+
+  # Step 3: Optional upscale (separate DAG node)
+  upscale:
+    type: forge
+    service: comfyui
+    depends_on: [generate]
+    condition: "{{ inputs.upscale }}"
+    params:
+      workflow: latent_upscale
+      image_b64: "{{ generate.outputs.image }}"
+    outputs:
+      image: { media_type: image/png }

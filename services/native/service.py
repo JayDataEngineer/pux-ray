@@ -255,15 +255,30 @@ class NativeDiffusersService(ForgeService):
         if neg_prompt:
             call_kwargs["negative_prompt"] = neg_prompt
 
-        # Image input for image2video / image_edit
+        # Image input for image2video / image_edit / img2img
         image_b64 = payload.get("image_b64")
-        if image_b64 and config.task in ("image2video", "image_edit"):
+        if image_b64 and config.task in ("image2video", "image_edit", "img2img"):
             from PIL import Image
-            image = Image.open(io.BytesIO(base64.b64decode(image_b64)))
+            image_bytes = base64.b64decode(image_b64)
+            image = Image.open(io.BytesIO(image_bytes))
+
             if config.task == "image2video":
                 call_kwargs["image"] = image
-            else:
+            elif config.task == "image_edit":
+                # For editing: use strength parameter if provided
+                strength = payload.get("strength", 0.8)
                 call_kwargs["image"] = image
+                call_kwargs["strength"] = float(strength)
+            else:
+                # img2img
+                call_kwargs["image"] = image
+
+        # Additional reference images for multi-image inputs
+        ref_b64 = payload.get("reference_image") or payload.get("reference_image_b64")
+        if ref_b64:
+            from PIL import Image
+            ref = Image.open(io.BytesIO(base64.b64decode(ref_b64)))
+            call_kwargs["reference_image"] = ref
 
         # Run generation
         t0 = time.perf_counter()

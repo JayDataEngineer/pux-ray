@@ -1,0 +1,45 @@
+name: native_edit
+version: "1.0"
+description: "Native image editing — Wan I2V, Qwen-Image-Edit, img2img"
+
+inputs:
+  prompt:
+    type: string
+    required: true
+    description: "Edit instruction"
+  image_b64:
+    type: string
+    required: true
+    description: "Source image (base64 PNG)"
+  model:
+    type: string
+    default: "wan-i2v-14b"
+    enum: [wan-i2v-14b, qwen-image]
+  seed:
+    type: integer
+    default: -1
+  steps:
+    type: integer
+    default: -1
+  guidance:
+    type: float
+    default: -1
+  strength:
+    type: float
+    default: 0.8
+    description: "Edit strength (0=preserve, 1=full rework)"
+
+steps:
+  edit:
+    type: forge
+    service: native
+    model: "{{ inputs.model }}"
+    params:
+      prompt: "{{ inputs.prompt }}"
+      image_b64: "{{ inputs.image_b64 }}"
+      seed: "{{ inputs.seed }}"
+      steps: "{{ inputs.steps }}"
+      guidance: "{{ inputs.guidance }}"
+      strength: "{{ inputs.strength }}"
+    outputs:
+      image: { media_type: image/png }
