@@ -39,7 +39,8 @@ import torch
 # ---------------------------------------------------------------------------
 MODELS = {
     "flux-schnell": {
-        "repo": "black-forest-labs/FLUX.1-schnell",
+        "repo": "/models/flux-schnell",  # local persistent path (no re-download)
+        "repo_fallback": "black-forest-labs/FLUX.1-schnell",  # HF fallback
         "pipeline_cls": "FluxPipeline",
         "default_steps": 4,
         "default_guidance": 0.0,
@@ -127,6 +128,43 @@ def load_baseline(model_cfg):
     return pipe, "baseline (model_cpu_offload, no compile/cache/offload)"
 
 
+def load_bf16_resident(model_cfg):
+    """A1: BF16 fully resident — gold standard for speed and quality."""
+    from diffusers import FluxPipeline
+    pipe = FluxPipeline.from_pretrained(
+        model_cfg["repo"],
+        torch_dtype=torch.bfloat16,
+    )
+    pipe.to("cuda")
+    return pipe, "bf16 resident (pipe.to cuda, all components on GPU)"
+
+
+def load_bf16_group_offload(model_cfg):
+    """A3/B1: BF16 group_offload — streaming without quantization.
+    Text encoders + VAE resident, transformer blocks stream in BF16."""
+    from diffusers import FluxPipeline
+    pipe = FluxPipeline.from_pretrained(
+        model_cfg["repo"],
+        torch_dtype=torch.bfloat16,
+    )
+    # Text encoders + VAE resident on GPU
+    pipe.text_encoder.to("cuda")
+    if hasattr(pipe, "text_encoder_2"):
+        pipe.text_encoder_2.to("cuda")
+    pipe.vae.to("cuda")
+    pipe.vae.enable_tiling()
+    # Group offload WITHOUT layerwise_casting — pure BF16 streaming
+    pipe.transformer.enable_group_offload(
+        onload_device=torch.device("cuda"),
+        offload_device=torch.device("cpu"),
+        offload_type="block_level",
+        num_blocks_per_group=1,
+        use_stream=True,
+        record_stream=True,
+    )
+    return pipe, "bf16 group_offload (stream, NO quantization)"
+
+
 def load_compile_only(model_cfg):
     """Path A (compile only): model_cpu_offload + compile_repeated_blocks. NO cache."""
     from diffusers import FluxPipeline
@@ -212,32 +250,39 @@ def load_group_offload(model_cfg):
 
 
 LOADERS = {
-    "baseline": load_baseline,
+    "bf16-resident": load_bf16_resident,
+    "bf16-cpu-offload": load_baseline,
+    "bf16-group-offload": load_bf16_group_offload,
+    "fp8-group-offload": load_group_offload,
     "compile-only": load_compile_only,
     "cache-only": load_cache_only,
-    "group-offload": load_group_offload,
 }
 
 
 # ---------------------------------------------------------------------------
 # Benchmark runner
 # ---------------------------------------------------------------------------
-def run_benchmark(pipe, model_cfg, num_warmup=3, num_timed=5, save_output=False, output_dir=None):
+def run_benchmark(pipe, model_cfg, num_warmup=3, num_timed=5, save_output=False, output_dir=None, config_name=""):
     """Run benchmark with warmup + timed runs. Returns metrics dict."""
 
     prompt = model_cfg["prompt"]
     steps = model_cfg["default_steps"]
     guidance = model_cfg["default_guidance"]
     width, height = model_cfg["default_size"]
+    seed = 42
 
     results = {
         "warmup": [],
         "timed": [],
+        "cold_start_s": None,
     }
 
-    # === WARMUP (results discarded) ===
+    # === WARMUP (first run is cold start) ===
     for i in range(num_warmup):
-        print(f"  [warmup {i+1}/{num_warmup}]", end="", flush=True)
+        label = "COLD" if i == 0 else f"warmup {i+1}/{num_warmup}"
+        print(f"  [{label}]", end="", flush=True)
+
+        generator = torch.Generator().manual_seed(seed)
         t0 = time.perf_counter()
         _ = pipe(
             prompt=prompt,
@@ -245,11 +290,14 @@ def run_benchmark(pipe, model_cfg, num_warmup=3, num_timed=5, save_output=False,
             guidance_scale=guidance,
             width=width,
             height=height,
+            generator=generator,
         )
         torch.cuda.synchronize()
         elapsed = time.perf_counter() - t0
         print(f"  {elapsed:.2f}s")
         results["warmup"].append(elapsed)
+        if i == 0:
+            results["cold_start_s"] = elapsed
         reset_vram()
 
     # === TIMED RUNS ===
@@ -259,6 +307,7 @@ def run_benchmark(pipe, model_cfg, num_warmup=3, num_timed=5, save_output=False,
 
         print(f"  [timed {i+1}/{num_timed}]", end="", flush=True)
 
+        generator = torch.Generator().manual_seed(seed)
         t_total_start = time.perf_counter()
 
         output = pipe(
@@ -267,6 +316,7 @@ def run_benchmark(pipe, model_cfg, num_warmup=3, num_timed=5, save_output=False,
             guidance_scale=guidance,
             width=width,
             height=height,
+            generator=generator,
             return_dict=True,
         )
 
@@ -292,14 +342,15 @@ def run_benchmark(pipe, model_cfg, num_warmup=3, num_timed=5, save_output=False,
             "gpu_max_sm_clock_mhz": temp["max_sm_clock_mhz"] if temp else None,
         })
 
-        # Save first timed output for visual comparison
+        # Save first timed output for quality comparison
         if save_output and i == 0 and output_dir:
             img = output.images[0]
-            outpath = output_dir / f"benchmark_output.png"
+            safe_name = config_name.replace("/", "_")
+            outpath = output_dir / f"{safe_name}_seed{seed}.png"
             img.save(outpath)
             print(f"  Saved: {outpath}")
 
-        # Cooldown between runs (prevent thermal throttling)
+        # Cooldown between runs
         if i < num_timed - 1:
             time.sleep(3)
 
@@ -339,45 +390,36 @@ def compute_stats(runs):
 
 def print_comparison(all_results):
     """Print side-by-side comparison table."""
-    print("\n" + "=" * 90)
-    print("BENCHMARK RESULTS COMPARISON")
-    print("=" * 90)
-    print(f"{'Path':<25} {'Mean (s)':<12} {'Std':<10} {'Min (s)':<12} {'Peak VRAM':<15} {'Steps/s':<10}")
-    print("-" * 90)
+    print("\n" + "=" * 105)
+    print("BENCHMARK RESULTS — FAIR COMPARISON")
+    print("=" * 105)
+    print(f"{'Path':<25} {'Cold(s)':<10} {'Warm(s)':<10} {'Std':<8} {'Min(s)':<10} {'VRAM(MB)':<12} {'Steps/s':<8}")
+    print("-" * 105)
 
     for path_name, data in all_results.items():
         if data is None:
-            print(f"{path_name:<25} {'FAILED':<12}")
+            print(f"{path_name:<25} {'FAILED':<20}")
             continue
         s = data["stats"]
+        cold = data.get("cold_start_s", 0) or 0
         print(
             f"{path_name:<25} "
-            f"{s['mean_total_s']:<12.3f} "
-            f"±{s['std_total_s']:<8.3f} "
-            f"{s['min_total_s']:<12.3f} "
-            f"{s['mean_peak_vram_mb']:<15.0f} "
-            f"{s['mean_steps_per_second']:<10.2f}"
+            f"{cold:<10.2f} "
+            f"{s['mean_total_s']:<10.3f} "
+            f"±{s['std_total_s']:<6.3f} "
+            f"{s['min_total_s']:<10.3f} "
+            f"{s['mean_peak_vram_mb']:<12.0f} "
+            f"{s['mean_steps_per_second']:<8.2f}"
         )
 
-    # Speedup calculations
-    print("-" * 90)
-    if "baseline" in all_results and all_results["baseline"] is not None:
-        base_time = all_results["baseline"]["stats"]["mean_total_s"]
-        for path_name, data in all_results.items():
-            if data is None or path_name == "baseline":
-                continue
-            path_time = data["stats"]["mean_total_s"]
-            speedup = base_time / path_time
-            vram_delta = data["stats"]["mean_peak_vram_mb"] - all_results["baseline"]["stats"]["mean_peak_vram_mb"]
-            sign = "+" if vram_delta >= 0 else ""
-            print(
-                f"  {path_name:<23} {speedup:.2f}x speed   "
-                f"VRAM: {sign}{vram_delta:.0f}MB "
-                f"({'slower' if speedup < 1 else 'FASTER'}, "
-                f"{'MORE' if vram_delta > 0 else 'less'} VRAM)"
-            )
+    # Find fastest for reference
+    print("-" * 105)
+    valid = {k: v for k, v in all_results.items() if v is not None}
+    if valid:
+        fastest = min(valid.items(), key=lambda x: x[1]["stats"]["mean_total_s"])
+        print(f"  Fastest: {fastest[0]} at {fastest[1]['stats']['mean_total_s']:.3f}s")
 
-    print("=" * 90)
+    print("=" * 105)
 
 
 # ---------------------------------------------------------------------------
@@ -407,6 +449,12 @@ def main():
 
     output_dir = Path(args.output_dir) if args.output_dir else Path(".")
     output_dir.mkdir(parents=True, exist_ok=True)
+
+    # Resolve model path: try local first, fall back to HF
+    repo = model_cfg.get("repo", "")
+    if not os.path.exists(repo) and "repo_fallback" in model_cfg:
+        print(f"Local path '{repo}' not found, using HF: {model_cfg['repo_fallback']}")
+        model_cfg["repo"] = model_cfg["repo_fallback"]
 
     # GPU info
     print(f"\n{'=' * 60}")
@@ -454,17 +502,20 @@ def main():
                 pipe, model_cfg,
                 num_warmup=args.warmup,
                 num_timed=args.runs,
-                save_output=args.save_output,
-                output_dir=output_dir / path_name if args.save_output else None,
+                save_output=True,  # always save first output
+                output_dir=output_dir,
+                config_name=path_name,
             )
             stats = compute_stats(results["timed"])
             all_results[path_name] = {
                 "description": description,
                 "warmup": results["warmup"],
+                "cold_start_s": results.get("cold_start_s"),
                 "timed": results["timed"],
                 "stats": stats,
             }
-            print(f"\n  ✅ Mean: {stats['mean_total_s']:.3f}s ± {stats['std_total_s']:.3f}s")
+            cold = results.get("cold_start_s", 0)
+            print(f"\n  ✅ Cold: {cold:.2f}s  Warm: {stats['mean_total_s']:.3f}s ± {stats['std_total_s']:.3f}s")
             print(f"     Peak VRAM: {stats['mean_peak_vram_mb']:.0f}MB")
             print(f"     Steps/s: {stats['mean_steps_per_second']:.2f}")
         except Exception as e:
