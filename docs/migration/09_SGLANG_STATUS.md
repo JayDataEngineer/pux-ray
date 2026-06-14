@@ -105,3 +105,63 @@ GET  /health                    # Health check
 2. LD_LIBRARY_PATH in the SGLang container's entrypoint
 3. CUDA 13.0 nvrtc libraries
 4. Model cache volume mount (/models)
+
+---
+
+## 10. FIRST SUCCESSFUL SGLANG BENCHMARK (2026-06-14)
+
+### LTX-Video 2B via SGLang Diffusion — WORKING
+
+**Configuration:**
+- Model: LTX-Video 2B (`Lightricks/LTX-Video`)
+- Server: `sglang serve --model-type diffusion --server-warmup false`
+- GPU: RTX 4090 (24GB)
+- Generation: 25 steps, 768×512, 57 frames
+
+**Results:**
+
+| Metric | Cold | Warm (avg of 3) |
+|--------|------|-----------------|
+| Total time | 18.04s | **15.03s** |
+| Inference time | 11.06s | **11.11s** |
+| Peak VRAM | 12,796 MB | **9,132 MB** |
+| Variance | — | ±0.13s |
+
+**Key observations:**
+1. Only 9.1GB VRAM for video generation — half the card free
+2. Extremely consistent (±0.13s across 3 warm runs)
+3. Only 3s cold start overhead (18s cold vs 15s warm)
+4. SGLang falls back to diffusers backend (0.30.0.dev0) — no native LTX kernels
+5. API is async: POST creates job, GET polls for status, GET content downloads
+
+**Serving command that works:**
+```bash
+export LD_LIBRARY_PATH=/usr/local/lib/python3.10/dist-packages/nvidia/cu13/lib:/usr/local/lib/python3.10/dist-packages/nvidia/cuda_nvrtc/lib:$LD_LIBRARY_PATH
+export SAFETENSORS_DISABLE_MMAP=1
+export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+
+sglang serve \
+    --model-path /models/ltx-video \
+    --port 30010 \
+    --host 0.0.0.0 \
+    --model-type diffusion \
+    --server-warmup false
+```
+
+**Critical learnings:**
+1. `--server-warmup false` is REQUIRED for LTX (warmup tries to pass `image` arg → IndexError)
+2. `--skip-server-warmup` is for LLM server only, NOT diffusion server
+3. FLUX.1 (12.5B, 23GB BF16) does NOT fit — SGLang has no layerwise offload for FLUX
+4. LTX-Video (2B, ~7GB) fits easily — 9GB peak VRAM with 19GB headroom
+5. SGLang's bundled diffusers (0.30.0.dev0) handles LTX via diffusers fallback
+6. Killing SGLang with `kill -9` leaks VRAM — always use clean pod restart
+7. The `dit_cpu_offload: true` default works for LTX on 24GB VRAM
+
+**API Endpoints (verified):**
+```
+POST /v1/videos              → Create video (async, returns job ID)
+GET  /v1/videos/{id}         → Poll status (pending → processing → completed/failed)
+GET  /v1/videos/{id}/content → Download completed video
+POST /v1/images/generations  → Image generation (FLUX etc.)
+GET  /health                 → Health check
+```

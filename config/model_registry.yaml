@@ -1395,6 +1395,28 @@ embeddings:
     vram_estimate_gb: 0.5
     device: gpu
     description: Jina v5 nano retrieval (IQ4_NL GGUF).
+sglang:
+  ltx-video:
+    path: ltx-video
+    source: hf://Lightricks/LTX-Video
+    download: snapshot
+    sha256: null
+    size_gb: 7.2
+    vram_estimate_gb: 10.0
+    device: gpu
+    description: "LTX-Video 2B text-to-video. SGLang Diffusion served. \
+      Benchmark: 25 steps 768x512 57 frames = 11s inference, 9GB VRAM on 4090. \
+      Serve: sglang serve --model-type diffusion --server-warmup false"
+  flux-schnell:
+    path: flux-schnell
+    source: hf://black-forest-labs/FLUX.1-schnell
+    download: snapshot
+    sha256: null
+    size_gb: 23.0
+    vram_estimate_gb: 18.0
+    device: gpu
+    description: "FLUX.1-schnell for SGLang. NOTE: BF16 too large for 24GB GPU. \
+      Requires --quantization fp8 or smaller model (FLUX.2-klein-4B)."
 wan2gp:
   wan-t2v-14B:
     path: wan2gp/wan2.1_text2video_14B_quanto_mbf16_int8.safetensors
