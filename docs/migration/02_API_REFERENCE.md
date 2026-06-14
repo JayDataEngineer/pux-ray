@@ -43,10 +43,14 @@ transformer.enable_group_offload(onload_device=torch.device("cuda"), use_stream=
 
 | Model | Recommended | Target VRAM |
 |-------|------------|-------------|
-| Wan 14B | `block_level`, num_blocks_per_group=2 | ~11.8 GB |
-| FLUX.1-dev | `block_level`, num_blocks_per_group=3 | ~9.6 GB |
+| Wan 14B | `block_level`, num_blocks_per_group=2* | ~11.8 GB |
+| FLUX.1-dev | `block_level`, num_blocks_per_group=3* | ~9.6 GB |
 | LTX-Video (2B) | `leaf_level`, None (auto) | ~4.1 GB |
 | Cosmos 32B | `block_level`, num_blocks_per_group=1 | ~19.5 GB |
+
+`*` NOTE: `use_stream=True` forces `num_blocks_per_group=1` in diffusers 0.37.0.
+The values above are from deep research on H100 hardware and may not apply
+when streams are enabled. Our benchmark used blocks=1 (forced by stream).
 
 **⚠️ VAE bug in diffusers 0.37.0:** `post_quant_conv` and `quant_conv`
 bypass block groupings, causing device mismatch. Fixed in 0.37.1+.
@@ -364,16 +368,21 @@ response = client.images.generate(
 | VAE OOMs on decode | Any | `pipe.vae.enable_tiling()` (don't group-offload VAE in 0.37.0) |
 | Niche/custom model | Custom | Runner calling diffusers/library directly |
 
-### Optimization Compatibility Matrix
+### Optimization Compatibility Matrix (VERIFIED via Phase 1 benchmark)
 
 | | group_offload | torch.compile | cache_accel | model_cpu_offload |
 |---|---|---|---|---|
-| **group_offload** | — | ❌ | ❌ | redundant |
-| **torch.compile** | ❌ | — | ✅ | ✅ |
-| **cache_accel** | ❌ | ✅ | — | ✅ |
+| **group_offload** | — | ❌ TensorWeakRef | ❌ prefetch desync | redundant |
+| **torch.compile** | ❌ | — | ❌ @compiler.disable | ✅ |
+| **cache_accel** | ❌ | ❌ | — | ✅ |
 | **model_cpu_offload** | redundant | ✅ | ✅ | — |
 | **layerwise_casting** | ✅ | ✅ | ✅ | ✅ |
 | **PEFT LoRAs** | ✅ (load first) | ✅ | ✅ | ✅ |
+
+**Three pairwise incompatibilities verified:**
+1. compile × group_offload: `swap_tensors` vs dynamo TensorWeakRef guards
+2. cache × group_offload: block-skipping breaks prefetch chain
+3. **compile × cache: `@torch.compiler.disable` in cache hooks causes graph break** (NEW)
 
 ---
 
@@ -393,6 +402,7 @@ when model is fully resident in VRAM.
 # VERIFIED: available in diffusers 0.37.0
 # Five different cache strategies — pick one per model
 # DO NOT combine with enable_group_offload(use_stream=True)
+# DO NOT combine with torch.compile_repeated_blocks (graph break)
 
 from diffusers import (
     apply_first_block_cache,    # FirstBlockCacheConfig
@@ -403,11 +413,16 @@ from diffusers import (
 
 # First-Block Cache: monitors first transformer block output across steps.
 # If nearly identical between step T and T-1, skips deeper blocks.
-apply_first_block_cache(pipe.transformer)
+# CORRECT API (needs config object):
+from diffusers import FirstBlockCacheConfig
+apply_first_block_cache(pipe.transformer, FirstBlockCacheConfig(threshold=0.05))
+# threshold=0.05 means: skip if residual difference < 5%. Lower = more aggressive.
 
 # Faster Cache: adaptive caching with quality preservation
-apply_faster_cache(pipe.transformer)
+apply_faster_cache(pipe.transformer)  # [unverified signature — check before use]
 ```
+
+**Needs 10+ steps to be effective.** Useless for 4-step models like FLUX-schnell.
 
 **How it works:** Diffusion models perform redundant computation across
 denoising steps. Cache strategies cache residuals from previous steps and

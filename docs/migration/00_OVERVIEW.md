@@ -23,6 +23,7 @@
 12. [Risks & Open Questions](#12-risks)
 13. [Deep Research Query](#13-deep-research-query)
 14. [Deep Research Findings →](03_DEEP_RESEARCH_FINDINGS.md) (verified benchmarks, tuning, model details)
+15. [Phase 1 Benchmark Results →](04_PHASE1_RESULTS.md) (REAL numbers from 4090)
 
 ---
 
@@ -56,6 +57,12 @@ inference. Own 100% of the remaining code.
 
 **Critical constraint:** `torch.compile` and cache acceleration are BOTH
 incompatible with `group_offload`. Choose Path A or Path B per model, not both.
+
+**Phase 1 benchmark VERIFIED (2026-06-14):** On RTX 4090 with FLUX-schnell:
+- **Path B (group_offload + FP8): 3.8s, 12.5GB VRAM** — **4.4x faster** than baseline
+- Path A variants (model_cpu_offload + compile/cache): ~15-16s, 24GB VRAM
+- Cache + compile are ALSO incompatible with each other (graph break)
+- See [04_PHASE1_RESULTS.md](04_PHASE1_RESULTS.md) for full analysis
 
 ---
 
