@@ -49,7 +49,8 @@ MODELS = {
         "license": "Apache-2.0",
     },
     "flux-dev": {
-        "repo": "black-forest-labs/FLUX.1-dev",
+        "repo": "/models/flux-dev",  # local persistent path
+        "repo_fallback": "black-forest-labs/FLUX.1-dev",
         "pipeline_cls": "FluxPipeline",
         "default_steps": 20,
         "default_guidance": 3.5,
@@ -249,13 +250,79 @@ def load_group_offload(model_cfg):
     return pipe, f"Path B: {cast_status} + {offload_status} + vae_tiling"
 
 
+def load_bf16_sequential(model_cfg):
+    """VRAM technique: sequential_cpu_offload — layer-by-layer (slowest, lowest VRAM)."""
+    from diffusers import FluxPipeline
+    pipe = FluxPipeline.from_pretrained(
+        model_cfg["repo"],
+        torch_dtype=torch.bfloat16,
+    )
+    pipe.enable_sequential_cpu_offload()
+    return pipe, "bf16 sequential_cpu_offload (layer-by-layer)"
+
+
+def load_fp8_mixed_cpu_offload(model_cfg):
+    """Mixed precision: text encoders FP8, transformer BF16, model_cpu_offload.
+    This tests the 'quantize where it's invisible' approach."""
+    from diffusers import FluxPipeline
+    pipe = FluxPipeline.from_pretrained(
+        model_cfg["repo"],
+        torch_dtype=torch.bfloat16,
+    )
+    # Quantize ONLY text encoders to FP8 (quality impact invisible)
+    try:
+        pipe.text_encoder.enable_layerwise_casting(
+            storage_dtype=torch.float8_e4m3fn,
+            compute_dtype=torch.bfloat16,
+        )
+        te1_status = "text_encoder FP8"
+    except Exception as e:
+        te1_status = f"text_encoder FP8 FAILED ({e})"
+
+    try:
+        pipe.text_encoder_2.enable_layerwise_casting(
+            storage_dtype=torch.float8_e4m3fn,
+            compute_dtype=torch.bfloat16,
+        )
+        te2_status = "text_encoder_2 FP8"
+    except Exception as e:
+        te2_status = f"text_encoder_2 FP8 FAILED ({e})"
+
+    # Transformer stays BF16 (precision-critical)
+    pipe.enable_model_cpu_offload()
+    return pipe, f"mixed: {te1_status} + {te2_status} + transformer BF16 + model_cpu_offload"
+
+
+def load_bf16_compile_cache(model_cfg):
+    """Path A full: model_cpu_offload + compile_repeated_blocks + cache_accel.
+    NOTE: compile + cache were found incompatible. This tests which one wins."""
+    from diffusers import FluxPipeline
+    pipe = FluxPipeline.from_pretrained(
+        model_cfg["repo"],
+        torch_dtype=torch.bfloat16,
+    )
+    pipe.enable_model_cpu_offload()
+
+    # Try compile first (cache is known incompatible with compile)
+    try:
+        pipe.transformer.compile_repeated_blocks(fullgraph=True)
+        opt_status = "compile_repeated_blocks: ON"
+    except Exception as e:
+        opt_status = f"compile FAILED ({e})"
+
+    return pipe, f"Path A: model_cpu_offload + {opt_status}"
+
+
 LOADERS = {
     "bf16-resident": load_bf16_resident,
     "bf16-cpu-offload": load_baseline,
+    "bf16-sequential": load_bf16_sequential,
     "bf16-group-offload": load_bf16_group_offload,
     "fp8-group-offload": load_group_offload,
+    "fp8-mixed-cpu-offload": load_fp8_mixed_cpu_offload,
     "compile-only": load_compile_only,
     "cache-only": load_cache_only,
+    "compile-cache": load_bf16_compile_cache,
 }
 
 
