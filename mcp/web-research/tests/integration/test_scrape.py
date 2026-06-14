@@ -31,6 +31,21 @@ async def test_scrape_httpbin(mcp_client, session):
 
 
 @pytest.mark.asyncio
+async def test_scrape_method_override_httpx(mcp_client, session):
+    """Forcing httpx method works and is fast."""
+    import time
+    start = time.monotonic()
+    result = await call_tool(
+        mcp_client, session, "scrape",
+        {"url": "https://example.com", "method": "httpx"}
+    )
+    elapsed = time.monotonic() - start
+    assert result["success"] is True
+    assert len(result.get("content", "")) > 0
+    assert elapsed < 10.0, f"httpx scrape took {elapsed:.1f}s — should be fast"
+
+
+@pytest.mark.asyncio
 async def test_scrape_method_override_selenium(mcp_client, session):
     """Forcing selenium method works."""
     result = await call_tool(

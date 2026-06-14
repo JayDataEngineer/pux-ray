@@ -1,11 +1,13 @@
 """Tests for scraper utilities - checkpoint detection, block detection, etc."""
 
 import pytest
+from unittest.mock import AsyncMock, MagicMock, patch
 from src.scrapers.base import (
     is_security_checkpoint,
     is_low_quality_response,
     detect_blocking,
     normalize_reddit_url,
+    scrape_httpx,
 )
 
 
@@ -160,3 +162,147 @@ class TestRedditNormalization:
         """Remove trailing slash before adding .json"""
         result = normalize_reddit_url("https://www.reddit.com/r/python/")
         assert result == "https://www.reddit.com/r/python.json"
+
+
+SAMPLE_HTML = """<!DOCTYPE html>
+<html>
+<head><title>Hello World</title></head>
+<body>
+<article>
+<h1>Hello World</h1>
+<p>This is a test article with enough content to pass the minimum length threshold.
+It has multiple sentences covering various topics. The quick brown fox jumps over
+the lazy dog. Lorem ipsum dolor sit amet, consectetur adipiscing elit.</p>
+</article>
+</body>
+</html>"""
+
+
+def _make_mock_response(html: str, status: int = 200, content_type: str = "text/html"):
+    resp = MagicMock()
+    resp.status_code = status
+    resp.text = html
+    resp.headers = {"content-type": content_type}
+    resp.raise_for_status = MagicMock()
+    return resp
+
+
+def _make_mock_cleaner(output: str = "cleaned content that is long enough to pass"):
+    cleaner = MagicMock()
+    cleaner.clean = MagicMock(return_value=output)
+    return cleaner
+
+
+class TestScrapeHttpx:
+    """Tests for the httpx-based scraper (no browser required)."""
+
+    @pytest.mark.asyncio
+    async def test_success_via_trafilatura(self):
+        """httpx scraper returns content using trafilatura extraction."""
+        mock_resp = _make_mock_response(SAMPLE_HTML)
+        mock_client = AsyncMock()
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=False)
+        mock_client.get = AsyncMock(return_value=mock_resp)
+
+        with patch("src.utils.proxy.create_proxied_client", return_value=mock_client):
+            result = await scrape_httpx("https://example.com", _make_mock_cleaner())
+
+        assert result["success"] is True
+        assert result["url"] == "https://example.com"
+        assert len(result.get("content", "")) > 0
+
+    @pytest.mark.asyncio
+    async def test_falls_back_to_content_cleaner(self):
+        """Falls back to ContentCleaner when trafilatura extracts nothing."""
+        minimal_html = "<html><body><p>x</p></body></html>"
+        mock_resp = _make_mock_response(minimal_html)
+        mock_client = AsyncMock()
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=False)
+        mock_client.get = AsyncMock(return_value=mock_resp)
+
+        long_output = "cleaner output " * 20
+        cleaner = _make_mock_cleaner(long_output)
+
+        with patch("src.utils.proxy.create_proxied_client", return_value=mock_client):
+            with patch("trafilatura.extract", return_value=None):
+                result = await scrape_httpx("https://example.com", cleaner)
+
+        assert result["success"] is True
+        assert result["content"] == long_output.strip()
+
+    @pytest.mark.asyncio
+    async def test_non_html_content_type_fails(self):
+        """Non-HTML content type returns error without crashing."""
+        mock_resp = _make_mock_response("<data/>", content_type="application/json")
+        mock_client = AsyncMock()
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=False)
+        mock_client.get = AsyncMock(return_value=mock_resp)
+
+        with patch("src.utils.proxy.create_proxied_client", return_value=mock_client):
+            result = await scrape_httpx("https://example.com/api", _make_mock_cleaner())
+
+        assert result["success"] is False
+        assert "Not HTML" in result.get("error", "")
+
+    @pytest.mark.asyncio
+    async def test_http_error_returns_failure(self):
+        """HTTP 403 returns error result without raising."""
+        import httpx as _httpx
+
+        mock_client = AsyncMock()
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=False)
+
+        error_resp = MagicMock()
+        error_resp.status_code = 403
+        http_err = _httpx.HTTPStatusError("403", request=MagicMock(), response=error_resp)
+        mock_client.get = AsyncMock(side_effect=http_err)
+
+        with patch("src.utils.proxy.create_proxied_client", return_value=mock_client):
+            result = await scrape_httpx("https://blocked.example.com", _make_mock_cleaner())
+
+        assert result["success"] is False
+        assert "403" in result.get("error", "")
+
+    @pytest.mark.asyncio
+    async def test_timeout_returns_failure(self):
+        """Network timeout returns error result without raising."""
+        import httpx as _httpx
+
+        mock_client = AsyncMock()
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=False)
+        mock_client.get = AsyncMock(side_effect=_httpx.TimeoutException("timeout"))
+
+        with patch("src.utils.proxy.create_proxied_client", return_value=mock_client):
+            result = await scrape_httpx("https://slow.example.com", _make_mock_cleaner())
+
+        assert result["success"] is False
+        assert "timed out" in result.get("error", "").lower()
+
+    @pytest.mark.asyncio
+    async def test_security_checkpoint_detected(self):
+        """Security checkpoint pages return failure, not content."""
+        # Must have enough text to pass MIN_CONTENT_LENGTH so the checkpoint
+        # check runs (rather than early-exiting with "content too short").
+        checkpoint_html = """<html><head><title>Security Checkpoint</title></head>
+<body>
+<h1>Security Checkpoint</h1>
+<p>Please wait while we verify your browser before granting access to this site.
+This security checkpoint is required to protect the website from automated bots.
+Wir überprüfen Ihren Browser bevor wir Ihnen Zugang gewähren. Bitte warten Sie.</p>
+</body></html>"""
+        mock_resp = _make_mock_response(checkpoint_html)
+        mock_client = AsyncMock()
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=False)
+        mock_client.get = AsyncMock(return_value=mock_resp)
+
+        long_cleaner_out = "security checkpoint " * 10
+        with patch("src.utils.proxy.create_proxied_client", return_value=mock_client):
+            result = await scrape_httpx("https://example.com", _make_mock_cleaner(long_cleaner_out))
+
+        assert result["success"] is False
