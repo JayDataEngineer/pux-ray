@@ -54,7 +54,17 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     huggingface_hub sentencepiece tokenizers \
     gguf torchao \
     "ray[serve]>=2.43.0" httpx pyyaml pillow \
-    aiosqlite sqlalchemy opencv-python-headless matplotlib sageattention
+    aiosqlite sqlalchemy opencv-python-headless matplotlib sageattention comfyui-manager \
+    scikit-image segment-anything piexif dill rotary-embedding-torch omegaconf
+
+# ── ComfyUI custom node deps (ltx-video with --no-deps to avoid transformers/diffusers conflicts) ──
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv pip install --no-deps "ltx-video@git+https://github.com/Lightricks/LTX-Video@ltx-video-0.9.1" || \
+    echo "ltx-video: will install at runtime"
+
+# ── huggingface_hub compat shim (cached_download removed in 0.26+, aliased to hf_hub_download) ──
+RUN echo 'import huggingface_hub; huggingface_hub.cached_download = huggingface_hub.hf_hub_download if not hasattr(huggingface_hub, "cached_download") else huggingface_hub.cached_download' \
+    > /usr/local/lib/python3.10/dist-packages/zz_hf_compat.pth
 
 # ── Environment ───────────────────────────────────────────────────────────────
 ENV SAFETENSORS_DISABLE_MMAP=1

@@ -289,6 +289,9 @@ spec:
                     mountPath: /opt/lance-quant
                   - name: comfyui-runtime
                     mountPath: /opt/ComfyUI
+                  - name: src
+                    mountPath: /home/user/Documents/programs/ray/infra/repos/ComfyUI/custom_nodes
+                    subPath: infra/repos/ComfyUI/custom_nodes
             volumes:
               - name: config
                 configMap:

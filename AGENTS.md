@@ -135,7 +135,11 @@ Ray's `@serve.deployment` has a serialization check that fails for some classes 
 
 The `native:latest` Docker image doesn't include ComfyUI runtime (`main.py`, `nodes/`, `web/`, `custom_nodes/`). ComfyUI lives on the host at `/opt/ComfyUI` and is mounted into the worker container via a `hostPath` volume (`infra/flux/ai-services/ray-service.yaml`). Models are still managed by the `model-sync` init container.
 
-ComfyUI pip dependencies not in `Dockerfile.native` (sqlalchemy, aiosqlite, opencv-python-headless, matplotlib, sageattention) were added to the supporting libraries layer alongside `torchaudio==2.10.0+cu128` pinned to match the CUDA 12.8 runtime.
+**Two hostPath volumes** are required:
+1. `comfyui-runtime` → mounts `/opt/ComfyUI` (the ComfyUI source + `main.py`)
+2. `src` subPath `infra/repos/ComfyUI/custom_nodes` → mounts at `/home/user/Documents/programs/ray/infra/repos/ComfyUI/custom_nodes` (custom node symlink targets — without this, every custom node fails with `UnboundLocalError: local variable 'sys_module_name' referenced before assignment` because `os.path.isdir()` returns `False` for broken symlinks)
+
+**ComfyUI deps in `Dockerfile.native`**: `aiosqlite`, `sqlalchemy`, `opencv-python-headless`, `matplotlib`, `sageattention`, `comfyui-manager`, `scikit-image`, `segment-anything`, `piexif`, `dill`, `rotary-embedding-torch`, `omegaconf`, and `ltx-video` (installed `--no-deps` to avoid pulling in conflicting `transformers`/`diffusers` versions). A `zz_hf_compat.pth` shim aliases the removed `huggingface_hub.cached_download` to `hf_hub_download` for older custom nodes.
 
 ### Docker Images (KubeRay)
 
