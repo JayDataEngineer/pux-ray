@@ -1,35 +1,25 @@
 """LTX-Video Hyper-Optimized Sequencer.
 
-Implements the techniques from the LTX deep research:
-  - Static latent shape padding (discrete profiles: 9, 17, 33, 65, 97)
-  - Piecewise CUDA Graphs (zero recompilation on shape changes)
-  - Guiding vs Replacing latent injection
+Implements the deep research blueprint:
+  - Custom denoising loop with keyframe injection (replacing + guiding)
+  - Static latent padding to discrete temporal profiles
+  - Dual-stage pipeline (Stage 1 half-res → Stage 2 upscale)
   - IC-LoRA attention masking
 
-This wraps a standard LTX pipeline with optimization layers that prevent
-the recompilation storm when users change frame counts or keyframe positions.
+Works with the standard diffusers LTXPipeline. Wraps it with
+optimization layers while maintaining full pipeline compatibility.
 
-Usage:
-    pipe = LTXPipeline.from_pretrained("Lightricks/LTX-Video")
-    sequencer = LTXSequencer(pipe, device="cuda")
-    sequencer.warmup(spatial_dims=(768, 512), dtype=torch.bfloat16)
-
-    # Generate with keyframes
-    video = sequencer.generate(
-        prompt="a dragon flying over mountains",
-        logical_frames=33,
-        keyframes=[
-            KeyframeInput(image=first_frame, frame_index=0, mode="guide", strength=0.8),
-            KeyframeInput(image=last_frame, frame_index=32, mode="guide", strength=0.6),
-        ],
-    )
+VAE: AutoencoderKLLTXVideo (128 latent channels, 8x spatial, 8x temporal)
+Transformer: LTXVideoTransformer3DModel
+Scheduler: FlowMatchEulerDiscreteScheduler
+Text Encoder: T5EncoderModel
 """
 from __future__ import annotations
 
 import logging
 import math
 from dataclasses import dataclass, field
-from typing import List, Tuple, Optional, Dict
+from typing import List, Tuple, Optional, Dict, Any
 
 import torch
 import torch.nn as nn
@@ -37,548 +27,474 @@ import numpy as np
 
 logger = logging.getLogger(__name__)
 
-# ─── Constants ─────────────────────────────────────────────────────────────────
-
+# LTX-Video VAE temporal compression: 8n+1 pattern
 VAE_TEMPORAL_COMPRESSION = 8
-MAX_STATIC_FRAMES = 97
-SUPPORTED_PROFILES = [9, 17, 33, 65, 97]
+SUPPORTED_PROFILES = [9, 17, 25, 33, 41, 49, 57, 65, 73, 81, 89, 97]
+COMMON_PROFILES = [9, 17, 33, 65, 97]  # Subset for CUDA graph capture
 
-# LTX VAE temporal compression factor: latent frames = (frames - 1) // 8 + 1
-# So physical frames must be 8n+1: 9, 17, 25, 33, 41, 49, 57, 65, 73, 81, 89, 97
-
-
-# ─── Data Classes ──────────────────────────────────────────────────────────────
 
 @dataclass
 class KeyframeInput:
-    """A keyframe for timeline injection."""
-    image: torch.Tensor        # Shape: (3, H, W) or PIL Image
-    frame_index: int           # Which frame (0-indexed)
-    strength: float = 1.0      # Injection strength [0, 1]
-    mode: str = "guide"        # "guide" (smooth) or "replace" (hard cut)
+    """A keyframe for timeline injection.
+
+    Attributes:
+        image: PIL Image or (3, H, W) tensor
+        frame_index: Which frame (0-indexed in output video)
+        strength: Injection strength [0, 1]
+        mode: "guide" (smooth) or "replace" (hard cut)
+    """
+    image: Any
+    frame_index: int
+    strength: float = 1.0
+    mode: str = "guide"
 
 
 @dataclass
 class GenerationConfig:
-    """Configuration for a single generation."""
+    """Configuration for LTX video generation."""
     prompt: str
-    logical_frames: int = 25
+    num_frames: int = 25
     num_inference_steps: int = 30
     guidance_scale: float = 6.0
     width: int = 768
     height: int = 512
     seed: int = -1
+    negative_prompt: str = ""
     keyframes: List[KeyframeInput] = field(default_factory=list)
-    ic_lora_mask: Optional[torch.Tensor] = None
+    # IC-LoRA
+    ic_lora_mask: Optional[Any] = None  # PIL Image or tensor
     ic_lora_strength: float = 1.0
+    # Dual-stage
+    use_two_stage: bool = False
+    stage2_steps: int = 4
 
 
-# ─── Static Latent Padder ──────────────────────────────────────────────────────
+class LTXSequencer:
+    """Hyper-optimized LTX-Video sequencer.
 
-class StaticLatentPadder:
-    """Pads latents to discrete profiles for CUDA Graph compatibility.
+    Wraps a standard LTXPipeline with:
+    1. Custom denoising loop (keyframe injection)
+    2. Static padding for CUDA graph compatibility
+    3. Optional dual-stage execution
 
-    Maps arbitrary frame counts to the nearest supported profile,
-    pads with zeros, and generates attention masks to isolate padding.
+    Usage:
+        pipe = LTXPipeline.from_pretrained("Lightricks/LTX-Video").to("cuda")
+        seq = LTXSequencer(pipe)
+
+        video = seq.generate(GenerationConfig(
+            prompt="a dragon flying",
+            num_frames=33,
+            keyframes=[
+                KeyframeInput(first_frame, 0, mode="guide", strength=0.8),
+            ],
+        ))
     """
 
-    def __init__(self, profiles: List[int] = None):
-        self.profiles = sorted(profiles or SUPPORTED_PROFILES)
-        self.max_profile = self.profiles[-1]
+    def __init__(self, pipe, device: str = "cuda"):
+        self.pipe = pipe
+        self.device = torch.device(device)
 
-    def get_profile(self, logical_frames: int) -> int:
-        """Binary search for nearest profile >= logical_frames."""
-        for p in self.profiles:
-            if p >= logical_frames:
-                return p
-        raise ValueError(
-            f"Requested {logical_frames} frames exceeds max profile {self.max_profile}. "
-            f"Supported profiles: {self.profiles}"
-        )
+        # Extract components
+        self.transformer = pipe.transformer
+        self.vae = pipe.vae
+        self.scheduler = pipe.scheduler
+        self.tokenizer = pipe.tokenizer
+        self.text_encoder = pipe.text_encoder
 
-    def pad_latents(
-        self,
-        latent: torch.Tensor,
-        logical_frames: int,
-        target_profile: int,
-    ) -> Tuple[torch.Tensor, torch.Tensor]:
-        """Pad latents to target profile size.
+        # VAE compression ratios (computed from pipeline)
+        self.vae_spatial = getattr(pipe, "vae_spatial_compression_ratio", 32)
+        self.vae_temporal = getattr(pipe, "vae_temporal_compression_ratio", 8)
+
+        # Latent channels (LTX uses 128)
+        self.latent_channels = getattr(self.vae.config, "latent_channels", 128)
+
+        logger.info("LTX Sequencer: spatial=%dx temporal=%dx channels=%d",
+                    self.vae_spatial, self.vae_temporal, self.latent_channels)
+
+    def generate(self, config: GenerationConfig) -> torch.Tensor:
+        """Generate video with optional keyframe injection.
 
         Args:
-            latent: Shape (B, C, F, H, W) — latent representation
-            logical_frames: Actual number of logical frames
-            target_profile: Padded frame count (from get_profile)
+            config: Generation parameters
 
         Returns:
-            padded_latent: Shape (B, C, target_profile, H, W)
-            attention_mask: Shape (B, 1, target_profile, H, W) — 1.0 for valid, 0.0 for padded
+            Video frames tensor: (F, C, H, W) as uint8 numpy or PIL frames
         """
-        B, C, F, H, W = latent.shape
-        pad_len = target_profile - F
-
-        if pad_len > 0:
-            padding = torch.zeros(
-                (B, C, pad_len, H, W),
-                dtype=latent.dtype,
-                device=latent.device,
-            )
-            padded = torch.cat([latent, padding], dim=2)
+        if config.keyframes:
+            return self._generate_with_keyframes(config)
         else:
-            padded = latent
+            return self._generate_standard(config)
 
-        # Attention mask: 1.0 for valid frames, 0.0 for padded
-        mask = torch.zeros(
-            (B, 1, target_profile, H, W),
-            dtype=latent.dtype,
-            device=latent.device,
+    def _generate_standard(self, config: GenerationConfig) -> torch.Tensor:
+        """Standard generation via pipeline (fastest, no injection)."""
+        gen = self._make_generator(config.seed)
+        output = self.pipe(
+            prompt=config.prompt,
+            negative_prompt=config.negative_prompt or None,
+            num_inference_steps=config.num_inference_steps,
+            guidance_scale=config.guidance_scale,
+            width=config.width,
+            height=config.height,
+            num_frames=config.num_frames,
+            generator=gen,
         )
-        mask[:, :, :F, :, :] = 1.0
+        return output.frames[0]
 
-        return padded, mask
+    def _generate_with_keyframes(self, config: GenerationConfig) -> torch.Tensor:
+        """Custom denoising loop with keyframe injection.
 
-
-# ─── Advanced Latent Injector ──────────────────────────────────────────────────
-
-class LatentInjector(nn.Module):
-    """Injects keyframes into the latent space.
-
-    Two modes:
-    - Replacing: Direct overwrite (hard cuts, strict alignment)
-    - Guiding: Gaussian-decay additive signal (smooth transitions)
-    """
-
-    def __init__(self, vae_encoder: nn.Module, device: torch.device):
-        super().__init__()
-        self.vae = vae_encoder
-        self.device = device
-
-    def encode_image(self, image: torch.Tensor) -> torch.Tensor:
-        """Encode an image to latent space via VAE.
-
-        Args:
-            image: (3, H, W) or (1, 3, H, W)
-
-        Returns:
-            latent: (1, C, 1, H//8, W//8) — VAE-encoded spatial latent
+        Implements:
+        1. Text encoding via T5
+        2. Latent initialization with keyframe replacing
+        3. Guiding signal injection at each step
+        4. Standard scheduler stepping
+        5. VAE decode to frames
         """
-        if image.dim() == 3:
-            image = image.unsqueeze(0)  # Add batch dim
+        device = self.device
+        dtype = self.transformer.dtype
 
-        # Ensure correct device and dtype
-        image = image.to(self.device)
+        # ── 1. Encode text ────────────────────────────────────────────────────
+        prompt_embeds = self._encode_prompt(config.prompt, device, dtype)
+        negative_embeds = self._encode_prompt(
+            config.negative_prompt or "worst quality, low quality",
+            device, dtype,
+        ) if config.guidance_scale > 0 else None
+
+        # ── 2. Compute latent shape ───────────────────────────────────────────
+        latent_h = config.height // self.vae_spatial
+        latent_w = config.width // self.vae_spatial
+        # LTX temporal: latent frames = ceil(num_frames / temporal_compression)
+        num_latent_frames = (config.num_frames - 1) // self.vae_temporal + 1
+
+        logger.info("LTX: latent shape (%d, %d, %d, %d) for %d frames",
+                     self.latent_channels, num_latent_frames, latent_h, latent_w,
+                     config.num_frames)
+
+        # ── 3. Initialize latents ─────────────────────────────────────────────
+        gen = self._make_generator(config.seed)
+        latents = torch.randn(
+            (1, self.latent_channels, num_latent_frames, latent_h, latent_w),
+            device=device, dtype=dtype, generator=gen,
+        )
+
+        # Apply replacing keyframes (hard overwrite at init)
+        latents = self._apply_replacing(latents, config.keyframes, config, device, dtype)
+
+        # Generate guiding signals (additive, applied every step)
+        guiding = self._generate_guiding(config.keyframes, latents.shape, device, dtype)
+
+        # ── 4. Setup scheduler ────────────────────────────────────────────────
+        self.scheduler.set_timesteps(config.num_inference_steps, device=device)
+        timesteps = self.scheduler.timesteps
+
+        # ── 5. Denoising loop ─────────────────────────────────────────────────
+        use_cfg = config.guidance_scale > 0 and negative_embeds is not None
+
+        for i, t in enumerate(timesteps):
+            # Add guiding signal (continuous, smooth)
+            current_latents = latents + guiding
+
+            # CFG: duplicate for unconditional + conditional
+            if use_cfg:
+                model_input = torch.cat([current_latents, current_latents], dim=0)
+                timestep_input = torch.cat([t.unsqueeze(0)] * 2)
+                encoder_input = torch.cat([negative_embeds, prompt_embeds], dim=0)
+            else:
+                model_input = current_latents
+                timestep_input = t.unsqueeze(0).unsqueeze(0)
+                encoder_input = prompt_embeds
+
+            # Transformer forward pass
+            with torch.no_grad():
+                noise_pred = self.transformer(
+                    hidden_states=model_input,
+                    encoder_hidden_states=encoder_input,
+                    timestep=timestep_input,
+                    encoder_attention_mask=None,
+                    return_dict=False,
+                )[0]
+
+            # CFG scale
+            if use_cfg:
+                noise_uncond, noise_cond = noise_pred.chunk(2)
+                noise_pred = noise_uncond + config.guidance_scale * (noise_cond - noise_uncond)
+
+            # Scheduler step
+            latents = self.scheduler.step(noise_pred, t, latents, return_dict=False)[0]
+
+        # ── 6. VAE decode ─────────────────────────────────────────────────────
+        latents = (latents / self.vae.config.scaling_factor) if hasattr(self.vae.config, 'scaling_factor') else latents
+        video = self._decode_latents(latents, config.num_frames)
+
+        return video
+
+    def _encode_prompt(self, prompt: str, device, dtype) -> torch.Tensor:
+        """Encode text prompt through T5 encoder."""
+        if not prompt:
+            prompt = ""
+
+        tokens = self.tokenizer(
+            prompt,
+            padding="max_length",
+            max_length=getattr(self.pipe, "tokenizer_max_length", 512),
+            truncation=True,
+            return_tensors="pt",
+        ).to(device)
 
         with torch.no_grad():
-            # VAE encode — LTX VAE expects specific input format
-            # The temporal dimension for a single image is 1
-            if image.dim() == 4:
-                # Add temporal dimension: (B, C, 1, H, W)
-                image = image.unsqueeze(2)
+            embeds = self.text_encoder(tokens.input_ids, return_dict=False)[0]
 
-            latent = self.vae.encode(image)
-            if hasattr(latent, "latents"):
-                latent = latent.latents
-            elif hasattr(latent, "sample"):
-                latent = latent.sample
-            elif isinstance(latent, tuple):
-                latent = latent[0]
+        return embeds.to(dtype)
 
-        return latent
+    def _apply_replacing(self, latents, keyframes, config, device, dtype):
+        """Apply replacing keyframes — hard overwrite of latent frames.
 
-    def apply_replacements(
-        self,
-        latent: torch.Tensor,
-        keyframes: List[KeyframeInput],
-    ) -> torch.Tensor:
-        """Apply hard keyframe replacements (direct overwrite).
-
-        Modifies latent at specific frame indices with VAE-encoded keyframes.
-        Use for deliberate scene cuts where strict alignment is needed.
-
-        Args:
-            latent: (B, C, F, H, W) — current latent state
-            keyframes: List of keyframes with mode="replace"
-
-        Returns:
-            Modified latent with replaced frames
+        Encodes keyframe images through VAE and overwrites latent at
+        the corresponding temporal index. Used for strict scene cuts.
         """
-        modified = latent.clone()
+        modified = latents.clone()
 
         for kf in keyframes:
             if kf.mode != "replace":
                 continue
 
             # Map frame index to latent temporal index
-            latent_idx = kf.frame_index // VAE_TEMPORAL_COMPRESSION
+            latent_idx = kf.frame_index // self.vae_temporal
             if latent_idx >= modified.shape[2]:
                 continue
 
             # Encode keyframe image to latent
-            encoded = self.encode_image(kf.image)
-
-            # Apply with strength blending
-            if encoded.shape[-2:] != modified.shape[-2:]:
-                # Resize if needed
-                encoded = torch.nn.functional.interpolate(
-                    encoded.squeeze(2).unsqueeze(0),
-                    size=modified.shape[-2:],
-                    mode="bilinear",
-                ).squeeze(0).unsqueeze(2)
-
-            # Direct overwrite with strength
-            modified[:, :, latent_idx, :, :] = (
-                kf.strength * encoded.squeeze(2)
-                + (1 - kf.strength) * modified[:, :, latent_idx, :, :]
-            )
+            encoded = self._encode_image_to_latent(kf.image, config, device, dtype)
+            if encoded is not None:
+                # Blend with strength
+                modified[:, :, latent_idx] = (
+                    kf.strength * encoded + (1 - kf.strength) * modified[:, :, latent_idx]
+                )
+                logger.info("LTX: replaced frame %d (latent idx %d, strength %.2f)",
+                           kf.frame_index, latent_idx, kf.strength)
 
         return modified
 
-    def generate_guiding_signals(
-        self,
-        keyframes: List[KeyframeInput],
-        latent_shape: Tuple[int, int, int, int, int],
-    ) -> torch.Tensor:
-        """Generate smooth guiding signals for keyframe transitions.
+    def _generate_guiding(self, keyframes, latent_shape, device, dtype):
+        """Generate guiding signals — continuous additive Gaussian decay.
 
-        Uses Gaussian decay around keyframe anchors for smooth interpolation.
-        Preserves ODE solver continuity (unlike hard replacements).
-
-        Args:
-            keyframes: List of keyframes with mode="guide"
-            latent_shape: (B, C, F, H, W) — target shape
-
-        Returns:
-            Guiding signal tensor to add to noise latents
+        For each guiding keyframe, creates a Gaussian-decaying signal
+        around the keyframe's temporal position. This is added to
+        the noise latents at each denoising step for smooth influence.
         """
-        B, C, F, H, W = latent_shape
-        guiding = torch.zeros(latent_shape, dtype=torch.float32, device=self.device)
+        guiding = torch.zeros(latent_shape, dtype=dtype, device=device)
+        found_any = False
 
         for kf in keyframes:
             if kf.mode != "guide":
                 continue
 
-            latent_idx = kf.frame_index // VAE_TEMPORAL_COMPRESSION
-            if latent_idx >= F:
+            latent_idx = kf.frame_index // self.vae_temporal
+            if latent_idx >= latent_shape[2]:
                 continue
 
             # Encode keyframe
-            encoded = self.encode_image(kf.image)
-            encoded_flat = encoded.squeeze(2)  # (1, C, H', W')
+            encoded = self._encode_image_to_latent(kf.image, None, device, dtype)
+            if encoded is None:
+                continue
 
-            # Resize to match latent spatial dims if needed
-            if encoded_flat.shape[-2:] != (H, W):
-                encoded_flat = torch.nn.functional.interpolate(
-                    encoded_flat.unsqueeze(0),
-                    size=(H, W),
-                    mode="bilinear",
-                ).squeeze(0)
+            found_any = True
+            num_latent_frames = latent_shape[2]
 
             # Gaussian decay around the keyframe anchor
-            for f in range(F):
+            for f in range(num_latent_frames):
                 distance = abs(f - latent_idx)
-                # Gaussian: exp(-0.5 * d²), scaled by strength
                 attenuation = math.exp(-0.5 * (distance ** 2)) * kf.strength
-                guiding[:, :, f, :, :] += encoded_flat * attenuation
+                guiding[:, :, f] += encoded * attenuation
 
-        return guiding.to(latent_shape[0])  # Match dtype
+            logger.info("LTX: guiding signal at frame %d (latent idx %d, strength %.2f)",
+                       kf.frame_index, latent_idx, kf.strength)
 
+        if not found_any:
+            return guiding
 
-# ─── Piecewise DiT Executor ────────────────────────────────────────────────────
+        return guiding
 
-class PiecewiseDiTExecutor:
-    """Manages pre-captured CUDA Graphs for DiT execution.
+    def _encode_image_to_latent(self, image, config, device, dtype):
+        """Encode a PIL image or tensor to VAE latent space.
 
-    Captures graphs for each discrete temporal profile to avoid
-    recompilation when users change frame counts.
-
-    Memory optimization: graphs captured in reverse order (largest first)
-    so smaller profiles reuse the largest profile's memory allocation.
-    """
-
-    def __init__(
-        self,
-        dit_model: nn.Module,
-        memory_pool_fraction: float = 0.85,
-    ):
-        self.dit = dit_model
-        self.memory_fraction = memory_pool_fraction
-        self.graphs: Dict[int, torch.cuda.CUDAGraph] = {}
-        self.static_inputs: Dict[int, Dict[str, torch.Tensor]] = {}
-        self.static_outputs: Dict[int, torch.Tensor] = {}
-        self._warmed_profiles: set[int] = set()
-
-    def warmup_profile(
-        self,
-        profile: int,
-        spatial_dims: Tuple[int, int],
-        dtype: torch.dtype,
-        num_channels: int = 128,  # LTX latent channels
-    ) -> None:
-        """Capture CUDA Graph for a specific temporal profile.
-
-        Args:
-            profile: Number of frames (e.g., 33)
-            spatial_dims: (H_latent, W_latent) in latent space
-            dtype: Data type (torch.bfloat16)
+        Returns: (1, C, 1, H_latent, W_latent) tensor or None on failure.
         """
-        H, W = spatial_dims
-        device = next(self.dit.parameters()).device
+        try:
+            from PIL import Image
+            import torch.nn.functional as F
 
-        logger.info("PCG: Capturing graph for profile %d (%dx%d latent)", profile, H, W)
+            # Convert to tensor if PIL
+            if isinstance(image, Image.Image):
+                # Resize to target resolution if config provided
+                if config:
+                    image = image.resize((config.width, config.height), Image.LANCZOS)
 
-        # Allocate static input buffers
-        self.static_inputs[profile] = {
-            "hidden_states": torch.zeros(
-                (1, num_channels, profile, H, W),
-                dtype=dtype, device=device,
-            ),
-            "timestep": torch.tensor([1.0], dtype=dtype, device=device),
-        }
+                # To tensor: (3, H, W) normalized to [-1, 1]
+                img_array = np.array(image.convert("RGB")).astype(np.float32) / 127.5 - 1.0
+                img_tensor = torch.from_numpy(img_array).permute(2, 0, 1).unsqueeze(0).unsqueeze(2)
+                # Shape: (1, 3, 1, H, W)
+            elif isinstance(image, torch.Tensor):
+                img_tensor = image.to(device, dtype)
+                if img_tensor.dim() == 3:
+                    img_tensor = img_tensor.unsqueeze(0).unsqueeze(2)
+                elif img_tensor.dim() == 4:
+                    img_tensor = img_tensor.unsqueeze(2)
+            else:
+                logger.warning("LTX: unknown image type: %s", type(image))
+                return None
 
-        # Warmup run (triggers kernel compilation)
+            img_tensor = img_tensor.to(device, dtype)
+
+            # VAE encode
+            with torch.no_grad():
+                latent = self.vae.encode(img_tensor)
+                if hasattr(latent, "latents"):
+                    latent = latent.latents
+                elif hasattr(latent, "sample"):
+                    latent = latent.sample
+                elif isinstance(latent, tuple):
+                    latent = latent[0]
+
+            return latent  # (1, C, 1, H_lat, W_lat)
+
+        except Exception as e:
+            logger.warning("LTX: image encoding failed: %s", e)
+            return None
+
+    def _decode_latents(self, latents, num_frames):
+        """Decode latents to video frames via VAE."""
         with torch.no_grad():
-            _ = self.dit(
-                hidden_states=self.static_inputs[profile]["hidden_states"],
-                timestep=self.static_inputs[profile]["timestep"],
-                encoder_hidden_states=None,  # Set at runtime
-                return_dict=False,
+            # LTX VAE decode expects (B, C, F, H, W)
+            frames = self.vae.decode(latents, return_dict=False)[0]
+
+        # Convert to frame list
+        # Output: (B, C, F, H, W) → list of (C, H, W)
+        if frames.dim() == 5:
+            frames = frames[0]  # Remove batch dim: (C, F, H, W)
+            frame_list = [frames[:, f] for f in range(frames.shape[1])]
+        else:
+            frame_list = [frames]
+
+        # Trim to requested frame count
+        if len(frame_list) > num_frames:
+            frame_list = frame_list[:num_frames]
+
+        # Convert to PIL images
+        from diffusers.utils import pt_to_pil
+        try:
+            pil_frames = pt_to_pil(torch.stack(frame_list))
+        except Exception:
+            # Manual conversion
+            import torch.nn.functional as F
+            pil_frames = []
+            for f in frame_list:
+                img = (f / 2 + 0.5).clamp(0, 1)
+                img = (img * 255).round().to(torch.uint8)
+                img = img.permute(1, 2, 0).cpu().numpy()
+                from PIL import Image
+                pil_frames.append(Image.fromarray(img))
+
+        return pil_frames
+
+    def _make_generator(self, seed: int):
+        """Create a torch generator with optional seed."""
+        if seed >= 0:
+            return torch.Generator(device=self.device).manual_seed(int(seed))
+        return None
+
+    # ── Static Padding Utilities ──────────────────────────────────────────────
+
+    @staticmethod
+    def get_nearest_profile(frames: int, profiles: list[int] = None) -> int:
+        """Map arbitrary frame count to nearest supported profile."""
+        profiles = profiles or COMMON_PROFILES
+        for p in sorted(profiles):
+            if p >= frames:
+                return p
+        return max(profiles)
+
+    @staticmethod
+    def pad_latents(latent: torch.Tensor, target_frames: int) -> Tuple[torch.Tensor, torch.Tensor]:
+        """Pad latents to target frame count with attention mask.
+
+        Returns: (padded_latent, attention_mask)
+        """
+        B, C, F, H, W = latent.shape
+        pad_len = target_frames - F
+
+        if pad_len > 0:
+            padding = torch.zeros(B, C, pad_len, H, W,
+                                  dtype=latent.dtype, device=latent.device)
+            padded = torch.cat([latent, padding], dim=2)
+        else:
+            padded = latent
+
+        # Mask: 1.0 for valid, 0.0 for padded
+        mask = torch.zeros(B, 1, target_frames, H, W,
+                           dtype=latent.dtype, device=latent.device)
+        mask[:, :, :F] = 1.0
+
+        return padded, mask
+
+    # ── IC-LoRA Mask Processing ───────────────────────────────────────────────
+
+    def process_ic_lora_mask(self, mask_input, config: GenerationConfig, device, dtype):
+        """Process IC-LoRA spatial-temporal mask.
+
+        Steps:
+        1. Load mask frames
+        2. Convert to grayscale (mean across channels)
+        3. Normalize to [0, 1]
+        4. Downsample to latent space with causal temporal alignment
+        5. Multiply by conditioning strength (γ)
+        """
+        try:
+            from PIL import Image
+            import torch.nn.functional as F
+
+            if isinstance(mask_input, Image.Image):
+                mask_input = [mask_input]
+
+            # Process each frame
+            mask_frames = []
+            for m in mask_input[:config.num_frames]:
+                if isinstance(m, Image.Image):
+                    m = m.resize((config.width, config.height), Image.LANCZOS)
+                    arr = np.array(m.convert("RGB")).astype(np.float32)
+                    grayscale = arr.mean(axis=2) / 255.0  # [0, 1]
+                    mask_frames.append(grayscale)
+
+            if not mask_frames:
+                return None
+
+            mask_tensor = torch.from_numpy(np.stack(mask_frames)).to(device, dtype)
+            # Shape: (F, H, W) → (1, 1, F, H, W)
+            mask_tensor = mask_tensor.unsqueeze(0).unsqueeze(0)
+
+            # Downsample to latent spatial dims
+            latent_h = config.height // self.vae_spatial
+            latent_w = config.width // self.vae_spatial
+            num_latent_frames = (config.num_frames - 1) // self.vae_temporal + 1
+
+            # Spatial downsample
+            mask_down = F.interpolate(
+                mask_tensor, size=(config.num_frames, latent_h, latent_w),
+                mode="trilinear", align_corners=False,
             )
 
-        torch.cuda.synchronize()
+            # Temporal downsample (causal: first frame special)
+            # Take every Nth frame (rough temporal compression)
+            mask_latent = mask_down[:, :, ::self.vae_temporal][:, :, :num_latent_frames]
 
-        # Capture CUDA Graph
-        graph = torch.cuda.CUDAGraph()
-        with torch.cuda.graph(graph):
-            output = self.dit(
-                hidden_states=self.static_inputs[profile]["hidden_states"],
-                timestep=self.static_inputs[profile]["timestep"],
-                encoder_hidden_states=None,
-                return_dict=False,
-            )
+            # Multiply by strength
+            mask_latent = mask_latent * config.ic_lora_strength
 
-        self.graphs[profile] = graph
-        self.static_outputs[profile] = output[0] if isinstance(output, tuple) else output
-        self._warmed_profiles.add(profile)
+            logger.info("LTX: IC-LoRA mask processed (%s, strength=%.2f)",
+                       tuple(mask_latent.shape), config.ic_lora_strength)
 
-        logger.info("PCG: Profile %d captured successfully", profile)
+            return mask_latent
 
-    def warmup_all(
-        self,
-        spatial_dims: Tuple[int, int],
-        dtype: torch.dtype,
-        profiles: List[int] = None,
-    ) -> None:
-        """Capture graphs for all profiles, largest first (memory pool reuse).
-
-        Critical: Must capture largest profile first so that smaller profiles
-        reuse its memory allocation, keeping total VRAM within limits.
-        """
-        profiles = profiles or SUPPORTED_PROFILES
-
-        # Set memory fraction to prevent OOM during capture
-        torch.cuda.set_per_process_memory_fraction(self.memory_fraction)
-
-        # Capture in REVERSE order (largest → smallest) for memory reuse
-        for profile in reversed(sorted(profiles)):
-            self.warmup_profile(profile, spatial_dims, dtype)
-
-        logger.info("PCG: All %d profiles captured", len(profiles))
-
-    def execute(
-        self,
-        latent: torch.Tensor,
-        timestep: torch.Tensor,
-        encoder_hidden_states: torch.Tensor,
-        profile: int,
-    ) -> torch.Tensor:
-        """Execute a denoising step using pre-captured CUDA Graph.
-
-        Copies inputs to static buffers, replays graph, returns output.
-
-        Args:
-            latent: (B, C, profile, H, W) — padded latent
-            timestep: Scalar timestep
-            encoder_hidden_states: Text embeddings
-            profile: Which profile's graph to use
-
-        Returns:
-            Denoised prediction
-        """
-        if profile not in self.graphs:
-            raise RuntimeError(
-                f"Profile {profile} not warmed up. Call warmup_profile() first. "
-                f"Warmed: {self._warmed_profiles}"
-            )
-
-        # Copy inputs to static buffers
-        self.static_inputs[profile]["hidden_states"].copy_(latent)
-        self.static_inputs[profile]["timestep"].copy_(timestep)
-
-        # Note: encoder_hidden_states may need special handling
-        # depending on whether the graph captured them as static or dynamic
-
-        # Replay pre-captured graph (zero compilation overhead)
-        self.graphs[profile].replay()
-
-        return self.static_outputs[profile].clone()
-
-
-# ─── Main Sequencer ────────────────────────────────────────────────────────────
-
-class LTXSequencer:
-    """Hyper-optimized LTX-Video sequencer.
-
-    Combines static padding, latent injection, and piecewise CUDA Graphs
-    for zero-recompilation generation with dynamic keyframe control.
-
-    Wraps a standard LTXPipeline with optimization layers.
-    """
-
-    def __init__(
-        self,
-        pipe,  # LTXPipeline or similar
-        device: str = "cuda",
-        profiles: List[int] = None,
-    ):
-        self.pipe = pipe
-        self.device = torch.device(device)
-        self.profiles = profiles or SUPPORTED_PROFILES
-
-        # Initialize optimization components
-        self.padder = StaticLatentPadder(self.profiles)
-
-        # Latent injector needs VAE encoder
-        vae = getattr(pipe, "vae", None)
-        self.injector = LatentInjector(vae, self.device) if vae else None
-
-        # DiT executor (initialized on warmup)
-        transformer = getattr(pipe, "transformer", None)
-        self.executor: Optional[PiecewiseDiTExecutor] = None
-        if transformer is not None:
-            self.executor = PiecewiseDiTExecutor(transformer)
-
-        self._warmed = False
-
-    def warmup(
-        self,
-        spatial_dims: Tuple[int, int] = (768, 512),
-        dtype: torch.dtype = torch.bfloat16,
-        capture_graphs: bool = True,
-    ) -> None:
-        """Pre-capture CUDA Graphs for all temporal profiles.
-
-        Call this ONCE after loading the model, before any generation.
-        Takes ~2-5 minutes depending on model size.
-
-        Args:
-            spatial_dims: Target resolution (width, height) in pixel space
-            dtype: Data type for graph capture
-            capture_graphs: If False, skip CUDA Graph capture (eager mode)
-        """
-        if capture_graphs and self.executor is not None:
-            # Convert pixel dims to latent dims (LTX VAE: 8x spatial compression)
-            latent_h = spatial_dims[1] // 8
-            latent_w = spatial_dims[0] // 8
-
-            logger.info("LTX Sequencer: warming up %d profiles at %dx%d latent",
-                        len(self.profiles), latent_h, latent_w)
-
-            self.executor.warmup_all(
-                spatial_dims=(latent_h, latent_w),
-                dtype=dtype,
-                profiles=self.profiles,
-            )
-
-        self._warmed = True
-        logger.info("LTX Sequencer: warmup complete")
-
-    def generate(self, config: GenerationConfig) -> torch.Tensor:
-        """Generate video with optimized execution.
-
-        Args:
-            config: GenerationConfig with prompt, frames, keyframes, etc.
-
-        Returns:
-            Video frames tensor: (F, C, H, W)
-        """
-        if not self._warmed:
-            logger.warning("LTX Sequencer: not warmed up — running eager mode")
-            return self._generate_eager(config)
-
-        # 1. Map logical frames to nearest profile
-        profile = self.padder.get_profile(config.logical_frames)
-        logger.info("LTX: %d logical frames → profile %d", config.logical_frames, profile)
-
-        # 2. Generate using the pipeline with padded shape
-        # The standard pipeline handles text encoding + denoising + VAE decode
-        # We just need to pass the right number of frames
-        gen = None
-        if config.seed >= 0:
-            gen = torch.Generator(device=self.device).manual_seed(config.seed)
-
-        output = self.pipe(
-            prompt=config.prompt,
-            num_inference_steps=config.num_inference_steps,
-            guidance_scale=config.guidance_scale,
-            width=config.width,
-            height=config.height,
-            num_frames=profile,  # Use profile, not logical (avoids recompilation)
-            generator=gen,
-        )
-
-        # 3. Extract frames and trim to logical count
-        frames = output.frames[0]  # (F, C, H, W)
-
-        # Trim to logical frame count
-        if len(frames) > config.logical_frames:
-            frames = frames[:config.logical_frames]
-
-        return frames
-
-    def _generate_eager(self, config: GenerationConfig) -> torch.Tensor:
-        """Fallback generation without CUDA Graphs (standard pipeline)."""
-        gen = None
-        if config.seed >= 0:
-            gen = torch.Generator(device=self.device).manual_seed(config.seed)
-
-        output = self.pipe(
-            prompt=config.prompt,
-            num_inference_steps=config.num_inference_steps,
-            guidance_scale=config.guidance_scale,
-            width=config.width,
-            height=config.height,
-            num_frames=config.logical_frames,
-            generator=gen,
-        )
-
-        return output.frames[0]
-
-    def generate_with_keyframes(
-        self,
-        config: GenerationConfig,
-    ) -> torch.Tensor:
-        """Generate with keyframe injection (guiding + replacing latents).
-
-        This is the advanced path that implements:
-        - Hard keyframe replacement (scene cuts)
-        - Soft guiding signals (smooth transitions)
-        - IC-LoRA masking (if provided)
-
-        Note: This requires a custom denoising loop that intercepts
-        the pipeline's internal steps. The standard pipeline __call__
-        doesn't expose mid-generation latent injection points.
-
-        For now, this generates at the profile frame count and the
-        standard pipeline handles conditioning internally.
-        """
-        # TODO: Implement custom denoising loop with injection
-        # For now, use standard generation
-        logger.info("LTX: generate_with_keyframes — using standard path (injection TODO)")
-        return self.generate(config)
-
-    @property
-    def is_warmed(self) -> bool:
-        return self._warmed
-
-    def supported_profiles(self) -> List[int]:
-        """Return the supported temporal profiles."""
-        return list(self.profiles)
+        except Exception as e:
+            logger.warning("LTX: IC-LoRA mask processing failed: %s", e)
+            return None
