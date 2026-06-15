@@ -2,7 +2,7 @@
 
 When running inside Forge (set_forge_core called), get_service() returns
 a ForgeProxy that routes load/infer through the Forge's VRAM ledger.
-Otherwise returns a bare NativeService (for standalone testing).
+Otherwise returns a bare NativeService (SGLang HTTP client) for standalone testing.
 
 All models are now served through the native diffusers service.
 No Wan2GP, no mmGP.

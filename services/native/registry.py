@@ -1,7 +1,8 @@
-"""Model registry — all models served through native diffusers.
+"""Model registry — all models served through SGLang.
 
-Each entry maps a model name to its diffusers pipeline class, HuggingFace
-repo, and generation defaults. No Wan2GP handlers, no translation layer.
+Each entry maps a model name to its HuggingFace repo and generation
+defaults. SGLang auto-detects pipeline from model_index.json.
+No diffusers, no Wan2GP handlers.
 """
 from dataclasses import dataclass, field
 from typing import Optional
@@ -11,7 +12,7 @@ from typing import Optional
 class ModelEntry:
     """Configuration for a single model."""
     name: str
-    pipeline: str           # diffusers class name (e.g. "ZImagePipeline")
+    pipeline: str           # Pipeline class name (metadata only — SGLang auto-detects)
     repo: str               # HF repo or local path
     task: str = "text2image" # text2image | text2video | image2video | edit
     steps: int = 20

@@ -1,74 +1,55 @@
-# Dockerfile.native — Unified native serving container
-# Single image for ALL models: Z-Image, FLUX, Anima, Wan, LTX, TRELLIS
-# Based on SGLang's CUDA kernel stack — NO mmGP, NO Wan2GP
+# Dockerfile.native — Unified serving container
+# SGLang serving engine + ltx-pipelines for LTX
+# NO diffusers. NO mmGP. NO Wan2GP.
 #
 # Build:
-#   podman build -f infra/docker/Dockerfile.native -t tech-noir/native:latest .
+#   docker build -f infra/docker/Dockerfile.native -t forge-reg.local:30500/tech-noir/native:latest .
 
 FROM nvidia/cuda:12.8.0-cudnn-devel-ubuntu22.04
 
-LABEL description="Unified native model serving — SGLang kernels + diffusers + transformers 4"
+LABEL description="SGLang serving + ltx-pipelines — NO diffusers, NO mmGP"
 
-# ── System deps ────────────────────────────────────────────────────────────────
 ENV DEBIAN_FRONTEND=noninteractive
 ENV TZ=UTC
+
+# ── System ─────────────────────────────────────────────────────────────────────
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    python3.10 python3-pip python3.10-dev python3.10-venv \
+    python3.10 python3-pip python3.10-dev \
     git build-essential ninja-build cmake \
     ffmpeg libsndfile1 \
     && rm -rf /var/lib/apt/lists/*
 
-# ── Python environment ─────────────────────────────────────────────────────────
 RUN python3.10 -m pip install --upgrade pip uv
 ENV UV_SYSTEM_PYTHON=1 UV_BREAK_SYSTEM_PACKAGES=1
 
-# ── PyTorch (CUDA 12.8) ────────────────────────────────────────────────────────
+# ── PyTorch ────────────────────────────────────────────────────────────────────
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv pip install torch==2.10.0 torchvision torchaudio \
+    uv pip install torch torchvision torchaudio \
     --index-url https://download.pytorch.org/whl/cu128
 
-# ── SGLang kernels (sgl-kernel, flashinfer, cache-dit) ─────────────────────────
-# These provide SageAttention, FlashAttention, optimized CUDA kernels
+# ── SGLang (FULL install — pulls sgl-kernel, flashinfer, cache-dit, SageAttention) ──
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv pip install sglang-kernel flashinfer-python cache-dit
+    uv pip install "sglang[diffusion]"
 
-# ── SageAttention + FlashAttention ─────────────────────────────────────────────
+# ── Pin transformers back to 4.x AFTER sglang install ──────────────────────────
+# SGLang may pull transformers 5.x; we pin back to 4.x for stability
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv pip install sageattention flash-attn --no-build-isolation || \
-    echo "Attention kernels: using SGLang bundled versions"
+    uv pip install "transformers>=4.54.0,<5.0.0"
 
-# ── HuggingFace stack — PIN transformers to 4.x (NOT 5.x) ─────────────────────
+# ── ltx-pipelines (Lightricks native — NOT diffusers) ──────────────────────────
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv pip install ltx-pipelines ltx-core || \
+    echo "ltx-pipelines: installing from GitHub" && \
+    uv pip install "git+https://github.com/Lightricks/ltx-pipelines.git" || \
+    echo "ltx-pipelines: will install at runtime"
+
+# ── Supporting libraries (NO diffusers) ────────────────────────────────────────
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv pip install \
-    "transformers>=4.54.0,<5.0.0" \
-    "diffusers>=0.37.0" \
-    "accelerate>=1.10.0" \
-    "peft>=0.15.0" \
-    "safetensors" \
-    "huggingface_hub" \
-    "sentencepiece" \
-    "tokenizers"
-
-# ── Torchao (quantization + compile synergy) ───────────────────────────────────
-RUN --mount=type=cache,target=/root/.cache/uv \
-    uv pip install torchao
-
-# ── GGUF support ───────────────────────────────────────────────────────────────
-RUN --mount=type=cache,target=/root/.cache/uv \
-    uv pip install gguf optimum-quanto || echo "GGUF/quanto: optional"
-
-# ── Serving infrastructure ────────────────────────────────────────────────────
-RUN --mount=type=cache,target=/root/.cache/uv \
-    uv pip install "ray[serve]>=2.43.0" httpx pyyaml pillow
-
-# ── Audio/TTS support (for TTS models on same image) ──────────────────────────
-RUN --mount=type=cache,target=/root/.cache/uv \
-    uv pip install soundfile scipy phonemizer faster-whisper || \
-    echo "Audio deps: optional"
-
-# ── 3D support (TRELLIS) ──────────────────────────────────────────────────────
-RUN --mount=type=cache,target=/root/.cache/uv \
-    uv pip install trimesh pygltflib plyfile || echo "3D deps: optional"
+    peft accelerate safetensors \
+    huggingface_hub sentencepiece tokenizers \
+    gguf torchao \
+    "ray[serve]>=2.43.0" httpx pyyaml pillow
 
 # ── Environment ───────────────────────────────────────────────────────────────
 ENV SAFETENSORS_DISABLE_MMAP=1
@@ -76,13 +57,11 @@ ENV PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 ENV HF_HOME=/models/hf_cache
 ENV HF_HUB_CACHE=/models/hf_cache/hub
 ENV PYTHONPATH=/app
+ENV LD_LIBRARY_PATH="/usr/local/lib/python3.10/dist-packages/nvidia/cu13/lib:/usr/local/lib/python3.10/dist-packages/nvidia/cuda_nvrtc/lib:${LD_LIBRARY_PATH}"
 
-# ── Application code ──────────────────────────────────────────────────────────
 WORKDIR /app
 COPY services/ /app/services/
 COPY config/ /app/config/
 COPY gateway/ /app/gateway/
 
-# ── Entrypoint ────────────────────────────────────────────────────────────────
-# Ray Serve worker — loads models on demand via native service
 CMD ["python3", "-m", "ray", "start", "--address=${RAY_ADDRESS}", "--block", "--num-gpus=1"]
