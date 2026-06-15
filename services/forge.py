@@ -624,34 +624,46 @@ class Forge:
         becomes an orphan. Kill any remaining subprocesses to free GPU memory
         and ports.
         """
-        import subprocess
-        # List of process patterns to reap — one entry per forge subprocess
-        _ZOMBIE_PATTERNS = [
-            "llama-server",
-            "[p]ython3.*main.py",  # ComfyUI
-            "[p]ython3.*llama_cpp",  # LLM fallback
-            "[p]ython3.*forge_kohya",  # Kohya training
-        ]
-        for pattern in _ZOMBIE_PATTERNS:
+        import os, signal
+        # Kill known C++ zombie binaries by process name (safe — no -f flag).
+        for name in ["llama-server"]:
             try:
-                subprocess.run(["pkill", "-9", "-f", pattern],
+                subprocess.run(["pkill", "-9", name],
                                capture_output=True, timeout=5)
             except Exception:
                 pass
-        time.sleep(2)
-        # Log any remaining zombies
-        for pattern in _ZOMBIE_PATTERNS:
+        # Kill Python zombie subprocesses by reading /proc/cmdline directly.
+        # This avoids pkill -f matching command-line arguments inside the
+        # raylet (e.g. --runtime_env_agent_command=/usr/bin/python3 ... main.py)
+        # which would SIGKILL the raylet and crash the entire worker node.
+        _PY_PATTERNS = ["main.py", "llama_cpp", "forge_kohya"]
+        # Skip Ray internal processes (their cmdline contains " main.py" in
+        # agent/main.py, dashboard scripts, etc. — not forge zombies).
+        _SKIP_PATHS = ["/_private/", "/ray/dashboard/", "/ray/autoscaler/"]
+        for proc_dir in os.listdir("/proc"):
+            if not proc_dir.isdigit():
+                continue
+            pid = int(proc_dir)
+            if pid == os.getpid():
+                continue
             try:
-                result = subprocess.run(
-                    ["pgrep", "-f", pattern],
-                    capture_output=True, text=True, timeout=5
-                )
-                if result.returncode == 0:
-                    remaining = result.stdout.strip().split("\n")
-                    logger.warning("Forge: %d zombie processes still running (pattern=%s)",
-                                   len(remaining), pattern)
-            except Exception:
+                with open(f"/proc/{pid}/comm") as f:
+                    comm = f.read().strip()
+                if not comm.startswith("python"):
+                    continue
+                with open(f"/proc/{pid}/cmdline", "rb") as f:
+                    cmdline = f.read().decode("utf-8", errors="replace").replace(
+                        "\0", " "
+                    )
+                if any(p in cmdline for p in _SKIP_PATHS):
+                    continue
+                for pat in _PY_PATTERNS:
+                    if pat in cmdline:
+                        os.kill(pid, signal.SIGKILL)
+                        break
+            except (IOError, OSError, ValueError):
                 pass
+        time.sleep(2)
 
     async def invoke(self, service: str, payload: dict,
                      model: str | None = None, quant: str | None = None) -> dict:

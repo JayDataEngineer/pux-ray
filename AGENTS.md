@@ -131,6 +131,12 @@ await forge.release.remote()
 
 Ray's `@serve.deployment` has a serialization check that fails for some classes when imported from module context (`GenericModule` / `_Ops` errors). The workaround is to define wrapper subclasses in the module where the `@serve.deployment` decorator is applied. `serve_config.py` uses this pattern for `moss_soundeffect` and `anigen`.
 
+### ComfyUI HostPath Mount
+
+The `native:latest` Docker image doesn't include ComfyUI runtime (`main.py`, `nodes/`, `web/`, `custom_nodes/`). ComfyUI lives on the host at `/opt/ComfyUI` and is mounted into the worker container via a `hostPath` volume (`infra/flux/ai-services/ray-service.yaml`). Models are still managed by the `model-sync` init container.
+
+ComfyUI pip dependencies not in `Dockerfile.native` (sqlalchemy, aiosqlite, opencv-python-headless, matplotlib, sageattention) were added to the supporting libraries layer alongside `torchaudio==2.10.0+cu128` pinned to match the CUDA 12.8 runtime.
+
 ### Docker Images (KubeRay)
 
 Images are pushed to the Forge Registry and referenced as `forge-reg/tech-noir/<name>:latest`. Build:

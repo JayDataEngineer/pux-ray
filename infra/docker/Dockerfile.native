@@ -53,7 +53,8 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     peft accelerate safetensors \
     huggingface_hub sentencepiece tokenizers \
     gguf torchao \
-    "ray[serve]>=2.43.0" httpx pyyaml pillow
+    "ray[serve]>=2.43.0" httpx pyyaml pillow \
+    aiosqlite sqlalchemy opencv-python-headless matplotlib sageattention
 
 # ── Environment ───────────────────────────────────────────────────────────────
 ENV SAFETENSORS_DISABLE_MMAP=1

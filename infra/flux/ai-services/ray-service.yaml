@@ -287,6 +287,8 @@ spec:
                     mountPath: /opt/lance
                   - name: lance-quant
                     mountPath: /opt/lance-quant
+                  - name: comfyui-runtime
+                    mountPath: /opt/ComfyUI
             volumes:
               - name: config
                 configMap:
@@ -305,4 +307,8 @@ spec:
               - name: lance-quant
                 hostPath:
                   path: /opt/lance-quant
+                  type: Directory
+              - name: comfyui-runtime
+                hostPath:
+                  path: /opt/ComfyUI
                   type: Directory
