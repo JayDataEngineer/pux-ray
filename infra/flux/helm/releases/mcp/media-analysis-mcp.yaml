@@ -14,8 +14,8 @@ spec:
         namespace: flux-system
   values:
     image:
-      repository: forge-reg.local:30500/tech-noir/mcp-media-analysis
-      tag: latest
+      repository: forge-registry.infra.svc.cluster.local:5000/tech-noir/mcp-media-analysis
+      tag: v9
     persistence:
       existingClaim: media-models
     env:
