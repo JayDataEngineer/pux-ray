@@ -24,7 +24,10 @@ class MossForgeService(ForgeService):
     service_name = "moss"
     default_model = "moss-soundeffect"
     persistence = Persistence.TRANSIENT
-    vram_mb = 0  # Self-managed in separate container
+    # Claim full GPU — MOSS runs in a separate container with exclusive GPU access.
+    # This makes the forge's eviction ledger accurate: when MOSS is loaded,
+    # no other service can coexist. Eviction is all-or-nothing.
+    vram_mb = 24576  # Full RTX 4090 VRAM
 
     def __init__(self):
         super().__init__()
@@ -43,13 +46,18 @@ class MossForgeService(ForgeService):
             self._loaded = True  # Allow requests — server might start later
 
     def unload(self) -> None:
-        """Tell MOSS server to release VRAM."""
+        """Tell MOSS server to release VRAM and free the GPU."""
         try:
             with httpx.Client(timeout=30) as client:
                 client.post(f"{MOSS_URL}/release")
+            logger.info("MOSS: model released, GPU freed")
         except Exception:
             pass
         self._loaded = False
+
+    def actual_vram_mb(self) -> int:
+        """Report full GPU allocation when loaded."""
+        return self.vram_mb if self._loaded else 0
 
     def infer(self, payload: dict) -> dict:
         """Generate audio via MOSS HTTP API."""
