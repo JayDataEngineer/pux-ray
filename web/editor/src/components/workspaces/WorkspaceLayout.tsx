@@ -615,6 +615,34 @@ function KimodoDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (o:
   const loadingRef = useRef(false)
   const loadedRef = useRef(false)
 
+  const addAsset = useAssetStore((s) => s.addAsset)
+  const toast = useToastStore((s) => s.addToast)
+
+  // Bridge: _run_kimodo.py patches Kimodo's JS download injections to also
+  // fire window.parent.postMessage({ type: 'kimodo-asset', ... }). We listen
+  // here (same-origin iframe) and save each payload directly to the asset store.
+  useEffect(() => {
+    const handler = (e: MessageEvent) => {
+      if (!e.data || e.data.type !== 'kimodo-asset') return
+      const { filename, mime, b64 } = e.data as { filename: string; mime: string; b64: string }
+      if (!filename || !mime || !b64) return
+      const isVideo = mime.startsWith('video/')
+      const isImage = mime.startsWith('image/')
+      addAsset({
+        name: filename,
+        type: isVideo ? 'video' : isImage ? 'image' : 'other',
+        category: isVideo ? 'video' : isImage ? 'image' : 'other',
+        mediaType: mime,
+        url: `data:${mime};base64,${b64}`,
+        sizeBytes: Math.round(b64.length * 0.75),
+        source: 'generated',
+      })
+      toast('success', `Saved "${filename}" to assets`)
+    }
+    window.addEventListener('message', handler)
+    return () => window.removeEventListener('message', handler)
+  }, [addAsset, toast])
+
   // Trigger preload when dialog opens — uses refs so the effect doesn't
   // re-run on state updates from the fetch itself.
   useEffect(() => {
