@@ -1,13 +1,9 @@
 # Dockerfile.moss — Standalone MOSS audio service
 # Separate container for TTS + Sound Effects
 # No Wan2GP, no diffusers, no image/video models
-#
-# Build:
-#   docker build -f infra/docker/Dockerfile.moss -t forge-reg.local:30500/tech-noir/moss:latest .
-
 FROM nvidia/cuda:12.8.0-cudnn-runtime-ubuntu22.04
 
-LABEL description="MOSS audio service — TTS + Sound Effects via standalone pipeline"
+LABEL description="MOSS audio service — TTS + Sound Effects"
 
 ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -23,27 +19,24 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     uv pip install torch torchvision torchaudio \
     --index-url https://download.pytorch.org/whl/cu128
 
-# Dependencies for MOSS pipeline
+# MOSS dependencies
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv pip install \
     "transformers>=4.54.0,<5.0.0" \
-    huggingface_hub \
-    safetensors sentencepiece tokenizers \
-    accelerate tqdm pyyaml soundfile scipy \
-    einops
+    huggingface_hub safetensors sentencepiece tokenizers \
+    accelerate tqdm pyyaml soundfile scipy einops \
+    ftfy descript-audiotools
 
-# Copy MOSS pipeline code (vendored from OpenMOSS-Team)
-COPY opt/wan2gp/moss_soundeffect_v2/ /opt/moss/
+# Copy MOSS pipeline code
+COPY opt/wan2gp/moss_soundeffect_v2/ /opt/wan2gp/moss_soundeffect_v2/
 
-# Copy our server
+# Copy server
 COPY services/audio/moss_server.py /app/moss_server.py
 
-ENV MOSS_CODE_PATH=/opt/moss
-ENV MOSS_MODEL_PATH=/models/audio/moss-soundeffect
+ENV MOSS_CODE_PARENT=/opt/wan2gp
 ENV MOSS_PORT=8081
 ENV SAFETENSORS_DISABLE_MMAP=1
 ENV PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 
 EXPOSE 8081
-
 CMD ["python3", "/app/moss_server.py"]
