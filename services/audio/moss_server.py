@@ -29,10 +29,26 @@ if os.path.exists(MOSS_CODE_PARENT):
 PORT = int(os.environ.get("MOSS_PORT", "8081"))
 
 # Model registry: name → (path, pipeline_class)
+# All models use MossSoundEffectPipeline unless noted.
+# Paths match config/model_registry.yaml — sync when adding models.
 MOSS_MODELS = {
-    "moss-soundeffect-v2": ("/models/audio/moss-soundeffect-v2", "MossSoundEffectPipeline"),
-    "moss-soundeffect": ("/models/audio/moss-soundeffect", "MossSoundEffectPipeline"),
-    "moss-tts": ("/models/audio/moss-tts", "MossSoundEffectPipeline"),
+    # v2 — self-contained 1.3B DiT + Qwen3-1.7B + DAC (tested, works)
+    "moss-soundeffect-v2": ("/models/audio/moss-soundeffect-v2/", "MossSoundEffectPipeline"),
+
+    # v1 — 8B DiT + Qwen3.6 + DAC. Requires moss-audio-tokenizer.
+    "moss-soundeffect": ("/models/audio/moss-soundeffect/bf16/", "MossSoundEffectPipeline"),
+    "moss-tts": ("/models/audio/moss-tts/", "MossSoundEffectPipeline"),
+    "moss-ttsd": ("/models/audio/moss-ttsd/", "MossSoundEffectPipeline"),
+
+    # Voice generator — 7GB, same pipeline family
+    "moss-voicegenerator": ("/models/audio/moss-voicegenerator/", "MossSoundEffectPipeline"),
+
+    # Nano — GPT2-based, DIFFERENT pipeline (will fail with MossSoundEffectPipeline)
+    "moss-tts-nano": ("/models/audio/moss-tts-nano/", "MossSoundEffectPipeline"),
+
+    # Realtime and local-transformer — may use different pipelines
+    "moss-tts-realtime": ("/models/audio/moss-tts-realtime/", "MossSoundEffectPipeline"),
+    "moss-tts-local-transformer": ("/models/audio/moss-tts-local-transformer/", "MossSoundEffectPipeline"),
 }
 
 _pipeline = None
@@ -54,7 +70,11 @@ def load_model(model_name: str):
     if model_path is None:
         raise ValueError(f"Unknown model '{model_name}'. Available: {list(MOSS_MODELS.keys())}")
     if not os.path.exists(model_path):
-        raise FileNotFoundError(f"Model not found at {model_path}")
+        raise FileNotFoundError(
+            f"Model '{model_name}' not found at {model_path}.\n"
+            f"  Download with: python3 scripts/download_moss_models.py --only {model_name.split('-')[-1]}\n"
+            f"  Or: snapshot_download('OpenMOSS-Team/MOSS-SoundEffect-v2.0', local_dir='{model_path}')"
+        )
 
     logger.info("MOSS: loading '%s' from %s", model_name, model_path)
 
