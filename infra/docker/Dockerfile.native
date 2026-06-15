@@ -1,13 +1,16 @@
 # Dockerfile.native — Unified serving container
-# SGLang serving engine + ltx-pipelines for LTX
-# NO diffusers. NO mmGP. NO Wan2GP.
+# Base: SGLang (CUDA kernels, SageAttention, FlashAttention)
+# Loading: transformers 4
+# VRAM: custom hooks (BlockStreamHook)
+# LTX: ltx-pipelines
+# NO diffusers. NO mmGP. NO Wan2GP. NO SGLang serve.
 #
 # Build:
 #   docker build -f infra/docker/Dockerfile.native -t forge-reg.local:30500/tech-noir/native:latest .
 
 FROM nvidia/cuda:12.8.0-cudnn-devel-ubuntu22.04
 
-LABEL description="SGLang serving + ltx-pipelines — NO diffusers, NO mmGP"
+LABEL description="transformers 4 + custom VRAM + ltx-pipelines — NO diffusers"
 
 ENV DEBIAN_FRONTEND=noninteractive
 ENV TZ=UTC
@@ -31,10 +34,11 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv pip install "sglang[diffusion]"
 
-# ── Pin transformers back to 4.x AFTER sglang install ──────────────────────────
-# SGLang may pull transformers 5.x; we pin back to 4.x for stability
+# ── Pin transformers to 4.x and PURGE diffusers ───────────────────────────────
+# SGLang/cache-dit pull in transformers 5.x and diffusers — we don't want either
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv pip install "transformers>=4.54.0,<5.0.0"
+    uv pip install "transformers>=4.54.0,<5.0.0" && \
+    uv pip uninstall diffusers -y || true
 
 # ── ltx-pipelines (Lightricks native — NOT diffusers) ──────────────────────────
 RUN --mount=type=cache,target=/root/.cache/uv \
