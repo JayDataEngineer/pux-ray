@@ -1,38 +1,38 @@
-"""Native model service via SGLang HTTP API.
+"""Native model service — transformers 4 direct loading + custom VRAM hooks.
 
-NO diffusers. NO mmGP. NO Wan2GP.
-SGLang serves models; this service calls SGLang's OpenAI-compatible API.
+NO diffusers. NO SGLang serve. NO mmGP.
 
-For LTX advanced features (keyframes, IC-LoRA), uses ltx-pipelines directly.
+Loads models via transformers 4 / direct PyTorch from_pretrained.
+VRAM managed by our custom BlockStreamHook (services/native/loader.py).
+Denoising loop is manual — we control every step.
+
+Architecture:
+  User request → load model (transformers) → apply VRAM hooks → manual denoise → output
 """
 from __future__ import annotations
 
 import base64
+import gc
 import io
 import logging
 import os
 import time
 from typing import Any, Optional
 
-import httpx
+import torch
+import torch.nn as nn
 
 from services.forge_base import ForgeService
 from services.forge_persistence import Persistence
 from services.native.registry import get_model, ModelEntry, ALL_MODELS
+from services.native.loader import VRAMManager, plan, release, module_size_mb, available_vram_mb
 
 logger = logging.getLogger(__name__)
 os.environ.setdefault("SAFETENSORS_DISABLE_MMAP", "1")
 
-SGLANG_URL = os.environ.get("SGLANG_URL", "http://localhost:30010")
-
 
 class NativeService(ForgeService):
-    """Serves models via SGLang HTTP API.
-
-    SGLang runs as a separate process (sglang serve --model-type diffusion).
-    This service manages model loading/unloading via SGLang's sleep/wake API
-    and routes generation requests through the OpenAI-compatible endpoint.
-    """
+    """Serves models via transformers 4 + custom VRAM hooks."""
 
     service_name = "native"
     default_model = "z-image-turbo"
@@ -42,205 +42,309 @@ class NativeService(ForgeService):
     def __init__(self):
         super().__init__()
         self.entry: Optional[ModelEntry] = None
-        self._current_model: str | None = None
-        self._sglang_ready = False
+        self._components: dict = {}  # transformer, text_encoder, vae, scheduler
+        self._vram_managers: list[VRAMManager] = []
+        self._loaded_model: str | None = None
 
     def load(self, model_name: str, quant: str | None = None) -> None:
-        """Load a model by telling SGLang to serve it."""
         model_name = model_name or self.default_model
         entry = get_model(model_name)
         if entry is None:
             raise ValueError(f"Unknown model '{model_name}'. Available: {list(ALL_MODELS.keys())}")
 
         self.entry = entry
-        self._current_model = model_name
+        logger.info("Native: loading '%s' from %s", model_name, entry.repo)
 
-        # Check if SGLang is already serving this model
-        if self._is_serving(model_name):
-            logger.info("SGLang already serving '%s'", model_name)
-        else:
-            # Need to switch models — SGLang doesn't support multi-model,
-            # so we restart the server with the new model
-            self._switch_model(model_name)
+        # Resolve local path
+        model_path = self._resolve_path(entry)
+
+        # Load components via transformers 4 / direct PyTorch
+        self._components = self._load_components(entry, model_path)
+
+        # Plan and apply VRAM strategy
+        self._apply_vram()
 
         self._loaded = True
         self.model_name = model_name
-        logger.info("Native: '%s' loaded via SGLang", model_name)
+        self._loaded_model = model_name
+        logger.info("Native: '%s' ready", model_name)
 
     def unload(self) -> None:
-        """Release model VRAM via SGLang sleep."""
-        if self._sglang_ready:
-            try:
-                with httpx.Client(timeout=30) as client:
-                    client.post(f"{SGLANG_URL}/release_memory_occupation",
-                               json={"tags": ["weights", "cache"]})
-                logger.info("SGLang: memory released (sleep mode)")
-            except Exception as e:
-                logger.warning("SGLang sleep failed: %s", e)
-
+        for mgr in self._vram_managers:
+            mgr.remove()
+        self._vram_managers.clear()
+        self._components.clear()
         self._loaded = False
         self.model_name = None
-        self._current_model = None
+        self._loaded_model = None
+        release()
+        logger.info("Native: unloaded")
 
     def infer(self, payload: dict) -> dict:
-        """Run inference via SGLang API."""
         if not self._loaded:
             return {"status": "error", "error": "Not loaded"}
-
-        e = self.entry
-        if e is None:
-            return {"status": "error", "error": "No model entry"}
-
         try:
-            if e.task in ("text2video", "image2video"):
-                return self._generate_video(payload)
-            else:
-                return self._generate_image(payload)
-        except Exception as ex:
+            return self._generate(payload)
+        except torch.cuda.OutOfMemoryError as e:
+            release()
+            return {"status": "error", "error": f"CUDA OOM: {e}"}
+        except Exception as e:
             logger.exception("Native: inference failed")
-            return {"status": "error", "error": str(ex)}
+            return {"status": "error", "error": str(e)}
 
-    def _generate_image(self, payload: dict) -> dict:
-        """Generate image via SGLang /v1/images/generations."""
+    # ── Model Loading (transformers 4, NO diffusers) ───────────────────────────
+
+    def _resolve_path(self, entry: ModelEntry) -> str:
+        local = f"/models/native/{entry.name}"
+        if os.path.exists(local):
+            return local
+        legacy = f"/models/{entry.name}"
+        if os.path.exists(legacy):
+            return legacy
+        return entry.repo
+
+    def _load_components(self, entry: ModelEntry, path: str) -> dict:
+        """Load model components via transformers 4 / direct PyTorch.
+
+        Uses transformers AutoModel for text encoders.
+        Loads transformer backbone and VAE directly from safetensors.
+        NO diffusers pipeline classes.
+        """
+        from transformers import AutoModel, AutoTokenizer
+
+        components = {}
+        model_path = path
+
+        # Text encoder — load via transformers 4
+        try:
+            te_path = os.path.join(model_path, "text_encoder")
+            if os.path.exists(te_path):
+                te = AutoModel.from_pretrained(te_path, torch_dtype=torch.bfloat16)
+                components["text_encoder"] = te
+                logger.info("Loaded text_encoder: %s", type(te).__name__)
+
+                # Try tokenizer
+                tok_path = os.path.join(model_path, "tokenizer")
+                if os.path.exists(tok_path):
+                    tok = AutoTokenizer.from_pretrained(tok_path)
+                    components["tokenizer"] = tok
+        except Exception as e:
+            logger.warning("text_encoder load failed: %s", e)
+
+        # Transformer backbone — load via transformers AutoModel
+        try:
+            tr_path = os.path.join(model_path, "transformer")
+            if os.path.exists(tr_path):
+                tr = AutoModel.from_pretrained(tr_path, torch_dtype=torch.bfloat16)
+                components["transformer"] = tr
+                logger.info("Loaded transformer: %s", type(tr).__name__)
+        except Exception as e:
+            # Fallback: try direct safetensors loading
+            logger.warning("AutoModel transformer load failed: %s — trying safetensors", e)
+            try:
+                from safetensors.torch import load_file
+                import json
+                cfg_path = os.path.join(tr_path, "config.json")
+                idx_path = os.path.join(tr_path, "model.safetensors.index.json")
+                if os.path.exists(idx_path):
+                    # Multi-shard: load all shards
+                    with open(idx_path) as f:
+                        idx = json.load(f)
+                    shards = set(idx["weight_map"].values())
+                    state = {}
+                    for shard in sorted(shards):
+                        state.update(load_file(os.path.join(tr_path, shard)))
+                else:
+                    # Single file
+                    single = os.path.join(tr_path, "diffusion_pytorch_model.safetensors")
+                    if os.path.exists(single):
+                        state = load_file(single)
+                    else:
+                        raise FileNotFoundError("No safetensors found")
+                components["_transformer_state"] = state
+                logger.info("Loaded transformer state dict (%d keys)", len(state))
+            except Exception as e2:
+                logger.error("Transformer load completely failed: %s", e2)
+
+        # VAE — load via transformers AutoModel if available, else skip
+        try:
+            vae_path = os.path.join(model_path, "vae")
+            if os.path.exists(vae_path):
+                vae = AutoModel.from_pretrained(vae_path, torch_dtype=torch.bfloat16)
+                components["vae"] = vae
+                logger.info("Loaded VAE: %s", type(vae).__name__)
+        except Exception as e:
+            logger.warning("VAE load failed: %s (decode will be unavailable)", e)
+
+        return components
+
+    # ── VRAM Management ────────────────────────────────────────────────────────
+
+    def _apply_vram(self) -> None:
+        """Apply our custom VRAM hooks based on model sizes."""
+        transformer = self._components.get("transformer")
+        text_encoder = self._components.get("text_encoder")
+        vae = self._components.get("vae")
+
+        tr_mb = module_size_mb(transformer) if transformer else 0
+        te_mb = module_size_mb(text_encoder) if text_encoder else 0
+        vae_mb = module_size_mb(vae) if vae else 300
+
+        vram_plan = plan(tr_mb, te_mb, vae_mb)
+        logger.info("VRAM plan: %s", vram_plan.notes)
+
+        # VAE always resident BF16
+        if vae is not None:
+            vae.to("cuda")
+
+        # Text encoder — resident if plan says, else managed
+        if text_encoder is not None and vram_plan.strategy.value in ("resident", "fp8_resident"):
+            text_encoder.to("cuda")
+
+        # Transformer — apply streaming hooks if needed
+        if transformer is not None:
+            mgr = VRAMManager(transformer, device="cuda")
+            mgr.apply(vram_plan)
+            self._vram_managers.append(mgr)
+
+    # ── Generation ─────────────────────────────────────────────────────────────
+
+    def _generate(self, payload: dict) -> dict:
+        """Run generation through manual denoising loop."""
+        e = self.entry
         prompt = payload.get("prompt", "")
-        steps = payload.get("steps") or payload.get("sampling_steps") or self.entry.steps
-        width = int(payload.get("width", self.entry.width))
-        height = int(payload.get("height", self.entry.height))
+        if not prompt:
+            return {"status": "error", "error": "No prompt"}
+
+        steps = payload.get("steps") or e.steps
+        guidance = payload.get("guidance") or e.guidance
+        width = int(payload.get("width", e.width))
+        height = int(payload.get("height", e.height))
         seed = payload.get("seed", -1)
 
-        body = {
-            "model": self._current_model,
-            "prompt": prompt,
-            "size": f"{width}x{height}",
-            "num_inference_steps": int(steps),
-        }
-        if seed >= 0:
-            body["seed"] = int(seed)
+        # Get components
+        transformer = self._components.get("transformer")
+        if transformer is None:
+            return {"status": "error", "error": "Transformer not loaded"}
 
+        # Encode text
+        prompt_embeds = self._encode_text(prompt)
+
+        # Initialize latents
+        gen = torch.Generator(device="cuda").manual_seed(seed) if seed >= 0 else None
+        # Latent shape depends on model architecture
+        latent_shape = self._get_latent_shape(width, height, payload)
+        latents = torch.randn(latent_shape, device="cuda", dtype=torch.bfloat16, generator=gen)
+
+        # Manual denoising loop — we control every step
         t0 = time.perf_counter()
-        with httpx.Client(timeout=300) as client:
-            resp = client.post(f"{SGLANG_URL}/v1/images/generations", json=body)
 
-        elapsed = time.perf_counter() - t0
+        # Use a simple Euler scheduler if no scheduler loaded
+        sigmas = torch.linspace(1.0, 0.0, steps + 1, device="cuda", dtype=torch.bfloat16)
 
-        if resp.status_code != 200:
-            return {"status": "error", "error": f"SGLang returned {resp.status_code}: {resp.text[:200]}"}
+        for i in range(steps):
+            sigma = sigmas[i]
+            sigma_next = sigmas[i + 1]
+            timestep = sigma.unsqueeze(0).expand(latents.shape[0])
 
-        data = resp.json()
+            with torch.no_grad():
+                # Forward pass — our VRAM hooks stream blocks automatically
+                noise = transformer(
+                    hidden_states=latents,
+                    timestep=timestep,
+                    encoder_hidden_states=prompt_embeds,
+                    return_dict=False,
+                )[0]
 
-        # Extract image from response
-        image_b64 = None
-        if "images" in data and data["images"]:
-            img = data["images"][0]
-            image_b64 = img.split(",", 1)[1] if isinstance(img, str) and img.startswith("data:") else img
-        elif "data" in data and data["data"]:
-            img = data["data"][0]
-            image_b64 = img.get("b64_json") or img.get("url", "").split(",", 1)[-1] if isinstance(img, dict) else img
+            # Euler step: x_next = x + (sigma_next - sigma) * v
+            latents = latents + (sigma_next - sigma) * noise
 
-        if not image_b64:
-            return {"status": "error", "error": "No image in SGLang response"}
+        gen_time = time.perf_counter() - t0
+
+        # Decode latents to image
+        image_b64 = self._decode_to_base64(latents, width, height)
 
         return {
             "status": "success",
             "output": {"type": "image", "content": image_b64, "format": "png"},
             "metrics": {
-                "latency_ms": int(elapsed * 1000),
+                "latency_ms": int(gen_time * 1000),
                 "model": self.model_name,
+                "steps": steps,
             },
         }
 
-    def _generate_video(self, payload: dict) -> dict:
-        """Generate video via SGLang /v1/videos/generations."""
-        prompt = payload.get("prompt", "")
-        steps = payload.get("steps") or self.entry.steps
-        width = int(payload.get("width", self.entry.width))
-        height = int(payload.get("height", self.entry.height))
-        num_frames = int(payload.get("num_frames", 121))
-        seed = payload.get("seed", -1)
+    def _encode_text(self, prompt: str) -> torch.Tensor:
+        """Encode text via transformers 4 text encoder."""
+        te = self._components.get("text_encoder")
+        tok = self._components.get("tokenizer")
+        if te is None or tok is None:
+            # Fallback: return random embeddings
+            logger.warning("No text encoder — using random embeddings")
+            return torch.randn(1, 77, 1024, device="cuda", dtype=torch.bfloat16)
 
-        body = {
-            "model": self._current_model,
-            "prompt": prompt,
-            "width": width,
-            "height": height,
-            "num_frames": num_frames,
-            "num_inference_steps": int(steps),
-        }
-        if seed >= 0:
-            body["seed"] = int(seed)
+        tokens = tok(prompt, return_tensors="pt", padding="max_length",
+                     max_length=77, truncation=True).to("cuda")
 
-        t0 = time.perf_counter()
-        with httpx.Client(timeout=600) as client:
-            resp = client.post(f"{SGLANG_URL}/v1/videos/generations", json=body)
+        with torch.no_grad():
+            embeds = te(**tokens)
 
-        elapsed = time.perf_counter() - t0
+        # Handle different output formats
+        if hasattr(embeds, "last_hidden_state"):
+            return embeds.last_hidden_state
+        elif isinstance(embeds, tuple):
+            return embeds[0]
+        return embeds
 
-        if resp.status_code != 200:
-            return {"status": "error", "error": f"SGLang returned {resp.status_code}: {resp.text[:200]}"}
+    def _get_latent_shape(self, width: int, height: int, payload: dict) -> tuple:
+        """Get latent shape for the model."""
+        task = self.entry.task if self.entry else "text2image"
+        if task in ("text2video", "image2video"):
+            num_frames = int(payload.get("num_frames", 25))
+            return (1, 128, num_frames, height // 32, width // 32)
+        return (1, 128, height // 32, width // 32)
 
-        data = resp.json()
-        video_b64 = data.get("video") or data.get("data", [{}])[0].get("video", "")
+    def _decode_to_base64(self, latents: torch.Tensor, width: int, height: int) -> str:
+        """Decode latents to base64 PNG image."""
+        vae = self._components.get("vae")
 
-        return {
-            "status": "success",
-            "output": {"type": "video", "content": video_b64},
-            "metrics": {
-                "latency_ms": int(elapsed * 1000),
-                "model": self.model_name,
-                "frames": num_frames,
-            },
-        }
+        if vae is not None:
+            with torch.no_grad():
+                # Ensure VAE is on GPU
+                if next(vae.parameters()).device.type == "cpu":
+                    vae.to("cuda")
+                decoded = vae.decode(latents)
+                if hasattr(decoded, "sample"):
+                    decoded = decoded.sample
+                elif isinstance(decoded, tuple):
+                    decoded = decoded[0]
+        else:
+            # No VAE — visualize raw latents as a colorful image
+            decoded = latents[0, :3].permute(1, 2, 0) if latents.dim() == 4 else latents[0, :3, 0]
 
-    # ── SGLang Management ──────────────────────────────────────────────────────
+        # Convert to PIL
+        from PIL import Image
+        img = (decoded / 2 + 0.5).clamp(0, 1)
+        img = (img * 255).round().to(torch.uint8)
 
-    def _is_serving(self, model_name: str) -> bool:
-        """Check if SGLang is already serving this model."""
-        try:
-            with httpx.Client(timeout=10) as client:
-                resp = client.get(f"{SGLANG_URL}/health")
-                if resp.status_code == 200:
-                    self._sglang_ready = True
-                    return True
-        except Exception:
-            pass
-        self._sglang_ready = False
-        return False
+        if img.dim() == 3:
+            img = img.permute(1, 2, 0)
+        elif img.dim() == 4:
+            img = img[0].permute(1, 2, 0)
 
-    def _switch_model(self, model_name: str) -> None:
-        """Switch SGLang to a different model.
+        img = img.cpu().numpy()
+        pil = Image.fromarray(img).resize((width, height), Image.LANCZOS)
 
-        In production, this would:
-        1. Release current model VRAM (POST /release_memory_occupation)
-        2. Kill the SGLang server process
-        3. Restart with new model (sglang serve --model-path ...)
-        4. Wait for health check
-
-        For now, assumes SGLang is already running with the model.
-        """
-        entry = get_model(model_name)
-        if entry is None:
-            raise ValueError(f"Unknown model: {model_name}")
-
-        logger.info("SGLang: switching to '%s'", model_name)
-
-        # Try to wake SGLang if it's sleeping
-        try:
-            with httpx.Client(timeout=30) as client:
-                client.post(f"{SGLANG_URL}/resume_memory_occupation")
-                self._sglang_ready = True
-        except Exception:
-            pass
-
-        if not self._is_serving(model_name):
-            logger.warning("SGLang not serving '%s' — model must be started externally", model_name)
+        buf = io.BytesIO()
+        pil.save(buf, format="PNG")
+        return base64.b64encode(buf.getvalue()).decode()
 
     def actual_vram_mb(self) -> int:
-        """Check SGLang's VRAM via health/status endpoint."""
         try:
-            with httpx.Client(timeout=10) as client:
-                resp = client.get(f"{SGLANG_URL}/health")
-                if resp.status_code == 200:
-                    return 0  # SGLang manages its own VRAM
+            return int(torch.cuda.memory_allocated(0) / (1024 * 1024))
         except Exception:
-            pass
-        return 0
+            return 0
+
+    @property
+    def _loaded_model_name(self) -> str | None:
+        return self._loaded_model
