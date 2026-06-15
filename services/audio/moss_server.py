@@ -1,21 +1,25 @@
-"""Standalone MOSS audio server.
+"""Standalone MOSS audio server with model switching.
 
 Wraps MossSoundEffectPipeline as a simple HTTP API.
 Runs in a separate Docker container — no Wan2GP, no diffusers.
 
+Supports multiple MOSS model variants (SoundEffect, TTS, etc.)
+with automatic load/unload/switch.
+
 POST /generate
-  { "prompt": "rain on tin roof", "seconds": 10, "seed": 0 }
+  { "prompt": "rain on tin roof", "model": "moss-soundeffect", "seconds": 10, "seed": 0 }
   → { "audio": "<base64 wav>", "sample_rate": 48000 }
 
 POST /release
-  → Unloads model, frees VRAM
+  → Unloads current model, frees VRAM
 
 GET /health
-  → { "status": "ok" }
+  → { "status": "ok", "loaded_model": "moss-soundeffect" }
 """
 from __future__ import annotations
 
 import base64
+import gc
 import io
 import logging
 import os
@@ -35,35 +39,75 @@ MOSS_CODE_PATH = os.environ.get("MOSS_CODE_PATH", "/opt/moss")
 if os.path.exists(MOSS_CODE_PATH):
     sys.path.insert(0, MOSS_CODE_PATH)
 
-MODEL_PATH = os.environ.get("MOSS_MODEL_PATH", "/models/audio/moss-soundeffect")
 PORT = int(os.environ.get("MOSS_PORT", "8081"))
 
+# Model registry: name → path on disk
+MOSS_MODELS = {
+    "moss-soundeffect": "/models/audio/moss-soundeffect",
+    "moss-soundeffect-v2": "/models/wan2gp/moss_soundeffect_v2",
+    "moss-tts": "/models/audio/moss-tts",
+}
+
+# Currently loaded state
 _pipeline = None
+_loaded_model: str | None = None
 
 
-def load_model():
-    """Load the MOSS pipeline."""
-    global _pipeline
-    if _pipeline is not None:
+def load_model(model_name: str):
+    """Load a MOSS pipeline. Switches if a different model is loaded."""
+    global _pipeline, _loaded_model
+
+    # Already loaded — return immediately
+    if _pipeline is not None and _loaded_model == model_name:
         return _pipeline
 
-    logger.info("Loading MOSS pipeline from %s", MODEL_PATH)
+    # Different model loaded — unload first
+    if _pipeline is not None:
+        logger.info("MOSS: switching from '%s' to '%s'", _loaded_model, model_name)
+        unload_model()
+
+    # Resolve path
+    model_path = MOSS_MODELS.get(model_name)
+    if model_path is None:
+        raise ValueError(f"Unknown MOSS model '{model_name}'. Available: {list(MOSS_MODELS.keys())}")
+    if not os.path.exists(model_path):
+        raise FileNotFoundError(f"MOSS model not found at {model_path}")
+
+    logger.info("MOSS: loading '%s' from %s", model_name, model_path)
 
     from pipeline_moss_soundeffect import MossSoundEffectPipeline
 
     _pipeline = MossSoundEffectPipeline.from_pretrained(
-        MODEL_PATH,
+        model_path,
         torch_dtype=torch.bfloat16,
         device="cuda",
     )
-    logger.info("MOSS pipeline loaded")
+    _loaded_model = model_name
+    logger.info("MOSS: '%s' loaded successfully", model_name)
     return _pipeline
 
 
-def generate_sound(prompt: str, seconds: float = 10.0, seed: int = 0,
-                   steps: int = 100, cfg: float = 4.0) -> dict:
+def unload_model():
+    """Unload the current model and free VRAM."""
+    global _pipeline, _loaded_model
+
+    if _pipeline is not None:
+        logger.info("MOSS: unloading '%s'", _loaded_model)
+        del _pipeline
+        _pipeline = None
+        _loaded_model = None
+
+    gc.collect()
+    if torch.cuda.is_available():
+        torch.cuda.synchronize()
+        torch.cuda.empty_cache()
+    logger.info("MOSS: model unloaded, VRAM freed")
+
+
+def generate_sound(model: str, prompt: str, seconds: float = 10.0,
+                   seed: int = 0, steps: int = 100, cfg: float = 4.0) -> dict:
     """Generate sound effect from text prompt."""
-    pipe = load_model()
+    pipe = load_model(model)
 
     t0 = time.perf_counter()
     output = pipe(
@@ -88,7 +132,7 @@ def generate_sound(prompt: str, seconds: float = 10.0, seed: int = 0,
     if audio_np.ndim == 1:
         audio_np = np.expand_dims(audio_np, 0)
 
-    sr = getattr(_pipeline, "sample_rate", 48000)
+    sr = getattr(pipe, "sample_rate", 48000)
     wav_bytes = _to_wav(audio_np, sr)
 
     return {
@@ -96,6 +140,7 @@ def generate_sound(prompt: str, seconds: float = 10.0, seed: int = 0,
         "sample_rate": sr,
         "duration_s": seconds,
         "generation_time_s": round(elapsed, 2),
+        "model": model,
         "prompt": prompt,
     }
 
@@ -103,9 +148,7 @@ def generate_sound(prompt: str, seconds: float = 10.0, seed: int = 0,
 def _to_wav(audio: np.ndarray, sample_rate: int) -> bytes:
     """Convert float numpy array to WAV bytes."""
     import wave
-    import struct
 
-    # Normalize to int16
     audio_clipped = np.clip(audio, -1.0, 1.0)
     audio_int16 = (audio_clipped * 32767).astype(np.int16)
 
@@ -131,7 +174,11 @@ class MossHandler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         if self.path == "/health":
-            self._send_json(200, {"status": "ok", "loaded": _pipeline is not None})
+            self._send_json(200, {
+                "status": "ok",
+                "loaded_model": _loaded_model,
+                "available_models": list(MOSS_MODELS.keys()),
+            })
         else:
             self._send_json(404, {"error": "not found"})
 
@@ -146,7 +193,9 @@ class MossHandler(BaseHTTPRequestHandler):
                     self._send_json(400, {"error": "no prompt"})
                     return
 
+                model = body.get("model", "moss-soundeffect")
                 result = generate_sound(
+                    model=model,
                     prompt=prompt,
                     seconds=float(body.get("seconds", 10.0)),
                     seed=int(body.get("seed", 0)),
@@ -156,10 +205,13 @@ class MossHandler(BaseHTTPRequestHandler):
                 self._send_json(200, result)
 
             elif self.path == "/release":
-                global _pipeline
-                _pipeline = None
-                torch.cuda.empty_cache()
+                unload_model()
                 self._send_json(200, {"status": "released"})
+
+            elif self.path == "/load":
+                model = body.get("model", "")
+                load_model(model)  # Pre-load a model
+                self._send_json(200, {"status": "loaded", "model": model})
 
             else:
                 self._send_json(404, {"error": "not found"})
@@ -174,7 +226,7 @@ class MossHandler(BaseHTTPRequestHandler):
 
 if __name__ == "__main__":
     logger.info("MOSS audio server starting on port %d", PORT)
-    logger.info("Model path: %s", MODEL_PATH)
     logger.info("Code path: %s", MOSS_CODE_PATH)
+    logger.info("Available models: %s", list(MOSS_MODELS.keys()))
     server = HTTPServer(("0.0.0.0", PORT), MossHandler)
     server.serve_forever()
