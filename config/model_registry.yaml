@@ -2063,3 +2063,14 @@ asr:
     vram_estimate_gb: 0.0
     device: cpu
     description: "Mistral Voxtral Mini 3B — multilingual ASR + understanding. CPU-capable but slower."
+  vibevoice-7b:
+    path: asr/vibevoice-asr-q4_k.gguf
+    source: hf://crispstrobe/vibevoice-asr-GGUF/vibevoice-asr-Q4_K_M.gguf
+    download: file
+    sha256: null
+    size_gb: 14.0
+    vram_estimate_gb: 0.0
+    device: cpu
+    description: "QUALITY: VibeVoice-7B ASR+Diarization. Qwen2.5-7B + dual audio encoders.
+      Joint transcription + speaker ID in one pass. 9.19% DER on structured audio.
+      Needs 26GB RAM for long audio. Outputs JSON with speaker_id, timestamps, text."

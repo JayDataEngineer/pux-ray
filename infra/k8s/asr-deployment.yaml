@@ -20,15 +20,14 @@ spec:
           ip: 192.168.86.184
       containers:
         - name: crispasr
-          # Prebuilt image from CrispASR project — C++ binary, no Python
-          # CUDA variant for GPU acceleration (optional, fractional)
-          # CPU-only would use: ghcr.io/crispstrobe/crispasr:main
           image: ghcr.io/crispstrobe/crispasr:main-cuda-12
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8080
               name: asr-api
           env:
+            # FAST mode: Parakeet TDT 0.6B (default)
+            # QUALITY mode: VibeVoice-7B (override via env or POST /load)
             - name: CRISPASR_MODEL
               value: "/models/asr/parakeet-tdt-0.6b-v3.gguf"
             - name: CRISPASR_BACKEND
@@ -37,15 +36,13 @@ spec:
               value: "1"
             - name: CRISPASR_CACHE_DIR
               value: "/models/asr/cache"
-          # CPU-only: no GPU resources requested
-          # Add nvidia.com/gpu for GPU acceleration
           resources:
             limits:
               cpu: "4"
-              memory: 8Gi
+              memory: 32Gi  # Enough for VibeVoice-7B when switched
             requests:
               cpu: "2"
-              memory: 4Gi
+              memory: 8Gi
           volumeMounts:
             - mountPath: /models
               name: models
@@ -66,4 +63,4 @@ spec:
     - port: 8080
       targetPort: 8080
       name: asr-api
-  clusterIP: None  # Headless
+  clusterIP: None

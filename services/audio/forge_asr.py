@@ -1,11 +1,10 @@
 """Forge adapter for CrispASR — C++ speech recognition.
 
-CrispASR runs as a separate container (CPU-only or fractional GPU).
-OpenAI-compatible /v1/audio/transcriptions endpoint.
-26 ASR backends: Whisper, Parakeet, Canary, Voxtral, etc.
+Two modes:
+  FAST:    Parakeet TDT 0.6B — CPU-only, sub-second, no diarization
+  QUALITY: VibeVoice-7B     — 7B LLM, joint transcription + speaker diarization
 
-CPU-only mode: no GPU VRAM needed. Can coexist with any service.
-GPU mode: fractional allocation for faster transcription.
+CPU-only — does NOT trigger GPU eviction. Coexists with everything.
 """
 from __future__ import annotations
 
@@ -24,67 +23,112 @@ logger = logging.getLogger(__name__)
 
 ASR_URL = os.environ.get("ASR_URL", "http://asr-service:8080")
 
+# Model configs
+ASR_MODELS = {
+    "fast": {
+        "model": "/models/asr/parakeet-tdt-0.6b-v3.gguf",
+        "backend": "parakeet",
+        "description": "Parakeet TDT 0.6B — fast, CPU-only",
+    },
+    "quality": {
+        "model": "/models/asr/vibevoice-asr-q4_k.gguf",
+        "backend": "vibevoice",
+        "description": "VibeVoice-7B — joint ASR + diarization",
+    },
+}
+
 
 class ASRForgeService(ForgeService):
     """Calls CrispASR server via OpenAI-compatible HTTP API.
 
-    VRAM: 0 (CPU-only by default) or fractional if GPU-accelerated.
-    Does NOT trigger GPU eviction — coexists with all services.
+    VRAM: 0 — CPU-only, does NOT trigger GPU eviction.
     """
 
     service_name = "asr"
-    default_model = "parakeet-tdt-0.6b"
+    default_model = "fast"
     persistence = Persistence.TRANSIENT
-    vram_mb = 0  # CPU-only — no GPU claim
+    vram_mb = 0  # CPU-only
 
     def __init__(self):
         super().__init__()
         self._healthy = False
+        self._current_mode = "fast"
 
-    def load(self, model_name: str | None = None, quant: str | None = None) -> None:
-        """Check ASR server health."""
+    def _find_server(self) -> str | None:
+        """Find reachable CrispASR server."""
         for url in [ASR_URL, "http://localhost:8080", "http://127.0.0.1:8080"]:
             try:
                 with httpx.Client(timeout=5) as client:
                     resp = client.get(f"{url}/health")
                     if resp.status_code == 200:
-                        self._asr_url = url
-                        data = resp.json()
-                        self._healthy = True
-                        logger.info("ASR: server healthy at %s (backend: %s)",
-                                    url, data.get("backend", "?"))
-                        break
+                        return url
             except Exception:
                 continue
+        return None
 
-        if not self._healthy:
-            logger.warning("ASR: server not reachable — will try on first request")
+    def load(self, model_name: str | None = None, quant: str | None = None) -> None:
+        """Check ASR server. model_name selects fast/quality mode."""
+        mode = model_name or self.default_model
+        if mode not in ASR_MODELS:
+            mode = self.default_model
+
+        url = self._find_server()
+        if url:
+            self._asr_url = url
+            self._healthy = True
+            self._current_mode = mode
+
+            # Switch model if different from what's loaded
+            cfg = ASR_MODELS[mode]
+            try:
+                with httpx.Client(timeout=120) as client:
+                    health = client.get(f"{url}/health")
+                    loaded_backend = health.json().get("backend", "")
+                    if loaded_backend != cfg["backend"]:
+                        logger.info("ASR: switching to %s (%s)", mode, cfg["description"])
+                        client.post(f"{url}/load", data={
+                            "model": cfg["model"],
+                        })
+                        logger.info("ASR: switched to %s", cfg["backend"])
+            except Exception as e:
+                logger.warning("ASR: model switch failed: %s", e)
+        else:
+            logger.warning("ASR: server not reachable")
 
         self._loaded = True
 
     def unload(self) -> None:
-        """ASR server stays running — just mark unloaded in forge."""
         self._loaded = False
 
     def infer(self, payload: dict) -> dict:
-        """Transcribe audio via CrispASR OpenAI-compatible API.
+        """Transcribe audio.
 
-        Accepts:
-          - audio_b64: base64-encoded audio file
-          - response_format: json | text | srt | verbose_json
-          - language: ISO-639-1 code
-          - translate: bool (translate to English)
-          - diarize: bool (speaker diarization)
-          - hotwords: comma-separated bias terms
+        payload:
+          audio_b64: base64-encoded audio (required)
+          mode: "fast" or "quality" (optional, overrides load)
+          diarize: bool (quality mode auto-diarizes)
+          response_format: json | text | srt | verbose_json
+          language: ISO-639-1
+          translate: bool (translate to English)
+          hotwords: comma-separated bias terms
         """
         audio_b64 = payload.get("audio_b64", "")
         if not audio_b64:
             return {"status": "error", "error": "No audio provided"}
 
-        url = getattr(self, "_asr_url", ASR_URL)
-        response_format = payload.get("response_format", "json")
+        # Check mode override
+        mode = payload.get("mode", self._current_mode)
+        if mode not in ASR_MODELS:
+            mode = self.default_model
 
-        # Decode base64 audio to temp file
+        # Switch model if needed
+        if mode != self._current_mode:
+            self.load(mode)
+
+        url = getattr(self, "_asr_url", ASR_URL)
+        response_format = payload.get("response_format", "verbose_json")
+
+        # Decode audio to temp file
         audio_bytes = base64.b64decode(audio_b64)
         with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
             f.write(audio_bytes)
@@ -92,13 +136,14 @@ class ASRForgeService(ForgeService):
 
         t0 = time.perf_counter()
         try:
-            with httpx.Client(timeout=300) as client:
-                # Use /inference for extended features, /v1/audio/transcriptions for OpenAI compat
-                endpoint = f"{url}/inference"
-
+            with httpx.Client(timeout=600) as client:
                 with open(temp_path, "rb") as audio_file:
                     files = {"file": ("audio.wav", audio_file, "audio/wav")}
                     data = {"response_format": response_format}
+
+                    # Quality mode: enable diarization by default
+                    if mode == "quality" and "diarize" not in payload:
+                        data["diarize"] = "true"
 
                     # Optional params
                     for key in ("language", "prompt", "translate", "diarize",
@@ -106,7 +151,7 @@ class ASRForgeService(ForgeService):
                         if key in payload:
                             data[key] = str(payload[key])
 
-                    resp = client.post(endpoint, files=files, data=data)
+                    resp = client.post(f"{url}/inference", files=files, data=data)
         finally:
             os.unlink(temp_path)
 
@@ -125,14 +170,18 @@ class ASRForgeService(ForgeService):
                 "segments": result.get("segments", []),
                 "language": result.get("language", ""),
                 "backend": result.get("backend", ""),
+                "mode": mode,
+                "speakers": [s.get("speaker", "") for s in result.get("segments", [])
+                             if s.get("speaker")] if mode == "quality" else [],
             },
             "metrics": {
                 "latency_ms": int(elapsed * 1000),
-                "model": "crispasr",
-                "duration_s": result.get("duration"),
+                "model": mode,
+                "backend": result.get("backend", ""),
+                "audio_duration_s": result.get("duration"),
             },
         }
 
     def actual_vram_mb(self) -> int:
-        """ASR is CPU-only — reports 0 VRAM."""
+        """CPU-only — 0 VRAM."""
         return 0
