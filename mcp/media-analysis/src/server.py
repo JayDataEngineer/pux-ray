@@ -62,6 +62,7 @@ async def service_lifespan(server: FastMCP):
     from .services.grounding_dino_service import get_grounding_dino_service
     from .services.phi4_vision_service import get_phi4_vision_service
     from .services.kosmos_service import get_kosmos_service
+    from .services.showui_service import get_showui_service
     from .services.idle_watcher import get_idle_watcher
 
     settings = get_settings()
@@ -114,6 +115,7 @@ async def service_lifespan(server: FastMCP):
     grounding_dino_service = get_grounding_dino_service()
     phi4_vision_service = get_phi4_vision_service()
     kosmos_service = get_kosmos_service()
+    showui_service = get_showui_service()
 
     try:
         yield {
@@ -137,6 +139,7 @@ async def service_lifespan(server: FastMCP):
             "grounding_dino_service": grounding_dino_service,
             "phi4_vision_service": phi4_vision_service,
             "kosmos_service": kosmos_service,
+            "showui_service": showui_service,
         }
     finally:
         logger.info("Shutting down services...")
@@ -161,6 +164,7 @@ async def service_lifespan(server: FastMCP):
         await grounding_dino_service.close()
         await phi4_vision_service.close()
         await kosmos_service.close()
+        await showui_service.close()
         logger.info("Shutdown complete")
 
 
@@ -177,7 +181,8 @@ mcp = FastMCP(
         "Image tools: analyze_image, detect_objects, tag_image, extract_colors, "
         "read_barcodes, extract_exif, detect_faces, classify_nsfw, segment_image\n"
         "Audio tools: transcribe_audio, classify_audio, fingerprint_audio, diarize_audio\n"
-        "Video tools: check_video, detect_scenes"
+        "Video tools: check_video, detect_scenes\n"
+        "GUI grounding: ground_ui (ShowUI-2B, CPU-only)"
     ),
     lifespan=service_lifespan,
 )
@@ -212,6 +217,8 @@ from .tools.media_tools import (
     detect_objects_text,
     phi4_vision,
     kosmos_ocr,
+    # GUI grounding
+    ground_ui,
 )
 
 mcp.add_tool(process)
@@ -234,6 +241,7 @@ mcp.add_tool(detect_scenes)
 mcp.add_tool(detect_objects_text)
 mcp.add_tool(phi4_vision)
 mcp.add_tool(kosmos_ocr)
+mcp.add_tool(ground_ui)
 
 
 # ========== ASGI APP (for uvicorn --workers) ==========
@@ -298,5 +306,6 @@ if __name__ == "__main__":
     logger.info("Audio tools: transcribe_audio, classify_audio, fingerprint_audio, diarize_audio")
     logger.info("Video tools: check_video, detect_scenes")
     logger.info("Microsoft vision: detect_objects_text, phi4_vision (Gemma 4 E4B GGUF), kosmos_ocr")
+    logger.info("GUI grounding: ground_ui (ShowUI-2B CPU-only, or MEDIA_SHOWUI_MODEL=ByteDance-Seed/UI-TARS-1.5-7B)")
 
     mcp.run(transport="http", host=host, port=port)

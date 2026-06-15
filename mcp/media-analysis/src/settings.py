@@ -24,6 +24,7 @@ PROFILES = {
         "face": False, "nsfw": False, "audio_classify": False,
         "segment": False, "pyannote": False,
         "grounding_dino": False, "phi4_vision": False, "kosmos": False,
+        "showui": False,
     },
     "standard": {
         "color": True, "barcode": True, "exif": True,
@@ -33,6 +34,7 @@ PROFILES = {
         "face": False, "nsfw": False, "audio_classify": False,
         "segment": False, "pyannote": False,
         "grounding_dino": False, "phi4_vision": False, "kosmos": False,
+        "showui": True,
     },
     "full": {
         "color": True, "barcode": True, "exif": True,
@@ -42,6 +44,7 @@ PROFILES = {
         "face": True, "nsfw": True, "audio_classify": True,
         "segment": True, "pyannote": False,
         "grounding_dino": True, "phi4_vision": False, "kosmos": True,
+        "showui": True,
     },
     "all": {
         "color": True, "barcode": True, "exif": True,
@@ -51,6 +54,7 @@ PROFILES = {
         "face": True, "nsfw": True, "audio_classify": True,
         "segment": True, "pyannote": True,
         "grounding_dino": True, "phi4_vision": True, "kosmos": True,
+        "showui": True,
     },
 }
 
@@ -162,6 +166,15 @@ class Settings(BaseSettings):
     # Kosmos-2.5 — document OCR and markdown (1.3B, ~3-4GB VRAM)
     kosmos_enabled: bool | None = None
     kosmos_model: str = "microsoft/kosmos-2.5"
+
+    # ShowUI-2B — GUI grounding: screenshot → click coordinates (always CPU, saves VRAM)
+    # Default: showlab/ShowUI-2B (Qwen2-VL fine-tune, ~4GB bfloat16 RAM)
+    # Alternative: ByteDance-Seed/UI-TARS-1.5-7B (needs transformers >= 4.49.0)
+    showui_enabled: bool | None = None
+    showui_model: str = "showlab/ShowUI-2B"
+    showui_max_new_tokens: int = 64
+    showui_min_pixels: int = 256 * 28 * 28   # ~200K px — controls vision token count
+    showui_max_pixels: int = 1344 * 28 * 28  # ~1M px
 
     # Model cache
     model_cache_dir: str = "/app/models"

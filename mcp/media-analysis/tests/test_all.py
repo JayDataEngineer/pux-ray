@@ -30,12 +30,14 @@ class TestSettings:
         s = Settings()
         assert s.host == "0.0.0.0"
         assert s.port == 8001
-        assert s.vision_enabled is True
+        # enabled flags are None by default; is_enabled() resolves via profile
+        assert s.is_enabled("vision") is True
         assert s.router_enabled is True
-        assert s.yolo_enabled is True
-        assert s.tagger_enabled is True
-        assert s.asr_enabled is True
-        assert s.video_enabled is True
+        assert s.is_enabled("yolo") is True
+        assert s.is_enabled("tagger") is True
+        assert s.is_enabled("asr") is True
+        assert s.is_enabled("video") is True
+        assert s.is_enabled("showui") is True  # new default in standard profile
 
     def test_env_prefix(self, monkeypatch):
         monkeypatch.setenv("MEDIA_PORT", "9999")
@@ -405,6 +407,141 @@ class TestMediaTools:
 
 
 # =============================================================================
+# ShowUI service tests
+# =============================================================================
+
+class TestShowUIService:
+    @pytest.fixture(autouse=True)
+    def reset_service(self):
+        import src.services.showui_service as su
+        su._showui_service = None
+        yield
+        su._showui_service = None
+
+    def test_parse_coordinates_showui_format(self):
+        from src.services.showui_service import _parse_coordinates
+        result = _parse_coordinates("[0.532, 0.234]")
+        assert result is not None
+        x, y = result
+        assert abs(x - 0.532) < 0.001
+        assert abs(y - 0.234) < 0.001
+
+    def test_parse_coordinates_uitars_format(self):
+        from src.services.showui_service import _parse_coordinates
+        result = _parse_coordinates("<|box_start|>(532,234)<|box_end|>")
+        assert result is not None
+        x, y = result
+        assert abs(x - 0.532) < 0.001
+        assert abs(y - 0.234) < 0.001
+
+    def test_parse_coordinates_large_scale(self):
+        from src.services.showui_service import _parse_coordinates
+        # Values > 1 get divided by 1000
+        result = _parse_coordinates("[750, 500]")
+        assert result is not None
+        x, y = result
+        assert abs(x - 0.75) < 0.001
+        assert abs(y - 0.50) < 0.001
+
+    def test_parse_coordinates_fallback_regex(self):
+        from src.services.showui_service import _parse_coordinates
+        result = _parse_coordinates("click at 0.4, 0.6 on the screen")
+        assert result is not None
+        x, y = result
+        assert abs(x - 0.4) < 0.001
+        assert abs(y - 0.6) < 0.001
+
+    def test_parse_coordinates_invalid(self):
+        from src.services.showui_service import _parse_coordinates
+        result = _parse_coordinates("no coordinates here")
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_ground_disabled(self, monkeypatch):
+        monkeypatch.setenv("MEDIA_SHOWUI_ENABLED", "false")
+        import src.settings
+        src.settings._settings = None
+        from src.services.showui_service import get_showui_service
+        svc = get_showui_service()
+        result = await svc.ground(image_url="http://x.com/screen.png", query="Login button")
+        assert result["success"] is False
+        assert "disabled" in result["error"]
+
+    @pytest.mark.asyncio
+    async def test_ground_image_load_failure(self):
+        from src.services.showui_service import get_showui_service
+        svc = get_showui_service()
+        svc._loaded = True  # skip model load
+
+        result = await svc.ground(image_url="http://nonexistent.invalid/x.png", query="OK button")
+        assert result["success"] is False
+        assert "Failed to load image" in result["error"]
+
+    @pytest.mark.asyncio
+    async def test_ground_mocked_inference(self):
+        from src.services.showui_service import get_showui_service
+
+        img = Image.new("RGB", (800, 600), color="gray")
+
+        svc = get_showui_service()
+        svc._loaded = True  # pretend model is loaded
+
+        # Mock _infer_sync to return pre-parsed ShowUI coords
+        def fake_infer(image, query, max_new_tokens):
+            return {"raw": "[0.5, 0.75]", "x_norm": 0.5, "y_norm": 0.75}
+
+        svc._infer_sync = fake_infer
+
+        # Patch at module level where get_idle_watcher is imported
+        with patch("src.services.showui_service.ShowUIService._ensure_loaded", new_callable=AsyncMock):
+            with patch("src.services.media_utils.load_image", new_callable=AsyncMock, return_value=img):
+                with patch("src.services.showui_service.get_idle_watcher") as mock_watcher:
+                    mock_watcher.return_value = MagicMock()
+                    result = await svc.ground(image_url="http://x.com/s.png", query="Submit")
+
+        assert result["success"] is True
+        assert result["x"] == 400   # 0.5 * 800
+        assert result["y"] == 450   # 0.75 * 600
+        assert result["width"] == 800
+        assert result["height"] == 600
+        assert result["x_norm"] == 0.5
+        assert result["y_norm"] == 0.75
+
+    @pytest.mark.asyncio
+    async def test_close(self):
+        from src.services.showui_service import get_showui_service
+        svc = get_showui_service()
+        svc._model = MagicMock()
+        svc._processor = MagicMock()
+        svc._loaded = True
+        await svc.close()
+        assert svc._model is None
+        assert svc._processor is None
+        assert svc._loaded is False
+
+
+class TestGroundUITool:
+    @pytest.mark.asyncio
+    async def test_ground_ui_tool(self):
+        from src.tools.media_tools import ground_ui
+        with patch("src.services.showui_service.get_showui_service") as mock_get:
+            mock_svc = MagicMock()
+            mock_svc.ground = AsyncMock(return_value={
+                "success": True,
+                "x": 200, "y": 150,
+                "x_norm": 0.25, "y_norm": 0.25,
+                "width": 800, "height": 600,
+                "raw": "[0.25, 0.25]",
+            })
+            mock_get.return_value = mock_svc
+
+            result = await ground_ui("http://x.com/screen.png", "Login button")
+            assert result["success"] is True
+            assert result["x"] == 200
+            assert result["y"] == 150
+
+
+# =============================================================================
 # Server lifespan test
 # =============================================================================
 
@@ -429,3 +566,4 @@ class TestServer:
                 assert "tagger_service" in context
                 assert "asr_service" in context
                 assert "video_service" in context
+                assert "showui_service" in context

@@ -479,6 +479,37 @@ async def phi4_vision(
     )
 
 
+async def ground_ui(
+    imageSource: Annotated[str, Field(
+        description="URL or data URI of the screenshot to search in. Supports PNG, JPG, JPEG."
+    )],
+    query: Annotated[str, Field(
+        description="Natural language description of the UI element to locate (e.g. 'Login button', 'Search input field', 'Close icon in top-right corner')"
+    )],
+    max_tokens: Annotated[int, Field(
+        description="Maximum tokens to generate (default 64 — coordinates are short)",
+        ge=8,
+        le=256,
+    )] = 64,
+    ctx: Context | None = None,
+) -> dict:
+    """Locate a UI element in a screenshot and return its click coordinates.
+
+    Uses ShowUI-2B (CPU-only) to find any UI element described in natural language.
+    Returns both normalized (0-1) and absolute pixel coordinates for the matched element.
+
+    Output: x, y (pixel click target), x_norm, y_norm (0-1 range), width, height (image dims), raw (model output).
+    """
+    from ..services.showui_service import get_showui_service
+
+    service = get_showui_service()
+    return await service.ground(
+        image_url=imageSource,
+        query=query,
+        max_new_tokens=max_tokens,
+    )
+
+
 async def kosmos_ocr(
     imageSource: Annotated[str, Field(
         description="URL to the document image (HTTP/HTTPS or data URI). Supports PNG, JPG, JPEG."
