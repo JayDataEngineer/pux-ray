@@ -1,0 +1,72 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: moss-audio
+  namespace: ai-services
+  labels:
+    app: moss-audio
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: moss-audio
+  template:
+    metadata:
+      labels:
+        app: moss-audio
+    spec:
+      runtimeClassName: nvidia
+      hostAliases:
+        - hostnames: [forge-reg.local]
+          ip: 192.168.86.184
+      containers:
+        - name: moss-server
+          image: forge-reg.local:30500/tech-noir/moss:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8081
+              name: moss-api
+          env:
+            - name: MOSS_CODE_PARENT
+              value: /opt/wan2gp
+            - name: MOSS_PORT
+              value: "8081"
+            - name: SAFETENSORS_DISABLE_MMAP
+              value: "1"
+            - name: PYTORCH_CUDA_ALLOC_CONF
+              value: expandable_segments:True
+          resources:
+            limits:
+              nvidia.com/gpu: 1
+              memory: 48Gi
+            requests:
+              nvidia.com/gpu: 1
+              memory: 16Gi
+          volumeMounts:
+            - mountPath: /models
+              name: models
+            - mountPath: /opt/wan2gp/moss_soundeffect_v2
+              name: src
+              subPath: opt/wan2gp/moss_soundeffect_v2
+      volumes:
+        - name: models
+          persistentVolumeClaim:
+            claimName: models-pvc
+        - name: src
+          hostPath:
+            path: /home/user/Documents/programs/ray
+            type: Directory
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: moss-service
+  namespace: ai-services
+spec:
+  selector:
+    app: moss-audio
+  ports:
+    - port: 8081
+      targetPort: 8081
+      name: moss-api
+  clusterIP: None  # Headless — use pod IP directly
