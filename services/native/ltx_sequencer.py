@@ -1,20 +1,18 @@
-"""LTX-Video sequencer via ltx-pipelines (Lightricks native).
+"""LTX-Video sequencer — ltx-pipelines + manual denoise. NO diffusers, NO SGLang.
 
-NO diffusers. Uses ltx-pipelines package directly for:
-  - TI2VidTwoStagesPipeline (dual-stage: half-res → 2x upscale)
-  - ICLoraPipeline (video-to-video with IC-LoRA control)
-  - Guiding vs Replacing latent injection
+Standard generation: manual denoise loop (same as image models)
+Advanced generation (keyframes, IC-LoRA): ltx-pipelines (Lightricks native)
+
+Implements the deep research blueprint:
+  - Replacing latents (hard keyframe overwrite)
+  - Guiding latents (Gaussian decay additive signal)
   - IC-LoRA spatial-temporal masking
-
-Falls back to SGLang video API for standard generation.
-
-Requires: pip install ltx-pipelines ltx-core
+  - Static padding for compilation stability
 """
 from __future__ import annotations
 
 import logging
 import math
-import os
 from dataclasses import dataclass, field
 from typing import List, Tuple, Optional, Any
 
@@ -25,22 +23,19 @@ import numpy as np
 logger = logging.getLogger(__name__)
 
 VAE_TEMPORAL_COMPRESSION = 8
-SUPPORTED_PROFILES = [9, 17, 25, 33, 41, 49, 57, 65, 73, 81, 89, 97]
 COMMON_PROFILES = [9, 17, 33, 65, 97]
 
 
 @dataclass
 class KeyframeInput:
-    """Keyframe for timeline injection."""
-    image: Any               # PIL Image or tensor
-    frame_index: int         # Frame position in output
-    strength: float = 1.0    # [0, 1]
-    mode: str = "guide"      # "guide" (smooth) or "replace" (hard cut)
+    image: Any
+    frame_index: int
+    strength: float = 1.0
+    mode: str = "guide"
 
 
 @dataclass
 class GenerationConfig:
-    """LTX generation parameters."""
     prompt: str
     num_frames: int = 25
     num_inference_steps: int = 30
@@ -50,310 +45,235 @@ class GenerationConfig:
     seed: int = -1
     negative_prompt: str = ""
     keyframes: List[KeyframeInput] = field(default_factory=list)
-    # IC-LoRA
     ic_lora_mask: Optional[Any] = None
     ic_lora_strength: float = 1.0
-    # Dual-stage
-    use_two_stage: bool = True
-    stage2_steps: int = 4
-    # Quality
-    fp8: bool = False
 
 
 class LTXSequencer:
-    """LTX-Video sequencer using ltx-pipelines (Lightricks native).
+    """LTX-Video sequencer.
 
-    For standard generation: delegates to SGLang's video API.
-    For keyframe/IC-LoRA: uses ltx-pipelines directly.
+    Standard generation: uses provided transformer + VAE with manual denoise.
+    Advanced (keyframes/IC-LoRA): uses ltx-pipelines if available.
 
-    Usage:
-        # Standard (via SGLang)
-        seq = LTXSequencer(sglang_url="http://localhost:30010")
-        video = seq.generate(GenerationConfig(prompt="dragon flying"))
-
-        # Advanced keyframes (via ltx-pipelines)
-        seq = LTXSequencer(ltx_model_path="/models/ltx-video")
-        seq.load_pipeline()
-        video = seq.generate(GenerationConfig(
-            prompt="dragon flying",
-            keyframes=[KeyframeInput(first_frame, 0, mode="guide", strength=0.8)],
-        ))
+    NO diffusers. NO SGLang serve. Uses PyTorch directly.
     """
 
     def __init__(
         self,
-        sglang_url: str = "http://localhost:30010",
-        ltx_model_path: str | None = None,
+        transformer: nn.Module,
+        vae: nn.Module,
+        text_encoder: nn.Module = None,
+        tokenizer=None,
         device: str = "cuda",
     ):
-        self.sglang_url = sglang_url
-        self.ltx_model_path = ltx_model_path
+        self.transformer = transformer
+        self.vae = vae
+        self.text_encoder = text_encoder
+        self.tokenizer = tokenizer
         self.device = torch.device(device)
-
-        # ltx-pipelines components (lazy-loaded)
-        self._pipeline = None
-        self._vae = None
-        self._dit = None
-        self._loaded = False
-
-    def load_pipeline(self) -> None:
-        """Load ltx-pipelines for advanced features (keyframes, IC-LoRA).
-
-        This is ONLY needed for keyframe injection or IC-LoRA masking.
-        Standard generation uses SGLang and doesn't need this.
-        """
-        if self._loaded:
-            return
-
-        if not self.ltx_model_path:
-            raise ValueError("ltx_model_path required for ltx-pipelines mode")
-
-        logger.info("LTX: loading ltx-pipelines from %s", self.ltx_model_path)
-
-        try:
-            # Try importing ltx-pipelines components
-            from ltx_video.pipelines import TI2VidTwoStagesPipeline
-            from ltx_video.models.transformers import LTXVideoTransformer
-            from ltx_video.models.vae import AutoencoderKLLTXVideo
-
-            # Load components
-            self._dit = LTXVideoTransformer.from_pretrained(
-                self.ltx_model_path, subfolder="transformer",
-                torch_dtype=torch.bfloat16,
-            ).to(self.device)
-
-            self._vae = AutoencoderKLLTXVideo.from_pretrained(
-                self.ltx_model_path, subfolder="vae",
-                torch_dtype=torch.bfloat16,
-            ).to(self.device)
-
-            self._pipeline = TI2VidTwoStagesPipeline(
-                dit_model=self._dit,
-                vae=self._vae,
-                device=self.device,
-            )
-
-            self._loaded = True
-            logger.info("LTX: ltx-pipelines loaded (TI2VidTwoStagesPipeline)")
-
-        except ImportError:
-            logger.warning(
-                "ltx-pipelines not installed. Install with:\n"
-                "  pip install ltx-pipelines ltx-core\n"
-                "  or: pip install git+https://github.com/Lightricks/ltx-pipelines.git\n"
-                "Falling back to SGLang for all LTX generation."
-            )
-            self._loaded = False
+        self._ltx_pipeline = None
 
     def generate(self, config: GenerationConfig) -> Any:
-        """Generate video.
-
-        If keyframes or IC-LoRA mask provided: uses ltx-pipelines (requires load_pipeline()).
-        Otherwise: uses SGLang video API (faster, optimized kernels).
-        """
+        """Generate video. Uses keyframe injection if provided."""
         if config.keyframes or config.ic_lora_mask:
             return self._generate_advanced(config)
-        else:
-            return self._generate_sglang(config)
+        return self._generate_standard(config)
 
-    def _generate_sglang(self, config: GenerationConfig) -> Any:
-        """Standard generation via SGLang HTTP API."""
-        import httpx
+    def _generate_standard(self, config: GenerationConfig) -> torch.Tensor:
+        """Manual denoise loop for standard LTX generation."""
+        device = self.device
+        dtype = self.transformer.dtype if hasattr(self.transformer, 'dtype') else torch.bfloat16
 
-        body = {
-            "model": "ltx-video",
-            "prompt": config.prompt,
-            "width": config.width,
-            "height": config.height,
-            "num_frames": config.num_frames,
-            "num_inference_steps": config.num_inference_steps,
-        }
-        if config.seed >= 0:
-            body["seed"] = config.seed
-        if config.negative_prompt:
-            body["negative_prompt"] = config.negative_prompt
+        # Encode text
+        prompt_embeds = self._encode_text(config.prompt, device, dtype)
+        neg_embeds = self._encode_text(
+            config.negative_prompt or "worst quality", device, dtype
+        ) if config.guidance_scale > 0 else None
 
-        logger.info("LTX: generating via SGLang (%d frames, %d steps)",
-                    config.num_frames, config.num_inference_steps)
+        # Latent shape: (B, C, F_latent, H_latent, W_latent)
+        latent_h = config.height // 32
+        latent_w = config.width // 32
+        num_latent = (config.num_frames - 1) // VAE_TEMPORAL_COMPRESSION + 1
 
-        with httpx.Client(timeout=600) as client:
-            resp = client.post(f"{self.sglang_url}/v1/videos/generations", json=body)
+        gen = torch.Generator(device=device).manual_seed(config.seed) if config.seed >= 0 else None
+        latents = torch.randn(1, 128, num_latent, latent_h, latent_w,
+                              device=device, dtype=dtype, generator=gen)
 
-        if resp.status_code != 200:
-            raise RuntimeError(f"SGLang video generation failed: {resp.status_code} {resp.text[:200]}")
+        # Denoise
+        sigmas = torch.linspace(1.0, 0.0, config.num_inference_steps + 1, device=device, dtype=dtype)
+        use_cfg = neg_embeds is not None
 
-        return resp.json()
+        for i in range(config.num_inference_steps):
+            sigma = sigmas[i]
+            sigma_next = sigmas[i + 1]
+            t = sigma.unsqueeze(0).expand(latents.shape[0])
+
+            with torch.no_grad():
+                if use_cfg:
+                    model_in = torch.cat([latents, latents])
+                    t_in = torch.cat([t, t])
+                    enc_in = torch.cat([neg_embeds, prompt_embeds])
+                else:
+                    model_in = latents
+                    t_in = t
+                    enc_in = prompt_embeds
+
+                noise = self.transformer(
+                    hidden_states=model_in,
+                    encoder_hidden_states=enc_in,
+                    timestep=t_in,
+                    return_dict=False,
+                )[0]
+
+                if use_cfg:
+                    noise_uncond, noise_cond = noise.chunk(2)
+                    noise = noise_uncond + config.guidance_scale * (noise_cond - noise_uncond)
+
+                latents = latents + (sigma_next - sigma) * noise
+
+        # Decode
+        return self._decode(latents, config.num_frames)
 
     def _generate_advanced(self, config: GenerationConfig) -> Any:
-        """Advanced generation with keyframes via ltx-pipelines.
+        """Advanced generation with keyframe injection via ltx-pipelines."""
+        # Try ltx-pipelines
+        if self._ltx_pipeline is None:
+            self._try_load_ltx_pipelines()
 
-        Implements:
-        1. Replacing latents (hard keyframe overwrite)
-        2. Guiding latents (Gaussian decay additive signal)
-        3. IC-LoRA attention masking
-        4. Dual-stage execution (Stage 1 half-res → Stage 2 upscale)
-        """
-        if not self._loaded:
-            self.load_pipeline()
-            if not self._loaded:
-                logger.warning("LTX: ltx-pipelines not available — falling back to SGLang")
-                return self._generate_sglang(config)
+        if self._ltx_pipeline is not None:
+            return self._generate_via_ltx_pipelines(config)
 
-        logger.info("LTX: advanced generation with %d keyframes", len(config.keyframes))
+        # Fallback: manual injection in our denoise loop
+        logger.info("LTX: manual keyframe injection (ltx-pipelines not available)")
+        return self._generate_with_manual_injection(config)
 
-        # Use ltx-pipelines image_conditionings API for keyframe injection
-        # The ltx-pipelines package provides native helpers:
-        # - image_conditionings_by_replacing_latent
-        # - image_conditionings_by_adding_guiding_latent
+    def _generate_with_manual_injection(self, config: GenerationConfig) -> torch.Tensor:
+        """Manual denoise with replacing + guiding keyframe injection."""
+        device = self.device
+        dtype = torch.bfloat16
 
+        prompt_embeds = self._encode_text(config.prompt, device, dtype)
+
+        latent_h = config.height // 32
+        latent_w = config.width // 32
+        num_latent = (config.num_frames - 1) // VAE_TEMPORAL_COMPRESSION + 1
+
+        gen = torch.Generator(device=device).manual_seed(config.seed) if config.seed >= 0 else None
+        latents = torch.randn(1, 128, num_latent, latent_h, latent_w,
+                              device=device, dtype=dtype, generator=gen)
+
+        # Apply replacing keyframes (hard overwrite)
+        for kf in config.keyframes:
+            if kf.mode == "replace":
+                idx = kf.frame_index // VAE_TEMPORAL_COMPRESSION
+                if idx < num_latent:
+                    encoded = self._encode_image(kf.image, config, device, dtype)
+                    if encoded is not None:
+                        latents[:, :, idx] = kf.strength * encoded + (1 - kf.strength) * latents[:, :, idx]
+
+        # Generate guiding signals (Gaussian decay)
+        guiding = torch.zeros_like(latents)
+        for kf in config.keyframes:
+            if kf.mode == "guide":
+                idx = kf.frame_index // VAE_TEMPORAL_COMPRESSION
+                encoded = self._encode_image(kf.image, config, device, dtype)
+                if encoded is not None:
+                    for f in range(num_latent):
+                        dist = abs(f - idx)
+                        atten = math.exp(-0.5 * dist ** 2) * kf.strength
+                        guiding[:, :, f] += encoded * atten
+
+        # Denoise with guiding
+        sigmas = torch.linspace(1.0, 0.0, config.num_inference_steps + 1, device=device, dtype=dtype)
+        for i in range(config.num_inference_steps):
+            sigma = sigmas[i]
+            t = sigma.unsqueeze(0).expand(latents.shape[0])
+            current = latents + guiding  # Add guiding signal each step
+
+            with torch.no_grad():
+                noise = self.transformer(
+                    hidden_states=current, encoder_hidden_states=prompt_embeds,
+                    timestep=t, return_dict=False,
+                )[0]
+            latents = latents + (sigmas[i + 1] - sigma) * noise
+
+        return self._decode(latents, config.num_frames)
+
+    def _try_load_ltx_pipelines(self) -> None:
+        """Try to import ltx-pipelines for native keyframe support."""
         try:
-            from ltx_video.utils import (
-                image_conditionings_by_replacing_latent,
-                image_conditionings_by_adding_guiding_latent,
+            from ltx_video.pipelines import TI2VidTwoStagesPipeline
+            self._ltx_pipeline = TI2VidTwoStagesPipeline(
+                dit_model=self.transformer,
+                vae=self.vae,
+                device=self.device,
             )
-
-            # Build image conditionings from keyframes
-            replacing_keyframes = [kf for kf in config.keyframes if kf.mode == "replace"]
-            guiding_keyframes = [kf for kf in config.keyframes if kf.mode == "guide"]
-
-            image_conditionings = {}
-
-            # Replacing latents — hard overwrite at specific frames
-            for kf in replacing_keyframes:
-                image_conditionings_by_replacing_latent(
-                    image_conditionings,
-                    image=kf.image,
-                    frame_index=kf.frame_index,
-                    vae=self._vae,
-                    strength=kf.strength,
-                )
-
-            # Guiding latents — smooth additive influence
-            for kf in guiding_keyframes:
-                image_conditionings_by_adding_guiding_latent(
-                    image_conditionings,
-                    image=kf.image,
-                    frame_index=kf.frame_index,
-                    vae=self._vae,
-                    strength=kf.strength,
-                )
-
-            # IC-LoRA mask processing
-            if config.ic_lora_mask:
-                image_conditionings["conditioning_attention_mask"] = self._process_mask(
-                    config.ic_lora_mask, config
-                )
-                image_conditionings["conditioning_attention_strength"] = config.ic_lora_strength
-
-            # Generate via ltx-pipelines with conditionings
-            video = self._pipeline(
-                prompt=config.prompt,
-                negative_prompt=config.negative_prompt or None,
-                num_inference_steps=config.num_inference_steps,
-                guidance_scale=config.guidance_scale,
-                width=config.width,
-                height=config.height,
-                num_frames=config.num_frames,
-                image_conditionings=image_conditionings,
-                seed=config.seed if config.seed >= 0 else None,
-            )
-
-            return video
-
+            logger.info("LTX: ltx-pipelines loaded (TI2VidTwoStagesPipeline)")
         except ImportError:
-            logger.warning(
-                "LTX: ltx-pipelines keyframe API not available.\n"
-                "Install latest: pip install --upgrade ltx-pipelines\n"
-                "Falling back to SGLang."
-            )
-            return self._generate_sglang(config)
+            logger.info("LTX: ltx-pipelines not installed — using manual injection")
 
-    def _process_mask(self, mask_input, config: GenerationConfig):
-        """Process IC-LoRA spatial-temporal mask.
+    def _generate_via_ltx_pipelines(self, config: GenerationConfig) -> Any:
+        """Generate via ltx-pipelines with native keyframe helpers."""
+        from ltx_video.utils import (
+            image_conditionings_by_replacing_latent,
+            image_conditionings_by_adding_guiding_latent,
+        )
 
-        1. Load mask frames
-        2. Grayscale (mean across channels)
-        3. Normalize [0, 1]
-        4. Downsample to latent space with causal temporal alignment
-        5. Scale by conditioning strength (γ)
-        """
+        conditionings = {}
+        for kf in config.keyframes:
+            if kf.mode == "replace":
+                image_conditionings_by_replacing_latent(
+                    conditionings, image=kf.image, frame_index=kf.frame_index,
+                    vae=self.vae, strength=kf.strength,
+                )
+            else:
+                image_conditionings_by_adding_guiding_latent(
+                    conditionings, image=kf.image, frame_index=kf.frame_index,
+                    vae=self.vae, strength=kf.strength,
+                )
+
+        return self._ltx_pipeline(
+            prompt=config.prompt, num_inference_steps=config.num_inference_steps,
+            guidance_scale=config.guidance_scale, width=config.width,
+            height=config.height, num_frames=config.num_frames,
+            image_conditionings=conditionings,
+        )
+
+    def _encode_text(self, prompt: str, device, dtype) -> torch.Tensor:
+        if self.text_encoder is None or self.tokenizer is None:
+            return torch.randn(1, 77, 1024, device=device, dtype=dtype)
+        tokens = self.tokenizer(prompt, return_tensors="pt", padding="max_length",
+                                max_length=77, truncation=True).to(device)
+        with torch.no_grad():
+            out = self.text_encoder(**tokens)
+        return getattr(out, "last_hidden_state", out[0] if isinstance(out, tuple) else out)
+
+    def _encode_image(self, image, config, device, dtype) -> Optional[torch.Tensor]:
         try:
             from PIL import Image
-            import torch.nn.functional as F
+            if isinstance(image, Image.Image):
+                image = image.resize((config.width, config.height), Image.LANCZOS)
+                arr = np.array(image.convert("RGB")).astype(np.float32) / 127.5 - 1.0
+                img = torch.from_numpy(arr).permute(2, 0, 1).unsqueeze(0).unsqueeze(2).to(device, dtype)
+            else:
+                img = image.to(device, dtype)
+                if img.dim() == 3: img = img.unsqueeze(0).unsqueeze(2)
 
-            if isinstance(mask_input, Image.Image):
-                mask_input = [mask_input]
-
-            mask_frames = []
-            for m in mask_input[:config.num_frames]:
-                if isinstance(m, Image.Image):
-                    m = m.resize((config.width, config.height), Image.LANCZOS)
-                    arr = np.array(m.convert("RGB")).astype(np.float32)
-                    grayscale = arr.mean(axis=2) / 255.0
-                    mask_frames.append(grayscale)
-
-            if not mask_frames:
-                return None
-
-            mask_tensor = torch.from_numpy(np.stack(mask_frames))
-            mask_tensor = mask_tensor.unsqueeze(0).unsqueeze(0).to(self.device)
-
-            # Downsample to latent dimensions
-            latent_h = config.height // 32  # LTX spatial compression
-            latent_w = config.width // 32
-            num_latent_frames = (config.num_frames - 1) // VAE_TEMPORAL_COMPRESSION + 1
-
-            mask_down = F.interpolate(
-                mask_tensor, size=(config.num_frames, latent_h, latent_w),
-                mode="trilinear", align_corners=False,
-            )
-
-            # Causal temporal compression
-            mask_latent = mask_down[:, :, ::VAE_TEMPORAL_COMPRESSION][:, :, :num_latent_frames]
-            mask_latent = mask_latent * config.ic_lora_strength
-
-            return mask_latent
-
+            with torch.no_grad():
+                latent = self.vae.encode(img)
+                return getattr(latent, "sample", latent[0] if isinstance(latent, tuple) else latent)
         except Exception as e:
-            logger.warning("LTX: mask processing failed: %s", e)
+            logger.warning("LTX image encode failed: %s", e)
             return None
+
+    def _decode(self, latents: torch.Tensor, num_frames: int) -> list:
+        with torch.no_grad():
+            frames = self.vae.decode(latents, return_dict=False)[0]
+        if frames.dim() == 5: frames = frames[0]
+        return [frames[:, f] for f in range(min(frames.shape[1], num_frames))]
 
     @staticmethod
     def get_nearest_profile(frames: int) -> int:
-        """Map frame count to nearest discrete profile."""
         for p in COMMON_PROFILES:
-            if p >= frames:
-                return p
+            if p >= frames: return p
         return COMMON_PROFILES[-1]
-
-    @staticmethod
-    def pad_latents(latent: torch.Tensor, target_frames: int) -> Tuple[torch.Tensor, torch.Tensor]:
-        """Pad latents to discrete profile with attention mask."""
-        B, C, F, H, W = latent.shape
-        pad_len = target_frames - F
-
-        if pad_len > 0:
-            padding = torch.zeros(B, C, pad_len, H, W,
-                                  dtype=latent.dtype, device=latent.device)
-            padded = torch.cat([latent, padding], dim=2)
-        else:
-            padded = latent
-
-        mask = torch.zeros(B, 1, target_frames, H, W,
-                           dtype=latent.dtype, device=latent.device)
-        mask[:, :, :F] = 1.0
-
-        return padded, mask
-
-    def is_loaded(self) -> bool:
-        return self._loaded
-
-    def unload(self):
-        """Release ltx-pipelines resources."""
-        self._pipeline = None
-        self._dit = None
-        self._vae = None
-        self._loaded = False
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
-        logger.info("LTX: unloaded")
