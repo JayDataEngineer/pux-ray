@@ -60,15 +60,15 @@ MIN_COFREE_MB = 4_096
 # ─── Service Registry ────────────────────────────────────────────────────────
 
 SERVICE_MAP: dict[str, tuple[str, str]] = {
-    # Native diffusers — direct pipeline calls with adaptive VRAM optimization
+    # Native diffusers — ALL models served through adaptive VRAM optimization
     # Supports: Z-Image, Anima, FLUX, Wan, LTX, Qwen-Image + LoRA + multi-format
     "native":    ("services.native.forge_adapter",    "NativeForgeService"),
     # Route specific model families to native service
     "z-image":   ("services.native.forge_adapter",    "NativeForgeService"),
     "anima":     ("services.native.forge_adapter",    "NativeForgeService"),
-    # Wan2GP — legacy unified model pool (mmgp-managed VRAM, vram_mb=0)
-    # Kept as fallback for models not yet migrated to native
-    "wan2gp":    ("services.wan2gp.forge_adapter",    "Wan2GPForgeService"),
+    # NOTE: wan2gp service removed — replaced by native.
+    # If legacy wan2gp is needed, uncomment and install mmgp:
+    # "wan2gp":    ("services.wan2gp.forge_adapter",    "Wan2GPForgeService"),
     # ComfyUI — subprocess, separate GPU
     "comfyui":   ("services.image.comfyui",          "ComfyUIService"),
     # llama.cpp — subprocess, separate GPU
@@ -196,7 +196,7 @@ class ForgeCore:
         evicted = []
 
         # Build eviction candidates from BOTH ledger-tracked AND self-managed
-        # (vram_mb=0) services. Self-managed services like wan2gp (mmgp) don't
+        # (vram_mb=0) services. Self-managed services (legacy mmgp) don't
         # appear in _vram_allocations but hold real GPU memory that must be freed.
         candidates: dict[str, int] = {}
         for n in self._loaded:
@@ -465,7 +465,7 @@ class ForgeCore:
             return await asyncio.to_thread(svc.infer, payload)
 
         # Service is not loaded — evict anything else holding GPU before loading.
-        # Self-managed services (wan2gp vram_mb=0) bypass _can_fit() so
+        # Self-managed services (vram_mb=0) bypass _can_fit() so
         # _evict_for is never called for them. Co-loaded subprocess services
         # (LLM, kimodo) hold real GPU memory outside the ledger. Boot them.
         # invoke() is an explicit user action — override all locks.
@@ -483,7 +483,7 @@ class ForgeCore:
             self._evict_for(service, force=True)
 
         # After evicting subprocess services (LLM, ComfyUI), real GPU memory
-        # is freed asynchronously. Self-managed services (wan2gp with vram_mb=0)
+        # is freed asynchronously. Self-managed services (vram_mb=0)
         # bypass the ledger check in _can_fit() and go straight to CUDA malloc.
         # Wait for real GPU memory to be available before loading.
         await self._wait_gpu_ready(service)
@@ -674,7 +674,7 @@ class Forge:
         fn = _WORKFLOW_REGISTRY.get(pipeline_id)
         if fn is not None:
             # Legacy Python pipeline
-            self._core._persistence_overrides["wan2gp"] = Persistence.PIPELINE_LOCKED
+            self._core._persistence_overrides["native"] = Persistence.PIPELINE_LOCKED
             set_forge_core(self._core)
             try:
                 result = await asyncio.to_thread(fn, **params)
@@ -684,7 +684,7 @@ class Forge:
                 logger.exception("Pipeline %s failed", pipeline_id)
                 return {"status": "error", "error": str(e)}
             finally:
-                self._core._persistence_overrides.pop("wan2gp", None)
+                self._core._persistence_overrides.pop("native", None)
                 clear_forge_core()
             return result
 

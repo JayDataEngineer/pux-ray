@@ -29,7 +29,7 @@ inputs:
 steps:
   generate:
     type: forge
-    service: wan2gp
+    service: native
     model: "{{ inputs.model }}"
     params:
       input_prompt: "{{ inputs.prompt }}"

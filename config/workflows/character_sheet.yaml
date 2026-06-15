@@ -21,8 +21,8 @@ inputs:
 steps:
   generate_base:
     type: forge
-    service: wan2gp
-    model: z_image
+    service: native
+    model: z-image-turbo
     params:
       input_prompt: "{{ inputs.prompt }}"
       n_prompt: "{{ inputs.negative_prompt }}"
@@ -36,7 +36,7 @@ steps:
 
   refine:
     type: forge
-    service: wan2gp
+    service: native
     model: qwen-image-edit
     depends_on: [generate_base]
     params:

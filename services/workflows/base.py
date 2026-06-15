@@ -2,10 +2,10 @@
 
 When running inside Forge (set_forge_core called), get_service() returns
 a ForgeProxy that routes load/infer through the Forge's VRAM ledger.
-Otherwise returns a bare Wan2GPService (for standalone testing).
+Otherwise returns a bare NativeService (for standalone testing).
 
-Use get_native_service() for the native diffusers service (replaces Wan2GP
-for models with native diffusers pipeline support).
+All models are now served through the native diffusers service.
+No Wan2GP, no mmGP.
 """
 from __future__ import annotations
 
@@ -13,27 +13,31 @@ import base64
 import logging
 from typing import TYPE_CHECKING, Any
 
-from services.wan2gp.deployment import Wan2GPService
-
 if TYPE_CHECKING:
     from services.forge import ForgeCore
     from services.forge_proxy import ForgeProxy
+    from services.native.service import NativeService
 
 logger = logging.getLogger(__name__)
 
-_svc: Wan2GPService | ForgeProxy | None = None
-_native_svc = None  # Lazy-loaded NativeDiffusersService
+_svc: NativeService | ForgeProxy | None = None
 _forge_core: ForgeCore | None = None
 
 
-def get_service() -> Wan2GPService | ForgeProxy:
+def get_service() -> NativeService | ForgeProxy:
+    """Get the service singleton for workflow execution.
+
+    Inside forge: returns ForgeProxy (VRAM-tracked).
+    Standalone: returns bare NativeService.
+    """
     global _svc
     if _svc is None:
         if _forge_core is not None:
             from services.forge_proxy import ForgeProxy
             _svc = ForgeProxy(_forge_core)
         else:
-            _svc = Wan2GPService()
+            from services.native.service import NativeService
+            _svc = NativeService()
     return _svc
 
 
@@ -45,39 +49,20 @@ def set_forge_core(forge: ForgeCore) -> None:
 
 
 def clear_forge_core() -> None:
-    """Remove ForgeCore — next get_service() returns bare Wan2GPService."""
+    """Remove ForgeCore — next get_service() returns bare NativeService."""
     global _forge_core, _svc
     _forge_core = None
     _svc = None
 
 
 def reset_service() -> None:
-    global _svc, _native_svc
+    global _svc
     if _svc is not None:
         try:
             _svc.unload()
         except Exception:
             pass
         _svc = None
-    if _native_svc is not None:
-        try:
-            _native_svc.unload()
-        except Exception:
-            pass
-        _native_svc = None
-
-
-def get_native_service():
-    """Get the NativeDiffusersService singleton.
-
-    For standalone testing (outside forge). When inside forge,
-    use forge.invoke("native", payload) instead.
-    """
-    global _native_svc
-    if _native_svc is None:
-        from services.native.service import NativeDiffusersService
-        _native_svc = NativeDiffusersService()
-    return _native_svc
 
 
 def decode_image(image_b64: str) -> bytes:

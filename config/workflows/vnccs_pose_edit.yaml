@@ -65,7 +65,7 @@ steps:
 
   pose_transfer:
     type: forge
-    service: wan2gp
+    service: native
     model: qwen-image-edit
     depends_on: [extract_skeleton]
     params:

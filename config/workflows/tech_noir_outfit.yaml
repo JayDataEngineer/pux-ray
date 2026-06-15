@@ -18,7 +18,7 @@ inputs:
 steps:
   edit_outfit:
     type: forge
-    service: wan2gp
+    service: native
     model: qwen-image-edit
     params:
       input_prompt: "Draw character from image2, wearing {{ inputs.outfit_description }}"

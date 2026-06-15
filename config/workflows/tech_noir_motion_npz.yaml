@@ -18,7 +18,7 @@ inputs:
 steps:
   generate_motion:
     type: forge
-    service: wan2gp
+    service: native
     model: hy_motion
     params:
       input_prompt: "{{ inputs.prompt }}"

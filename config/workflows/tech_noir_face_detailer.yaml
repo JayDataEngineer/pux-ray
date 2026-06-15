@@ -17,7 +17,7 @@ inputs:
 steps:
   detect_face:
     type: forge
-    service: wan2gp
+    service: native
     model: dwpose
     params:
       image_b64: "{{ inputs.image }}"
@@ -27,7 +27,7 @@ steps:
 
   refine_face:
     type: forge
-    service: wan2gp
+    service: native
     model: qwen-image-edit
     depends_on: [detect_face]
     params:
