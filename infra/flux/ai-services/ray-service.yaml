@@ -187,7 +187,7 @@ spec:
                   - name: MODELS_ROOT
                     value: /models
                   - name: MODELS_CATEGORIES
-                    value: "tts,asr,vibevoice-cpp,comfyui,3d,audio,motion,multimodal,image,vision_models,avatar,lance,embeddings"
+                    value: "tts,asr,comfyui,3d,audio,motion,multimodal,vision_models,avatar,lance,embeddings"
                 volumeMounts:
                   - name: models
                     mountPath: /models
