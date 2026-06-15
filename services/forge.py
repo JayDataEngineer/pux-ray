@@ -618,26 +618,38 @@ class Forge:
         """Kill and reap any leftover subprocess processes from previous replicas.
 
         When a forge replica dies without cleanly stopping its subprocess
-        (e.g. during a Ray Serve redeploy), the llama-server becomes an orphan.
-        Kill any remaining llama-server processes to free GPU memory.
+        (e.g. during a Ray Serve redeploy), the llama-server or ComfyUI
+        becomes an orphan. Kill any remaining subprocesses to free GPU memory
+        and ports.
         """
         import subprocess
-        try:
-            # Kill any ACTUAL running llama-server processes
-            subprocess.run(["pkill", "-9", "-f", "llama-server"],
-                           capture_output=True, timeout=5)
-            time.sleep(2)
-            # Verify they're gone
-            result = subprocess.run(
-                ["pgrep", "-f", "llama-server"],
-                capture_output=True, text=True, timeout=5
-            )
-            if result.returncode == 0:
-                remaining = result.stdout.strip().split("\n")
-                logger.warning("Forge: %d llama-server processes still running after pkill",
-                               len(remaining))
-        except Exception as exc:
-            logger.warning("Forge: zombie cleanup failed: %s", exc)
+        # List of process patterns to reap — one entry per forge subprocess
+        _ZOMBIE_PATTERNS = [
+            "llama-server",
+            "[p]ython3.*main.py",  # ComfyUI
+            "[p]ython3.*llama_cpp",  # LLM fallback
+            "[p]ython3.*forge_kohya",  # Kohya training
+        ]
+        for pattern in _ZOMBIE_PATTERNS:
+            try:
+                subprocess.run(["pkill", "-9", "-f", pattern],
+                               capture_output=True, timeout=5)
+            except Exception:
+                pass
+        time.sleep(2)
+        # Log any remaining zombies
+        for pattern in _ZOMBIE_PATTERNS:
+            try:
+                result = subprocess.run(
+                    ["pgrep", "-f", pattern],
+                    capture_output=True, text=True, timeout=5
+                )
+                if result.returncode == 0:
+                    remaining = result.stdout.strip().split("\n")
+                    logger.warning("Forge: %d zombie processes still running (pattern=%s)",
+                                   len(remaining), pattern)
+            except Exception:
+                pass
 
     async def invoke(self, service: str, payload: dict,
                      model: str | None = None, quant: str | None = None) -> dict:

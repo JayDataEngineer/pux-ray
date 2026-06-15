@@ -77,7 +77,10 @@ class ForgeSubprocessMixin:
                 if resp.status_code == 200:
                     logger.info("Subprocess healthy on port %d", port)
                     return
-            except (httpx.ConnectError, httpx.TimeoutException):
+            except httpx.RequestError:
+                pass
+            except Exception:
+                logger.exception("Unexpected health check error for %s", health_url)
                 pass
             time.sleep(2)
 

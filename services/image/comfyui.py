@@ -39,7 +39,7 @@ class ComfyUIService(ForgeSubprocessMixin, ForgeService):
         # (RMBG, controlnet, sams, ultralytics) keep writable local dirs with
         # their pre-downloaded content symlinked inside. This avoids read-only
         # filesystem errors when nodes try to write model cache/config files.
-        subprocess.run(["bash", "-c", """
+        subprocess.run(["bash", "-c", r"""
             set -e
             MODELS="/opt/ComfyUI/models"
             SOURCE="/models/image-gen/comfyui"
@@ -103,8 +103,12 @@ class ComfyUIService(ForgeSubprocessMixin, ForgeService):
         if not self.is_running():
             logger.warning("ComfyUI subprocess died — restarting")
             self._loaded = False
-            self.load(self.model_name or self.default_model)
-            self._loaded = True
+            try:
+                self.load(self.model_name or self.default_model)
+                self._loaded = True
+            except Exception as e:
+                logger.exception("ComfyUI subprocess restart failed")
+                return {"status": "error", "error": f"ComfyUI restart failed: {e}"}
 
         if "workflow" in payload:
             return self._handle_workflow_sync(payload)
