@@ -136,8 +136,8 @@ steps:
 
   sound_fx:
     type: forge
-    service: native
-    model: moss/moss-soundeffect
+    service: moss
+    model: moss-soundeffect
     depends_on: [generate_video]
     params:
       input_prompt: "{{ inputs.sfx_prompt }}"
