@@ -71,6 +71,8 @@ SERVICE_MAP: dict[str, tuple[str, str]] = {
     # "wan2gp":    ("services.wan2gp.forge_adapter",    "Wan2GPForgeService"),
     # MOSS audio — standalone container (TTS + Sound Effects)
     "moss":      ("services.audio.forge_moss",        "MossForgeService"),
+    # CrispASR — C++ speech recognition (CPU-only, coexists with everything)
+    "asr":       ("services.audio.forge_asr",        "ASRForgeService"),
     # ComfyUI — subprocess, separate GPU
     "comfyui":   ("services.image.comfyui",          "ComfyUIService"),
     # llama.cpp — subprocess, separate GPU

@@ -2024,3 +2024,42 @@ diffusion-klein-4b-diffusers:
   vram_estimate_gb: 14.0
   device: gpu
   description: Flux.2 Klein 4B Diffusers (bf16). For kohya_ss LoRA training.
+
+# ── CrispASR Models (C++ GGML, CPU or GPU) ─────────────────────────────────────
+asr:
+  parakeet-tdt-0.6b:
+    path: asr/parakeet-tdt-0.6b-v3.gguf
+    source: hf://crispstrobe/parakeet-tdt-0.6b-v3-GGUF/parakeet-tdt-0.6b-v3-Q8_0.gguf
+    download: file
+    sha256: null
+    size_gb: 0.6
+    vram_estimate_gb: 0.0
+    device: cpu
+    description: "NVIDIA Parakeet TDT 0.6B v3 — fast multilingual ASR. CPU-only capable."
+  whisper-base:
+    path: asr/ggml-base.en.bin
+    source: hf://gh-mirror/ggml-base.en.bin
+    download: file
+    sha256: null
+    size_gb: 0.1
+    vram_estimate_gb: 0.0
+    device: cpu
+    description: "OpenAI Whisper Base (English) — lightweight CPU ASR."
+  canary-1b:
+    path: asr/canary-1b-v2.gguf
+    source: hf://crispstrobe/canary-1b-v2-GGUF/canary-1b-v2-Q8_0.gguf
+    download: file
+    sha256: null
+    size_gb: 1.0
+    vram_estimate_gb: 0.0
+    device: cpu
+    description: "NVIDIA Canary 1B v2 — translation + transcription. CPU-capable."
+  voxtral-mini-3b:
+    path: asr/voxtral-mini-3b.gguf
+    source: hf://crispstrobe/voxtral-mini-3b-GGUF/voxtral-mini-3b-2507-Q8_0.gguf
+    download: file
+    sha256: null
+    size_gb: 3.0
+    vram_estimate_gb: 0.0
+    device: cpu
+    description: "Mistral Voxtral Mini 3B — multilingual ASR + understanding. CPU-capable but slower."

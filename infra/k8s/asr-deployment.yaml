@@ -1,0 +1,69 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: crispasr
+  namespace: ai-services
+  labels:
+    app: crispasr
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: crispasr
+  template:
+    metadata:
+      labels:
+        app: crispasr
+    spec:
+      hostAliases:
+        - hostnames: [forge-reg.local]
+          ip: 192.168.86.184
+      containers:
+        - name: crispasr
+          # Prebuilt image from CrispASR project — C++ binary, no Python
+          # CUDA variant for GPU acceleration (optional, fractional)
+          # CPU-only would use: ghcr.io/crispstrobe/crispasr:main
+          image: ghcr.io/crispstrobe/crispasr:main-cuda-12
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8080
+              name: asr-api
+          env:
+            - name: CRISPASR_MODEL
+              value: "/models/asr/parakeet-tdt-0.6b-v3.gguf"
+            - name: CRISPASR_BACKEND
+              value: "parakeet"
+            - name: CRISPASR_AUTO_DOWNLOAD
+              value: "1"
+            - name: CRISPASR_CACHE_DIR
+              value: "/models/asr/cache"
+          # CPU-only: no GPU resources requested
+          # Add nvidia.com/gpu for GPU acceleration
+          resources:
+            limits:
+              cpu: "4"
+              memory: 8Gi
+            requests:
+              cpu: "2"
+              memory: 4Gi
+          volumeMounts:
+            - mountPath: /models
+              name: models
+      volumes:
+        - name: models
+          persistentVolumeClaim:
+            claimName: models-pvc
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: asr-service
+  namespace: ai-services
+spec:
+  selector:
+    app: crispasr
+  ports:
+    - port: 8080
+      targetPort: 8080
+      name: asr-api
+  clusterIP: None  # Headless

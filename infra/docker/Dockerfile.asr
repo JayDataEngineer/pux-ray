@@ -1,0 +1,26 @@
+# Dockerfile.asr — CrispASR speech recognition service
+# Uses prebuilt CrispASR C++ binary — zero Python dependencies
+# CPU-only by default, GPU acceleration optional
+#
+# Build (optional — can use prebuilt image directly):
+#   docker build -f infra/docker/Dockerfile.asr -t forge-reg.local:30500/tech-noir/asr:latest .
+
+FROM ghcr.io/crispstrobe/crispasr:main-cuda-12
+
+LABEL description="CrispASR — C++ ASR engine, 26 backends, OpenAI-compatible API"
+
+# CrispASR binary is already in the image at /app/crispasr
+# Server mode: crispasr --server -m model.gguf --port 8080 --host 0.0.0.0
+
+ENV CRISPASR_MODEL=/models/asr/parakeet-tdt-0.6b-v3.gguf
+ENV CRISPASR_BACKEND=parakeet
+ENV CRISPASR_AUTO_DOWNLOAD=1
+ENV CRISPASR_CACHE_DIR=/models/asr/cache
+
+EXPOSE 8080
+
+# The prebuilt image already has the entrypoint configured
+# Override only if you want different startup behavior
+CMD ["crispasr", "--server", "--host", "0.0.0.0", "--port", "8080", \
+     "-m", "/models/asr/parakeet-tdt-0.6b-v3.gguf", \
+     "--backend", "parakeet"]
