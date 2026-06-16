@@ -44,19 +44,23 @@ spec:
               value: /models/video
             - name: VACE_TOKENIZER_ROOT
               value: /models/video/wan-vace-tokenizer
-            # Optimization profile — RTX 4090 24GB defaults
-            # FP8 CPU storage (cuts ~50% RAM/PCIe). Set 0 if quality regressions.
+            # Optimization profile — RTX 4090 24GB OPTIMIZED defaults
+            # FP8 e4m3fn CPU storage — ~50% RAM/PCIe cut. Storage-only (compute
+            # stays BF16), so quality is preserved. Disable (set 0) only if you
+            # see dequantization overhead overwhelming the bandwidth savings.
             - name: VACE_FP8
-              value: "0"
+              value: "1"
             # TeaCache L1 threshold — 0.15 ≈ 35% block skip, no quality loss.
             # Set 0 to disable; 0.10 aggressive; 0.20 max skip with artifacts.
             - name: VACE_TEACACHE_THRESH
               value: "0.15"
             - name: VACE_TEACACHE_MODEL_ID
               value: Wan2.1-T2V-14B
-            # Attention impl: empty=auto (FA3→FA2→Sage→xformers→torch)
+            # Attention impl — pinned to SageAttention (faster than FA2 on DiT
+            # for our shapes). DiffSynth falls back to FA2→torch if Sage is
+            # somehow unavailable at runtime.
             - name: VACE_ATTENTION
-              value: ""
+              value: "sage_attention"
             # VRAM cap (0 = free - 2GB). Lower if coexisting with CPU services.
             - name: VACE_VRAM_LIMIT_GB
               value: "0"
