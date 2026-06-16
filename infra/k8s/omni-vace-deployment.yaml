@@ -1,0 +1,75 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: omni-vace
+  namespace: ai-services
+  labels:
+    app: omni-vace
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: omni-vace
+  template:
+    metadata:
+      labels:
+        app: omni-vace
+    spec:
+      runtimeClassName: nvidia
+      tolerations:
+        - key: node.kubernetes.io/disk-pressure
+          operator: Exists
+          effect: NoSchedule
+      containers:
+        - name: omni-server
+          image: forge-reg.local:30500/tech-noir/vllm-omni:api
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8000
+              name: omni-api
+          env:
+            - name: HF_HUB_OFFLINE
+              value: "1"
+            - name: TRANSFORMERS_OFFLINE
+              value: "1"
+            - name: DIFFUSERS_OFFLINE
+              value: "1"
+          command:
+            - python3
+            - -m
+            - vllm_omni.entrypoints.openai.api_server
+            - --model
+            - /models/wan2.1-vace-14b-diffusers
+            - --host
+            - 0.0.0.0
+            - --port
+            - "8000"
+          resources:
+            limits:
+              nvidia.com/gpu: 1
+              memory: 56Gi
+            requests:
+              nvidia.com/gpu: 1
+              memory: 16Gi
+          volumeMounts:
+            - mountPath: /models/wan2.1-vace-14b-diffusers
+              name: models
+              subPath: video/wan2.1-vace-14b-diffusers
+      volumes:
+        - name: models
+          persistentVolumeClaim:
+            claimName: models-pvc
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: omni-vace-service
+  namespace: ai-services
+spec:
+  selector:
+    app: omni-vace
+  ports:
+    - port: 8000
+      targetPort: 8000
+      name: omni-api
+  clusterIP: None

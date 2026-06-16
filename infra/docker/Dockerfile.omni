@@ -1,4 +1,5 @@
-FROM forge-reg.local:30500/tech-noir/vllm-omni:v0.23.0
-RUN pip install fastapi uvicorn pillow -q 2>/dev/null
-COPY services/video/omni_server.py /app/omni_server.py
-CMD ["python3", "/app/omni_server.py"]
+FROM forge-reg.local:30500/tech-noir/vllm-omni:exact
+COPY opt/omni_sitecustomize.py /usr/local/lib/python3.12/dist-packages/sitecustomize.py
+ENV CUDA_ENABLE_IPC_FORK=1
+EXPOSE 8000
+ENTRYPOINT ["python3", "-m", "vllm_omni.entrypoints.openai.api_server"]
