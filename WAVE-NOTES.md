@@ -83,3 +83,27 @@ All WhatDreamsCost LTX Director node features implemented:
 - Wan2.2 VACE-Fun: no diffusers format for vLLM-Omni
 - vLLM-Omni: version mismatch between vLLM, Omni, PyTorch, and CUDA
 - Optimal pure GPU speed (35-45s) requires: either 32GB+ VRAM, or fix VAE tiling for VACE context
+
+## vLLM-Omni 14B FP8 — RTX 4090 24GB (2026-06-16)
+
+### Configuration
+- **Base image**: `vllm/vllm-omni:latest` (vLLM 0.22.0 / Omni 0.22.0)
+- **Model**: `wan2.1-vace-14b-fp8-scaled` (Wan2.1 VACE 14B FP8 e4m3fn)
+- **Text encoder**: CPU-offloaded (saves ~5.3 GiB VRAM)
+- **Transformer**: GPU-resident FP8 (~17 GiB)
+- **Patch**: `scripts/pipeline_wan2_2_vace_patch.py` — removes `.to(device)` from text encoder loading
+
+### Benchmark
+| Setting | Value |
+|---------|-------|
+| Resolution | 832×480 |
+| Frames | 33 |
+| Steps | 18 |
+| Guidance scale | 5.0 |
+| **Generation time** | **38.5s** |
+| **Power usage** | 1 RTX 4090 (24GB) |
+
+### Known issues
+- Output is returned as PNG frames (b64_json), not MP4; clients must convert
+- `weight_scale` tensors stripped from checkpoint; vLLM computes scales dynamically
+- `scale_shift_table` tensors regenerated with random init (originals corrupted during FP8 conversion)
