@@ -85,3 +85,17 @@ target "overflow-gateway" {
   tags       = ["${REGISTRY}/overflow-gateway:latest"]
   platforms  = ["linux/amd64"]
 }
+
+# VACE video editing — DiffSynth-Studio standalone (bypasses SGLang: VCU inputs
+# not supported by SGLang's compiled diffusion graph). TeaCache + SageAttention.
+# Build: docker bake vace --push
+target "vace" {
+  dockerfile = "infra/docker/Dockerfile.vace"
+  context    = "."
+  tags       = ["${REGISTRY}/vace:latest"]
+  platforms  = ["linux/amd64"]
+  args = {
+    # RTX 4090 = sm_89. Override for other Ada/Hopper cards.
+    TORCH_CUDA_ARCH_LIST = "8.9"
+  }
+}

@@ -1,0 +1,128 @@
+# vace-deployment.yaml — Standalone Wan VACE video service
+#
+# Bypasses SGLang (VCU inputs unsupported). DiffSynth-Studio container with
+# TeaCache + SageAttention + tiled VAE + FP8 streaming. Forge adapter calls
+# via headless vace-service:8082.
+#
+# Pattern mirrors moss-deployment.yaml:
+#   - runtimeClassName: nvidia
+#   - nvidia.com/gpu: 1 (VACE saturates VRAM during denoise — no coexistence)
+#   - hostPath mount of repo root (hot-reload server.py during development)
+#   - headless Service for stable pod DNS (forge adapter falls back to localhost)
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vace-video
+  namespace: ai-services
+  labels:
+    app: vace-video
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: vace-video
+  template:
+    metadata:
+      labels:
+        app: vace-video
+    spec:
+      runtimeClassName: nvidia
+      hostAliases:
+        - hostnames: [forge-reg.local]
+          ip: 192.168.86.184
+      containers:
+        - name: vace-server
+          image: forge-reg.local:30500/tech-noir/vace:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8082
+              name: vace-api
+          env:
+            - name: VACE_PORT
+              value: "8082"
+            - name: VACE_MODELS_ROOT
+              value: /models/video
+            - name: VACE_TOKENIZER_ROOT
+              value: /models/video/wan-vace-tokenizer
+            # Optimization profile — RTX 4090 24GB defaults
+            # FP8 CPU storage (cuts ~50% RAM/PCIe). Set 0 if quality regressions.
+            - name: VACE_FP8
+              value: "0"
+            # TeaCache L1 threshold — 0.15 ≈ 35% block skip, no quality loss.
+            # Set 0 to disable; 0.10 aggressive; 0.20 max skip with artifacts.
+            - name: VACE_TEACACHE_THRESH
+              value: "0.15"
+            - name: VACE_TEACACHE_MODEL_ID
+              value: Wan2.1-T2V-14B
+            # Attention impl: empty=auto (FA3→FA2→Sage→xformers→torch)
+            - name: VACE_ATTENTION
+              value: ""
+            # VRAM cap (0 = free - 2GB). Lower if coexisting with CPU services.
+            - name: VACE_VRAM_LIMIT_GB
+              value: "0"
+            - name: VACE_TILED
+              value: "1"
+            - name: VACE_TILE_SIZE
+              value: "30,52"
+            - name: VACE_DEFAULT_STEPS
+              value: "18"
+            - name: SAFETENSORS_DISABLE_MMAP
+              value: "1"
+            - name: PYTORCH_CUDA_ALLOC_CONF
+              value: expandable_segments:True
+          resources:
+            limits:
+              nvidia.com/gpu: 1
+              memory: 56Gi
+            requests:
+              nvidia.com/gpu: 1
+              memory: 16Gi
+          # VACE generation is slow (sub-minute even optimized) — generous probe
+          # windows so k8s doesn't restart us mid-denoise.
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8082
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            timeoutSeconds: 10
+            failureThreshold: 5
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8082
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+          volumeMounts:
+            - mountPath: /models
+              name: models
+            # Hot-reload server code during development without rebuilding image
+            - mountPath: /app/vace_server.py
+              name: src
+              subPath: services/video/vace_server.py
+            - mountPath: /app/forge_vace.py
+              name: src
+              subPath: services/video/forge_vace.py
+      volumes:
+        - name: models
+          persistentVolumeClaim:
+            claimName: models-pvc
+        - name: src
+          hostPath:
+            path: /home/user/Documents/programs/ray
+            type: Directory
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: vace-service
+  namespace: ai-services
+spec:
+  selector:
+    app: vace-video
+  ports:
+    - port: 8082
+      targetPort: 8082
+      name: vace-api
+  clusterIP: None  # Headless — use pod IP directly (matches moss-service)

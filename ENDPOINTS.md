@@ -168,6 +168,9 @@ These services are managed by the Forge VRAM scheduler:
 | Service Key | Label | Category | Output | VRAM |
 |-------------|-------|----------|--------|------|
 | `wan2gp` | Wan2GP Pool | creative | video | mmgp (self-managed) |
+| `native` | Native (Z-Image, FLUX, LTX, Wan T2V/I2V) | image+video | image/video | adaptive |
+| `moss` | MOSS Audio (TTS + SFX) | audio | audio | full GPU |
+| `vace` | Wan VACE (DiffSynth — video editing) | video | video | full GPU |
 | `comfyui` | ComfyUI | image | proxy | declared |
 | `llm` | LLM (llama.cpp) | llm | json | declared |
 | `avatar` | Avatar Pipeline | avatar | video | staged |

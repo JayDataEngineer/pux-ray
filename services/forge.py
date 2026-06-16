@@ -71,6 +71,10 @@ SERVICE_MAP: dict[str, tuple[str, str]] = {
     # "wan2gp":    ("services.wan2gp.forge_adapter",    "Wan2GPForgeService"),
     # MOSS audio — standalone container (TTS + Sound Effects)
     "moss":      ("services.audio.forge_moss",        "MossForgeService"),
+    # VACE video — standalone DiffSynth-Studio container (bypasses SGLang: VCU
+    # inputs not supported by SGLang's compiled diffusion graph). Wan2.2 VACE-Fun
+    # A14B modular + Wan2.1 VACE 14B/1.3B. TeaCache + SageAttention enabled.
+    "vace":      ("services.video.forge_vace",        "VaceForgeService"),
     # CrispASR — C++ speech recognition (CPU-only, coexists with everything)
     "asr":       ("services.audio.forge_asr",        "ASRForgeService"),
     # ComfyUI — subprocess, separate GPU

@@ -1570,6 +1570,55 @@ vibevoice-cpp:
     size_gb: 0.006
     source: hf://mudler/vibevoice.cpp-models/voice-en-Emma.gguf
     vram_estimate_gb: 0.01
+video:
+  wan-vace-fun-a14b:
+    description: 'Wan2.2 VACE-Fun A14B — modular dual-expert MoE (high-noise + low-noise)
+      layered on Wan 2.2 T2V base. All-in-one VCU inputs: vace_video (depth/pose/layout),
+      vace_video_mask (alpha), vace_reference_image (subject). Served via standalone
+      DiffSynth-Studio container — bypasses SGLang (VCU tensors unsupported by SGLang
+      diffusion engine). Bundle includes both MoE experts + umt5-xxl encoder + Wan2.1
+      VAE. Full BF16 base (no distillation) — production-grade. TeaCache + SageAttention
+      enabled by default. FP8 streaming via VACE_FP8=1 env var.'
+    device: gpu
+    download: modelscope
+    path: video/wan-vace-fun-a14b
+    sha256: null
+    size_gb: 34.0
+    source: modelscope://alibaba-pai/Wan2.2-VACE-Fun-A14B
+    vram_estimate_gb: 22.0
+  wan-vace-14b:
+    description: 'Wan2.1 VACE 14B monolithic (standalone, not modular). Same VCU task
+      matrix as Fun-A14B but single all-in-one checkpoint. Simpler pipeline — useful
+      when MoE expert routing causes artifacts. Prone to oversaturation if CFG > 5.0
+      or steps < 20.'
+    device: gpu
+    download: modelscope
+    path: video/wan-vace-14b
+    sha256: null
+    size_gb: 56.0
+    source: modelscope://Wan-AI/Wan2.1-VACE-14B
+    vram_estimate_gb: 22.0
+  wan-vace-1.3b:
+    description: 'Wan2.1 VACE 1.3B efficiency tier. Same VCU inputs as 14B but fits
+      in 8GB VRAM without aggressive offload. Use for fast prototyping or batch
+      preview generation before final 14B render.'
+    device: gpu
+    download: modelscope
+    path: video/wan-vace-1.3b
+    sha256: null
+    size_gb: 5.0
+    source: modelscope://Wan-AI/Wan2.1-VACE-1.3B
+    vram_estimate_gb: 6.0
+  wan-vace-tokenizer:
+    description: 'UMT5-XXL tokenizer for VACE pipeline. Shared with Wan-AI/Wan2.1-T2V-1.3B.
+      Auto-downloaded by vace_server if missing.'
+    device: cpu
+    download: modelscope
+    path: video/wan-vace-tokenizer
+    sha256: null
+    size_gb: 0.05
+    source: modelscope://Wan-AI/Wan2.1-T2V-1.3B
+    vram_estimate_gb: 0.0
 vision:
   gemma-4-26b-a4b-mmproj-f16:
     description: Gemma 4 26B A4B mmproj (F16).
