@@ -74,17 +74,23 @@ if ATTENTION_IMPL:
     os.environ["DIFFSYNTH_ATTENTION_IMPLEMENTATION"] = ATTENTION_IMPL
 
 # Model registry: short-name → (local_path, tokenizer_path, pipeline_layout)
-# Layout matches scripts/download_vace_models.py.
+# Patterns try FP8 pre-quantized first (fast, fits in RAM), fall back to BF16.
 VACE_MODELS = {
     # Wan2.2 VACE-Fun A14B — modular MoE (primary production target)
     "wan-vace-fun-a14b": {
         "model_paths": [
+            ("high_noise_model", "diffusion_pytorch_model_fp8_e4m3fn.safetensors"),
+            ("low_noise_model",  "diffusion_pytorch_model_fp8_e4m3fn.safetensors"),
+            (".",                "models_t5_umt5-xxl-enc-fp8_e4m3fn.safetensors"),
+            (".",                "Wan2.1_VAE.pth"),
+        ],
+        "fallback_paths": [  # used if FP8 files don't exist
             ("high_noise_model", "diffusion_pytorch_model*.safetensors"),
             ("low_noise_model",  "diffusion_pytorch_model*.safetensors"),
             (".",                "models_t5_umt5-xxl-enc-bf16.pth"),
             (".",                "Wan2.1_VAE.pth"),
         ],
-        "model_id_template": "alibaba-pai/Wan2.2-VACE-Fun-A14B",  # for TeaCache coeffs
+        "model_id_template": "alibaba-pai/Wan2.2-VACE-Fun-A14B",
         "is_moe": True,
     },
     # Wan2.1 VACE 14B monolithic (alternative)
@@ -123,28 +129,39 @@ def _build_vram_config() -> dict:
     VACE_FP8=1: switches offload/onload to FP8 e4m3fn — halves CPU RAM and PCIe
     bandwidth at the cost of dequantization overhead during block streaming.
     """
-    # Disk offload: weights are memory-mapped from the safetensors files on disk.
-    # This is the DiffSynth official low_vram approach — critical for 81GB models
-    # on 59GB-RAM systems. CPU offload causes OOM during the load phase because
-    # both the source tensors and the offloaded copies coexist in RAM.
+    # With pre-quantized FP8 weights (~17GB per expert, ~40GB total), we can
+    # use CPU offload instead of disk offload. This is 2-3x faster because
+    # blocks are read from RAM (not disk) during the forward pass.
     #
-    # FP8 CPU storage (VACE_FP8=1) was disabled because the FP8 CAST operation
-    # creates both BF16 + FP8 copies simultaneously, peaking at 120GB+ — more
-    # than CPU offload, not less. Disk offload via mmap is the correct path.
-    base = {
-        "offload_dtype": "disk",
-        "offload_device": "disk",
-        "onload_dtype": torch.bfloat16,
-        "onload_device": "cpu",
-        "preparing_dtype": torch.bfloat16,
-        "preparing_device": "cuda",
-        "computation_dtype": torch.bfloat16,
-        "computation_device": "cuda",
-    }
+    # The FP8 files are loaded directly — no runtime BF16→FP8 cast, so there's
+    # no dual-copy memory spike that caused OOM with the original BF16 files.
+    #
+    # Falls back to disk offload if only BF16 files are available.
     if FP8_ENABLED:
-        logger.info("VRAM: FP8 flag ignored — disk offload is used instead "
-                    "(FP8 CPU storage causes OOM during cast on 59GB-RAM systems)")
-    return base
+        logger.info("VRAM: FP8 e4m3fn CPU offload (pre-quantized weights)")
+        return {
+            "offload_dtype": torch.float8_e4m3fn,
+            "offload_device": "cpu",
+            "onload_dtype": torch.float8_e4m3fn,
+            "onload_device": "cpu",
+            "preparing_dtype": torch.bfloat16,
+            "preparing_device": "cuda",
+            "computation_dtype": torch.bfloat16,
+            "computation_device": "cuda",
+        }
+    else:
+        # BF16 fallback: disk offload via mmap (avoids OOM on 59GB RAM)
+        logger.info("VRAM: disk offload (BF16 weights via mmap)")
+        return {
+            "offload_dtype": "disk",
+            "offload_device": "disk",
+            "onload_dtype": torch.bfloat16,
+            "onload_device": "cpu",
+            "preparing_dtype": torch.bfloat16,
+            "preparing_device": "cuda",
+            "computation_dtype": torch.bfloat16,
+            "computation_device": "cuda",
+        }
 
 
 def _load_model_blocking(model_name: str):
@@ -185,15 +202,37 @@ def _load_model_blocking(model_name: str):
             "  pip install diffsynth   OR   pip install git+https://github.com/modelscope/DiffSynth-Studio"
         ) from e
 
-    vram_config = _build_vram_config()
+    # Detect FP8 vs BF16 weights and choose offload strategy.
+    # FP8 pre-quantized files → CPU offload (fast, fits in RAM)
+    # BF16 only → disk offload via mmap (slower, but no OOM)
     import glob as glob_module
+
+    def _glob_weights(sub, pattern):
+        full = os.path.join(local_root, sub, pattern) if sub != "." else os.path.join(local_root, pattern)
+        return sorted(glob_module.glob(full))
+
+    # Try FP8 patterns first
+    fp8_paths = cfg.get("model_paths", [])
+    fp8_found = all(_glob_weights(sub, pat) for sub, pat in fp8_paths)
+
+    if fp8_found:
+        use_paths = fp8_paths
+        vram_config = _build_vram_config()  # returns FP8 CPU offload config
+        logger.info("VACE: FP8 pre-quantized weights detected → CPU offload (fast)")
+    else:
+        use_paths = cfg.get("fallback_paths", fp8_paths)
+        # Force disk offload for BF16
+        global FP8_ENABLED
+        FP8_ENABLED = False
+        vram_config = _build_vram_config()  # returns disk offload config
+        logger.info("VACE: BF16 weights only → disk offload (slower, but safe)")
+
     model_configs = []
-    for sub, pattern in cfg["model_paths"]:
-        full_pattern = os.path.join(local_root, sub, pattern) if sub != "." else os.path.join(local_root, pattern)
-        matched = sorted(glob_module.glob(full_pattern))
+    for sub, pattern in use_paths:
+        matched = _glob_weights(sub, pattern)
         if not matched:
             raise FileNotFoundError(
-                f"No files matching {full_pattern}.\n"
+                f"No files matching {os.path.join(local_root, sub, pattern)}.\n"
                 f"  Download with: python3 scripts/download_vace_models.py --only fun-a14b"
             )
         path = matched[0] if len(matched) == 1 else matched
