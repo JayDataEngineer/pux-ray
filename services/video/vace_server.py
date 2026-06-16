@@ -123,9 +123,17 @@ def _build_vram_config() -> dict:
     VACE_FP8=1: switches offload/onload to FP8 e4m3fn — halves CPU RAM and PCIe
     bandwidth at the cost of dequantization overhead during block streaming.
     """
+    # Disk offload: weights are memory-mapped from the safetensors files on disk.
+    # This is the DiffSynth official low_vram approach — critical for 81GB models
+    # on 59GB-RAM systems. CPU offload causes OOM during the load phase because
+    # both the source tensors and the offloaded copies coexist in RAM.
+    #
+    # FP8 CPU storage (VACE_FP8=1) was disabled because the FP8 CAST operation
+    # creates both BF16 + FP8 copies simultaneously, peaking at 120GB+ — more
+    # than CPU offload, not less. Disk offload via mmap is the correct path.
     base = {
-        "offload_dtype": torch.bfloat16,
-        "offload_device": "cpu",
+        "offload_dtype": "disk",
+        "offload_device": "disk",
         "onload_dtype": torch.bfloat16,
         "onload_device": "cpu",
         "preparing_dtype": torch.bfloat16,
@@ -134,31 +142,92 @@ def _build_vram_config() -> dict:
         "computation_device": "cuda",
     }
     if FP8_ENABLED:
-        # Store offloaded weights as FP8 e4m3fn on CPU. Compute stays BF16
-        # (FP8 compute requires TransformerEngine / Hopper-specific kernels
-        # and the diffusers Wan DiT doesn't expose enable_layerwise_casting
-        # for true FP8 GEMM on Ada Lovelace).
-        base["offload_dtype"] = torch.float8_e4m3fn
-        base["onload_dtype"] = torch.float8_e4m3fn
-        logger.info("VRAM: FP8 e4m3fn CPU storage enabled (~50%% RAM/PCIe reduction)")
+        logger.info("VRAM: FP8 flag ignored — disk offload is used instead "
+                    "(FP8 CPU storage causes OOM during cast on 59GB-RAM systems)")
     return base
 
 
 def _load_model_blocking(model_name: str):
     """Actual model loading (runs in calling thread — blocks for 2-3min)."""
     global _pipe, _loaded_model
-    # ... (existing body, unchanged) ...
     if _pipe is not None and _loaded_model == model_name:
         return _pipe
+
+    if _pipe is not None:
+        logger.info("VACE: switching from '%s' to '%s'", _loaded_model, model_name)
+        unload_model()
+
+    if model_name not in VACE_MODELS:
+        raise ValueError(
+            f"Unknown model '{model_name}'. Available: {list(VACE_MODELS.keys())}"
+        )
+
+    cfg = VACE_MODELS[model_name]
+    local_root = os.path.join(MODELS_ROOT, model_name)
+
+    if not os.path.exists(local_root):
+        short = model_name.replace("wan-vace-", "").replace("wan-", "") or "fun-a14b"
+        raise FileNotFoundError(
+            f"Model '{model_name}' not found at {local_root}.\n"
+            f"  Download with: python3 scripts/download_vace_models.py --only {short} tokenizer"
+        )
+
+    logger.info("VACE: loading '%s' from %s", model_name, local_root)
+    logger.info("  FP8=%s  TeaCache=%s (thresh=%.3f)  Tiled=%s  Attention=%s",
+                FP8_ENABLED, TEACACHE_THRESH > 0, TEACACHE_THRESH, TILED,
+                ATTENTION_IMPL or "auto")
+
+    try:
+        from diffsynth.pipelines.wan_video import WanVideoPipeline, ModelConfig
+    except ImportError as e:
+        raise RuntimeError(
+            "DiffSynth-Studio not installed. Add to Dockerfile.vace:\n"
+            "  pip install diffsynth   OR   pip install git+https://github.com/modelscope/DiffSynth-Studio"
+        ) from e
+
+    vram_config = _build_vram_config()
+    import glob as glob_module
+    model_configs = []
+    for sub, pattern in cfg["model_paths"]:
+        full_pattern = os.path.join(local_root, sub, pattern) if sub != "." else os.path.join(local_root, pattern)
+        matched = sorted(glob_module.glob(full_pattern))
+        if not matched:
+            raise FileNotFoundError(
+                f"No files matching {full_pattern}.\n"
+                f"  Download with: python3 scripts/download_vace_models.py --only fun-a14b"
+            )
+        path = matched[0] if len(matched) == 1 else matched
+        model_configs.append(ModelConfig(path=path, **vram_config))
+
+    vram_limit = VRAM_LIMIT_GB
+    if vram_limit <= 0 and torch.cuda.is_available():
+        free, _ = torch.cuda.mem_get_info(0)
+        vram_limit = free / (1024 ** 3) - 2.0
+    vram_limit = max(vram_limit, 4.0)
+
+    tokenizer_path = os.path.join(TOKENIZER_ROOT, "google/umt5-xxl")
+    if not os.path.exists(tokenizer_path):
+        tokenizer_path = os.path.join(local_root, "google/umt5-xxl")
+    tokenizer_config = ModelConfig(path=tokenizer_path) if os.path.exists(tokenizer_path) else None
+
+    _pipe = WanVideoPipeline.from_pretrained(
+        torch_dtype=torch.bfloat16,
+        device="cuda",
+        model_configs=model_configs,
+        tokenizer_config=tokenizer_config,
+        redirect_common_files=False,
+        vram_limit=vram_limit,
+    )
+    _loaded_model = model_name
+    vram_mb = torch.cuda.memory_allocated(0) // (1024 * 1024) if torch.cuda.is_available() else 0
+    logger.info("VACE: '%s' loaded (%dMB VRAM, limit=%.1fGB)",
+                model_name, vram_mb, vram_limit)
+    return _pipe
 
 
 def load_model(model_name: str, max_wait: int = 600):
     """Load a VACE pipeline. Non-blocking: spawns a background thread so the
     HTTP server stays responsive to /health probes during the 2-3min load.
-
-    Blocks the caller until loading completes (or max_wait seconds elapse).
-    The difference from the old blocking load: /health remains callable from
-    the liveness probe thread, preventing k8s from killing the pod mid-load.
     """
     global _pipe, _loaded_model, _loading, _load_error
 
@@ -166,7 +235,6 @@ def load_model(model_name: str, max_wait: int = 600):
         return _pipe
 
     import threading
-    # If loading is already in progress for the same model, just wait
     if _loading:
         logger.info("VACE: model loading already in progress, waiting...")
         _wait_for_load(max_wait)
@@ -174,7 +242,6 @@ def load_model(model_name: str, max_wait: int = 600):
             raise RuntimeError(_load_error)
         return _pipe
 
-    # Start loading in background thread
     _loading = True
     _load_error = None
 
@@ -204,87 +271,6 @@ def _wait_for_load(max_wait: int = 600):
         _time.sleep(2)
     if _loading:
         logger.warning("VACE: model loading still in progress after %ds (continuing)", max_wait)
-
-    if _pipe is not None:
-        logger.info("VACE: switching from '%s' to '%s'", _loaded_model, model_name)
-        unload_model()
-
-    if model_name not in VACE_MODELS:
-        raise ValueError(
-            f"Unknown model '{model_name}'. Available: {list(VACE_MODELS.keys())}"
-        )
-
-    cfg = VACE_MODELS[model_name]
-    # Directory name under /models/video/ matches the registry key verbatim
-    # (see scripts/download_vace_models.py VACE_MODELS mapping).
-    local_root = os.path.join(MODELS_ROOT, model_name)
-
-    if not os.path.exists(local_root):
-        # Map registry name → download-script short-name for the helpful hint
-        short = model_name.replace("wan-vace-", "").replace("wan-", "") or "fun-a14b"
-        raise FileNotFoundError(
-            f"Model '{model_name}' not found at {local_root}.\n"
-            f"  Download with: python3 scripts/download_vace_models.py --only {short} tokenizer"
-        )
-
-    logger.info("VACE: loading '%s' from %s", model_name, local_root)
-    logger.info("  FP8=%s  TeaCache=%s (thresh=%.3f)  Tiled=%s  Attention=%s",
-                FP8_ENABLED, TEACACHE_THRESH > 0, TEACACHE_THRESH, TILED,
-                ATTENTION_IMPL or "auto")
-
-    # DiffSynth-Studio import — fail clearly if not installed in the image
-    try:
-        from diffsynth.pipelines.wan_video import WanVideoPipeline, ModelConfig
-    except ImportError as e:
-        raise RuntimeError(
-            "DiffSynth-Studio not installed. Add to Dockerfile.vace:\n"
-            "  pip install diffsynth   OR   pip install git+https://github.com/modelscope/DiffSynth-Studio"
-        ) from e
-
-    vram_config = _build_vram_config()
-    # Use ModelConfig(path=...) NOT model_id — path bypasses ALL download logic
-    # and uses local files directly. model_id triggers ModelScope/HF download.
-    import glob as glob_module
-    model_configs = []
-    for sub, pattern in cfg["model_paths"]:
-        full_pattern = os.path.join(local_root, sub, pattern) if sub != "." else os.path.join(local_root, pattern)
-        matched = sorted(glob_module.glob(full_pattern))
-        if not matched:
-            raise FileNotFoundError(
-                f"No files matching {full_pattern}.\n"
-                f"  Download with: python3 scripts/download_vace_models.py --only fun-a14b"
-            )
-        path = matched[0] if len(matched) == 1 else matched
-        model_configs.append(ModelConfig(path=path, **vram_config))
-
-    # VRAM limit: cap GPU memory (free - 2GB) or env override
-    vram_limit = VRAM_LIMIT_GB
-    if vram_limit <= 0 and torch.cuda.is_available():
-        free, _ = torch.cuda.mem_get_info(0)
-        vram_limit = free / (1024 ** 3) - 2.0
-    vram_limit = max(vram_limit, 4.0)  # never below 4GB floor
-
-    # Tokenizer: use local path (no download). The tokenizer files live at
-    # TOKENIZER_ROOT/google/umt5-xxl/ (downloaded separately or from the fun-a14b bundle).
-    tokenizer_path = os.path.join(TOKENIZER_ROOT, "google/umt5-xxl")
-    if not os.path.exists(tokenizer_path):
-        # Fallback: check inside the model bundle itself
-        tokenizer_path = os.path.join(local_root, "google/umt5-xxl")
-    tokenizer_config = ModelConfig(path=tokenizer_path) if os.path.exists(tokenizer_path) else None
-
-    _pipe = WanVideoPipeline.from_pretrained(
-        torch_dtype=torch.bfloat16,
-        device="cuda",
-        model_configs=model_configs,
-        tokenizer_config=tokenizer_config,
-        redirect_common_files=False,  # we have the original .pth files, don't redirect to .safetensors
-        vram_limit=vram_limit,
-    )
-    _loaded_model = model_name
-    vram_mb = torch.cuda.memory_allocated(0) // (1024 * 1024) if torch.cuda.is_available() else 0
-    logger.info("VACE: '%s' loaded (%dMB VRAM, limit=%.1fGB)",
-                model_name, vram_mb, vram_limit)
-    return _pipe
 
 
 def unload_model():
