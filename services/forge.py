@@ -79,6 +79,7 @@ SERVICE_MAP: dict[str, tuple[str, str]] = {
     # Q4_K_M GGUF weights fit entirely in 24GB VRAM — no PCIe streaming.
     # sd-server provides /sdcpp/v1/vid_gen async API on port 1234.
     "sdcpp-vace": ("services.video.forge_vace",        "VaceForgeService"),
+    "omni-vace": ("services.video.forge_omni_vace",  "OmniVaceForgeService"),
     # CrispASR — C++ speech recognition (CPU-only, coexists with everything)
     "asr":       ("services.audio.forge_asr",        "ASRForgeService"),
     # ComfyUI — subprocess, separate GPU
