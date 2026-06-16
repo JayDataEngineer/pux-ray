@@ -15,7 +15,7 @@ FROM nvidia/cuda:13.1.0-devel-ubuntu24.04 AS builder
 
 ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    git cmake build-essential \
+    git cmake build-essential python3 \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /build
@@ -24,10 +24,10 @@ WORKDIR /build
 RUN git clone --depth 1 --recurse-submodules \
     https://github.com/leejet/stable-diffusion.cpp.git .
 
-# Monkey-patch: Wan VACE uses Conv3d (5D tensors). Bump ggml's tensor
-# dimension limit 4→5. Remove this patch when upstream fixes it.
-COPY infra/docker/sdcpp-5d-tensor.patch /tmp/5d.patch
-RUN patch -p1 < /tmp/5d.patch && rm /tmp/5d.patch
+# Monkey-patch: Wan VACE has Conv3d (5D tensors). Bypass the GGUF reader's
+# 4D limit. GGML_MAX_DIMS stays at 4 for struct compat. The 5th dim loads as 1.
+COPY infra/docker/sdcpp-5d-bypass.py /tmp/5d-bypass.py
+RUN python3 /tmp/5d-bypass.py && rm /tmp/5d-bypass.py
 
 # Build sd-server with CUDA backend
 RUN mkdir build && cd build && \

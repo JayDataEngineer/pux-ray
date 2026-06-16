@@ -75,6 +75,10 @@ SERVICE_MAP: dict[str, tuple[str, str]] = {
     # inputs not supported by SGLang's compiled diffusion graph). Wan2.2 VACE-Fun
     # A14B modular + Wan2.1 VACE 14B/1.3B. TeaCache + SageAttention enabled.
     "vace":      ("services.video.forge_vace",        "VaceForgeService"),
+    # sdcpp-vace — Wan2.2 VACE-Fun A14B via stable-diffusion.cpp (C++/GGML).
+    # Q4_K_M GGUF weights fit entirely in 24GB VRAM — no PCIe streaming.
+    # sd-server provides /sdcpp/v1/vid_gen async API on port 1234.
+    "sdcpp-vace": ("services.video.forge_vace",        "VaceForgeService"),
     # CrispASR — C++ speech recognition (CPU-only, coexists with everything)
     "asr":       ("services.audio.forge_asr",        "ASRForgeService"),
     # ComfyUI — subprocess, separate GPU

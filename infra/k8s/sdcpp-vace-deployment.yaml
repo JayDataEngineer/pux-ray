@@ -1,0 +1,112 @@
+# sdcpp-vace-deployment.yaml — Wan2.2 VACE-Fun A14B via stable-diffusion.cpp
+#
+# Replaces the DiffSynth-Studio Python container with C++/GGML inference.
+# Q4_K_M GGUF weights (~4GB total for both experts) fit entirely in 24GB VRAM.
+# No PCIe streaming — GPU stays saturated at 95%+. sd-server exposes:
+#   - /sdcpp/v1/vid_gen  (async video generation)
+#   - /sdcpp/v1/jobs/<id> (job status polling)
+#   - / (web UI)
+#
+# Pattern mirrors vace-deployment.yaml + moss-deployment.yaml but with
+# sd-server on port 1234.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: sdcpp-vace
+  namespace: ai-services
+  labels:
+    app: sdcpp-vace
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: sdcpp-vace
+  template:
+    metadata:
+      labels:
+        app: sdcpp-vace
+    spec:
+      runtimeClassName: nvidia
+      tolerations:
+        - key: node.kubernetes.io/disk-pressure
+          operator: Exists
+          effect: NoSchedule
+      hostAliases:
+        - hostnames: [forge-reg.local]
+          ip: 192.168.86.184
+      containers:
+        - name: sdcpp-server
+          image: forge-reg.local:30500/tech-noir/sdcpp-vace:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 1234
+              name: sdcpp-api
+          env:
+            - name: MODEL_DIR
+              value: /models/video/wan-vace-fun-a14b
+            - name: SDCPP_LOW
+              value: /models/video/wan-vace-fun-a14b/Wan2_2_Fun_VACE_module_A14B_LOW_Q4_K_M.gguf
+            - name: SDCPP_HIGH
+              value: /models/video/wan-vace-fun-a14b/Wan2_2_Fun_VACE_module_A14B_HIGH_Q4_K_M.gguf
+            - name: SDCPP_VAE
+              value: /models/video/wan-vace-fun-a14b/wan_2.1_vae.safetensors
+            - name: SDCPP_T5XXL
+              value: /models/video/wan-vace-fun-a14b/umt5-xxl-encoder-Q8_0.gguf
+            - name: SDCPP_CFG_SCALE
+              value: "5.0"
+            - name: SDCPP_STEPS
+              value: "18"
+            - name: SDCPP_HIGH_NOISE_STEPS
+              value: "12"
+            - name: SDCPP_WIDTH
+              value: "832"
+            - name: SDCPP_HEIGHT
+              value: "480"
+            - name: SDCPP_DIFFUSION_FA
+              value: "1"
+            - name: SDCPP_FLOW_SHIFT
+              value: "3.0"
+          resources:
+            limits:
+              nvidia.com/gpu: 1
+              memory: 56Gi
+            requests:
+              nvidia.com/gpu: 1
+              memory: 16Gi
+          livenessProbe:
+            httpGet:
+              path: /sdcpp/v1/capabilities
+              port: 1234
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            timeoutSeconds: 10
+            failureThreshold: 5
+          readinessProbe:
+            httpGet:
+              path: /sdcpp/v1/capabilities
+              port: 1234
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          volumeMounts:
+            - mountPath: /models
+              name: models
+      volumes:
+        - name: models
+          persistentVolumeClaim:
+            claimName: models-pvc
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: sdcpp-vace-service
+  namespace: ai-services
+spec:
+  selector:
+    app: sdcpp-vace
+  ports:
+    - port: 1234
+      targetPort: 1234
+      name: sdcpp-api
+  clusterIP: None  # Headless — use pod IP directly
