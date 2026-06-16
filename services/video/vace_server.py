@@ -38,7 +38,7 @@ POST /generate:
 from __future__ import annotations
 
 import base64, gc, io, logging, os, sys, time
-from http.server import HTTPServer, BaseHTTPRequestHandler
+from http.server import HTTPServer, BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 
 import torch
@@ -112,6 +112,8 @@ VACE_MODELS = {
 # ── Pipeline singleton ───────────────────────────────────────────────────────
 _pipe = None
 _loaded_model: str | None = None
+_loading = False      # True while model is loading in background
+_load_error: str | None = None  # error message if loading failed
 
 
 def _build_vram_config() -> dict:
@@ -142,12 +144,66 @@ def _build_vram_config() -> dict:
     return base
 
 
-def load_model(model_name: str):
-    """Load a VACE pipeline. Switches if a different model is loaded."""
+def _load_model_blocking(model_name: str):
+    """Actual model loading (runs in calling thread — blocks for 2-3min)."""
     global _pipe, _loaded_model
+    # ... (existing body, unchanged) ...
+    if _pipe is not None and _loaded_model == model_name:
+        return _pipe
+
+
+def load_model(model_name: str, max_wait: int = 600):
+    """Load a VACE pipeline. Non-blocking: spawns a background thread so the
+    HTTP server stays responsive to /health probes during the 2-3min load.
+
+    Blocks the caller until loading completes (or max_wait seconds elapse).
+    The difference from the old blocking load: /health remains callable from
+    the liveness probe thread, preventing k8s from killing the pod mid-load.
+    """
+    global _pipe, _loaded_model, _loading, _load_error
 
     if _pipe is not None and _loaded_model == model_name:
         return _pipe
+
+    import threading
+    # If loading is already in progress for the same model, just wait
+    if _loading:
+        logger.info("VACE: model loading already in progress, waiting...")
+        _wait_for_load(max_wait)
+        if _load_error:
+            raise RuntimeError(_load_error)
+        return _pipe
+
+    # Start loading in background thread
+    _loading = True
+    _load_error = None
+
+    def _bg_load():
+        global _loading, _load_error
+        try:
+            _load_model_blocking(model_name)
+        except Exception as e:
+            _load_error = str(e)
+            logger.exception("VACE: background model load failed")
+        finally:
+            _loading = False
+
+    t = threading.Thread(target=_bg_load, daemon=True)
+    t.start()
+    _wait_for_load(max_wait)
+    if _load_error:
+        raise RuntimeError(_load_error)
+    return _pipe
+
+
+def _wait_for_load(max_wait: int = 600):
+    """Poll until background loading completes."""
+    import time as _time
+    deadline = _time.perf_counter() + max_wait
+    while _loading and _time.perf_counter() < deadline:
+        _time.sleep(2)
+    if _loading:
+        logger.warning("VACE: model loading still in progress after %ds (continuing)", max_wait)
 
     if _pipe is not None:
         logger.info("VACE: switching from '%s' to '%s'", _loaded_model, model_name)
@@ -715,8 +771,10 @@ class VaceHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         if self.path == "/health":
             self._send_json(200, {
-                "status": "ok",
+                "status": "loading" if _loading else ("ok" if _loaded_model else "idle"),
                 "loaded_model": _loaded_model,
+                "loading": _loading,
+                "load_error": _load_error,
                 "available_models": list(VACE_MODELS.keys()),
                 "config": {
                     "fp8": FP8_ENABLED,
@@ -764,5 +822,5 @@ if __name__ == "__main__":
     logger.info("Available models: %s", list(VACE_MODELS.keys()))
     logger.info("Optimizations: fp8=%s teacache=%.3f attention=%s tiled=%s",
                 FP8_ENABLED, TEACACHE_THRESH, ATTENTION_IMPL or "auto", TILED)
-    server = HTTPServer(("0.0.0.0", PORT), VaceHandler)
+    server = ThreadingHTTPServer(("0.0.0.0", PORT), VaceHandler)
     server.serve_forever()

@@ -89,23 +89,26 @@ spec:
             requests:
               nvidia.com/gpu: 1
               memory: 16Gi
-          # VACE generation is slow (sub-minute even optimized) — generous probe
-          # windows so k8s doesn't restart us mid-denoise.
+          # Generous probe windows: model loading (81GB from disk) takes 2-3min
+          # and generation can take 1-2min more. The ThreadingHTTPServer keeps
+          # /health responsive during both, but we add margin as a safety net.
+          # Liveness: 60s initial + 60s × 10 failures = 660s (11min) before kill
           livenessProbe:
             httpGet:
               path: /health
               port: 8082
-            initialDelaySeconds: 30
-            periodSeconds: 30
-            timeoutSeconds: 10
-            failureThreshold: 5
+            initialDelaySeconds: 60
+            periodSeconds: 60
+            timeoutSeconds: 15
+            failureThreshold: 10
           readinessProbe:
             httpGet:
               path: /health
               port: 8082
             initialDelaySeconds: 10
-            periodSeconds: 10
-            timeoutSeconds: 5
+            periodSeconds: 15
+            timeoutSeconds: 10
+            failureThreshold: 3
           volumeMounts:
             - mountPath: /models
               name: models
