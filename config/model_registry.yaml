@@ -1576,15 +1576,15 @@ video:
       layered on Wan 2.2 T2V base. All-in-one VCU inputs: vace_video (depth/pose/layout),
       vace_video_mask (alpha), vace_reference_image (subject). Served via standalone
       DiffSynth-Studio container — bypasses SGLang (VCU tensors unsupported by SGLang
-      diffusion engine). Bundle includes both MoE experts + umt5-xxl encoder + Wan2.1
-      VAE. Full BF16 base (no distillation) — production-grade. TeaCache + SageAttention
-      enabled by default. FP8 streaming via VACE_FP8=1 env var.'
+      diffusion engine). Bundle includes both MoE experts (~35GB each) + umt5-xxl
+      encoder (11GB) + Wan2.1 VAE. Full BF16 base (no distillation) — production-grade.
+      TeaCache + SageAttention enabled by default. FP8 streaming via VACE_FP8=1 env var.'
     device: gpu
     download: modelscope
     path: video/wan-vace-fun-a14b
     sha256: null
-    size_gb: 34.0
-    source: modelscope://alibaba-pai/Wan2.2-VACE-Fun-A14B
+    size_gb: 81.2
+    source: modelscope://PAI/Wan2.2-VACE-Fun-A14B
     vram_estimate_gb: 22.0
   wan-vace-14b:
     description: 'Wan2.1 VACE 14B monolithic (standalone, not modular). Same VCU task
