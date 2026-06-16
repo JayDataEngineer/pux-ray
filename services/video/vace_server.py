@@ -52,6 +52,13 @@ PORT = int(os.environ.get("VACE_PORT", "8082"))
 MODELS_ROOT = os.environ.get("VACE_MODELS_ROOT", "/models/video")
 TOKENIZER_ROOT = os.environ.get("VACE_TOKENIZER_ROOT", "/models/video/wan-vace-tokenizer")
 
+# Safety nets: prevent DiffSynth from trying to download anything.
+# We use ModelConfig(path=...) which already bypasses downloads, but
+# these env vars are a belt-and-suspenders guard.
+os.environ.setdefault("DIFFSYNTH_SKIP_DOWNLOAD", "true")
+os.environ.setdefault("DIFFSYNTH_MODEL_BASE_PATH", MODELS_ROOT)
+os.environ.setdefault("HF_HUB_OFFLINE", "1")
+
 # Optimization env vars (defaults calibrated for RTX 4090 24GB)
 FP8_ENABLED = os.environ.get("VACE_FP8", "0") == "1"
 TEACACHE_THRESH = float(os.environ.get("VACE_TEACACHE_THRESH", "0.15"))
@@ -179,14 +186,20 @@ def load_model(model_name: str):
         ) from e
 
     vram_config = _build_vram_config()
-    model_configs = [
-        ModelConfig(
-            model_id=local_root,
-            origin_file_pattern=os.path.join(sub, pattern),
-            **vram_config,
-        )
-        for sub, pattern in cfg["model_paths"]
-    ]
+    # Use ModelConfig(path=...) NOT model_id — path bypasses ALL download logic
+    # and uses local files directly. model_id triggers ModelScope/HF download.
+    import glob as glob_module
+    model_configs = []
+    for sub, pattern in cfg["model_paths"]:
+        full_pattern = os.path.join(local_root, sub, pattern) if sub != "." else os.path.join(local_root, pattern)
+        matched = sorted(glob_module.glob(full_pattern))
+        if not matched:
+            raise FileNotFoundError(
+                f"No files matching {full_pattern}.\n"
+                f"  Download with: python3 scripts/download_vace_models.py --only fun-a14b"
+            )
+        path = matched[0] if len(matched) == 1 else matched
+        model_configs.append(ModelConfig(path=path, **vram_config))
 
     # VRAM limit: cap GPU memory (free - 2GB) or env override
     vram_limit = VRAM_LIMIT_GB
@@ -195,14 +208,20 @@ def load_model(model_name: str):
         vram_limit = free / (1024 ** 3) - 2.0
     vram_limit = max(vram_limit, 4.0)  # never below 4GB floor
 
+    # Tokenizer: use local path (no download). The tokenizer files live at
+    # TOKENIZER_ROOT/google/umt5-xxl/ (downloaded separately or from the fun-a14b bundle).
+    tokenizer_path = os.path.join(TOKENIZER_ROOT, "google/umt5-xxl")
+    if not os.path.exists(tokenizer_path):
+        # Fallback: check inside the model bundle itself
+        tokenizer_path = os.path.join(local_root, "google/umt5-xxl")
+    tokenizer_config = ModelConfig(path=tokenizer_path) if os.path.exists(tokenizer_path) else None
+
     _pipe = WanVideoPipeline.from_pretrained(
         torch_dtype=torch.bfloat16,
         device="cuda",
         model_configs=model_configs,
-        tokenizer_config=ModelConfig(
-            model_id=TOKENIZER_ROOT,
-            origin_file_pattern="google/umt5-xxl/",
-        ) if os.path.exists(TOKENIZER_ROOT) else None,
+        tokenizer_config=tokenizer_config,
+        redirect_common_files=False,  # we have the original .pth files, don't redirect to .safetensors
         vram_limit=vram_limit,
     )
     _loaded_model = model_name
@@ -263,20 +282,219 @@ def _resolve_input(spec, kind: str):
     return spec  # already an image/video object
 
 
-def generate_video(payload: dict) -> dict:
-    """Generate a VACE video from a payload."""
-    pipe = load_model(payload.get("model", _loaded_model or "wan-vace-fun-a14b"))
+# ═══════════════════════════════════════════════════════════════════════════
+# DIRECTOR CAPABILITIES — LTX Director Node Parity
+# ═══════════════════════════════════════════════════════════════════════════
+# The WhatDreamsCost LTX Director node provides:
+#   1. Multi-Keyframe Support — images at arbitrary frame positions
+#   2. Prompt Relay — per-segment prompts (different prompts for frame ranges)
+#   3. Motion Amplitude — sigma schedule control for inter-keyframe motion
+#   4. Guide Modes — replace (hard overwrite) vs guide (Gaussian decay)
+#   5. Global + Local prompts — global applies everywhere, local overrides per-segment
+#
+# All five are implemented below. The Director API is backward-compatible:
+# if no keyframes/segments are provided, standard VACE generation runs.
 
-    from diffsynth.utils.data import save_video
+def _build_keyframe_vcu(keyframes: list, num_frames: int, width: int, height: int):
+    """Build (vace_video, vace_video_mask) from Director keyframe list.
+
+    Constructs the VCU that VACE expects from a list of keyframe specs:
+      - Places each keyframe image at its frame_index in the video
+      - Builds a per-frame mask: white=preserve (keyframe), black=generate
+
+    Guide modes (matching LTX Director):
+      "replace": mask=strength at the keyframe frame ONLY (hard pin)
+      "guide":   mask=Gaussian decay centered at the keyframe (soft influence)
+      "fade":    mask=linear ramp from previous keyframe to this one (transition)
+
+    Returns:
+        vace_video: list of PIL.Image (one per frame, RGB)
+        vace_video_mask: list of PIL.Image (one per frame, L = grayscale 0-255)
+    """
+    import math as _math
+    from PIL import Image as _Image
+    import numpy as _np
+
+    keyframes = sorted(keyframes, key=lambda k: k["frame_index"])
+
+    # Initialize video (black) and mask (0 = generate everything)
+    video_frames = [_Image.new("RGB", (width, height), (0, 0, 0)) for _ in range(num_frames)]
+    mask_array = _np.zeros((num_frames, height, width), dtype=_np.float32)
+
+    for kf in keyframes:
+        idx = int(kf["frame_index"])
+        if idx < 0 or idx >= num_frames:
+            continue
+        strength = float(kf.get("strength", 1.0))
+        mode = kf.get("mode", "replace")
+        img = kf["image"]
+        if img is None:
+            continue
+        if isinstance(img, _Image.Image):
+            img = img.resize((width, height), _Image.LANCZOS)
+        elif isinstance(img, _np.ndarray):
+            img = _Image.fromarray(img.astype(_np.uint8)).resize((width, height), _Image.LANCZOS)
+
+        # Fill video frames between this keyframe and the next with this keyframe
+        # (gives VACE structural context, not just sparse anchors)
+        prev_idx = idx
+        for prev_kf in reversed(keyframes):
+            if prev_kf["frame_index"] < idx:
+                prev_idx = int(prev_kf["frame_index"])
+                break
+        else:
+            prev_idx = 0
+        for f in range(prev_idx, idx + 1):
+            video_frames[f] = img
+
+        if mode == "replace":
+            # Hard pin: mask is full strength at this frame only
+            mask_array[idx] = max(mask_array[idx].max(), strength)
+            mask_array[idx] = strength
+        elif mode == "guide":
+            # Gaussian decay — sigma controls the influence radius
+            sigma = float(kf.get("sigma", 5.0))
+            for f in range(num_frames):
+                dist = abs(f - idx)
+                decay = _math.exp(-0.5 * (dist / sigma) ** 2) * strength
+                mask_array[f] = _np.maximum(mask_array[f], decay)
+        elif mode == "fade":
+            # Linear ramp from previous keyframe to this one
+            if idx > 0:
+                ramp_start = max(0, idx - int(kf.get("fade_duration", 5)))
+                for f in range(ramp_start, idx + 1):
+                    t = (f - ramp_start) / max(1, idx - ramp_start)
+                    mask_array[f] = _np.maximum(mask_array[f], t * strength)
+
+    # Convert mask to PIL Images (grayscale)
+    mask_frames = []
+    for f in range(num_frames):
+        m = (mask_array[f] * 255).clip(0, 255).astype(_np.uint8)
+        mask_frames.append(_Image.fromarray(m, mode="L"))
+
+    return video_frames, mask_frames
+
+
+def _generate_segment(pipe, segment: dict, shared: dict) -> list:
+    """Generate one segment of a Director timeline.
+
+    Each segment runs a full VACE pass with its own prompt and keyframes.
+    Continuity is maintained by passing the previous segment's last frame
+    as a 'replace' keyframe at frame 0.
+    """
+    seg_prompt = segment["prompt"]
+    seg_neg = segment.get("negative_prompt", shared["negative_prompt"])
+    seg_frames = segment["end_frame"] - segment["start_frame"] + 1
+
+    # Build keyframes for this segment (frame indices relative to segment start)
+    seg_keyframes = []
+
+    # Continuity handoff: last frame of previous segment → frame 0 of this one
+    if shared.get("last_frame") is not None:
+        seg_keyframes.append({
+            "image": shared["last_frame"],
+            "frame_index": 0,
+            "strength": 1.0,
+            "mode": "replace",
+        })
+
+    # User-defined keyframes within this segment's range
+    for kf in shared.get("keyframes", []):
+        if segment["start_frame"] <= kf["frame_index"] <= segment["end_frame"]:
+            seg_keyframes.append({
+                "image": kf["image"],
+                "frame_index": kf["frame_index"] - segment["start_frame"],
+                "strength": kf.get("strength", 1.0),
+                "mode": kf.get("mode", "replace"),
+                "sigma": kf.get("sigma", 5.0),
+            })
+
+    # Last keyframe of segment: pin the end frame (if user specified one)
+    end_keyframe = None
+    for kf in shared.get("keyframes", []):
+        if kf["frame_index"] == segment["end_frame"]:
+            end_keyframe = kf
+            break
+    if end_keyframe is None and shared.get("last_frame") is None:
+        # No explicit end frame — let the model generate freely
+        pass
+
+    # Build VCU for this segment
+    if seg_keyframes:
+        vace_video, vace_video_mask = _build_keyframe_vcu(
+            seg_keyframes, seg_frames, shared["width"], shared["height"]
+        )
+    else:
+        vace_video = None
+        vace_video_mask = None
+
+    # Motion amplitude adjusts cfg + vace_scale
+    motion = shared.get("motion_amplitude", 1.0)
+    adj_cfg = shared["cfg"] * (0.7 + 0.3 * motion)  # higher motion = slightly higher cfg
+    adj_vace_scale = shared["vace_scale"] / max(0.5, motion)  # higher motion = weaker anchors
+
+    logger.info(
+        "DIRECTOR: segment [%d-%d] prompt=%r keyframes=%d frames=%d cfg=%.2f",
+        segment["start_frame"], segment["end_frame"], seg_prompt[:50],
+        len(seg_keyframes), seg_frames, adj_cfg,
+    )
+
+    video = pipe(
+        prompt=seg_prompt,
+        negative_prompt=seg_neg,
+        vace_video=vace_video,
+        vace_video_mask=vace_video_mask,
+        vace_reference_image=shared.get("vace_reference_image"),
+        vace_scale=adj_vace_scale,
+        width=shared["width"],
+        height=shared["height"],
+        num_frames=seg_frames,
+        seed=shared["seed"],
+        num_inference_steps=shared["steps"],
+        guidance_scale=adj_cfg,
+        tea_cache_l1_thresh=shared["teacache_thresh"] if shared["teacache_thresh"] > 0 else None,
+        tea_cache_model_id=TEACACHE_MODEL_ID,
+        tiled=TILED,
+        tile_size=TILE_SIZE,
+    )
+
+    # Save last frame for next segment's continuity
+    if isinstance(video, list) and len(video) > 0:
+        shared["last_frame"] = video[-1]
+    elif hasattr(video, "__getitem__"):
+        try:
+            shared["last_frame"] = video[-1]
+        except Exception:
+            pass
+
+    return video
+
+
+def _stitch_segments(segment_videos: list) -> list:
+    """Concatenate segment video outputs into one continuous frame list."""
+    stitched = []
+    for sv in segment_videos:
+        if isinstance(sv, list):
+            stitched.extend(sv)
+        elif hasattr(sv, "__iter__"):
+            stitched.extend(list(sv))
+    return stitched
+
+
+def generate_video(payload: dict) -> dict:
+    """Generate a VACE video from a payload.
+
+    Supports two modes:
+      1. Standard VACE — pass vace_video / vace_reference_image / etc directly
+      2. Director mode — pass keyframes[] and/or segments[] for LTX Director parity
+
+    Director mode activates when 'keyframes' or 'segments' are present.
+    """
+    pipe = load_model(payload.get("model", _loaded_model or "wan-vace-fun-a14b"))
 
     prompt = payload.get("prompt", "")
     if not prompt:
         raise ValueError("no prompt")
-
-    # Resolve multimodal inputs (lazy — only if provided)
-    vace_video = _resolve_input(payload.get("vace_video"), "video")
-    vace_video_mask = _resolve_input(payload.get("vace_video_mask"), "video")
-    vace_ref = _resolve_input(payload.get("vace_reference_image"), "image")
 
     width = int(payload.get("width", 832))
     height = int(payload.get("height", 480))
@@ -286,15 +504,51 @@ def generate_video(payload: dict) -> dict:
     cfg = float(payload.get("cfg", payload.get("guide_scale", 5.0)))
     neg = payload.get("negative_prompt") or payload.get("n_prompt", "")
     vace_scale = float(payload.get("vace_scale", 1.0))
-
-    # Per-request TeaCache override (server default applies if not set)
     tc_thresh = float(payload.get("tea_cache_l1_thresh", TEACACHE_THRESH))
+
+    # ─── Director mode detection ──────────────────────────────────────────
+    has_keyframes = bool(payload.get("keyframes"))
+    has_segments = bool(payload.get("segments"))
+
+    if has_segments:
+        return _generate_director_segments(pipe, payload, prompt, neg, width, height,
+                                           num_frames, seed, steps, cfg, vace_scale, tc_thresh)
+
+    # Resolve standard VACE inputs (or build from keyframes)
+    if has_keyframes:
+        # Director: build VCU from keyframe list (single-pass mode)
+        keyframes_resolved = []
+        for kf in payload["keyframes"]:
+            img = _resolve_input(kf.get("image") or kf.get("url"), "image")
+            if img is not None:
+                keyframes_resolved.append({
+                    "image": img,
+                    "frame_index": int(kf.get("frame_index", 0)),
+                    "strength": float(kf.get("strength", 1.0)),
+                    "mode": kf.get("mode", "replace"),
+                    "sigma": float(kf.get("sigma", 5.0)),
+                })
+        vace_video, vace_video_mask = _build_keyframe_vcu(
+            keyframes_resolved, num_frames, width, height)
+        vace_ref = _resolve_input(payload.get("vace_reference_image"), "image")
+        logger.info("DIRECTOR: single-pass keyframes=%d frames=%d", len(keyframes_resolved), num_frames)
+    else:
+        vace_video = _resolve_input(payload.get("vace_video"), "video")
+        vace_video_mask = _resolve_input(payload.get("vace_video_mask"), "video")
+        vace_ref = _resolve_input(payload.get("vace_reference_image"), "image")
+
+    # Motion amplitude (affects cfg + vace_scale in single-pass mode too)
+    motion = float(payload.get("motion_amplitude", 1.0))
+    if motion != 1.0 and has_keyframes:
+        cfg = cfg * (0.7 + 0.3 * motion)
+        vace_scale = vace_scale / max(0.5, motion)
 
     t0 = time.perf_counter()
     logger.info(
-        "VACE: generate model=%s prompt=%r vc=%s vm=%s vr=%s steps=%d cfg=%.2f frames=%d tc=%.3f",
+        "VACE: generate model=%s prompt=%r vc=%s vm=%s vr=%s steps=%d cfg=%.2f frames=%d tc=%.3f director=%s",
         _loaded_model, prompt[:60], vace_video is not None,
         vace_video_mask is not None, vace_ref is not None, steps, cfg, num_frames, tc_thresh,
+        has_keyframes or has_segments,
     )
 
     video = pipe(
@@ -318,7 +572,6 @@ def generate_video(payload: dict) -> dict:
     torch.cuda.synchronize() if torch.cuda.is_available() else None
     elapsed = time.perf_counter() - t0
 
-    # Encode frames → mp4 bytes
     fps = int(payload.get("fps", 15))
     mp4_bytes = _frames_to_mp4(video, fps=fps)
     peak_vram = torch.cuda.max_memory_allocated(0) / (1024 * 1024) if torch.cuda.is_available() else 0
@@ -336,6 +589,100 @@ def generate_video(payload: dict) -> dict:
             "fp8": FP8_ENABLED,
             "teacache_thresh": tc_thresh,
             "tiled": TILED,
+            "director_mode": has_keyframes or has_segments,
+        },
+    }
+
+
+def _generate_director_segments(pipe, payload, global_prompt, global_neg,
+                                 width, height, num_frames, seed, steps,
+                                 cfg, vace_scale, tc_thresh) -> dict:
+    """Director multi-segment mode — LTX Director Prompt Relay parity.
+
+    Generates each segment independently with its own prompt, stitching
+    them together with frame continuity handoff.
+
+    Payload keys:
+      segments: [{start_frame, end_frame, prompt, negative_prompt?}]
+      keyframes: [{image, frame_index, strength, mode, sigma?}]  (optional anchors)
+      motion_amplitude: float (0.5=static, 1.0=default, 1.5=exaggerated)
+    """
+    segments = payload["segments"]
+    motion_amplitude = float(payload.get("motion_amplitude", 1.0))
+
+    # Resolve keyframe images once
+    resolved_keyframes = []
+    for kf in payload.get("keyframes", []):
+        img = _resolve_input(kf.get("image") or kf.get("url"), "image")
+        if img is not None:
+            resolved_keyframes.append({
+                "image": img,
+                "frame_index": int(kf.get("frame_index", 0)),
+                "strength": float(kf.get("strength", 1.0)),
+                "mode": kf.get("mode", "replace"),
+                "sigma": float(kf.get("sigma", 5.0)),
+            })
+
+    shared = {
+        "width": width,
+        "height": height,
+        "negative_prompt": global_neg,
+        "seed": seed,
+        "steps": steps,
+        "cfg": cfg,
+        "vace_scale": vace_scale,
+        "teacache_thresh": tc_thresh,
+        "motion_amplitude": motion_amplitude,
+        "keyframes": resolved_keyframes,
+        "vace_reference_image": _resolve_input(payload.get("vace_reference_image"), "image"),
+        "last_frame": None,  # continuity handoff state
+    }
+
+    t0 = time.perf_counter()
+    logger.info(
+        "DIRECTOR: multi-segment segments=%d keyframes=%d motion=%.2f frames=%d",
+        len(segments), len(resolved_keyframes), motion_amplitude, num_frames,
+    )
+
+    segment_videos = []
+    for i, seg in enumerate(segments):
+        # Fill in defaults
+        seg_full = {
+            "start_frame": int(seg["start_frame"]),
+            "end_frame": int(seg["end_frame"]),
+            "prompt": seg.get("prompt", global_prompt),
+            "negative_prompt": seg.get("negative_prompt", global_neg),
+        }
+        try:
+            sv = _generate_segment(pipe, seg_full, shared)
+            segment_videos.append(sv)
+        except Exception as e:
+            logger.error("DIRECTOR: segment %d failed: %s", i, e)
+            raise
+
+    elapsed = time.perf_counter() - t0
+    stitched = _stitch_segments(segment_videos)
+
+    fps = int(payload.get("fps", 15))
+    mp4_bytes = _frames_to_mp4(stitched, fps=fps)
+    peak_vram = torch.cuda.max_memory_allocated(0) / (1024 * 1024) if torch.cuda.is_available() else 0
+
+    return {
+        "video": base64.b64encode(mp4_bytes).decode(),
+        "fps": fps,
+        "model": _loaded_model,
+        "prompt": f"[director:{len(segments)} segments]",
+        "metrics": {
+            "latency_s": round(elapsed, 2),
+            "vram_peak_mb": int(peak_vram),
+            "steps": steps,
+            "num_segments": len(segments),
+            "total_frames": len(stitched),
+            "fp8": FP8_ENABLED,
+            "teacache_thresh": tc_thresh,
+            "tiled": TILED,
+            "director_mode": True,
+            "motion_amplitude": motion_amplitude,
         },
     }
 
