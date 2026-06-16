@@ -55,7 +55,12 @@ class UnifiedScrapeService:
             return self._db
         if self._db_instance is None:
             from ..db.database import get_db
-            self._db_instance = await get_db()
+            try:
+                self._db_instance = await get_db()
+            except Exception:
+                from loguru import logger
+                logger.warning("Scrape service: database unavailable, domain learning disabled")
+                return None
         return self._db_instance
 
     async def _get_redis(self):

@@ -666,10 +666,44 @@ class Database:
 # Singleton
 _db: Database = None
 
+# Sentinel: a singleton "null" Database instance returned when Postgres
+# is unavailable.  Every method is a no-op so the rest of the codebase
+# (scrape_with_fallback, admin tools, etc.) never needs to check for None.
+class _NullDatabase:
+    """No-op database — used when Postgres is unreachable.
+
+    All methods accept the same signature as the real Database class but
+    silently return empty/default values so callers never need None-checks.
+    """
+    async def init(self): pass
+    async def close(self): pass
+    async def get_domain_method(self, domain): return None
+    async def record_success(self, domain, method): pass
+    async def set_selenium_only(self, domain): pass
+    async def blacklist(self, domain): pass
+    async def record_failure(self, domain, method="unknown"): return {"blacklisted": False, "failure_count": 0}
+    async def is_blacklisted(self, domain): return False
+    async def get_blacklisted_domains(self): return set()
+    async def get_all_domains(self): return []
+    async def cleanup_old_blacklisted(self, days_old=2): return 0
+    async def clear_blacklist(self, redis=None): return 0
+    async def clean(self): return 0
+    async def check_urls(self, max_urls=None, threshold=None): return {"total_checked": 0, "still_valid": 0, "moved_to_selenium": 0, "blacklisted": 0, "details": []}
+    async def record_scrape_metric(self, **kwargs): pass
+    async def get_scrape_stats(self, hours=24): return {"period_hours": hours, "total_scrapes": 0, "successful": 0, "failed": 0, "success_rate": 0, "avg_duration_ms": 0, "avg_success_duration_ms": 0, "avg_fail_duration_ms": 0, "p50_ms": 0, "p95_ms": 0, "p99_ms": 0, "by_method": [], "top_failing_domains": []}
+    async def cleanup_old_metrics(self, days=7): return 0
+
+_NULL_DB = _NullDatabase()
+
 
 async def get_db() -> Database:
     global _db
     if _db is None:
-        _db = Database()
-        await _db.init()
+        try:
+            _db = Database()
+            await _db.init()
+        except Exception:
+            from loguru import logger
+            logger.warning("PostgreSQL unavailable — returning null database (domain tracking disabled)")
+            return _NULL_DB
     return _db

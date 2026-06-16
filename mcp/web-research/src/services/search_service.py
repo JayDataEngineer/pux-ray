@@ -23,10 +23,15 @@ class UnifiedSearchService:
         self._db = None
 
     async def _get_db(self):
-        """Lazy database initialization"""
+        """Lazy database initialization — returns None if unavailable."""
         if self._db is None:
             from ..db.database import get_db
-            self._db = await get_db()
+            try:
+                self._db = await get_db()
+            except Exception:
+                from loguru import logger
+                logger.warning("Search service: database unavailable, skipping blacklist filtering")
+                return None
         return self._db
 
     async def search(

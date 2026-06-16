@@ -109,7 +109,16 @@ async def service_lifespan(server: FastMCP):
     crawl_service = get_map_crawl_service()
     cleaner = get_content_cleaner()
     vision_service = get_vision_service()
-    db = await get_db()
+
+    # Database is optional — domain tracking improves over time but is not
+    # required for core search/scrape functionality.  If Postgres is
+    # unreachable (e.g. DNS flake during pod startup) we serve degraded
+    # without it rather than crash-looping.
+    db = None
+    try:
+        db = await get_db()
+    except Exception as e:
+        logger.warning(f"Database unavailable — serving without domain tracking: {e}")
 
     try:
         yield {
@@ -126,7 +135,8 @@ async def service_lifespan(server: FastMCP):
         await scrape_service.close()
         await crawl_service.close()
         await vision_service.close()
-        await db.close()
+        if db is not None:
+            await db.close()
         logger.info("Shutdown complete")
 
 
