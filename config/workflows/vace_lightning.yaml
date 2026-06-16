@@ -1,0 +1,60 @@
+name: vace_lightning
+version: "1.0"
+description: >
+  Wan2.2 VACE Lightning — 4-step Turbo speed mode.
+  Uses LightX2V distillation for fast inference.
+  ~8-10s for 33 frames at 832×480 on RTX 4090.
+
+inputs:
+  prompt:
+    type: string
+    required: true
+    description: "Text prompt for video content"
+  cond_image:
+    type: string
+    required: false
+    description: "Base64 conditioning image (VACE I2V mode)"
+  negative_prompt:
+    type: string
+    default: ""
+  seed:
+    type: integer
+    default: -1
+  width:
+    type: integer
+    default: 832
+  height:
+    type: integer
+    default: 480
+  frames:
+    type: integer
+    default: 33
+    description: "Number of frames"
+  steps:
+    type: integer
+    default: 4
+    description: "Denoising steps (4 for Lightning/Turbo)"
+  guidance:
+    type: string
+    default: "3.0"
+  fps:
+    type: integer
+    default: 16
+
+steps:
+  generate:
+    type: vace_generate
+    model: wan2.1-vace-14b-fp8
+    params:
+      input_prompt: "{{ inputs.prompt }}"
+      image_b64: "{{ inputs.cond_image }}"
+      n_prompt: "{{ inputs.negative_prompt }}"
+      seed: "{{ inputs.seed }}"
+      width: "{{ inputs.width }}"
+      height: "{{ inputs.height }}"
+      frame_num: "{{ inputs.frames }}"
+      sampling_steps: "{{ inputs.steps }}"
+      guide_scale: "{{ inputs.guidance }}"
+      fps: "{{ inputs.fps }}"
+    outputs:
+      video: { media_type: video/mp4 }

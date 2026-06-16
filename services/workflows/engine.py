@@ -60,6 +60,7 @@ class WorkflowEngine:
         from .steps.python import PythonStepExecutor
         from .steps.mock import MockStepExecutor
         from .steps.ltx_video import LTXGenerateStep, LTXSpatialUpscaleStep
+        from .steps.vace import VaceGenerateStep
 
         self.registry.register("forge", ForgeStepExecutor)
         self.registry.register("serve", ServeStepExecutor)
@@ -70,6 +71,7 @@ class WorkflowEngine:
         self.registry.register("mock", MockStepExecutor)
         self.registry.register("ltx_generate", LTXGenerateStep)
         self.registry.register("ltx_upscale", LTXSpatialUpscaleStep)
+        self.registry.register("vace_generate", VaceGenerateStep)
 
     # ------------------------------------------------------------------
     # Run lifecycle

@@ -1,0 +1,60 @@
+name: vace_base
+version: "1.0"
+description: >
+  Wan2.2 VACE Base — 18-step full quality video generation.
+  Text-to-video / image-to-video with VACE conditioning.
+  Uses vLLM-Omni on RTX 4090 (24GB). Text encoder CPU-offloaded.
+
+inputs:
+  prompt:
+    type: string
+    required: true
+    description: "Text prompt for video content"
+  cond_image:
+    type: string
+    required: false
+    description: "Base64 conditioning image (VACE I2V mode, omit for T2V)"
+  negative_prompt:
+    type: string
+    default: ""
+  seed:
+    type: integer
+    default: -1
+  width:
+    type: integer
+    default: 832
+  height:
+    type: integer
+    default: 480
+  frames:
+    type: integer
+    default: 81
+    description: "Number of frames (max 81 for 24GB VRAM)"
+  steps:
+    type: integer
+    default: 18
+    description: "Denoising steps (18 for Base)"
+  guidance:
+    type: string
+    default: "5.0"
+  fps:
+    type: integer
+    default: 16
+
+steps:
+  generate:
+    type: vace_generate
+    model: wan2.1-vace-14b-fp8
+    params:
+      input_prompt: "{{ inputs.prompt }}"
+      image_b64: "{{ inputs.cond_image }}"
+      n_prompt: "{{ inputs.negative_prompt }}"
+      seed: "{{ inputs.seed }}"
+      width: "{{ inputs.width }}"
+      height: "{{ inputs.height }}"
+      frame_num: "{{ inputs.frames }}"
+      sampling_steps: "{{ inputs.steps }}"
+      guide_scale: "{{ inputs.guidance }}"
+      fps: "{{ inputs.fps }}"
+    outputs:
+      video: { media_type: video/mp4 }
