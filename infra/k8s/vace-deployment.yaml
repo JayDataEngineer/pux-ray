@@ -27,6 +27,14 @@ spec:
         app: vace-video
     spec:
       runtimeClassName: nvidia
+      # Tolerate disk-pressure — our /mnt/data (models PVC) runs at ~95% by
+      # design (76GB of 81GB VACE model fills the 1.8TB volume). The kubelet
+      # taints the node even though the root filesystem has 448GB free.
+      tolerations:
+        - key: node.kubernetes.io/disk-pressure
+          operator: Exists
+          effect: NoSchedule
+      runtimeClassName: nvidia
       hostAliases:
         - hostnames: [forge-reg.local]
           ip: 192.168.86.184
