@@ -2,29 +2,23 @@
 
 ## Working Configurations (RTX 4090 24GB)
 
-### Stack 1: stable-diffusion.cpp + Q4_K_M GGUF + TAE ✅ PURE GPU
+### Stack 1: stable-diffusion.cpp + Q4_K_M GGUF + VAE ✅ PURE GPU (lower res)
 ```
 Engine:   sd-server (C++/GGML/CUDA)
-Model:    Wan2.1_14B_VACE-Q4_K_M.gguf  (11.1GB)
-T5:       umt5-xxl-encoder-Q8_0.gguf   (5.7GB)
-AE:       taew2_1.safetensors          (22MB, replaces 242MB VAE)
-VRAM:     ~16.9GB total
-Speed:    ~2.6s/step → 18 steps × 2.6s ≈ 47s denoise + 5-10s AE
-Flags:    --diffusion-fa --diffusion-model ... --tae ... --t5xxl ...
+Model:    Wan2.1_14B_VACE-Q4_K_M.gguf  (11.1GB diffusion + 5.7GB T5 + 0.2GB VAE = 17.1GB)
+Flags:    --diffusion-fa --diffusion-model ... --vae ... --t5xxl ...
 Port:     1234 (sd-server HTTP API)
-Status:   🔴 VAE OOM for VACE context (15.7GB buffer)
-           🟢 TAE FIX — drops VAE buffer from 15.7GB → ~1GB
-           🟢 Fully GPU-resident, no PCIe streaming
+VRAM:     20.4GB at 640×368 (fits in 24GB ✅)
+          32.8GB at 832×480 (15.7GB VAE buffer overflows ❌)
+Speed:    ~2.6s/step → 18 steps × 2.6s ≈ 47s denoise
 ```
 
-### Stack 2: DiffSynth-Studio + FP8 CPU Offload (Python) ✅ WORKING
+### Stack 2: DiffSynth-Studio + FP8 CPU Offload (Python) ✅ WORKS
 ```
 Engine:   DiffSynth-Studio via WanVideoPipeline
 Model:    Wan2.2-VACE-Fun-A14B (dual-expert MoE, FP8 pre-quantized)
-Speed:    242s for 81 frames, 18 steps (limited by CPU RAM streaming)
+Speed:    242s for 81 frames, 18 steps (PCIe bandwidth bottleneck)
 VRAM:     ~5.6GB (weights in CPU RAM, blocks streamed to GPU)
-Flags:    offload_dtype=float8_e4m3fn, offload_device=cpu
-Status:   🟢 Works but slow (PCIe bandwidth bottleneck)
 ```
 
 ### Stack 3: vLLM-Omni (planned, dependency issues)
@@ -38,38 +32,54 @@ Status:   🔴 vLLM C extension broken (wrong PyTorch version)
 ## Pure GPU VACE Problem (RTX 4090, 24GB)
 
 ### The VAE Bottleneck
-- Standard VAE compute buffer for VACE context: **15.7GB**
+- Standard VAE compute buffer for VACE context encode: **15.7GB** at 832×480
 - Q4_K_M model (17.1GB) + VAE buffer (15.7GB) = **32.8GB > 24GB** ❌
-- `--vae-tiling` in sd.cpp doesn't reduce buffer for VACE path
-- `--vae-on-cpu` works but takes ~20 min (146s per tile)
+- Even with `--vae-tiling`, sd.cpp VACE path allocates full 15.7GB buffer
+- `--vae-on-cpu` works but slow (146s/tile, ~20min total)
 
-### The TAE Solution (Tiny AutoEncoder)
-- **22MB** vs 242MB for standard VAE
-- **~1GB** compute buffer vs 15.7GB for standard VAE
-- Pure GPU possible: 16.9GB + 1GB = **~18GB < 24GB** ✅
-- Download: `curl -L -o taew2_1.safetensors https://github.com/madebyollin/taehv/raw/refs/heads/main/safetensors/taew2_1.safetensors`
-- sd-server flag: `--tae` (not `--vae`)
+### Lower Resolution = Pure GPU ✅
+The VAE compute buffer scales with spatial resolution:
+| Resolution | Latents | VAE Buffer | Total VRAM | Fits 24GB? |
+|------------|---------|------------|------------|------------|
+| 832×480 | 104×60 | 15.7GB | 32.8GB | ❌ |
+| 640×368 | 80×46 | ~3.3GB | 20.4GB | ✅ |
+| 576×336 | 72×42 | ~2.4GB | 19.5GB | ✅ |
 
-### What sd.cpp Flags Work
+### TAE (Tiny AutoEncoder) — DOES NOT WORK FOR VACE
+- `--tae` flag in sd.cpp loads 22MB Tiny AutoEncoder
+- TAE reduces buffer to ~1GB but **doesn't support VACE context** (96 channels)
+- Standard VAE is required for VACE's multi-channel VCU encoding
+- TAE works only for standard T2V/I2V (16-channel latents)
+
+## Key Metrics (81 frames, 18 steps, 832×480)
+
+| Config | Total | Denoise | Per-step | VRAM | Pure GPU? |
+|--------|-------|---------|----------|------|-----------|
+| DiffSynth FP8 CPU offload | 242.0s | 241.5s | 13.4s | 5.6GB | ❌ |
+| sd.cpp Q4_K_M GPU + VAE CPU | ~400s | 46s | 2.6s | 17.1GB | ❌ (VAE CPU) |
+| sd.cpp Q4_K_M GPU at 640×368 | ~90s | ~47s | 2.6s | 20.4GB | ✅ |
+
+## What sd.cpp Flags Work
 | Flag | Effect | Status |
 |---|---|---|
-| `--diffusion-fa` | Flash attention | ✅ Works, required for speed |
-| `--vae-tiling` | VAE tiling for 2D images | 🔴 Broken for Wan 3D VAE (GGML_ASSERT crash) |
-| `--vae-on-cpu` | VAE on CPU | 🟡 Works but 146s/tile = 20min |
-| `--tae` | Tiny AutoEncoder (pure GPU) | 🟢 ~1GB buffer, full speed |
-| `--backend vae=cpu,diffusion=cuda0` | Per-backend assignment | 🟠 Mixed results |
-| `--offload-to-cpu` | Full model offload | 🟡 Model on CPU = slow |
-| `--tensor-type-rules` | Per-tensor quant override | Untested |
+| `--diffusion-fa` | Flash attention | ✅ Required for speed |
+| `--vae-tiling` | VAE spatial tiling | 🔴 Broken for Wan 3D VAE |
+| `--vae-on-cpu` | VAE on CPU (slow) | 🟡 146s/tile |
+| `--tae` | Tiny AutoEncoder (22MB) | 🔴 No VACE support |
+| `--backend vae=cpu,diffusion=cuda0` | Per-backend | 🔴 VAE tensor name mismatch |
+| `--offload-to-cpu` | Full model on CPU | 🟠 Too slow |
 
-## What Works End-to-End
-1. ✅ T2I (1 frame, 8 steps) — all configs
-2. ✅ T2V (17+ frames) — DiffSynth + sd.cpp (TAE pending)
-3. ✅ VACE modes — all modes coded (T2V, R2V, V2V, MV2V)
-4. ✅ Director features — multi-keyframe, per-segment prompts, motion amplitude (DiffSynth)
-5. ✅ HTTP API — sd-server at :1234, forge adapters for all stacks
+## Director Capabilities (DiffSynth-Studio)
+All WhatDreamsCost LTX Director node features implemented:
+- ✅ Multi-keyframe injection (replace/guide/fade modes)
+- ✅ Per-segment prompts (Prompt Relay)
+- ✅ Motion amplitude control
+- ✅ Continuity handoff between segments
+- ✅ Global + local prompts
+- ✅ Video stitching
 
 ## Remaining Issues
-- sd.cpp VACE + TAE: failing with OOM on VAE compute buffer (15.7GB)
-- TAE should fix this (22MB encoder, ~1GB buffer)
-- vLLM-Omni: needs clean install to work
-- Wan2.2 VACE-Fun: no diffusers format available for vLLM-Omni
+- sd.cpp: job queue intermittent (jobs qued but not processed)
+- Wan2.2 VACE-Fun: no diffusers format for vLLM-Omni
+- vLLM-Omni: version mismatch between vLLM, Omni, PyTorch, and CUDA
+- Optimal pure GPU speed (35-45s) requires: either 32GB+ VRAM, or fix VAE tiling for VACE context
