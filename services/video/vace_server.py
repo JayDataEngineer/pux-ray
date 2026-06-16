@@ -166,7 +166,7 @@ def _build_vram_config() -> dict:
 
 def _load_model_blocking(model_name: str):
     """Actual model loading (runs in calling thread — blocks for 2-3min)."""
-    global _pipe, _loaded_model
+    global _pipe, _loaded_model, FP8_ENABLED
     if _pipe is not None and _loaded_model == model_name:
         return _pipe
 
@@ -221,8 +221,7 @@ def _load_model_blocking(model_name: str):
         logger.info("VACE: FP8 pre-quantized weights detected → CPU offload (fast)")
     else:
         use_paths = cfg.get("fallback_paths", fp8_paths)
-        # Force disk offload for BF16
-        global FP8_ENABLED
+        # Force disk offload — FP8 files not available
         FP8_ENABLED = False
         vram_config = _build_vram_config()  # returns disk offload config
         logger.info("VACE: BF16 weights only → disk offload (slower, but safe)")
