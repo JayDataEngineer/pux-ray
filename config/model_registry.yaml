@@ -1619,6 +1619,42 @@ video:
     size_gb: 0.05
     source: modelscope://Wan-AI/Wan2.1-T2V-1.3B
     vram_estimate_gb: 0.0
+  nvidia-wan2.2-t2v-a14b-fp8:
+    description: 'NVIDIA pre-quantized ModelOpt FP8 checkpoint of Wan2.2 T2V A14B.
+      Dual-expert MoE (transformer + transformer_2 = high-noise + low-noise) with
+      proper FP8 scale factors calibrated by NVIDIA ModelOpt. Fits in 24GB VRAM
+      (~14GB transformer FP8 per expert, ~5.7GB text encoder). vLLM-Omni native
+      serving — bypasses SGLang. quantization_config: compressed-tensors FP8
+      static weights + dynamic activations. The BASE profile for Omni VACE.'
+    device: gpu
+    download: hf
+    path: video/nvidia-wan2.2-t2v-a14b-fp8
+    sha256: null
+    size_gb: 35.0
+    source: hf://nvidia/Wan2.2-T2V-A14B-Diffusers-FP8
+    vram_estimate_gb: 20.0
+  wan2.1-vace-1.3b-diffusers:
+    description: 'Wan2.1 VACE 1.3B in diffusers format for vLLM-Omni serving.
+      Proven working: 35s for 33 frames at 832×480 with Omni. Includes transformer
+      + text_encoder + VAE + tokenizer + scheduler. The fast-tier Omni model.'
+    device: gpu
+    download: hf
+    path: video/wan2.1-vace-1.3b-diffusers
+    sha256: null
+    size_gb: 18.0
+    source: hf://Wan-AI/Wan2.1-VACE-1.3B-diffusers
+    vram_estimate_gb: 15.0
+  wan2.1-vace-14b-diffusers:
+    description: 'Wan2.1 VACE 14B monolithic in diffusers format (BF16). Full
+      quality model — requires >24GB VRAM in BF16. Use for ModelOpt calibration
+      or with FP8 dynamic quantization (--quantization fp8).'
+    device: gpu
+    download: hf
+    path: video/wan2.1-vace-14b-diffusers
+    sha256: null
+    size_gb: 70.0
+    source: hf://Wan-AI/Wan2.1-VACE-14B-diffusers
+    vram_estimate_gb: 28.0
 vision:
   gemma-4-26b-a4b-mmproj-f16:
     description: Gemma 4 26B A4B mmproj (F16).
