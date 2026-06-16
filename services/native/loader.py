@@ -67,11 +67,21 @@ def available_vram_mb() -> int:
         return 0
 
 
-def module_size_mb(module: nn.Module) -> int:
+def module_size_mb(module: nn.Module | None) -> int:
     if module is None:
         return 0
     params = sum(p.numel() for p in module.parameters())
+    if params == 0:
+        # Meta device or empty — use buffer-based size or return 0
+        # Callers should fall back to state_dict_mb()
+        return 0
     return int(params * 2 / (1024 * 1024))
+
+
+def state_dict_mb(state_dict: dict) -> int:
+    """Calculate approximate BF16 size from state dict (works for meta models)."""
+    total_bytes = sum(t.numel() * t.element_size() for t in state_dict.values())
+    return int(total_bytes / (1024 * 1024))
 
 
 def plan(
@@ -176,6 +186,39 @@ class VRAMManager:
         self._hooks: list = []
         self._plan: Optional[VRAMPlan] = None
 
+    def load_state_dict(self, state_dict: dict, plan: VRAMPlan) -> None:
+        """Load safetensor state dict into meta-initialized model.
+
+        This is the core of the Pragmatic Extreme architecture:
+        1. Model was instantiated on meta device (0ms, 0MB)
+        2. state_dict was loaded via safetensors.torch.load_file() to host memory
+        3. We use assign=True to replace meta parameters with real tensors
+        4. We pin memory for fast GPU streaming via BlockStreamHook
+
+        Uses PyTorch 2.x load_state_dict(assign=True) which replaces
+        meta tensor storage with real tensor data in-place.
+        """
+        missing, unexpected = self.model.load_state_dict(state_dict, strict=False, assign=True)
+        if missing:
+            logger.warning("VRAM: %d missing params in state_dict load", len(missing))
+        if unexpected:
+            logger.warning("VRAM: %d unexpected params in state_dict load", len(unexpected))
+
+        # Verify nothing is still on meta device
+        meta_count = sum(1 for p in self.model.parameters() if p.device.type == "meta")
+        if meta_count > 0:
+            logger.warning("VRAM: %d parameters still on meta device after load!", meta_count)
+
+        # Pin all parameters for fast GPU transfer
+        if plan.strategy in (Strategy.BLOCK_STREAM, Strategy.FP8_STREAM):
+            for param in self.model.parameters():
+                try:
+                    param.data = param.data.contiguous().pin_memory()
+                except Exception:
+                    pass
+
+        logger.info("VRAM: loaded state dict (%d keys)", len(state_dict))
+
     def apply(self, plan: VRAMPlan) -> None:
         """Apply a VRAM plan to the model."""
         self._plan = plan
@@ -241,6 +284,26 @@ class VRAMManager:
             handle_pre = block.register_forward_pre_hook(hook.pre_forward, with_kwargs=True)
             handle_post = block.register_forward_hook(hook.post_forward, with_kwargs=True)
             self._hooks.extend([handle_pre, handle_post])
+
+        # Collect all parameter IDs that belong to streamed blocks
+        block_param_ids: set[int] = set()
+        for block in blocks:
+            for p in block.parameters():
+                block_param_ids.add(id(p))
+
+        # Move non-block parameters (time_embed, pos_embed, final_ln, etc.)
+        # to GPU resident. These are tiny (< 100MB total) and must be on GPU
+        # for correct computation. Only block weights stream CPU↔GPU.
+        non_block_params = [
+            p for p in self.model.parameters()
+            if id(p) not in block_param_ids
+        ]
+        if non_block_params:
+            logger.info("VRAM: moving %d non-block params to GPU (%.1fMB)",
+                        len(non_block_params),
+                        sum(p.numel() for p in non_block_params) * 4 / (1024*1024))
+            for p in non_block_params:
+                p.data = p.data.to(self.device, non_blocking=False)
 
         logger.info("VRAM: %d blocks hooked for streaming (stream=%s)",
                     len(blocks), self._stream)

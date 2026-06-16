@@ -439,6 +439,26 @@ SERVICE_REGISTRY: dict[str, ServiceEntry] = {
             ParamSpec(type="number", label="CFG Scale", default=4.0, placeholder="4.0"),
         ],
     ),
+
+    # ── Native — diffusers model classes + manual denoise (replaces Wan2GP) ────
+    "native": ServiceEntry(
+        deployment="forge", app="forge",
+        label="Native Models", category="image",
+        needs_gpu=True, default_model="z-image-turbo",
+        output_type="image",
+        description="Native diffusers — Z-Image, FLUX, LTX Video, and more through adaptive VRAM optimization.",
+        params_schema=[
+            ParamSpec(type="text", label="Model", required=False, default="z-image-turbo",
+                      placeholder="z-image-turbo", description="Model name from native registry"),
+            ParamSpec(type="textarea", label="Prompt", required=True, placeholder="Describe what to generate..."),
+            ParamSpec(type="text", label="Negative Prompt", required=False, placeholder="things to avoid..."),
+            ParamSpec(type="number", label="Steps", default=4, placeholder="4"),
+            ParamSpec(type="number", label="CFG Scale", default=3.5, placeholder="3.5"),
+            ParamSpec(type="number", label="Width", default=1024, placeholder="1024"),
+            ParamSpec(type="number", label="Height", default=1024, placeholder="1024"),
+            ParamSpec(type="number", label="Seed", default=-1, placeholder="-1 (random)"),
+        ],
+    ),
 }
 
 

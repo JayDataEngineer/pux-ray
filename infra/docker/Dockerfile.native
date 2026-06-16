@@ -1,20 +1,9 @@
-# Dockerfile.native — Unified serving container
-# Base: SGLang kernels (flashinfer, cache-dit)
-# Model classes: diffusers (nn.Module ONLY, not pipelines)
-# LTX: ltx-pipelines (Lightricks native)
-# VRAM: custom BlockStreamHook
-# NO mmGP. NO Wan2GP. NO SGLang serve.
-#
-# Build:
-#   docker build -f infra/docker/Dockerfile.native -t forge-reg.local:30500/tech-noir/native:latest .
-
+# Dockerfile.native — Standalone forge (no Ray, no K8s)
 FROM nvidia/cuda:12.8.0-cudnn-devel-ubuntu22.04
-
-LABEL description="diffusers model classes + ltx-pipelines + SGLang kernels"
+LABEL description="Standalone forge — Pragmatic Extreme model serving"
 
 ENV DEBIAN_FRONTEND=noninteractive
 ENV TZ=UTC
-
 RUN apt-get update && apt-get install -y --no-install-recommends \
     python3.10 python3-pip python3.10-dev \
     git build-essential ninja-build cmake \
@@ -29,15 +18,11 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     uv pip install torch==2.10.0 torchvision==0.25.0 torchaudio==2.10.0 \
     --index-url https://download.pytorch.org/whl/cu128
 
-# ── flashinfer (SGLang attention kernels) ─────────────────────────────────────
+# ── flashinfer + cache-dit (SGLang kernels) ────────────────────────────────────
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv pip install flashinfer-python
+    uv pip install flashinfer-python cache-dit
 
-# ── cache-dit (step caching accelerator) ──────────────────────────────────────
-RUN --mount=type=cache,target=/root/.cache/uv \
-    uv pip install cache-dit
-
-# ── transformers 4 PINNED + diffusers model classes + ltx-pipelines ──────────
+# ── Core ML stack (NO ray) ────────────────────────────────────────────────────
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv pip install \
     "transformers>=4.54.0,<5.0.0" \
@@ -45,24 +30,16 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     ltx-pipelines ltx-core \
     peft accelerate safetensors \
     huggingface_hub sentencepiece tokenizers \
-    gguf torchao bitsandbytes \
-    "ray[serve]>=2.43.0" httpx pyyaml pillow av
+    torchao bitsandbytes \
+    "uvicorn[standard]" httpx pyyaml pillow starlette
 
-# ── Fix torchaudio (ltx-pipelines pulls 2.11 which conflicts) ─────────────────
+# ── Fix torchaudio (ltx-pipelines pulls wrong version) ────────────────────────
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv pip install torchaudio==2.10.0 --force-reinstall --no-deps
 
 # ── Fix ltx_core circular import ──────────────────────────────────────────────
-RUN python3 -c "
-p = '/usr/local/lib/python3.10/dist-packages/ltx_core/loader/fuse_loras.py'
-with open(p) as f: c = f.read()
-c = c.replace(
-    'from ltx_core.quantization.fp8_cast import calculate_weight_float8',
-    '''try:\\n    from ltx_core.quantization.fp8_cast import calculate_weight_float8\\nexcept ImportError:\\n    def calculate_weight_float8(*a, **k):\\n        from ltx_core.quantization.fp8_cast import calculate_weight_float8 as f\\n        return f(*a, **k)'''
-)
-with open(p, 'w') as f: f.write(c)
-print('Fixed ltx_core circular import')
-"
+COPY infra/docker/fix_ltx_import.py /tmp/fix_ltx_import.py
+RUN python3 /tmp/fix_ltx_import.py
 
 # ── Environment ───────────────────────────────────────────────────────────────
 ENV SAFETENSORS_DISABLE_MMAP=1
@@ -76,4 +53,6 @@ COPY services/ /app/services/
 COPY config/ /app/config/
 COPY gateway/ /app/gateway/
 
-CMD ["python3", "-m", "ray", "start", "--address=${RAY_ADDRESS}", "--block", "--num-gpus=1"]
+# ── Entrypoint: standalone forge ASGI server ──────────────────────────────────
+EXPOSE 8000
+CMD ["python3", "-m", "uvicorn", "services.standalone_forge:app", "--host", "0.0.0.0", "--port", "8000"]
