@@ -1,0 +1,85 @@
+# Dockerfile.sdcpp-vace — Wan2.2 VACE-Fun A14B via stable-diffusion.cpp
+#
+# Multi-stage build: compiles sd.cpp from source in a CUDA 13.1 dev image,
+# then copies the binary to a slim CUDA 13.1 runtime. No host binary — fully
+# reproducible and glibc-matched.
+#
+# sdcpp-5d-tensor.patch: bumps GGML_MAX_DIMS 4→5 so Wan VACE Conv3d layers
+# (vace_patch_embedding.weight) load correctly. Patch is a separate file —
+# just delete it when upstream fixes the limit.
+#
+# Replaces DiffSynth-Studio Python backend with C++/GGML inference.
+# Q4_K_M weights fit in 24GB VRAM (no PCIe streaming → 5-10× faster).
+# sd-server provides /sdcpp/v1/vid_gen async API + web UI at /.
+FROM nvidia/cuda:13.1.0-devel-ubuntu24.04 AS builder
+
+ENV DEBIAN_FRONTEND=noninteractive
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    git cmake build-essential \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /build
+
+# Clone sd.cpp with submodules (ggml required for CUDA backend)
+RUN git clone --depth 1 --recurse-submodules \
+    https://github.com/leejet/stable-diffusion.cpp.git .
+
+# Monkey-patch: Wan VACE uses Conv3d (5D tensors). Bump ggml's tensor
+# dimension limit 4→5. Remove this patch when upstream fixes it.
+COPY infra/docker/sdcpp-5d-tensor.patch /tmp/5d.patch
+RUN patch -p1 < /tmp/5d.patch && rm /tmp/5d.patch
+
+# Build sd-server with CUDA backend
+RUN mkdir build && cd build && \
+    cmake .. \
+      -DSD_CUDA=ON \
+      -DCMAKE_BUILD_TYPE=Release \
+      -DSD_BUILD_EXAMPLES=ON \
+      2>&1 && \
+    cmake --build . --config Release -j$(nproc) 2>&1
+
+# ── Runtime stage ────────────────────────────────────────────────────────
+FROM nvidia/cuda:13.1.0-runtime-ubuntu24.04
+
+LABEL description="Wan2.2 VACE-Fun A14B — stable-diffusion.cpp (Q4_K_M GGUF, GPU-resident)"
+
+ENV DEBIAN_FRONTEND=noninteractive
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ffmpeg ca-certificates curl \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY --from=builder /build/build/bin/sd-server /app/sd-server
+
+# Default model paths — overridden by k8s manifest or CLI flags.
+# Models are mounted from PVC at /models/video/wan-vace-fun-a14b/.
+ENV MODEL_DIR=/models/video/wan-vace-fun-a14b
+ENV SDCPP_LOW=${MODEL_DIR}/Wan2_2_Fun_VACE_module_A14B_LOW_Q4_K_M.gguf
+ENV SDCPP_HIGH=${MODEL_DIR}/Wan2_2_Fun_VACE_module_A14B_HIGH_Q4_K_M.gguf
+ENV SDCPP_VAE=${MODEL_DIR}/wan_2.1_vae.safetensors
+ENV SDCPP_T5XXL=${MODEL_DIR}/umt5-xxl-encoder-Q8_0.gguf
+
+# Optimization defaults — GPU-resident Q4_K_M
+ENV SDCPP_CFG_SCALE=5.0
+ENV SDCPP_STEPS=18
+ENV SDCPP_HIGH_NOISE_STEPS=12
+ENV SDCPP_WIDTH=832
+ENV SDCPP_HEIGHT=480
+ENV SDCPP_DIFFUSION_FA=1
+ENV SDCPP_FLOW_SHIFT=3.0
+
+EXPOSE 1234
+CMD ["sh", "-c", "exec /app/sd-server \
+  --diffusion-model ${SDCPP_LOW} \
+  --high-noise-diffusion-model ${SDCPP_HIGH} \
+  --vae ${SDCPP_VAE} \
+  --t5xxl ${SDCPP_T5XXL} \
+  --diffusion-fa \
+  --cfg-scale ${SDCPP_CFG_SCALE} \
+  --steps ${SDCPP_STEPS} \
+  --high-noise-steps ${SDCPP_HIGH_NOISE_STEPS} \
+  -W ${SDCPP_WIDTH} \
+  -H ${SDCPP_HEIGHT} \
+  --flow-shift ${SDCPP_FLOW_SHIFT} \
+  --listen-ip 0.0.0.0 \
+  --listen-port 1234 \
+  -v"]
