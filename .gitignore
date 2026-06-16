@@ -97,3 +97,7 @@ web/editor-mcp/
 web/editor/@/
 sdk/test/
 sdk/test/
+.cache/
+*.jpg
+*.png
+S3.txt
