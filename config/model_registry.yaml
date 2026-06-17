@@ -2129,15 +2129,19 @@ wan2gp:
     vram_estimate_gb: 8.0
 
   wan2.1-vace-14b-fp8-lightning:
-    description: 'Wan2.1 VACE 14B direct-cast FP8 with LightX2V 4-step distilled
-      LoRA merge. Lightning fast T2V/I2V with full VACE conditioning. PROVEN on
-      RTX 4090 (24GB) via vLLM-Omni 0.22 + FP8 weight-only patch (same patch as
-      base FP8 model). Use with vace_lightning workflow (4 steps). Build by
-      merging the LightX2V LoRA into the BF16 base, then re-cast to FP8.'
+    description: 'DEPRECATED/PENDING: Originally attempted as a LightX2V 4-step
+      distilled FP8 merge. INVESTIGATION FOUND THE LightX2V LoRA repo
+      (hf://lightx2v/Wan2.2-Distill-Loras) targets Wan2.2-I2V-A14B (image-to-
+      video, no VACE conditioning), NOT Wan2.1-VACE-14B. Merging it into
+      Wan2.1-VACE produced washed-out output (std~12 vs ~72 for base) because
+      the LoRA targets a different DiT variant. Previous checkpoint was
+      removed. To re-enable, need either: (a) a Wan2.1-VACE-specific
+      distillation, or (b) switch base to Wan2.2-I2V-A14B (loses VACE). Until
+      then use vace_fast workflow (base FP8 with 10 steps) for speed.'
     device: gpu
     download: skip
     path: video/wan2.1-vace-14b-fp8-lightning
     sha256: null
     size_gb: 18.0
-    source: local (LightX2V LoRA from hf://lightx2v/Wan2.2-Distill-Loras merged into Wan-AI/Wan2.1-VACE-14B, then FP8 cast)
+    source: local (PENDING — no compatible Wan2.1-VACE distillation source available)
     vram_estimate_gb: 22.0

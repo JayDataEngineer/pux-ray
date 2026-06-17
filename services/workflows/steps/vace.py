@@ -29,10 +29,13 @@ logger = logging.getLogger(__name__)
 
 # Model → API server routing.
 # - wan2.1-vace-14b-fp8-diffusers: the PROVEN direct-cast FP8 model served by
-#   scripts/run_omni_14b.sh (container: omni-14b-vace-fp8).
+#   scripts/run_omni_14b.sh (container: omni-14b-vace-fp8). Used by both
+#   vace_base (25 steps) and vace_fast (10 steps) workflows.
 # - wan2.1-vace-14b-fp8: legacy alias for the same container.
-# - wan2.1-vace-14b-fp8-lightning: 4-step distilled variant served by
-#   scripts/run_omni_14b_lightning.sh (container: omni-14b-vace-lightning).
+# - wan2.1-vace-14b-fp8-lightning: PENDING. The LightX2V LoRA at
+#   hf://lightx2v/Wan2.2-Distill-Loras targets Wan2.2-I2V-A14B (not VACE),
+#   so the previous merge produced washed-out output. Routing entry kept
+#   so the workflow IaC is ready when a compatible distillation lands.
 OMNI_ENDPOINTS = {
     "wan2.1-vace-14b-fp8-diffusers": ("http://omni-14b-vace-fp8:8000",        "/models/vace-fp8"),
     "wan2.1-vace-14b-fp8":           ("http://omni-14b-vace-fp8:8000",        "/models/vace-fp8"),
@@ -48,9 +51,13 @@ class VaceGenerateStep(StepExecutor):
     Uses POST /v1/videos/sync (multipart form-data) which returns raw
     MP4 bytes — no base64 encoding, no PNG wrapping.
 
-    Supports both Base (wan2.1-vace-14b-fp8) and Lightning
-    (wan2.1-vace-14b-fp8-lightning) models. Routes to the correct
-    Omni API endpoint based on the *_model parameter.
+    Supports three quality tiers, all served from the same PROVEN
+    direct-cast FP8 base model (wan2.1-vace-14b-fp8-diffusers):
+      - vace_base:    25 steps, full quality (~165s for 33-frame 640x480)
+      - vace_fast:    10 steps, ~2.5x speedup (~70s)
+      - vace_lightning: PENDING — needs compatible Wan2.1-VACE distillation
+
+    Routes to the correct Omni API endpoint based on the *_model parameter.
 
     Params:
       input_prompt: Text prompt
@@ -60,7 +67,7 @@ class VaceGenerateStep(StepExecutor):
       fps: Frames per second
       frame_num: Number of frames
       width/height: Video resolution
-      sampling_steps: Denoising steps (4 for Lightning, 18+ for Base)
+      sampling_steps: Denoising steps (10 for Fast, 25 for Base)
       guide_scale: CFG guidance scale
       *_model: Model identifier (auto-injected from workflow spec)
     """
@@ -141,7 +148,9 @@ class VaceGenerateStep(StepExecutor):
             "steps": steps,
             "width": width,
             "height": height,
-            "mode": "lightning" if steps <= 4 else "base",
+            # Mode bucketing: <=4 = lightning (when available), <=12 = fast,
+            # else base. Useful for frontend UX and timing estimates.
+            "mode": "lightning" if steps <= 4 else ("fast" if steps <= 12 else "base"),
         }
         if inference_time_s:
             metadata["inference_time_s"] = float(inference_time_s)
