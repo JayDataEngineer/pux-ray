@@ -9,8 +9,8 @@
     source: hf://VAST-AI/AniGen
     vram_estimate_gb: 2.0
   pixal3d:
-    description: Pixal3D checkpoints. Fine-tune of TRELLIS.2 with projection-mode
-      conditioning for high-fidelity image-to-3D with PBR textures.
+    description: Pixal3D checkpoints. Fine-tune of TRELLIS.2 with projection-mode conditioning for high-fidelity
+      image-to-3D with PBR textures.
     device: gpu
     download: snapshot
     path: 3d/pixal3d/
@@ -19,8 +19,8 @@
     source: hf://TencentARC/Pixal3D
     vram_estimate_gb: 2.0
   pixal3d_dinov3:
-    description: DINOv3 ViT-L/16 image encoder for Pixal3D proj-mode conditioning.
-      Gated on HuggingFace, free on ModelScope.
+    description: DINOv3 ViT-L/16 image encoder for Pixal3D proj-mode conditioning. Gated on HuggingFace,
+      free on ModelScope.
     device: gpu
     download: modelscope
     path: 3d/pixal3d/dinov3/facebook/dinov3-vitl16-pretrain-lvd1689m/
@@ -38,8 +38,7 @@
     source: hf://microsoft/TRELLIS.2-4B
     vram_estimate_gb: 2.0
   trellis_dinov3:
-    description: DINOv3 ViT-L/16 image encoder for TRELLIS.2. Gated on HuggingFace,
-      free on ModelScope.
+    description: DINOv3 ViT-L/16 image encoder for TRELLIS.2. Gated on HuggingFace, free on ModelScope.
     device: gpu
     download: modelscope
     path: 3d/trellis/dinov3/facebook/dinov3-vitl16-pretrain-lvd1689m/
@@ -48,8 +47,7 @@
     source: modelscope://facebook/dinov3-vitl16-pretrain-lvd1689m
     vram_estimate_gb: 0.5
   trellis_rmbg:
-    description: RMBG-2.0 background removal model for TRELLIS.2. Gated on HuggingFace,
-      free on ModelScope.
+    description: RMBG-2.0 background removal model for TRELLIS.2. Gated on HuggingFace, free on ModelScope.
     device: gpu
     download: modelscope
     path: 3d/trellis/rmbg/briaai/RMBG-2___0/
@@ -58,51 +56,26 @@
     source: modelscope://briaai/RMBG-2.0
     vram_estimate_gb: 0.3
 asr:
-  canary-1b:
-    description: NVIDIA Canary 1B v2 — translation + transcription. CPU-capable.
+  distil-whisper-large-v3:
+    description: Distil-Whisper large-v3 in CTranslate2 format. CPU inference via faster-whisper. Used by
+      the faster_whisper Tier 1 service.
     device: cpu
-    download: file
-    path: asr/canary-1b-v2.gguf
+    download: snapshot
+    path: asr/faster-whisper/
     sha256: null
-    size_gb: 1.0
-    source: hf://crispstrobe/canary-1b-v2-GGUF/canary-1b-v2-Q8_0.gguf
+    size_gb: 1.5
+    source: hf://Systran/faster-distil-whisper-large-v3
     vram_estimate_gb: 0.0
-  parakeet-tdt-0.6b:
-    description: 'FAST: Parakeet TDT 0.6B v3. Needs GGUF conversion or use CrispASR
-      auto-download.'
-    device: cpu
-    download: skip
-    path: asr/parakeet-tdt-0.6b-v3.gguf
-    size_gb: 0.6
-    source: hf://nvidia/parakeet-tdt-0.6b-v3
-    vram_estimate_gb: 0.0
-  vibevoice-7b:
-    description: 'QUALITY: VibeVoice-7B ASR+Diarization (Q4_K_M GGUF). 10.4GB. CPU-capable.'
-    device: cpu
-    download: file
-    path: asr/vibevoice-asr-q4_k.gguf
-    size_gb: 10.4
-    source: hf://mudler/vibevoice.cpp-models/vibevoice-asr-q4_k.gguf
-    vram_estimate_gb: 0.0
-  voxtral-mini-3b:
-    description: Mistral Voxtral Mini 3B — multilingual ASR + understanding. CPU-capable
-      but slower.
-    device: cpu
-    download: file
-    path: asr/voxtral-mini-3b.gguf
+  vibevoice-asr-7b:
+    description: Microsoft VibeVoice-ASR 7B. GPU ASR with native speaker diarization. Used by the
+      vibevoice_microsoft Tier 2 service.
+    device: gpu
+    download: snapshot
+    path: asr/vibevoice-asr/
     sha256: null
-    size_gb: 3.0
-    source: hf://crispstrobe/voxtral-mini-3b-GGUF/voxtral-mini-3b-2507-Q8_0.gguf
-    vram_estimate_gb: 0.0
-  whisper-base:
-    description: OpenAI Whisper Base (English) — lightweight CPU ASR.
-    device: cpu
-    download: file
-    path: asr/ggml-base.en.bin
-    sha256: null
-    size_gb: 0.1
-    source: hf://gh-mirror/ggml-base.en.bin
-    vram_estimate_gb: 0.0
+    size_gb: 17.0
+    source: hf://microsoft/VibeVoice-ASR
+    vram_estimate_gb: 16.0
 audio:
   ace-step:
     description: ACE-STEP 1.5 music generation. v15-turbo, 5Hz-lm-1.7B, Qwen3-Embedding.
@@ -114,8 +87,8 @@ audio:
     source: hf://ACE-Step/Ace-Step1.5
     vram_estimate_gb: 8.0
   moss-audio-tokenizer:
-    description: MOSS Audio Tokenizer (3.5B). Audio codec for MOSS-SoundEffect. Loaded
-      to CPU to conserve VRAM.
+    description: MOSS Audio Tokenizer (3.5B). Audio codec for MOSS-SoundEffect. Loaded to CPU to conserve
+      VRAM.
     device: cpu
     download: snapshot
     path: audio/moss-audio-tokenizer/
@@ -124,8 +97,8 @@ audio:
     source: hf://OpenMOSS-Team/MOSS-Audio-Tokenizer
     vram_estimate_gb: 0.0
   moss-audio-tokenizer-nano:
-    description: MOSS-Audio-Tokenizer-Nano. Lightweight 48kHz stereo audio codec for
-      MOSS-TTS-Nano (~20M params). Loaded to CPU.
+    description: MOSS-Audio-Tokenizer-Nano. Lightweight 48kHz stereo audio codec for MOSS-TTS-Nano (~20M
+      params). Loaded to CPU.
     device: cpu
     download: snapshot
     path: audio/moss-audio-tokenizer-nano/
@@ -134,9 +107,9 @@ audio:
     source: hf://OpenMOSS-Team/MOSS-Audio-Tokenizer-Nano
     vram_estimate_gb: 0.0
   moss-soundeffect:
-    description: MOSS-SoundEffect 8B text-to-sound model. Environmental sounds, urban
-      scenes, creatures, human actions, music-like clips. Part of MOSS-TTS family.
-      Requires MOSS-Audio-Tokenizer (3.5B, loaded to CPU).
+    description: MOSS-SoundEffect 8B text-to-sound model. Environmental sounds, urban scenes, creatures,
+      human actions, music-like clips. Part of MOSS-TTS family. Requires MOSS-Audio-Tokenizer (3.5B, loaded
+      to CPU).
     device: gpu
     download: snapshot
     path: audio/moss-soundeffect/bf16/
@@ -145,8 +118,7 @@ audio:
     source: hf://OpenMOSS-Team/MOSS-SoundEffect
     vram_estimate_gb: 18.0
   moss-soundeffect-v2:
-    description: MOSS-SoundEffect v2.0 (1.3B DiT+FlowMatching). Self-contained, no
-      tokenizer needed.
+    description: MOSS-SoundEffect v2.0 (1.3B DiT+FlowMatching). Self-contained, no tokenizer needed.
     device: gpu
     download: snapshot
     path: audio/moss-soundeffect-v2
@@ -154,9 +126,8 @@ audio:
     source: hf://OpenMOSS-Team/MOSS-SoundEffect-v2.0
     vram_estimate_gb: 7.0
   moss-tts:
-    description: MOSS-TTS 8B text-to-speech. Flagship production model with high-fidelity
-      zero-shot voice cloning. Supports long-form, pinyin/phoneme control, multilingual.
-      Requires MOSS-Audio-Tokenizer.
+    description: MOSS-TTS 8B text-to-speech. Flagship production model with high-fidelity zero-shot voice
+      cloning. Supports long-form, pinyin/phoneme control, multilingual. Requires MOSS-Audio-Tokenizer.
     device: gpu
     download: snapshot
     path: audio/moss-tts/
@@ -165,8 +136,8 @@ audio:
     source: hf://OpenMOSS-Team/MOSS-TTS
     vram_estimate_gb: 18.0
   moss-tts-local-transformer:
-    description: MOSS-TTS-Local-Transformer 1.7B lighter TTS variant with local transformer
-      decoder. Requires MOSS-Audio-Tokenizer.
+    description: MOSS-TTS-Local-Transformer 1.7B lighter TTS variant with local transformer decoder. Requires
+      MOSS-Audio-Tokenizer.
     device: gpu
     download: snapshot
     path: audio/moss-tts-local-transformer/
@@ -175,8 +146,8 @@ audio:
     source: hf://OpenMOSS-Team/MOSS-TTS-Local-Transformer
     vram_estimate_gb: 4.0
   moss-tts-nano:
-    description: MOSS-TTS-Nano 100M ultra-lightweight TTS. GPT-2 backbone, SentencePiece
-      tokenizer, 48kHz stereo. Requires MOSS-Audio-Tokenizer-Nano.
+    description: MOSS-TTS-Nano 100M ultra-lightweight TTS. GPT-2 backbone, SentencePiece tokenizer, 48kHz
+      stereo. Requires MOSS-Audio-Tokenizer-Nano.
     device: gpu
     download: snapshot
     path: audio/moss-tts-nano/
@@ -185,8 +156,8 @@ audio:
     source: hf://OpenMOSS-Team/MOSS-TTS-Nano-100M
     vram_estimate_gb: 0.2
   moss-tts-realtime:
-    description: MOSS-TTS-Realtime 2.3B streaming TTS with RVQ local transformer.
-      Prefill/step streaming architecture. Requires MOSS-Audio-Tokenizer.
+    description: MOSS-TTS-Realtime 2.3B streaming TTS with RVQ local transformer. Prefill/step streaming
+      architecture. Requires MOSS-Audio-Tokenizer.
     device: gpu
     download: snapshot
     path: audio/moss-tts-realtime/
@@ -195,8 +166,8 @@ audio:
     source: hf://OpenMOSS-Team/MOSS-TTS-Realtime
     vram_estimate_gb: 4.0
   moss-ttsd:
-    description: MOSS-TTSD v1.0 8B dialogue TTS. Expressive multi-speaker ultra-long
-      dialogue generation. Requires MOSS-Audio-Tokenizer.
+    description: MOSS-TTSD v1.0 8B dialogue TTS. Expressive multi-speaker ultra-long dialogue generation.
+      Requires MOSS-Audio-Tokenizer.
     device: gpu
     download: snapshot
     path: audio/moss-ttsd/
@@ -205,9 +176,8 @@ audio:
     source: hf://OpenMOSS-Team/MOSS-TTSD-v1.0
     vram_estimate_gb: 18.0
   moss-voicegenerator:
-    description: MOSS-VoiceGenerator 1.7B voice design. Generate diverse voices and
-      styles from text prompts without reference speech. Emotional conditioning via
-      instruction parameter. Requires MOSS-Audio-Tokenizer.
+    description: MOSS-VoiceGenerator 1.7B voice design. Generate diverse voices and styles from text prompts
+      without reference speech. Emotional conditioning via instruction parameter. Requires MOSS-Audio-Tokenizer.
     device: gpu
     download: snapshot
     path: audio/moss-voicegenerator/
@@ -216,8 +186,8 @@ audio:
     source: hf://OpenMOSS-Team/MOSS-VoiceGenerator
     vram_estimate_gb: 4.0
   tangoflux:
-    description: TangoFlux text-to-audio generation. Flow matching with DiT/MMDiT,
-      CRPO-aligned. Generates 44.1kHz audio up to 30s.
+    description: TangoFlux text-to-audio generation. Flow matching with DiT/MMDiT, CRPO-aligned. Generates
+      44.1kHz audio up to 30s.
     device: gpu
     download: snapshot
     path: audio/tangoflux/
@@ -227,8 +197,8 @@ audio:
     vram_estimate_gb: 6.0
 avatar:
   flux-klein-4b-int8:
-    description: FLUX.2 Klein 4B int8 for avatar rendering. 15-30 FPS on RTX 4090.
-      Spatial KV Cache for efficient streaming.
+    description: FLUX.2 Klein 4B int8 for avatar rendering. 15-30 FPS on RTX 4090. Spatial KV Cache for
+      efficient streaming.
     device: gpu
     download: snapshot
     path: avatar/fluxrt/FLUX.2-klein-4B-int8/
@@ -237,9 +207,8 @@ avatar:
     source: hf://aydin99/FLUX.2-klein-4B-int8
     vram_estimate_gb: 10.0
   kimodo-soma-rp:
-    description: Kimodo-SOMA-RP v1.1 kinematic motion diffusion model. 282M params.
-      Text -> SOMA 77-joint motion. 700 hours commercial mocap training data. Use
-      TEXT_ENCODER_DEVICE=cpu for <3GB VRAM.
+    description: Kimodo-SOMA-RP v1.1 kinematic motion diffusion model. 282M params. Text -> SOMA 77-joint
+      motion. 700 hours commercial mocap training data. Use TEXT_ENCODER_DEVICE=cpu for <3GB VRAM.
     device: gpu
     download: snapshot
     path: avatar/kimodo/Kimodo-SOMA-RP-v1.1/
@@ -248,8 +217,8 @@ avatar:
     source: hf://nvidia/Kimodo-SOMA-RP-v1.1
     vram_estimate_gb: 3.0
   kimodo-text-encoder:
-    description: LLM2Vec text encoder for Kimodo (gated model, requires HF login).
-      Runs on CPU via TEXT_ENCODER_DEVICE=cpu, not on GPU.
+    description: LLM2Vec text encoder for Kimodo (gated model, requires HF login). Runs on CPU via TEXT_ENCODER_DEVICE=cpu,
+      not on GPU.
     download: snapshot
     path: cache/huggingface/meta-llama/Meta-Llama-3-8B-Instruct/
     sha256: null
@@ -257,8 +226,8 @@ avatar:
     source: hf://meta-llama/Meta-Llama-3-8B-Instruct
     vram_estimate_gb: 0.0
   soma-assets:
-    description: SOMA unified body model assets. 77-joint parametric model. Only needed
-      for GEM-X video estimation fallback.
+    description: SOMA unified body model assets. 77-joint parametric model. Only needed for GEM-X video
+      estimation fallback.
     device: gpu
     download: snapshot
     path: avatar/soma/
@@ -278,8 +247,8 @@ cache:
     vram_estimate_gb: 0.0
 comfyui:
   checkpoint-ilflatmix:
-    description: ALF mix IL v4.3 [final] — Illustrious 8-step checkpoint. VNCCS author's
-      mix (Shio_N). LCM/Euler A, CFG 1.8-2.0, 6-8 steps. Civitai version 2044675.
+    description: "ALF mix IL v4.3 [final] \u2014 Illustrious 8-step checkpoint. VNCCS author's mix (Shio_N).\
+      \ LCM/Euler A, CFG 1.8-2.0, 6-8 steps. Civitai version 2044675."
     device: gpu
     download: civitai
     path: image-gen/comfyui/checkpoints/Illustrious/ILFlatMix.safetensors
@@ -288,8 +257,8 @@ comfyui:
     source: civitai://2044675
     vram_estimate_gb: 7.5
   checkpoint-ilflatmix-v4:
-    description: ALF mix IL v4.3 [00001] — Illustrious checkpoint. VNCCS SDXL pipeline.
-      Civitai version 2044675.
+    description: "ALF mix IL v4.3 [00001] \u2014 Illustrious checkpoint. VNCCS SDXL pipeline. Civitai\
+      \ version 2044675."
     device: gpu
     download: civitai
     path: image-gen/comfyui/checkpoints/Illustrious/ILFlatMixV4_00001_.safetensors
@@ -325,8 +294,7 @@ comfyui:
     source: civitai://2553102
     vram_estimate_gb: 7.5
   checkpoint-qwen-image-edit-2511-lc:
-    description: Qwen Image Edit 2511 Lightning 4-step (FP8 scaled, ComfyUI format).
-      From lightx2v.
+    description: Qwen Image Edit 2511 Lightning 4-step (FP8 scaled, ComfyUI format). From lightx2v.
     device: gpu
     download: file
     path: image-gen/comfyui/checkpoints/qwen_image_edit_2511_fp8_e4m3fn_scaled_lightning_comfyui_4steps_v1.0.safetensors
@@ -353,8 +321,7 @@ comfyui:
     source: hf://unsloth/gemma-3-12b-it-GGUF/gemma-3-12b-it-IQ4_XS.gguf
     vram_estimate_gb: 7.0
   clip-qwen25-vl-7b:
-    description: Qwen 2.5 VL 7B (FP8 scaled). Text encoder for Qwen Image Edit. From
-      Comfy-Org.
+    description: Qwen 2.5 VL 7B (FP8 scaled). Text encoder for Qwen Image Edit. From Comfy-Org.
     device: gpu
     download: file
     path: image-gen/comfyui/clip/qwen_2.5_vl_7b_fp8_scaled.safetensors
@@ -407,52 +374,6 @@ comfyui:
     size_gb: 1.5
     source: hf://MIUProject/VNCCS/models/controlnet/SDXL/IllustriousXL_openpose.safetensors
     vram_estimate_gb: 2.0
-  diffusion-klein-4b-q4:
-    description: Flux.2 Klein 4B GGUF Q4_0. Smallest quant.
-    device: gpu
-    download: file
-    path: image-gen/comfyui/diffusion_models/flux-2-klein-4b-Q4_0.gguf
-    sha256: null
-    size_gb: 2.5
-    source: hf://unsloth/FLUX.2-klein-4B-GGUF/flux-2-klein-4b-Q4_0.gguf
-    vram_estimate_gb: 3.0
-  diffusion-klein-4b-q5:
-    description: Flux.2 Klein 4B GGUF Q5_0. Smaller quant for constrained VRAM.
-    device: gpu
-    download: file
-    path: image-gen/comfyui/diffusion_models/flux-2-klein-4b-Q5_0.gguf
-    sha256: null
-    size_gb: 2.9
-    source: hf://unsloth/FLUX.2-klein-4B-GGUF/flux-2-klein-4b-Q5_0.gguf
-    vram_estimate_gb: 3.5
-  diffusion-klein-4b-q6:
-    description: Flux.2 Klein 4B GGUF Q6_K. Higher quality quant.
-    device: gpu
-    download: file
-    path: image-gen/comfyui/diffusion_models/flux-2-klein-4b-Q6_K.gguf
-    sha256: null
-    size_gb: 3.4
-    source: hf://unsloth/FLUX.2-klein-4B-GGUF/flux-2-klein-4b-Q6_K.gguf
-    vram_estimate_gb: 4.0
-  diffusion-klein-4b-q8:
-    description: Flux.2 Klein 4B GGUF Q8_0. Primary quant for image generation.
-    device: gpu
-    download: file
-    path: image-gen/comfyui/diffusion_models/flux-2-klein-4b-Q8_0.gguf
-    sha256: null
-    size_gb: 4.3
-    source: hf://unsloth/FLUX.2-klein-4B-GGUF/flux-2-klein-4b-Q8_0.gguf
-    vram_estimate_gb: 5.0
-  dwpose:
-    description: DWPose detector. Auto-downloaded by comfyui_controlnet_aux at first
-      use.
-    device: cpu
-    download: skip
-    path: image-gen/comfyui/controlnet/dw-ll_ucoco_384_bs5.torchscript.pt
-    sha256: null
-    size_gb: 0.2
-    source: null
-    vram_estimate_gb: 0.5
   hy-motion-1.0:
     description: HY-Motion 1.0 text-to-3D human motion. 1.0B DiT model. ComfyUI-HY-Motion1.
     device: gpu
@@ -544,8 +465,7 @@ comfyui:
     source: hf://MIUProject/VNCCS/models/loras/vn_character_sheet_v4.safetensors
     vram_estimate_gb: 0.0
   lora-vnccs-clothes-helper:
-    description: VNCCS Clothes Helper V1 LoRA. Maintains clothing consistency across
-      poses.
+    description: VNCCS Clothes Helper V1 LoRA. Maintains clothing consistency across poses.
     device: gpu
     download: file
     path: image-gen/comfyui/loras/qwen/VNCCS/ClothesHelperUltimateV1_000005100.safetensors
@@ -689,9 +609,8 @@ comfyui:
     source: hf://Comfy-Org/ltx-2/split_files/text_encoders/gemma_3_12B_it_fp4_mixed.safetensors
     vram_estimate_gb: 3.0
   text-encoder-gemma-3-12b-it-full:
-    description: Gemma 3 12B IT text encoder. Full bf16 (5 shards, 23 GB). Used by
-      ComfyUI LTX text encoder node. Auto-downloaded by ComfyUI on first use. FP4
-      quant version preferred.
+    description: Gemma 3 12B IT text encoder. Full bf16 (5 shards, 23 GB). Used by ComfyUI LTX text encoder
+      node. Auto-downloaded by ComfyUI on first use. FP4 quant version preferred.
     device: gpu
     download: snapshot
     path: image-gen/comfyui/text_encoders/gemma-3-12b-it/
@@ -726,16 +645,6 @@ comfyui:
     size_gb: 0.05
     source: hf://Bingsu/adetailer/face_yolov8m.pt
     vram_estimate_gb: 0.0
-  ultralytics-person:
-    description: YOLOv8m person segmentation. Auto-downloaded by ultralytics at first
-      use.
-    device: cpu
-    download: skip
-    path: image-gen/comfyui/ultralytics/segm/person_yolov8m-seg.pt
-    sha256: null
-    size_gb: 0.02
-    source: null
-    vram_estimate_gb: 0.0
   unet-ltx23-gguf:
     description: LTX 2.3 22B distilled GGUF Q4_K_M UD (GQA-optimized). From unsloth.
     device: gpu
@@ -746,8 +655,7 @@ comfyui:
     source: hf://unsloth/LTX-2.3-GGUF/distilled-1.1/ltx-2.3-22b-distilled-1.1-UD-Q4_K_M.gguf
     vram_estimate_gb: 8.0
   unet-qwen-image-edit-gguf:
-    description: Qwen Image Edit 2511 GGUF Q5_0. For UnetLoaderGGUF (editing stage).
-      From unsloth.
+    description: Qwen Image Edit 2511 GGUF Q5_0. For UnetLoaderGGUF (editing stage). From unsloth.
     device: gpu
     download: file
     path: image-gen/comfyui/unet/qwen-image-edit-2511-Q5_0.gguf
@@ -756,8 +664,8 @@ comfyui:
     source: hf://unsloth/Qwen-Image-Edit-2511-GGUF/qwen-image-edit-2511-Q5_0.gguf
     vram_estimate_gb: 8.0
   unet-zimage-base:
-    description: Z-Image Base UNet (BF16). Non-distilled foundation model — full diversity
-      for training data generation. Apache 2.0.
+    description: "Z-Image Base UNet (BF16). Non-distilled foundation model \u2014 full diversity for training\
+      \ data generation. Apache 2.0."
     device: gpu
     download: file
     path: image-gen/comfyui/unet/z_image_bf16.safetensors
@@ -766,8 +674,8 @@ comfyui:
     source: hf://Comfy-Org/z_image/split_files/diffusion_models/z_image_bf16.safetensors
     vram_estimate_gb: 12.0
   unet-zimage-turbo:
-    description: Z-Image Turbo UNet (BF16). Distilled variant — faster but less diversity.
-      From Comfy-Org repackaged.
+    description: "Z-Image Turbo UNet (BF16). Distilled variant \u2014 faster but less diversity. From\
+      \ Comfy-Org repackaged."
     device: gpu
     download: file
     path: image-gen/comfyui/unet/z_image_turbo_bf16.safetensors
@@ -938,39 +846,9 @@ embeddings:
     size_gb: 0.14
     source: hf://jinaai/jina-embeddings-v5-text-nano-retrieval-GGUF/v5-nano-retrieval-IQ4_NL.gguf
     vram_estimate_gb: 0.5
-image:
-  see-through-layerdiff:
-    description: See-Through LayerDiff 3D pipeline. SDXL UNet + TransparentVAE + text
-      encoders for anime layer decomposition.
-    device: gpu
-    download: snapshot
-    path: image/see-through/layerdiff3d/
-    sha256: null
-    size_gb: 7.0
-    source: hf://layerdifforg/seethroughv0.0.2_layerdiff3d
-    vram_estimate_gb: 10.0
-  see-through-marigold:
-    description: See-Through Marigold depth estimation pipeline. UNet + VAE + text
-      encoder for per-layer depth prediction.
-    device: gpu
-    download: snapshot
-    path: image/see-through/marigold/
-    sha256: null
-    size_gb: 5.0
-    source: hf://24yearsold/seethroughv0.0.1_marigold
-    vram_estimate_gb: 5.0
-  see-through-scheduler:
-    description: Juggernaut XL v6 scheduler config for See-Through LayerDiff denoising.
-    device: cpu
-    download: snapshot
-    path: image/see-through/scheduler/
-    sha256: null
-    size_gb: 0.01
-    source: hf://frankjoshua/juggernautXL_version6Rundiffusion
-    vram_estimate_gb: 0.0
 lance:
   lance-image:
-    description: Lance 3B image bf16 (24.7 GB). Reference only — use GGUF or AWQ.
+    description: "Lance 3B image bf16 (24.7 GB). Reference only \u2014 use GGUF or AWQ."
     device: gpu
     download: manual
     path: lance/Lance_3B/
@@ -979,8 +857,8 @@ lance:
     source: hf://bytedance-research/Lance
     vram_estimate_gb: 14.0
   lance-image-awq:
-    description: Lance 3B Image AWQ INT4 (4.31 GB). Fallback if GGUF unavailable.
-      Requires config files from bytedance-research/Lance.
+    description: Lance 3B Image AWQ INT4 (4.31 GB). Fallback if GGUF unavailable. Requires config files
+      from bytedance-research/Lance.
     device: gpu
     download: snapshot
     path: lance/Lance-3B-AWQ-INT4/
@@ -988,27 +866,9 @@ lance:
     size_gb: 4.31
     source: hf://Reza2kn/Lance-3B-AWQ-INT4
     vram_estimate_gb: 7.0
-  lance-image-gguf-q4km:
-    description: Lance 3B Image GGUF Q4_K_M (3.95 GB). Smallest quant.
-    device: gpu
-    download: file
-    path: lance/Lance_3B-Q4_K_M.gguf
-    sha256: null
-    size_gb: 3.95
-    source: hf://samuelchristlie/Lance-GGUF/Lance_3B-Q4_K_M.gguf
-    vram_estimate_gb: 5.0
-  lance-image-gguf-q5km:
-    description: Lance 3B Image GGUF Q5_K_M (4.52 GB). t2i, image_edit, x2t_image.
-    device: gpu
-    download: file
-    path: lance/Lance_3B-Q5_K_M.gguf
-    sha256: null
-    size_gb: 4.52
-    source: hf://samuelchristlie/Lance-GGUF/Lance_3B-Q5_K_M.gguf
-    vram_estimate_gb: 7.0
   lance-vae:
-    description: Wan2.2 VAE for Lance (2.82 GB). Required by all variants. Part of
-      bytedance-research/Lance repo snapshot.
+    description: Wan2.2 VAE for Lance (2.82 GB). Required by all variants. Part of bytedance-research/Lance
+      repo snapshot.
     device: gpu
     download: manual
     path: lance/Wan2.2_VAE.pth
@@ -1017,7 +877,7 @@ lance:
     source: hf://bytedance-research/Lance
     vram_estimate_gb: 1.0
   lance-video:
-    description: Lance 3B video bf16 (28.4 GB). Reference only — use GGUF or AWQ.
+    description: "Lance 3B video bf16 (28.4 GB). Reference only \u2014 use GGUF or AWQ."
     device: gpu
     download: manual
     path: lance/Lance_3B_Video/
@@ -1026,8 +886,8 @@ lance:
     source: hf://bytedance-research/Lance
     vram_estimate_gb: 14.0
   lance-video-awq:
-    description: Lance 3B Video AWQ INT4 (6.02 GB). Fallback if GGUF unavailable.
-      Requires config files from bytedance-research/Lance.
+    description: Lance 3B Video AWQ INT4 (6.02 GB). Fallback if GGUF unavailable. Requires config files
+      from bytedance-research/Lance.
     device: gpu
     download: snapshot
     path: lance/Lance-3B-Video-AWQ-INT4/
@@ -1035,29 +895,9 @@ lance:
     size_gb: 6.02
     source: hf://Reza2kn/Lance-3B-Video-AWQ-INT4
     vram_estimate_gb: 7.0
-  lance-video-gguf-q4km:
-    description: Lance 3B Video GGUF Q4_K_M (4.96 GB). Smaller/faster quant for constrained
-      VRAM.
-    device: gpu
-    download: file
-    path: lance/Lance_3B_Video-Q4_K_M.gguf
-    sha256: null
-    size_gb: 4.96
-    source: hf://samuelchristlie/Lance-GGUF/Lance_3B_Video-Q4_K_M.gguf
-    vram_estimate_gb: 6.0
-  lance-video-gguf-q5km:
-    description: Lance 3B Video GGUF Q5_K_M (5.53 GB). Primary quant — t2v, video_edit,
-      x2t_video, i2v. Dequantizes to bf16 at runtime. Lower VRAM than AWQ cached mode.
-    device: gpu
-    download: file
-    path: lance/Lance_3B_Video-Q5_K_M.gguf
-    sha256: null
-    size_gb: 5.53
-    source: hf://samuelchristlie/Lance-GGUF/Lance_3B_Video-Q5_K_M.gguf
-    vram_estimate_gb: 7.0
   lance-vit:
-    description: Qwen2.5-VL ViT for Lance (670M params). Required by all variants.
-      Part of bytedance-research/Lance repo snapshot.
+    description: Qwen2.5-VL ViT for Lance (670M params). Required by all variants. Part of bytedance-research/Lance
+      repo snapshot.
     device: gpu
     download: manual
     path: lance/Qwen2.5-VL-ViT/
@@ -1089,9 +929,8 @@ llm:
     source: hf://unsloth/gemma-4-31B-it-GGUF/gemma-4-31B-it-UD-Q4_K_XL.gguf
     vram_estimate_gb: 20.0
   qwen3.6-27b-dflash-draft-q4km:
-    description: DFlash draft model for Qwen 3.6 27B (Q4_K_M). Cross-attention speculative
-      drafter used by BeeLlama.cpp. Q4 recommended over Q8 (author benchmarks show
-      Q8 is net-negative for tok/s).
+    description: DFlash draft model for Qwen 3.6 27B (Q4_K_M). Cross-attention speculative drafter used
+      by BeeLlama.cpp. Q4 recommended over Q8 (author benchmarks show Q8 is net-negative for tok/s).
     device: gpu
     download: file
     path: llm/dflash-draft-3.6-q4_k_m.gguf
@@ -1099,26 +938,13 @@ llm:
     size_gb: 1.03
     source: hf://spiritbuun/Qwen3.6-27B-DFlash-GGUF/dflash-draft-3.6-q4_k_m.gguf
     vram_estimate_gb: 1.5
-  qwen3.6-27b-iq4_nl:
-    ctx_size: 16384
-    description: Qwen 3.6 27B UD-IQ4_NL. Chat/reasoning LLM with vision. 256K context.
-    device: gpu
-    download: file
-    engine: beellama
-    mmproj_path: vision/mmproj-Qwen_Qwen3.6-27B-bf16.gguf
-    parallel: 1
-    path: llm/Qwen3.6-27B-IQ4_NL.gguf
-    sha256: null
-    size_gb: 15.0
-    source: hf://unsloth/Qwen3.6-27B-GGUF/Qwen3.6-27B-UD-IQ4_NL.gguf
-    vram_estimate_gb: 17.0
   qwen3.6-27b-q5_k_s:
     batch_size: 2048
     cache_type_k: turbo4
     cache_type_v: turbo3_tcq
     ctx_size: 102400
-    description: Q5_K_S 100K + DFlash + TurboQuant + Vision (mmproj on GPU). Sacrificed
-      200K→100K context to fit mmproj in VRAM for faster vision.
+    description: "Q5_K_S 100K + DFlash + TurboQuant + Vision (mmproj on GPU). Sacrificed 200K\u2192100K\
+      \ context to fit mmproj in VRAM for faster vision."
     device: gpu
     download: file
     engine: beellama
@@ -1148,8 +974,8 @@ llm:
     cache_type_k: turbo4
     cache_type_v: turbo3_tcq
     ctx_size: 32768
-    description: 'Q5_K_S 32K + DFlash + TurboQuant (fallback). Fast: ~170 tok/s. No
-      vision. Use if 200K profile OOMs.'
+    description: 'Q5_K_S 32K + DFlash + TurboQuant (fallback). Fast: ~170 tok/s. No vision. Use if 200K
+      profile OOMs.'
     device: gpu
     download: file
     engine: beellama
@@ -1174,118 +1000,6 @@ llm:
     top_p: 0.95
     ubatch_size: 256
     vram_estimate_gb: 21.0
-  qwen3.6-27b-q6_k:
-    batch_size: 2048
-    cache_type_k: turbo4
-    cache_type_v: turbo3_tcq
-    ctx_size: 125000
-    description: Q6_K 125K context, TurboQuant K/V, no DFlash. mmproj (vision) in
-      DRAM. Single slot, max quality text-only inference.
-    device: gpu
-    download: file
-    engine: beellama
-    flash_attn: true
-    min_p: 0.0
-    mmproj_n_gpu_layers: 0
-    mmproj_path: vision/mmproj-F32.gguf
-    n_gpu_layers: 99
-    no_host: true
-    parallel: 1
-    path: llm/Qwen3.6-27B-Q6_K.gguf
-    presence_penalty: 0.0
-    reasoning: true
-    sha256: null
-    size_gb: 23.0
-    source: hf://unsloth/Qwen3.6-27B-GGUF/Qwen3.6-27B-Q6_K.gguf
-    temp: 0.6
-    threads: 8
-    top_k: 20
-    top_p: 0.95
-    ubatch_size: 256
-    vram_estimate_gb: 23.0
-  qwen3.6-27b-q6_k-parallel:
-    batch_size: 2048
-    cache_type_k: turbo4
-    cache_type_v: turbo3_tcq
-    ctx_size: 125000
-    description: Q6_K 125K parallel, mmproj (vision) in DRAM. Two concurrent slots,
-      TurboQuant K/V, DFlash speculative decoding.
-    device: gpu
-    download: file
-    engine: beellama
-    flash_attn: true
-    min_p: 0.0
-    mmproj_n_gpu_layers: 0
-    mmproj_path: vision/mmproj-F32.gguf
-    n_gpu_layers: 99
-    no_host: true
-    no_spec_dm_adaptive: false
-    parallel: 2
-    path: llm/Qwen3.6-27B-Q6_K.gguf
-    presence_penalty: 0.0
-    reasoning: true
-    sha256: null
-    size_gb: 23.0
-    source: hf://unsloth/Qwen3.6-27B-GGUF/Qwen3.6-27B-Q6_K.gguf
-    spec_dflash_cross_ctx: 512
-    spec_draft_model: llm/dflash-draft-3.6-q4_k_m.gguf
-    spec_draft_n_max: 16
-    spec_draft_ngl: 99
-    spec_type: dflash
-    temp: 0.6
-    threads: 8
-    top_k: 20
-    top_p: 0.95
-    ubatch_size: 256
-    vram_estimate_gb: 24.0
-  qwen3.6-27b-q6_k-vision:
-    batch_size: 2048
-    cache_type_k: turbo4
-    cache_type_v: turbo3_tcq
-    ctx_size: 200000
-    description: Q6_K 200K context, mmproj (vision) in VRAM. Single slot. Max quality
-      + vision, tightest VRAM.
-    device: gpu
-    download: file
-    engine: beellama
-    flash_attn: true
-    min_p: 0.0
-    mmproj_n_gpu_layers: 99
-    mmproj_path: vision/mmproj-F32.gguf
-    n_gpu_layers: 99
-    no_host: true
-    no_spec_dm_adaptive: false
-    parallel: 1
-    path: llm/Qwen3.6-27B-Q6_K.gguf
-    presence_penalty: 0.0
-    reasoning: true
-    sha256: null
-    size_gb: 23.0
-    source: hf://unsloth/Qwen3.6-27B-GGUF/Qwen3.6-27B-Q6_K.gguf
-    spec_dflash_cross_ctx: 512
-    spec_draft_model: llm/dflash-draft-3.6-q4_k_m.gguf
-    spec_draft_n_max: 16
-    spec_draft_ngl: 99
-    spec_type: dflash
-    temp: 0.6
-    threads: 8
-    top_k: 20
-    top_p: 0.95
-    ubatch_size: 256
-    vram_estimate_gb: 23.5
-  qwen3.6-27b-ud-q4_k_xl:
-    ctx_size: 262144
-    description: Qwen 3.6 27B Dynamic 4-bit UD-Q4_K_XL. Hybrid thinking, 256K context.
-      Recommended quant for 24GB VRAM (18GB file).
-    device: gpu
-    download: file
-    engine: beellama
-    mmproj_path: vision/mmproj-Qwen_Qwen3.6-27B-bf16.gguf
-    path: llm/Qwen3.6-27B-UD-Q4_K_XL.gguf
-    sha256: null
-    size_gb: 18.0
-    source: hf://unsloth/Qwen3.6-27B-GGUF/Qwen3.6-27B-UD-Q4_K_XL.gguf
-    vram_estimate_gb: 18.0
   qwen3.6-35b-a3b-ud-iq4_nl:
     ctx_size: 262144
     description: Qwen 3.6 35B A3B MoE UD-IQ4_NL. 256K context.
@@ -1300,9 +1014,9 @@ llm:
     vram_estimate_gb: 19.0
 motion:
   hy-motion-1.0:
-    description: HY-Motion 1.0 text-to-3D motion generation. DiT-based Flow Matching
-      with dual text encoders (Qwen3-8B + CLIP-ViT-L/14). Includes pipeline config.yml,
-      ckpt, body model, and prompt engineering module.
+    description: HY-Motion 1.0 text-to-3D motion generation. DiT-based Flow Matching with dual text encoders
+      (Qwen3-8B + CLIP-ViT-L/14). Includes pipeline config.yml, ckpt, body model, and prompt engineering
+      module.
     device: gpu
     download: snapshot
     path: motion/hy-motion-1.0/
@@ -1320,8 +1034,8 @@ motion:
     source: hf://tencent/HY-Motion-1.0-Lite
     vram_estimate_gb: 8.0
   text2motion-prompter:
-    description: HY-Motion prompt engineering module. Rewrites user prompts and estimates
-      motion duration before generation.
+    description: HY-Motion prompt engineering module. Rewrites user prompts and estimates motion duration
+      before generation.
     device: cpu
     download: snapshot
     path: motion/text2motion-prompter/
@@ -1331,8 +1045,8 @@ motion:
     vram_estimate_gb: 1.0
 multimodal:
   phi4-multimodal:
-    description: Phi-4-multimodal-instruct 5.6B omni model. Text+vision+speech input,
-      text output. ASR, speech translation, image understanding, OCR, multimodal QA.
+    description: Phi-4-multimodal-instruct 5.6B omni model. Text+vision+speech input, text output. ASR,
+      speech translation, image understanding, OCR, multimodal QA.
     device: gpu
     download: snapshot
     path: multimodal/phi4-multimodal-instruct/
@@ -1340,105 +1054,7 @@ multimodal:
     size_gb: 24.0
     source: hf://microsoft/Phi-4-multimodal-instruct
     vram_estimate_gb: 16.0
-native:
-  anima-diffusers:
-    description: Anima Base v1.0 diffusers format. Cosmos-Predict2 + Qwen3-0.6B. ModularPipeline.
-    device: gpu
-    download: snapshot
-    path: native/anima
-    sha256: null
-    size_gb: 5.7
-    source: hf://circlestone-labs/Anima-Base-v1.0-Diffusers
-    vram_estimate_gb: 6.0
-  flux-dev-diffusers:
-    description: FLUX.1-dev diffusers (non-commercial). 20-step generation. Already
-      cached.
-    device: gpu
-    download: snapshot
-    path: native/flux-dev
-    sha256: null
-    size_gb: 23.0
-    source: hf://black-forest-labs/FLUX.1-dev
-    vram_estimate_gb: 12.5
-  flux-schnell-diffusers:
-    description: FLUX.1-schnell diffusers (Apache-2.0). 4-step generation. Already
-      cached.
-    device: gpu
-    download: snapshot
-    path: native/flux-schnell
-    sha256: null
-    size_gb: 23.0
-    source: hf://black-forest-labs/FLUX.1-schnell
-    vram_estimate_gb: 12.5
-  ltx-2-diffusers:
-    description: LTX-2 diffusers. Two-stage pipeline (base + latent upscaler).
-    device: gpu
-    download: snapshot
-    path: native/ltx-2
-    sha256: null
-    size_gb: 19.0
-    source: hf://Lightricks/LTX-2
-    vram_estimate_gb: 14.0
-  ltx-video-diffusers:
-    description: LTX-Video 2B diffusers (Apache-2.0). Fast video gen. Small enough
-      for resident.
-    device: gpu
-    download: snapshot
-    path: native/ltx-video
-    sha256: null
-    size_gb: 5.0
-    source: hf://Lightricks/LTX-Video
-    vram_estimate_gb: 6.0
-  z-image-diffusers:
-    description: Z-Image Base (Apache-2.0). Full quality T2I, 30 steps. S3-DiT architecture.
-    device: gpu
-    download: snapshot
-    path: native/z-image
-    sha256: null
-    size_gb: 6.5
-    source: hf://Tongyi-MAI/Z-Image
-    vram_estimate_gb: 8.0
-  z-image-turbo-diffusers:
-    description: Z-Image Turbo (Apache-2.0). 8-step distilled, sub-second generation.
-    device: gpu
-    download: snapshot
-    path: native/z-image-turbo
-    sha256: null
-    size_gb: 6.5
-    source: hf://Tongyi-MAI/Z-Image-Turbo
-    vram_estimate_gb: 8.0
-sglang:
-  flux-schnell:
-    description: 'FLUX.1-schnell for SGLang. NOTE: BF16 too large for 24GB GPU. Requires
-      --quantization fp8 or smaller model (FLUX.2-klein-4B).'
-    device: gpu
-    download: snapshot
-    path: flux-schnell
-    sha256: null
-    size_gb: 23.0
-    source: hf://black-forest-labs/FLUX.1-schnell
-    vram_estimate_gb: 18.0
-  ltx-video:
-    description: 'LTX-Video 2B text-to-video. SGLang Diffusion served. Benchmark:
-      25 steps 768x512 57 frames = 11s inference, 9GB VRAM on 4090. Serve: sglang
-      serve --model-type diffusion --server-warmup false'
-    device: gpu
-    download: snapshot
-    path: ltx-video
-    sha256: null
-    size_gb: 7.2
-    source: hf://Lightricks/LTX-Video
-    vram_estimate_gb: 10.0
 tts:
-  espeak-ng:
-    description: eSpeak-NG phoneme data. System package.
-    device: cpu
-    download: skip
-    path: tts/espeak-ng/
-    sha256: null
-    size_gb: 0.01
-    source: null
-    vram_estimate_gb: 0.1
   gpt-sovits:
     description: GPT-SoVITS voice cloning. Full repo with pretrained models.
     device: gpu
@@ -1466,15 +1082,6 @@ tts:
     size_gb: 0.35
     source: hf://hexgrad/Kokoro-82M
     vram_estimate_gb: 1.0
-  maya1:
-    description: Maya1 TTS. Placeholder.
-    device: gpu
-    download: skip
-    path: tts/maya1/
-    sha256: null
-    size_gb: 0.01
-    source: null
-    vram_estimate_gb: 0.5
   qwen3-tts:
     description: Qwen3-TTS 1.7B CustomVoice. 9 premium voices with instruction control.
     device: gpu
@@ -1522,8 +1129,7 @@ vibevoice-cpp:
     source: hf://mudler/vibevoice.cpp-models/vibevoice-asr-q4_k.gguf
     vram_estimate_gb: 10.0
   asr-q8:
-    description: VibeVoice ASR 7B quantized Q8_0. Long-form transcription with native
-      diarization.
+    description: VibeVoice ASR 7B quantized Q8_0. Long-form transcription with native diarization.
     device: gpu
     download: file
     path: vibevoice-cpp/vibevoice-asr-q8_0.gguf
@@ -1541,8 +1147,7 @@ vibevoice-cpp:
     source: hf://mudler/vibevoice.cpp-models/tokenizer.gguf
     vram_estimate_gb: 0.01
   tts-0.5b-q8:
-    description: VibeVoice Realtime 0.5B TTS quantized Q8_0. Fast text-to-speech with
-      voice presets.
+    description: VibeVoice Realtime 0.5B TTS quantized Q8_0. Fast text-to-speech with voice presets.
     device: gpu
     download: file
     path: vibevoice-cpp/vibevoice-realtime-0.5B-q8_0.gguf
@@ -1551,8 +1156,7 @@ vibevoice-cpp:
     source: hf://mudler/vibevoice.cpp-models/vibevoice-realtime-0.5B-q8_0.gguf
     vram_estimate_gb: 2.0
   voice-en-carter:
-    description: Pre-baked English male voice preset (Carter) for VibeVoice Realtime
-      TTS.
+    description: Pre-baked English male voice preset (Carter) for VibeVoice Realtime TTS.
     device: cpu
     download: file
     path: vibevoice-cpp/voice-en-Carter_man.gguf
@@ -1561,8 +1165,7 @@ vibevoice-cpp:
     source: hf://mudler/vibevoice.cpp-models/voice-en-Carter_man.gguf
     vram_estimate_gb: 0.01
   voice-en-emma:
-    description: Pre-baked English female voice preset (Emma) for VibeVoice Realtime
-      TTS.
+    description: Pre-baked English female voice preset (Emma) for VibeVoice Realtime TTS.
     device: cpu
     download: file
     path: vibevoice-cpp/voice-en-Emma.gguf
@@ -1571,124 +1174,11 @@ vibevoice-cpp:
     source: hf://mudler/vibevoice.cpp-models/voice-en-Emma.gguf
     vram_estimate_gb: 0.01
 video:
-  wan-vace-fun-a14b:
-    description: 'Wan2.2 VACE-Fun A14B — modular dual-expert MoE (high-noise + low-noise)
-      layered on Wan 2.2 T2V base. All-in-one VCU inputs: vace_video (depth/pose/layout),
-      vace_video_mask (alpha), vace_reference_image (subject). Served via standalone
-      DiffSynth-Studio container — bypasses SGLang (VCU tensors unsupported by SGLang
-      diffusion engine). Bundle includes both MoE experts (~35GB each) + umt5-xxl
-      encoder (11GB) + Wan2.1 VAE. Full BF16 base (no distillation) — production-grade.
-      TeaCache + SageAttention enabled by default. FP8 streaming via VACE_FP8=1 env var.'
-    device: gpu
-    download: modelscope
-    path: video/wan-vace-fun-a14b
-    sha256: null
-    size_gb: 81.2
-    source: modelscope://PAI/Wan2.2-VACE-Fun-A14B
-    vram_estimate_gb: 22.0
-  wan-vace-14b:
-    description: 'Wan2.1 VACE 14B monolithic (standalone, not modular). Same VCU task
-      matrix as Fun-A14B but single all-in-one checkpoint. Simpler pipeline — useful
-      when MoE expert routing causes artifacts. Prone to oversaturation if CFG > 5.0
-      or steps < 20.'
-    device: gpu
-    download: modelscope
-    path: video/wan-vace-14b
-    sha256: null
-    size_gb: 56.0
-    source: modelscope://Wan-AI/Wan2.1-VACE-14B
-    vram_estimate_gb: 22.0
-  wan-vace-1.3b:
-    description: 'Wan2.1 VACE 1.3B efficiency tier. Same VCU inputs as 14B but fits
-      in 8GB VRAM without aggressive offload. Use for fast prototyping or batch
-      preview generation before final 14B render.'
-    device: gpu
-    download: modelscope
-    path: video/wan-vace-1.3b
-    sha256: null
-    size_gb: 5.0
-    source: modelscope://Wan-AI/Wan2.1-VACE-1.3B
-    vram_estimate_gb: 6.0
-  wan-vace-tokenizer:
-    description: 'UMT5-XXL tokenizer for VACE pipeline. Shared with Wan-AI/Wan2.1-T2V-1.3B.
-      Auto-downloaded by vace_server if missing.'
-    device: cpu
-    download: modelscope
-    path: video/wan-vace-tokenizer
-    sha256: null
-    size_gb: 0.05
-    source: modelscope://Wan-AI/Wan2.1-T2V-1.3B
-    vram_estimate_gb: 0.0
-  nvidia-wan2.2-t2v-a14b-fp8:
-    description: 'NVIDIA pre-quantized ModelOpt FP8 checkpoint of Wan2.2 T2V A14B.
-      Dual-expert MoE (transformer + transformer_2 = high-noise + low-noise) with
-      proper FP8 scale factors calibrated by NVIDIA ModelOpt. Fits in 24GB VRAM
-      (~14GB transformer FP8 per expert, ~5.7GB text encoder). vLLM-Omni native
-      serving — bypasses SGLang. quantization_config: compressed-tensors FP8
-      static weights + dynamic activations. The BASE profile for Omni VACE.'
-    device: gpu
-    download: hf
-    path: video/nvidia-wan2.2-t2v-a14b-fp8
-    sha256: null
-    size_gb: 35.0
-    source: hf://nvidia/Wan2.2-T2V-A14B-Diffusers-FP8
-    vram_estimate_gb: 20.0
-  wan2.1-vace-1.3b-diffusers:
-    description: 'Wan2.1 VACE 1.3B in diffusers format for vLLM-Omni serving.
-      Proven working: 35s for 33 frames at 832×480 with Omni. Includes transformer
-      + text_encoder + VAE + tokenizer + scheduler. The fast-tier Omni model.'
-    device: gpu
-    download: hf
-    path: video/wan2.1-vace-1.3b-diffusers
-    sha256: null
-    size_gb: 18.0
-    source: hf://Wan-AI/Wan2.1-VACE-1.3B-diffusers
-    vram_estimate_gb: 15.0
-  wan2.1-vace-14b-diffusers:
-    description: 'Wan2.1 VACE 14B monolithic in diffusers format (BF16). Full
-      quality model — requires >24GB VRAM in BF16. Use for ModelOpt calibration
-      or with FP8 dynamic quantization (--quantization fp8).'
-    device: gpu
-    download: hf
-    path: video/wan2.1-vace-14b-diffusers
-    sha256: null
-    size_gb: 70.0
-    source: hf://Wan-AI/Wan2.1-VACE-14B-diffusers
-    vram_estimate_gb: 28.0
-  wan2.1-vace-14b-fp8-diffusers:
-    description: 'Wan2.1 VACE 14B direct-cast FP8 in diffusers format. PROVEN on
-      RTX 4090 (24GB) via vLLM-Omni 0.22 with the FP8 weight-only patch (FP8
-      storage + BF16 matmul, no activation quantization). Requires the patched
-      pipeline_wan2_2_vace_patch.py bind-mounted into the container — see
-      scripts/run_omni_14b.sh. ~14GB FP8 transformer + ~5GB BF16 text encoder
-      (CPU-offloaded). 25-step 640x480 generation: ~165s baseline, ~49s with TeaCache enabled (OMNI_TEACACHE_THRESH=0.01).'
-    device: gpu
-    download: skip
-    path: video/wan2.1-vace-14b-fp8-diffusers
-    sha256: null
-    size_gb: 18.0
-    source: local (direct-cast from Wan-AI/Wan2.1-VACE-14B-diffusers)
-    vram_estimate_gb: 22.0
-  qwen-image-edit-2511:
-    description: 'Qwen-Image-Edit-2511 20B MMDiT diffusers format for vLLM-Omni.
-      Instruction-based image editing with built-in LoRA support, multi-image input,
-      improved character consistency. Served via vLLM-Omni 0.22 using Cache-DiT
-      acceleration (~2.38x speedup) and layerwise CPU offload for 24GB VRAM.
-      See scripts/run_omni_qwen_img_edit.sh. API: POST /v1/images/edits (OpenAI DALL-E
-      compatible). 40-step 1024x1024 edit: ~21.6s with Cache-DiT.'
-    device: gpu
-    download: snapshot
-    path: image-gen/qwen-image-edit/2511
-    sha256: null
-    size_gb: 40.0
-    source: hf://Qwen/Qwen-Image-Edit-2511
-    vram_estimate_gb: 22.0
   qwen-image-edit-2511-fp8:
-    description: 'Qwen-Image-Edit-2511 20B MMDiT FP8 weight-only diffusers format for
-      vLLM-Omni. DiT stored as Float8_e4m3fn with per-tensor scales — 20GB on disk vs
-      40GB BF16. ALL 60 DiT blocks fit on GPU (no layerwise offload needed). Text encoder
-      CPU-offloaded to save ~14GB VRAM. Cache-DiT acceleration (~2.38x).
-      See scripts/run_omni_qwen_img_edit_fp8.sh. API: POST /v1/images/edits.'
+    description: "Qwen-Image-Edit-2511 20B MMDiT FP8 weight-only diffusers format for vLLM-Omni. DiT stored\
+      \ as Float8_e4m3fn with per-tensor scales \u2014 20GB on disk vs 40GB BF16. ALL 60 DiT blocks fit\
+      \ on GPU (no layerwise offload needed). Text encoder CPU-offloaded to save ~14GB VRAM. Cache-DiT\
+      \ acceleration (~2.38x). See scripts/run_omni_qwen_img_edit_fp8.sh. API: POST /v1/images/edits."
     device: gpu
     download: manual
     path: image-gen/qwen-image-edit/2511-fp8
@@ -1696,6 +1186,19 @@ video:
     size_gb: 35.0
     source: (build from scripts/prepare_qwen_img_edit_fp8.py)
     vram_estimate_gb: 23.0
+  wan2.1-vace-14b-fp8-diffusers:
+    description: "Wan2.1 VACE 14B direct-cast FP8 in diffusers format. PROVEN on RTX 4090 (24GB) via vLLM-Omni\
+      \ 0.22 with the FP8 weight-only patch (FP8 storage + BF16 matmul, no activation quantization). Requires\
+      \ the patched pipeline_wan2_2_vace_patch.py bind-mounted into the container \u2014 see scripts/run_omni_14b.sh.\
+      \ ~14GB FP8 transformer + ~5GB BF16 text encoder (CPU-offloaded). 25-step 640x480 generation: ~165s\
+      \ baseline, ~49s with TeaCache enabled (OMNI_TEACACHE_THRESH=0.01)."
+    device: gpu
+    download: skip
+    path: video/wan2.1-vace-14b-fp8-diffusers
+    sha256: null
+    size_gb: 18.0
+    source: local (direct-cast from Wan-AI/Wan2.1-VACE-14B-diffusers)
+    vram_estimate_gb: 22.0
 vision:
   gemma-4-26b-a4b-mmproj-f16:
     description: Gemma 4 26B A4B mmproj (F16).
@@ -1725,8 +1228,8 @@ vision:
     source: hf://unsloth/Qwen3.6-27B-GGUF/mmproj-BF16.gguf
     vram_estimate_gb: 1.5
   qwen3.6-27b-mmproj-bf16-alt:
-    description: Qwen 3.6 27B mmproj (BF16 alternate). From Qwen official GGUF. Referenced
-      by some LLM configs as mmproj_path.
+    description: Qwen 3.6 27B mmproj (BF16 alternate). From Qwen official GGUF. Referenced by some LLM
+      configs as mmproj_path.
     device: gpu
     download: file
     path: vision/mmproj-BF16.gguf
@@ -1735,8 +1238,8 @@ vision:
     source: hf://Qwen/Qwen3-27B-GGUF/mmproj-BF16.gguf
     vram_estimate_gb: 1.5
   qwen3.6-27b-mmproj-f32:
-    description: Qwen 3.6 27B mmproj (F32). Full precision vision projector. Referenced
-      by LLM configs as mmproj_path.
+    description: Qwen 3.6 27B mmproj (F32). Full precision vision projector. Referenced by LLM configs
+      as mmproj_path.
     device: gpu
     download: file
     path: vision/mmproj-F32.gguf
@@ -1755,8 +1258,8 @@ vision:
     vram_estimate_gb: 1.5
 vision_models:
   florence2-large-ft:
-    description: Florence-2-large-ft 0.77B vision foundation model. Captioning, object
-      detection, segmentation, OCR, region grounding, visual QA.
+    description: Florence-2-large-ft 0.77B vision foundation model. Captioning, object detection, segmentation,
+      OCR, region grounding, visual QA.
     device: gpu
     download: snapshot
     path: vision/florence-2-large-ft/
@@ -1764,16 +1267,6 @@ vision_models:
     size_gb: 1.5
     source: hf://microsoft/Florence-2-large-ft
     vram_estimate_gb: 2.0
-voices:
-  emma:
-    description: Emma voice preset. Reference audio for voice cloning.
-    device: cpu
-    download: skip
-    path: voices/Emma.wav
-    sha256: null
-    size_gb: 0.01
-    source: null
-    vram_estimate_gb: 0.0
 wan2gp:
   ace-step-v1:
     description: ACE-Step v1 music transformer quantized. Downloaded by Wan2GP job.
@@ -1793,19 +1286,9 @@ wan2gp:
     size_gb: 8.0
     source: hf://DeepBeepMeep/ACE-Step
     vram_estimate_gb: 8.0
-  ace-step-v1-5-xl:
-    description: ACE-Step v1.5 XL music transformer quantized. Downloaded by Wan2GP
-      job.
-    device: gpu
-    download: manual
-    path: wan2gp/ace_step_v1_5_xl_transformer_quanto_bf16_int8.safetensors
-    sha256: null
-    size_gb: 8.0
-    source: hf://DeepBeepMeep/ACE-Step
-    vram_estimate_gb: 8.0
   anima-base:
-    description: Anima Base 2B — Cosmos-Predict2 anime/illustration T2I by CircleStone
-      Labs + Comfy Org. 30 steps, CFG 4-5, 512-1536px. Danbooru tags.
+    description: "Anima Base 2B \u2014 Cosmos-Predict2 anime/illustration T2I by CircleStone Labs + Comfy\
+      \ Org. 30 steps, CFG 4-5, 512-1536px. Danbooru tags."
     device: gpu
     download: file
     path: wan2gp/anima-base-v1.0.safetensors
@@ -1814,8 +1297,7 @@ wan2gp:
     source: hf://circlestone-labs/Anima/split_files/diffusion_models/anima-base-v1.0.safetensors
     vram_estimate_gb: 6.0
   anima-qwen-tokenizer:
-    description: Qwen3-0.6B tokenizer files for Anima text encoder. Downloaded by
-      Wan2GP job.
+    description: Qwen3-0.6B tokenizer files for Anima text encoder. Downloaded by Wan2GP job.
     device: cpu
     download: snapshot
     path: wan2gp/Qwen3-0.6B
@@ -1833,8 +1315,8 @@ wan2gp:
     source: hf://circlestone-labs/Anima/split_files/text_encoders/qwen_3_06b_base.safetensors
     vram_estimate_gb: 1.5
   anima-vae:
-    description: Qwen-Image VAE required for Anima model. Correct architecture (128
-      channels). Downloaded by Wan2GP job.
+    description: Qwen-Image VAE required for Anima model. Correct architecture (128 channels). Downloaded
+      by Wan2GP job.
     device: gpu
     download: file
     path: wan2gp/qwen_image_vae.safetensors
@@ -1851,33 +1333,6 @@ wan2gp:
     size_gb: 1.7
     source: hf://DeepBeepMeep/Wan2.1
     vram_estimate_gb: 2.0
-  flux-chroma:
-    description: FLUX Chroma HD quantized. Downloaded by Wan2GP job.
-    device: gpu
-    download: manual
-    path: wan2gp/flux1-chroma_hd_quanto_bf16_int8.safetensors
-    sha256: null
-    size_gb: 9.0
-    source: hf://DeepBeepMeep/Flux
-    vram_estimate_gb: 12.0
-  flux-dev:
-    description: FLUX.1-dev 12B quantized. Downloaded by Wan2GP job.
-    device: gpu
-    download: manual
-    path: wan2gp/flux1-dev_quanto_bf16_int8.safetensors
-    sha256: null
-    size_gb: 12.0
-    source: hf://DeepBeepMeep/Flux
-    vram_estimate_gb: 16.0
-  flux-schnell:
-    description: FLUX.1 Schnell 12B quantized. Downloaded by Wan2GP job.
-    device: gpu
-    download: manual
-    path: wan2gp/flux1-schnell_quanto_bf16_int8.safetensors
-    sha256: null
-    size_gb: 12.0
-    source: hf://DeepBeepMeep/Flux
-    vram_estimate_gb: 12.0
   flux-vae:
     description: FLUX VAE. Shared by all Flux models. Downloaded by Wan2GP job.
     device: gpu
@@ -1887,33 +1342,6 @@ wan2gp:
     size_gb: 0.3
     source: hf://DeepBeepMeep/Flux
     vram_estimate_gb: 0.5
-  flux2-dev:
-    description: FLUX.2-dev quantized. Downloaded by Wan2GP job.
-    device: gpu
-    download: manual
-    path: wan2gp/flux2-dev_quanto_bf16_int8.safetensors
-    sha256: null
-    size_gb: 33.0
-    source: hf://DeepBeepMeep/Flux2
-    vram_estimate_gb: 16.0
-  flux2-klein-4b:
-    description: FLUX.2 Klein 4B quantized. Downloaded by Wan2GP job.
-    device: gpu
-    download: manual
-    path: wan2gp/flux-2-klein-4b_quanto_bf16_int8.safetensors
-    sha256: null
-    size_gb: 4.0
-    source: hf://DeepBeepMeep/Flux2
-    vram_estimate_gb: 6.0
-  flux2-klein-9b:
-    description: FLUX.2 Klein 9B quantized. Downloaded by Wan2GP job.
-    device: gpu
-    download: manual
-    path: wan2gp/flux-2-klein-9b_quanto_bf16_int8.safetensors
-    sha256: null
-    size_gb: 9.0
-    source: hf://DeepBeepMeep/Flux2
-    vram_estimate_gb: 12.0
   flux2-vae:
     description: FLUX.2 VAE. Downloaded by Wan2GP job.
     device: gpu
@@ -1932,27 +1360,8 @@ wan2gp:
     size_gb: 5.0
     source: hf://DeepBeepMeep/TTS
     vram_estimate_gb: 6.0
-  longcat-video:
-    description: LongCat video generation quantized. Downloaded by Wan2GP job.
-    device: gpu
-    download: manual
-    path: wan2gp/longcat_video_quanto_bf16_int8.safetensors
-    sha256: null
-    size_gb: 14.0
-    source: hf://DeepBeepMeep/LongCat
-    vram_estimate_gb: 14.0
-  ltx2-19b:
-    description: LTX-2 19B dev. Smaller LTX variant. Downloaded by Wan2GP job.
-    device: gpu
-    download: manual
-    path: wan2gp/ltx-2-19b-dev_diffusion_model.safetensors
-    sha256: null
-    size_gb: 19.0
-    source: hf://DeepBeepMeep/LTX-Video
-    vram_estimate_gb: 19.0
   ltx2-22b:
-    description: LTX-2.3 22B dev FP8 checkpoint (WDC-matched). Loaded by Wan2GP distilled
-      pipeline.
+    description: LTX-2.3 22B dev FP8 checkpoint (WDC-matched). Loaded by Wan2GP distilled pipeline.
     device: gpu
     download: file
     path: image-gen/comfyui/checkpoints/ltx-2.3-22b-dev-fp8.safetensors
@@ -1960,33 +1369,6 @@ wan2gp:
     size_gb: 23.0
     source: hf://Lightricks/LTX-2.3-fp8/ltx-2.3-22b-dev-fp8.safetensors
     vram_estimate_gb: 22.0
-  ltxv-098-13b:
-    description: LTX-Video 0.9.8 13B dev quantized. Downloaded by Wan2GP job.
-    device: gpu
-    download: manual
-    path: wan2gp/ltxv_0.9.8_13B_dev_quanto_bf16_int8.safetensors
-    sha256: null
-    size_gb: 13.0
-    source: hf://DeepBeepMeep/LTX-Video
-    vram_estimate_gb: 14.0
-  magi-human:
-    description: MagiHuman 3D human generation quantized. Downloaded by Wan2GP job.
-    device: gpu
-    download: manual
-    path: wan2gp/magi_human_quanto_bf16_int8.safetensors
-    sha256: null
-    size_gb: 14.0
-    source: hf://DeepBeepMeep/MagiHuman
-    vram_estimate_gb: 14.0
-  mistral3-small:
-    description: Mistral 3 Small quantized. Alternative text backbone for some models.
-    device: gpu
-    download: manual
-    path: wan2gp/mistral3small/mistral3_small_quanto_bf16_int8.safetensors
-    sha256: null
-    size_gb: 12.0
-    source: hf://DeepBeepMeep/Wan2.1
-    vram_estimate_gb: 12.0
   moss-soundeffect-v2:
     description: MOSS-SoundEffect v2.0 DiT+FlowMatching. Downloaded by Wan2GP job.
     device: gpu
@@ -1996,26 +1378,6 @@ wan2gp:
     size_gb: 11.3
     source: hf://OpenMOSS-Team/MOSS-SoundEffect-v2.0
     vram_estimate_gb: 7.0
-  qwen-image-edit:
-    description: Qwen-Image-Edit 20B bf16. Full precision image editing. Downloaded
-      by Wan2GP job.
-    device: gpu
-    download: manual
-    path: wan2gp/qwen_image_edit_20B_bf16.safetensors
-    sha256: null
-    size_gb: 40.0
-    source: hf://DeepBeepMeep/Qwen-Image-Edit
-    vram_estimate_gb: 40.0
-  qwen-image-edit-plus:
-    description: Qwen-Image-Edit Plus 20B quantized. Primary VNCCS/tech-noir image
-      editor. Downloaded by Wan2GP job.
-    device: gpu
-    download: manual
-    path: wan2gp/qwen_image_edit_plus_20B_quanto_bf16_int8.safetensors
-    sha256: null
-    size_gb: 20.0
-    source: hf://DeepBeepMeep/Qwen-Image-Edit
-    vram_estimate_gb: 20.0
   qwen3-8b:
     description: Qwen3 8B quantized. Text encoder for newer Wan2.2 models.
     device: gpu
@@ -2034,15 +1396,6 @@ wan2gp:
     size_gb: 4.8
     source: hf://DeepBeepMeep/Wan2.1
     vram_estimate_gb: 5.0
-  umt5-xxl:
-    description: UMT5-XXL encoder quantized. Alternative text encoder.
-    device: gpu
-    download: manual
-    path: wan2gp/umt5-xxl/models_t5_umt5-xxl-enc-quanto_int8.safetensors
-    sha256: null
-    size_gb: 4.8
-    source: hf://DeepBeepMeep/Wan2.1
-    vram_estimate_gb: 5.0
   w2v-bert:
     description: Wav2Vec-BERT 2.0 fp16. Audio encoder for IndexTTS.
     device: gpu
@@ -2052,123 +1405,3 @@ wan2gp:
     size_gb: 1.9
     source: hf://DeepBeepMeep/TTS
     vram_estimate_gb: 2.0
-  wan-FLF2V-720p:
-    description: Wan2.1 First-Last-Frame-to-Video 720p. Downloaded by Wan2GP job.
-    device: gpu
-    download: manual
-    path: wan2gp/wan2.1_FLF2V_720p_14B_quanto_mbf16_int8.safetensors
-    sha256: null
-    size_gb: 14.0
-    source: hf://DeepBeepMeep/Wan2.1
-    vram_estimate_gb: 14.0
-  wan-chrono-edit:
-    description: Wan2.1 Chrono Edit 14B video editing. Downloaded by Wan2GP job.
-    device: gpu
-    download: manual
-    path: wan2gp/wan2.1_chrono_edit_14B_quanto_mbf16_int8.safetensors
-    sha256: null
-    size_gb: 14.0
-    source: hf://DeepBeepMeep/Wan2.1
-    vram_estimate_gb: 14.0
-  wan-i2v-14B:
-    description: Wan2.1 Image-to-Video 14B 480p quantized. Downloaded by Wan2GP job.
-    device: gpu
-    download: manual
-    path: wan2gp/wan2.1_image2video_480p_14B_quanto_mbf16_int8.safetensors
-    sha256: null
-    size_gb: 14.0
-    source: hf://DeepBeepMeep/Wan2.1
-    vram_estimate_gb: 14.0
-  wan-i2v-720p:
-    description: Wan2.1 Image-to-Video 14B 720p quantized. Downloaded by Wan2GP job.
-    device: gpu
-    download: manual
-    path: wan2gp/wan2.1_image2video_720p_14B_quanto_mbf16_int8.safetensors
-    sha256: null
-    size_gb: 14.0
-    source: hf://DeepBeepMeep/Wan2.1
-    vram_estimate_gb: 14.0
-  wan-t2v-1.3B:
-    description: Wan2.1 Text-to-Video 1.3B distilled. Downloaded by Wan2GP job.
-    device: gpu
-    download: manual
-    path: wan2gp/wan2.1_text2video_1.3B_mbf16.safetensors
-    sha256: null
-    size_gb: 2.4
-    source: hf://DeepBeepMeep/Wan2.1
-    vram_estimate_gb: 2.5
-  wan-t2v-14B:
-    description: Wan2.1 Text-to-Video 14B quantized int8. Downloaded by Wan2GP job.
-    device: gpu
-    download: manual
-    path: wan2gp/wan2.1_text2video_14B_quanto_mbf16_int8.safetensors
-    sha256: null
-    size_gb: 14.0
-    source: hf://DeepBeepMeep/Wan2.1
-    vram_estimate_gb: 14.0
-  wan-vae:
-    description: Wan2.1 VAE. Shared by all Wan video models. Downloaded by Wan2GP
-      job.
-    device: gpu
-    download: manual
-    path: wan2gp/Wan2.1_VAE.safetensors
-    sha256: null
-    size_gb: 0.3
-    source: hf://DeepBeepMeep/Wan2.1
-    vram_estimate_gb: 0.5
-  wan2.2-animate:
-    description: Wan2.2 Animate 14B animation. Downloaded by Wan2GP job.
-    device: gpu
-    download: manual
-    path: wan2gp/wan2.2_animate_14B_quanto_bf16_int8.safetensors
-    sha256: null
-    size_gb: 14.0
-    source: hf://DeepBeepMeep/Wan2.1
-    vram_estimate_gb: 14.0
-  wan2.2-vae:
-    description: Wan2.2 VAE. Used by animate and newer models. Downloaded by Wan2GP
-      job.
-    device: gpu
-    download: manual
-    path: wan2gp/Wan2.2_VAE.safetensors
-    sha256: null
-    size_gb: 2.8
-    source: hf://DeepBeepMeep/Wan2.1
-    vram_estimate_gb: 1.0
-  z-image-base:
-    description: Z-Image Base 6B (non-distilled, high quality). Downloaded by Wan2GP
-      job.
-    device: gpu
-    download: manual
-    path: wan2gp/ZImageBase_bf16.safetensors
-    sha256: null
-    size_gb: 12.0
-    source: hf://DeepBeepMeep/ZImage
-    vram_estimate_gb: 12.0
-  z-image-turbo:
-    description: Z-Image Turbo quantized. Downloaded by Wan2GP job.
-    device: gpu
-    download: manual
-    path: wan2gp/ZImageTurbo_quanto_bf16_int8.safetensors
-    sha256: null
-    size_gb: 8.0
-    source: hf://DeepBeepMeep/ZImage
-    vram_estimate_gb: 8.0
-
-  wan2.1-vace-14b-fp8-lightning:
-    description: 'DEPRECATED/PENDING: Originally attempted as a LightX2V 4-step
-      distilled FP8 merge. INVESTIGATION FOUND THE LightX2V LoRA repo
-      (hf://lightx2v/Wan2.2-Distill-Loras) targets Wan2.2-I2V-A14B (image-to-
-      video, no VACE conditioning), NOT Wan2.1-VACE-14B. Merging it into
-      Wan2.1-VACE produced washed-out output (std~12 vs ~72 for base) because
-      the LoRA targets a different DiT variant. Previous checkpoint was
-      removed. To re-enable, need either: (a) a Wan2.1-VACE-specific
-      distillation, or (b) switch base to Wan2.2-I2V-A14B (loses VACE). Until
-      then use vace_fast workflow (base FP8 with 10 steps) for speed.'
-    device: gpu
-    download: skip
-    path: video/wan2.1-vace-14b-fp8-lightning
-    sha256: null
-    size_gb: 18.0
-    source: local (PENDING — no compatible Wan2.1-VACE distillation source available)
-    vram_estimate_gb: 22.0
