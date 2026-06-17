@@ -260,22 +260,36 @@ pools:
           cpu_offload_gb: 20
       z-image:
         script: scripts/run_omni_z_image_fp8.sh
+        patch: scripts/pipeline_z_image_patch.py
+        shared_patch: scripts/fp8_weight_only_patch.py
         model_dir: /mnt/data/models/native/z-image-turbo-fp8
         api:
           generate: POST /v1/images/generations
         optimization:
-          quant: fp8
+          quant: fp8-weight-only
           cache_dit: true
           taylorseer: true
+          vae_tiling: true
+          vae_slicing: true
+          fn_compute_blocks: 1
+          bn_compute_blocks: 0
+          max_warmup_steps: 4
       z-image-base:              # Same architecture as z-image-turbo but different (non-distilled) weights
         script: scripts/run_omni_z_image_fp8.sh
+        patch: scripts/pipeline_z_image_patch.py
+        shared_patch: scripts/fp8_weight_only_patch.py
         model_dir: /mnt/data/models/native/z-image-base-fp8
         api:
           generate: POST /v1/images/generations
         optimization:
-          quant: fp8
+          quant: fp8-weight-only
           cache_dit: true
           taylorseer: true
+          vae_tiling: true
+          vae_slicing: true
+          fn_compute_blocks: 1
+          bn_compute_blocks: 0
+          max_warmup_steps: 4
         note: "Same omni-vllm pipeline as z-image-turbo but non-distilled base checkpoint. 50-step, higher quality."
       wan-t2v:
         script: scripts/run_omni_wan_t2v.sh
