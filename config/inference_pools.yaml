@@ -55,9 +55,9 @@ pools:
     port: 8050
     framework: moss
     description: >-
-      MOSS Audio — TTS + Sound Effects. Python server (services/audio/moss_server.py)
-      built from infra/docker/Dockerfile.moss. Supports model switching via /load.
-      Migration target: OpenMOSS C++ (pwilkin/openmoss) for TTS once Docker image is ready.
+      MOSS Audio — TTS + Sound Effects. All TTS models handled by the MOSS Docker.
+      Model data (GGUF format) is managed inside the container or mounted externally.
+      Dispatch routes all moss-* model names here; the Docker resolves internally.
     models:
       - moss-tts
       - moss-ttsd
@@ -458,7 +458,7 @@ pools:
 # skipped if (a) it doesn't actually serve the model, or (b) it's unhealthy.
 # A model served by only one pool has an empty fallback list.
 routes:
-  # ── Tier A — MOSS (all models route to the same Python MOSS pool) ─────────
+  # ── Tier A — MOSS (all TTS models handled by the MOSS Docker) ──────────────
   moss-tts:                { primary: moss }
   moss-ttsd:               { primary: moss }
   moss-soundeffect:        { primary: moss }

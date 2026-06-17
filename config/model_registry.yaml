@@ -91,17 +91,6 @@ asr:
     source: hf://microsoft/VibeVoice-ASR
     vram_estimate_gb: 16.0
 audio:
-  ace-step:
-    description: ACE-STEP 1.5 music generation (diffusers format). Legacy — superseded by acestep-cpp
-      GGUF pipeline.
-    device: gpu
-    download: snapshot
-    path: audio/acestep/
-    sha256: null
-    size_gb: 8.0
-    source: hf://ACE-Step/Ace-Step1.5
-    status: legacy
-    vram_estimate_gb: 8.0
   acestep-cpp-dit-sft:
     description: ACE-Step 1.5 DiT SFT GGUF Q8_0. 50-step non-distilled DiT for high-quality music synthesis
       (base variant). Second step after /lm — renders music codes to audio.
@@ -172,18 +161,6 @@ audio:
     size_gb: 0.3
     source: hf://OpenMOSS-Team/MOSS-Audio-Tokenizer-Nano
     vram_estimate_gb: 0.0
-  moss-soundeffect:
-    description: MOSS-SoundEffect 8B text-to-sound model. Environmental sounds, urban scenes, creatures,
-      human actions, music-like clips. Part of MOSS-TTS family. Requires MOSS-Audio-Tokenizer (3.5B, loaded
-      to CPU).
-    device: gpu
-    download: snapshot
-    path: audio/moss-soundeffect/bf16/
-    sha256: null
-    size_gb: 33.5
-    source: hf://OpenMOSS-Team/MOSS-SoundEffect
-    status: legacy
-    vram_estimate_gb: 18.0
   moss-soundeffect-v2:
     description: MOSS-SoundEffect v2.0 (1.3B DiT+FlowMatching). Self-contained, no tokenizer needed.
     device: gpu
@@ -192,72 +169,6 @@ audio:
     size_gb: 11.3
     source: hf://OpenMOSS-Team/MOSS-SoundEffect-v2.0
     vram_estimate_gb: 7.0
-  moss-tts:
-    description: MOSS-TTS 8B text-to-speech. Flagship production model with high-fidelity zero-shot voice
-      cloning. Supports long-form, pinyin/phoneme control, multilingual. Requires MOSS-Audio-Tokenizer.
-    device: gpu
-    download: snapshot
-    path: audio/moss-tts/
-    sha256: null
-    size_gb: 33.5
-    source: hf://OpenMOSS-Team/MOSS-TTS
-    status: legacy
-    vram_estimate_gb: 18.0
-  moss-tts-local-transformer:
-    description: MOSS-TTS-Local-Transformer 1.7B lighter TTS variant with local transformer decoder. Requires
-      MOSS-Audio-Tokenizer.
-    device: gpu
-    download: snapshot
-    path: audio/moss-tts-local-transformer/
-    sha256: null
-    size_gb: 6.2
-    source: hf://OpenMOSS-Team/MOSS-TTS-Local-Transformer
-    status: legacy
-    vram_estimate_gb: 4.0
-  moss-tts-nano:
-    description: MOSS-TTS-Nano 100M ultra-lightweight TTS. GPT-2 backbone, SentencePiece tokenizer, 48kHz
-      stereo. Requires MOSS-Audio-Tokenizer-Nano.
-    device: gpu
-    download: snapshot
-    path: audio/moss-tts-nano/
-    sha256: null
-    size_gb: 0.25
-    source: hf://OpenMOSS-Team/MOSS-TTS-Nano-100M
-    status: legacy
-    vram_estimate_gb: 0.2
-  moss-tts-realtime:
-    description: MOSS-TTS-Realtime 2.3B streaming TTS with RVQ local transformer. Prefill/step streaming
-      architecture. Requires MOSS-Audio-Tokenizer.
-    device: gpu
-    download: snapshot
-    path: audio/moss-tts-realtime/
-    sha256: null
-    size_gb: 4.7
-    source: hf://OpenMOSS-Team/MOSS-TTS-Realtime
-    status: legacy
-    vram_estimate_gb: 4.0
-  moss-ttsd:
-    description: MOSS-TTSD v1.0 8B dialogue TTS. Expressive multi-speaker ultra-long dialogue generation.
-      Requires MOSS-Audio-Tokenizer.
-    device: gpu
-    download: snapshot
-    path: audio/moss-ttsd/
-    sha256: null
-    size_gb: 33.5
-    source: hf://OpenMOSS-Team/MOSS-TTSD-v1.0
-    status: legacy
-    vram_estimate_gb: 18.0
-  moss-voicegenerator:
-    description: MOSS-VoiceGenerator 1.7B voice design. Generate diverse voices and styles from text prompts
-      without reference speech. Emotional conditioning via instruction parameter. Requires MOSS-Audio-Tokenizer.
-    device: gpu
-    download: snapshot
-    path: audio/moss-voicegenerator/
-    sha256: null
-    size_gb: 7.0
-    source: hf://OpenMOSS-Team/MOSS-VoiceGenerator
-    status: legacy
-    vram_estimate_gb: 4.0
   tangoflux:
     description: TangoFlux text-to-audio generation. Flow matching with DiT/MMDiT, CRPO-aligned. Generates
       44.1kHz audio up to 30s.
@@ -1521,8 +1432,9 @@ served-models:
   ace-step:
     description: 'Pool service: ace-step — defined in inference_pools.yaml'
     pool_ref: null
-    status: active
+    status: legacy
     type: service
+    note: Legacy diffusers format removed. ace-step-turbo uses acestep-cpp GGUF pipeline.
   ace-step-turbo:
     description: 'Pool service: ace-step-turbo — defined in inference_pools.yaml'
     pool_ref: null
@@ -1618,10 +1530,11 @@ served-models:
     status: active
   moss-soundeffect:
     description: Pool-facing name for audio/moss-soundeffect
-    pool_ref: audio/moss-soundeffect
-    status: active
+    pool_ref: null
+    status: legacy
     path: audio/moss-soundeffect/bf16/
     size_gb: 33.5
+    note: Physical data removed from registry (was audio/moss-soundeffect), served by moss pool
   moss-soundeffect-v2:
     description: Pool-facing name for audio/moss-soundeffect-v2
     pool_ref: audio/moss-soundeffect-v2
@@ -1630,40 +1543,46 @@ served-models:
     size_gb: 11.3
   moss-tts:
     description: Pool-facing name for audio/moss-tts
-    pool_ref: audio/moss-tts
-    status: active
+    pool_ref: null
+    status: legacy
     path: audio/moss-tts/
     size_gb: 33.5
+    note: Physical data removed from registry (was audio/moss-tts), served by moss pool
   moss-tts-local-transformer:
     description: Pool-facing name for audio/moss-tts-local-transformer
-    pool_ref: audio/moss-tts-local-transformer
-    status: active
+    pool_ref: null
+    status: legacy
     path: audio/moss-tts-local-transformer/
     size_gb: 6.2
+    note: Physical data removed from registry (was audio/moss-tts-local-transformer), served by moss pool
   moss-tts-nano:
     description: Pool-facing name for audio/moss-tts-nano
-    pool_ref: audio/moss-tts-nano
-    status: active
+    pool_ref: null
+    status: legacy
     path: audio/moss-tts-nano/
     size_gb: 0.25
+    note: Physical data removed from registry (was audio/moss-tts-nano), served by moss pool
   moss-tts-realtime:
     description: Pool-facing name for audio/moss-tts-realtime
-    pool_ref: audio/moss-tts-realtime
-    status: active
+    pool_ref: null
+    status: legacy
     path: audio/moss-tts-realtime/
     size_gb: 4.7
+    note: Physical data removed from registry (was audio/moss-tts-realtime), served by moss pool
   moss-ttsd:
     description: Pool-facing name for audio/moss-ttsd
-    pool_ref: audio/moss-ttsd
-    status: active
+    pool_ref: null
+    status: legacy
     path: audio/moss-ttsd/
     size_gb: 33.5
+    note: Physical data removed from registry (was audio/moss-ttsd), served by moss pool
   moss-voicegenerator:
     description: Pool-facing name for audio/moss-voicegenerator
-    pool_ref: audio/moss-voicegenerator
-    status: active
+    pool_ref: null
+    status: legacy
     path: audio/moss-voicegenerator/
     size_gb: 7.0
+    note: Physical data removed from registry (was audio/moss-voicegenerator), served by moss pool
   qwen-image-edit:
     description: Pool-facing name for video/qwen-image-edit-2511-fp8
     path: image-gen/qwen-image-edit/2511-fp8
