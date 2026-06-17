@@ -3,6 +3,111 @@
 
 from __future__ import annotations
 
+# ════════════════════════════════════════════════════════════════════════
+# FP8 WEIGHT-ONLY PATCH (FP8 storage, BF16 matmul)
+# ════════════════════════════════════════════════════════════════════════
+# Problem: vLLM's FP8 activation quantization on Diffusion Transformer
+# linear layers causes NaN cascades — the latent range shifts across
+# denoising timesteps and compounds activation quantization rounding
+# errors until the representation collapses to NaN/black output.
+#
+# Initial diagnosis suggested this only affected FFN/MLP layers (the
+# image-stream MLPs). In practice the ATTENTION layers (attn1.to_qkv,
+# attn2.to_q, etc.) ALSO produce NaN — diagnostic showed the first FFN
+# call already receives NaN input, proving attention is the upstream
+# culprit. The fix therefore applies to ALL DiT linear layers (both
+# attention projections and FFN sublayers).
+#
+# Fix: Replace Fp8LinearMethod on all DiT linear layers with a subclass
+# that keeps the FP8 weight storage (so checkpoint + memory cost are
+# unchanged) but OVERRIDES `apply` to dequantize weights to BF16 and run
+# a BF16 matmul with un-quantized activations. This eliminates the
+# activation quantization that was producing NaN, without changing the
+# memory footprint.
+#
+# Why this approach (vs UnquantizedLinearMethod)?
+#   * UnquantizedLinearMethod would store weights as BF16 (~2× memory).
+#     For a 14B model with ~150 linear sublayers, that pushes total VRAM
+#     past the 24GB RTX 4090 limit and OOMs during model construction.
+#   * Allocating unquantized weights on CPU breaks vLLM's dummy run
+#     (mat1 on cuda, weights on cpu → device-mismatch RuntimeError).
+#   * The weight-only FP8 path matches vLLM's VLLM_BATCH_INVARIANT branch
+#     (see Fp8LinearMethod.apply) — proven safe for sensitive DiT layers.
+#
+# This patch runs in the WORKER process (where the model is built) because
+# this file replaces pipeline_wan2_2.py which is imported before the
+# transformer layers are created.
+# ════════════════════════════════════════════════════════════════════════
+import logging as _logging
+_fp8_patch_logger = _logging.getLogger("fp8_ffn_patch")
+
+try:
+    from vllm.model_executor.layers.quantization.fp8 import (
+        Fp8Config as _Fp8Config,
+        Fp8LinearMethod as _Fp8LinearMethod,
+    )
+    from vllm.model_executor.layers.linear import LinearBase as _LinearBase
+    import torch as _torch
+
+    _orig_get_quant_method = _Fp8Config.get_quant_method
+
+    class _Fp8WeightOnlyLinearMethod(_Fp8LinearMethod):
+        """FP8 weight storage + BF16 matmul (no activation quantization).
+
+        Identical to Fp8LinearMethod except `apply` always takes the
+        BF16-dequant + F.linear path that Fp8LinearMethod.apply uses when
+        VLLM_BATCH_INVARIANT=1 (per-tensor / per-channel, non-block-quant).
+        This avoids the FP8 activation quantization that produces NaN in
+        Diffusion Transformer linear layers across denoising timesteps.
+
+        Note: our checkpoint is **direct-cast FP8** (values already in the
+        normal NN range ±0.4, no per-tensor scaling). The `weight_scale`
+        parameter created by Fp8LinearMethod.create_weights stays
+        uninitialized (zero) because the checkpoint has no scale tensors —
+        so we MUST NOT multiply by it. We just cast FP8 → BF16 directly.
+        """
+
+        def apply(self, layer, x, bias=None):
+            # Direct-cast FP8: the stored FP8 values ARE the actual weights.
+            # Cast to BF16 and run a normal linear. No weight_scale, no
+            # activation quantization → no NaN cascade on DiT layers.
+            weight_bf16 = layer.weight.to(_torch.bfloat16)
+            return _torch.nn.functional.linear(x, weight_bf16.t(), bias)
+
+    def _patched_get_quant_method(self, layer, prefix):
+        # Replace the FP8 method on ALL DiT linear sublayers with the
+        # weight-only variant. Initial diagnosis targeted only FFN/MLP
+        # layers, but in practice the attention layers (attn1, attn2) also
+        # produce NaN under FP8 activation quantization in Diffusion
+        # Transformers — the first FFN call already receives NaN input,
+        # proving attention is the upstream culprit.
+        #
+        # We match any transformer.blocks.* or transformer.vace_blocks.*
+        # linear layer. Other layers (text encoder, VAE, norms) keep the
+        # original FP8 method.
+        if isinstance(layer, _LinearBase) and (
+            "ffn" in prefix or "attn" in prefix
+        ) and ("net_0" in prefix or "net_2" in prefix
+               or "to_q" in prefix or "to_k" in prefix
+               or "to_v" in prefix or "to_out" in prefix
+               or "to_qkv" in prefix or "proj" in prefix):
+            return _Fp8WeightOnlyLinearMethod(self)
+        return _orig_get_quant_method(self, layer, prefix)
+
+    _Fp8Config.get_quant_method = _patched_get_quant_method
+
+    # WARNING level so it shows in logs regardless of log config
+    _fp8_patch_logger.warning(
+        "FP8 weight-only patch applied on DiT attn+ffn — FP8 storage + "
+        "BF16 matmul (no activation quantization → no NaN)"
+    )
+except Exception as _e:
+    _fp8_patch_logger.warning("Could not apply FP8 FFN patch: %s", _e)
+    import traceback as _tb
+    _fp8_patch_logger.warning(_tb.format_exc())
+
+# ════════════════════════════════════════════════════════════════════════
+
 import json
 import logging
 import os
@@ -31,7 +136,7 @@ from vllm_omni.diffusion.models.dmd2 import DMD2PipelineMixin
 from vllm_omni.diffusion.models.progress_bar import ProgressBarMixin, _is_rank_zero
 from vllm_omni.diffusion.models.schedulers import FlowUniPCMultistepScheduler
 from vllm_omni.diffusion.models.wan2_2.scheduling_wan_euler import WanEulerScheduler
-from vllm_omni.diffusion.models.wan2_2.wan2_2_transformer import WanTransformer3DModel
+from vllm_omni.diffusion.models.wan2_2.wan2_2_vace_transformer import WanVACETransformer3DModel as WanTransformer3DModel
 from vllm_omni.diffusion.postprocess import interpolate_video_tensor
 from vllm_omni.diffusion.profiler.diffusion_pipeline_profiler import DiffusionPipelineProfilerMixin
 from vllm_omni.diffusion.request import OmniDiffusionRequest
@@ -157,6 +262,10 @@ def create_transformer_from_config(
         kwargs["rope_max_seq_len"] = config["rope_max_seq_len"]
     if "pos_embed_seq_len" in config:
         kwargs["pos_embed_seq_len"] = config["pos_embed_seq_len"]
+    if "vace_layers" in config:
+        kwargs["vace_layers"] = config["vace_layers"]
+    if "vace_in_channels" in config:
+        kwargs["vace_in_channels"] = config["vace_in_channels"]
 
     if "quantization_config" in config:
         from vllm_omni.quantization.factory import resolve_quant_config_from_disk
@@ -532,6 +641,10 @@ class Wan22Pipeline(
                 latents = self.scheduler_step_maybe_with_cfg(noise_pred, t, latents, do_true_cfg)
                 pbar.update()
 
+        if _is_rank_zero():
+            logger.info("DEBUG denoised latents: min=%s max=%s mean=%s std=%s",
+                        latents.min().item(), latents.max().item(),
+                        latents.mean().item(), latents.std().item())
         return latents
 
     def forward(
@@ -818,6 +931,10 @@ class Wan22Pipeline(
                 latents.device, latents.dtype
             )
             latents = latents / latents_std + latents_mean
+            if _is_rank_zero():
+                logger.info("DEBUG VAE input latents: min=%s max=%s mean=%s std=%s",
+                            latents.min().item(), latents.max().item(),
+                            latents.mean().item(), latents.std().item())
             output = self.vae.decode(latents, return_dict=False)[0]
 
         if DEBUG_PERF:
