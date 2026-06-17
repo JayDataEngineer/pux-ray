@@ -48,8 +48,19 @@ pools:
     container: inference-moss
     port: 8050
     framework: moss
-    description: MOSS Audio — TTS + Sound Effects (standalone)
-    models: [moss_tts, moss_soundeffect, moss_tts_realtime]
+    description: >-
+      MOSS Audio — TTS + Sound Effects. Python server (services/audio/moss_server.py)
+      built from infra/docker/Dockerfile.moss. Supports model switching via /load.
+      Migration target: OpenMOSS C++ (pwilkin/openmoss) for TTS once Docker image is ready.
+    models:
+      - moss-tts
+      - moss-ttsd
+      - moss-soundeffect
+      - moss-soundeffect-v2
+      - moss-tts-realtime
+      - moss-tts-local-transformer
+      - moss-voicegenerator
+      - moss-tts-nano
     vram_mb: 6000
     health_path: /health
     volumes:
@@ -61,18 +72,58 @@ pools:
   diarization:
     tier: A
     priority: 20
-    image: forge-reg.local:30500/tech-noir/gpu-all:latest
+    image: forge-reg.local:30500/tech-noir/asr:latest
     container: inference-diarization
     port: 8051
-    framework: pyannote
-    description: Speaker diarization (pyannote.audio 3.1)
-    models: [diarization]
+    framework: crispasr
+    description: >-
+      CrispASR — C++ ASR + speaker diarization (crispstrobe/CrispASR).
+      Base image: ghcr.io/crispstrobe/crispasr:main-cuda-12 (upstream, unmodified).
+      Our Dockerfile: infra/docker/Dockerfile.asr.
+      MODE: base — VibeVoice-7B Q4_K, 9.19% DER, joint ASR + diarization.
+      API: POST /v1/audio/transcriptions (OpenAI-compatible multipart).
+    models: [diarization, diarization-base, whisper, faster-whisper]
     vram_mb: 1500
     health_path: /health
-    env:
-      HF_TOKEN: ${HF_TOKEN:-}
     volumes:
-      /models/hf-cache: /mnt/data/models/hf-cache
+      /models/vibevoice-cpp: /mnt/data/models/vibevoice-cpp
+      /models/asr: /mnt/data/models/asr
+    env:
+      CRISPASR_MODEL: /models/vibevoice-cpp/vibevoice-asr-q4_k.gguf
+      CRISPASR_BACKEND: vibevoice
+    model_launchers:
+      diarization-base:
+        model_dir: /mnt/data/models/vibevoice-cpp/vibevoice-asr-q4_k.gguf
+        api:
+          transcribe: POST /v1/audio/transcriptions
+        note: VibeVoice-7B Q4_K — joint ASR + diarization, 9.19% DER
+
+  diarization-turbo:
+    tier: A
+    priority: 21
+    image: forge-reg.local:30500/tech-noir/asr:latest
+    container: inference-diarization-turbo
+    port: 8055
+    framework: crispasr
+    description: >-
+      CrispASR — turbo mode. VibeVoice-Realtime 0.5B Q8_0 for low-latency
+      streaming ASR + diarization. Separate container from base — both can run
+      concurrently (1.5GB VRAM each).
+      API: POST /v1/audio/transcriptions (OpenAI-compatible multipart).
+    models: [diarization-turbo]
+    vram_mb: 1500
+    health_path: /health
+    volumes:
+      /models/vibevoice-cpp: /mnt/data/models/vibevoice-cpp
+    env:
+      CRISPASR_MODEL: /models/vibevoice-cpp/vibevoice-realtime-0.5B-q8_0.gguf
+      CRISPASR_BACKEND: vibevoice
+    model_launchers:
+      diarization-turbo:
+        model_dir: /mnt/data/models/vibevoice-cpp/vibevoice-realtime-0.5B-q8_0.gguf
+        api:
+          transcribe: POST /v1/audio/transcriptions
+        note: VibeVoice-Realtime 0.5B Q8_0 — low-latency streaming ASR + diarization
 
   llama:
     tier: A
@@ -107,6 +158,35 @@ pools:
     volumes:
       /models: /mnt/data/models
 
+  ace-step:
+    tier: A
+    priority: 45
+    image: forge-reg.local:30500/tech-noir/ace-step:latest
+    container: inference-ace-step
+    port: 8056
+    framework: acetep-cpp
+    description: >-
+      ACE-Step C++ music generation (ServeurpersoCom/acestep.cpp). GGUF models.
+      Two-step API: POST /lm (generate music codes) → POST /synth (render audio).
+      Turbo (8-step) vs Base/SFT (50-step) selected per request via DiT model name.
+      Dockerfile: infra/docker/Dockerfile.acetep.
+    models: [ace-step, ace-step-turbo]
+    vram_mb: 8000
+    health_path: /health
+    volumes:
+      /models/audio/acestep-cpp: /mnt/data/models/audio/acestep-cpp
+    model_launchers:
+      ace-step:
+        api:
+          generate: POST /lm
+          synth: POST /synth
+        note: "SFT DiT 50-step (high quality). Use dit_model=acestep-v15-sft-Q8_0 in /lm request."
+      ace-step-turbo:
+        api:
+          generate: POST /lm
+          synth: POST /synth
+        note: "Turbo DiT 8-step (fast). Use dit_model=acestep-v15-turbo-Q8_0 in /lm request."
+
   comfyui:
     tier: A
     priority: 50
@@ -138,7 +218,8 @@ pools:
       - wan-vace                 # 14B Wan2.1 VACE FP8 + TeaCache
       - wan-t2v                  # Wan2.1 T2V
       - wan-i2v                  # Wan2.1 I2V
-      - z-image                  # Z-Image Turbo/Base
+      - z-image                  # Z-Image Turbo (8-step) and Base (50-step) — same model
+      - z-image-base             # alias: 50-step variant of the same z-image model
       - cosmos                   # Cosmos3-Nano (BF16 CPU offload for now)
       - anima-base               # (future: replaces cosmos slot)
     vram_mb: 22000
@@ -186,6 +267,16 @@ pools:
           quant: fp8
           cache_dit: true
           taylorseer: true
+      z-image-base:              # Same architecture as z-image-turbo but different (non-distilled) weights
+        script: scripts/run_omni_z_image_fp8.sh
+        model_dir: /mnt/data/models/native/z-image-base-fp8
+        api:
+          generate: POST /v1/images/generations
+        optimization:
+          quant: fp8
+          cache_dit: true
+          taylorseer: true
+        note: "Same omni-vllm pipeline as z-image-turbo but non-distilled base checkpoint. 50-step, higher quality."
       wan-t2v:
         script: scripts/run_omni_wan_t2v.sh
         api:
@@ -194,6 +285,32 @@ pools:
         script: scripts/run_omni_wan_i2v.sh
         api:
           generate: POST /v1/videos/generations
+      wan-vace-turbo:
+        script: scripts/run_omni_14b_lightning.sh
+        patch: scripts/pipeline_wan2_2_vace_patch.py
+        model_dir: /mnt/data/models/video/wan2.1-vace-14b-fp8-lightning
+        api:
+          generate: POST /v1/videos/generations
+        optimization:
+          quant: fp8-weight-only
+          teacache_thresh: 0.01
+          cpu_offload_gb: 20
+        note: "4-step lightning distilled VACE. Model dir must be pre-built from LightX2V LoRA merge."
+      qwen-image-edit-turbo:
+        script: scripts/run_omni_qwen_img_edit.sh
+        model_dir: /mnt/data/models/image-gen/qwen-image-edit/2511-fp8-lightning
+        api:
+          generate: POST /v1/images/generations
+          edit:     POST /v1/images/edits
+        optimization:
+          quant: fp8-weight-only
+          cache_dit: true
+          fn_compute_blocks: 1
+          bn_compute_blocks: 0
+          max_warmup_steps: 4
+        benchmark:
+          - { steps: 4, time_s: 5.2, note: "Lightning 4-step" }
+        note: "Lightning 4-step distilled. Model dir contains merged Lightning weights."
       cosmos:
         script: scripts/run_omni_cosmos.sh
         model_dir: /mnt/data/models/cosmos3-nano
@@ -201,7 +318,7 @@ pools:
           generate: POST /v1/videos/generations
         optimization:
           quant: bf16-cpu-offload      # FP8 blocked on fused LLM params (SGLang too)
-        note: "Later converted to anima-base slot when ready."
+        note: "BF16 with auto CPU offload. FP8 needs newer SGLang for Cosmos3 fused LLM params."
     env:
       VLLM_BATCH_INVARIANT: "1"             # BF16-dequant path for non-patched layers
       PYTORCH_CUDA_ALLOC_CONF: expandable_segments:True
@@ -223,20 +340,37 @@ pools:
     description: SGLang — high-throughput diffusion + LLM serving
     models:
       - ideogram4                # typography-aware T2I
-      - z-image                  # alt: SGLang Z-Image FP8 (used when omni is busy)
+      - z-image                  # turbo fallback when omni-vllm is occupied
+      - z-image-base             # base fallback when omni-vllm is occupied
       - ltx-video                # LTX-2.3 ModelOpt FP8 two-stage
     vram_mb: 22000
     health_path: /health
     model_launchers:
       ideogram4:
         script: infra/docker/serve_ideogram4.sh
-        variant: nf4             # 16 GB on 24 GB card
+        variant: nf4             # 16 GB on 24 GB card (text_encoder 5.5GB + transformer 5.2GB)
         api:
           generate: POST /v1/images/generations
         env_requires: [HF_TOKEN]
-      z-image:                   # launcher key matches canonical model name
+        note: "NF4 quantization via bitsandbytes. Presets: V4_DEFAULT_20, V4_QUALITY_48, V4_TURBO_12."
+      z-image-base:              # fallback when omni-vllm is occupied
+        script: infra/docker/serve_zimage_base_fp8.sh
+        model_dir: /mnt/data/models/native/z-image-base-fp8
+        api:
+          generate: POST /v1/images/generations
+        optimization:
+          quant: fp8
+          cache_dit: true
+          taylorseer: true
+          fn_compute_blocks: 2
+          bn_compute_blocks: 1
+          warmup_steps: 2
+          rdt: 0.5
+          mc: 6
+        note: "Non-distilled Z-Image checkpoint. 50 steps. SGLang fallback when omni-vllm is occupied."
+      z-image:                   # turbo fallback when omni-vllm is busy
         script: infra/docker/serve_zimage_fp8.sh
-        variant: sglang          # distinguishes from omni-vllm z-image launcher
+        variant: sglang
         model_dir: /mnt/data/models/native/z-image-turbo-fp8
         api:
           generate: POST /v1/images/generations
@@ -250,7 +384,8 @@ pools:
           rdt: 0.5
           mc: 6
         benchmark:
-          - { steps: 8,  time_s: 1.61, note: "RTX 4090, beats MI300X" }
+          - { steps: 8, time_s: 1.61, note: "RTX 4090, beats MI300X" }
+        note: "Turbo Z-Image fallback. Primary is omni-vllm; SGLang used when omni is occupied."
       ltx-video:
         script: infra/docker/serve_ltx23_fp8.sh
         model_dir: /mnt/data/models/native/ltx-2.3-fp8
@@ -259,6 +394,12 @@ pools:
         optimization:
           quant: modelopt-fp8     # required: standard FP8 crashes on CPU init
           device_mode: snapshot
+      cosmos-sglang:
+        script: infra/docker/serve_cosmos3_nano.sh
+        model_dir: /mnt/data/models/cosmos3-nano
+        api:
+          generate: POST /v1/videos/generations
+        note: "BF16 CPU offload fallback. FP8 blocked pending SGLang support for Cosmos3 fused LLM params."
     env:
       PYTORCH_CUDA_ALLOC_CONF: expandable_segments:True
 
@@ -272,16 +413,12 @@ pools:
     container: inference-diffusers
     port: 8095
     framework: diffusers
-    description: Generalized diffusers fallback (CPU-capable + small GPU models)
+    description: Generalized diffusers + CPU fallback (tech-noir/gpu-all catch-all)
     models:
       - kimodo                   # Viser interactive 3D motion
-      - ace-step                 # ACE-Step music generation
       - kokoro                   # Kokoro TTS (CPU-capable)
-      - index-tts                # IndexTTS
       - vibevoice-tts            # VibeVoice-7B TTS
-      - vibevoice-asr            # VibeVoice-7B ASR
-      - faster-whisper           # Faster-Whisper (CPU)
-      - see-through              # See-Through creative
+      - see-through              # See-Through anime layer decomposition
     vram_mb: 8000
     health_path: /health
     volumes:
@@ -292,40 +429,64 @@ pools:
 # skipped if (a) it doesn't actually serve the model, or (b) it's unhealthy.
 # A model served by only one pool has an empty fallback list.
 routes:
-  # Tier A — single dedicated pool each
-  moss_tts:          { primary: moss }
-  moss_soundeffect:  { primary: moss }
-  moss_tts_realtime: { primary: moss }
-  diarization:       { primary: diarization }
-  llama:             { primary: llama }
-  llama-bee:         { primary: llama-bee }
-  comfyui:           { primary: comfyui }
+  # ── Tier A — MOSS (all models route to the same Python MOSS pool) ─────────
+  moss-tts:                { primary: moss }
+  moss-ttsd:               { primary: moss }
+  moss-soundeffect:        { primary: moss }
+  moss-soundeffect-v2:     { primary: moss }
+  moss-tts-realtime:       { primary: moss }
+  moss-tts-local-transformer: { primary: moss }
+  moss-voicegenerator:     { primary: moss }
+  moss-tts-nano:           { primary: moss }
+  # ── Tier A — Diarization / Whisper (CrispASR handles all ASR/transcription)
+  diarization:             { primary: diarization }        # default = base
+  diarization-base:        { primary: diarization }
+  diarization-turbo:       { primary: diarization-turbo }
+  whisper:                 { primary: diarization }        # CrispASR handles whisper requests
+  faster-whisper:          { primary: diarization }        # legacy alias → diarization
 
-  # Tier B — DiT models via omni-vllm. Z-Image can fall back to SGLang.
+  # ── Tier A — LLM / ComfyUI ───────────────────────────────────────────────
+  llama:                   { primary: llama }
+  llama-bee:               { primary: llama-bee }
+  comfyui:                 { primary: comfyui }
+
+  # ── Tier B — DiT models via omni-vllm ────────────────────────────────────
   qwen-image-edit:
     primary: omni-vllm
-    fallback: []               # FP8 patch is omni-only
+    fallback: []               # FP8 patch is omni-only; no fallback
+  qwen-image-edit-turbo:
+    primary: omni-vllm
+    fallback: []
   wan-vace:
     primary: omni-vllm
     fallback: []
-  wan-t2v:           { primary: omni-vllm }
-  wan-i2v:           { primary: omni-vllm }
+  wan-vace-turbo:
+    primary: omni-vllm
+    fallback: []
+  wan-t2v:                 { primary: omni-vllm }
+  wan-i2v:                 { primary: omni-vllm }
   z-image:
     primary: omni-vllm
-    fallback: [sglang]         # SGLang has a parallel Z-Image FP8 deployment
-  cosmos:            { primary: omni-vllm }
-  anima-base:        { primary: omni-vllm }   # future — replaces cosmos slot
+    fallback: [sglang]         # SGLang turbo fallback when omni is occupied
+  z-image-base:
+    primary: omni-vllm         # same pipeline, different (non-distilled) weights
+    fallback: [sglang]         # SGLang base fallback when omni is occupied
+  cosmos:
+    primary: omni-vllm
+    fallback: [sglang]         # SGLang BF16 fallback
+  anima-base:              { primary: omni-vllm }
 
-  # Tier C — SGLang-exclusive
-  ideogram4:         { primary: sglang }
-  ltx-video:         { primary: sglang }
+  # ── Tier A — ACE-Step C++ (acestep.cpp, two-step /lm → /synth API) ─────────
+  ace-step:                { primary: ace-step }
+  ace-step-turbo:          { primary: ace-step }
 
-  # Tier D — Diffusers catch-all
-  kimodo:           { primary: diffusers }
-  ace-step:         { primary: diffusers }
-  kokoro:           { primary: diffusers }
-  index-tts:        { primary: diffusers }
-  vibevoice-tts:    { primary: diffusers }
-  vibevoice-asr:    { primary: diffusers }
-  faster-whisper:   { primary: diffusers }
-  see-through:      { primary: diffusers }
+  # ── Tier C — SGLang-exclusive (or SGLang-primary) ─────────────────────────
+  ideogram4:               { primary: sglang }
+  ltx-video:               { primary: sglang }
+  cosmos-sglang:           { primary: sglang }
+
+  # ── Tier D — Diffusers catch-all ─────────────────────────────────────────
+  kimodo:                  { primary: diffusers }
+  kokoro:                  { primary: diffusers }
+  vibevoice-tts:           { primary: diffusers }
+  see-through:             { primary: diffusers }

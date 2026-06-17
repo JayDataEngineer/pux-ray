@@ -78,7 +78,7 @@ asr:
     vram_estimate_gb: 16.0
 audio:
   ace-step:
-    description: ACE-STEP 1.5 music generation. v15-turbo, 5Hz-lm-1.7B, Qwen3-Embedding.
+    description: ACE-STEP 1.5 music generation (diffusers format). Legacy — superseded by acestep-cpp GGUF pipeline.
     device: gpu
     download: snapshot
     path: audio/acestep/
@@ -86,6 +86,56 @@ audio:
     size_gb: 8.0
     source: hf://ACE-Step/Ace-Step1.5
     vram_estimate_gb: 8.0
+  acestep-cpp-lm-1.7b:
+    description: ACE-Step 1.5 LM 1.7B GGUF Q8_0. First step in the two-step pipeline — generates
+      music codes from caption + lyrics. Used by infra/docker/Dockerfile.acetep (acestep.cpp).
+    device: gpu
+    download: file
+    path: audio/acestep-cpp/acestep-5Hz-lm-1.7B-Q8_0.gguf
+    sha256: null
+    size_gb: 1.9
+    source: hf://Serveurperso/ACE-Step-1.5-GGUF/acestep-5Hz-lm-1.7B-Q8_0.gguf
+    vram_estimate_gb: 2.0
+  acestep-cpp-dit-turbo:
+    description: ACE-Step 1.5 DiT turbo GGUF Q8_0. 8-step distilled DiT for fast music synthesis.
+      Second step after /lm — renders music codes to audio via /synth.
+    device: gpu
+    download: file
+    path: audio/acestep-cpp/acestep-v15-turbo-Q8_0.gguf
+    sha256: null
+    size_gb: 3.9
+    source: hf://Serveurperso/ACE-Step-1.5-GGUF/acestep-v15-turbo-Q8_0.gguf
+    vram_estimate_gb: 4.0
+  acestep-cpp-dit-sft:
+    description: ACE-Step 1.5 DiT SFT GGUF Q8_0. 50-step non-distilled DiT for high-quality
+      music synthesis (base variant). Second step after /lm — renders music codes to audio.
+    device: gpu
+    download: file
+    path: audio/acestep-cpp/acestep-v15-sft-Q8_0.gguf
+    sha256: null
+    size_gb: 3.9
+    source: hf://Serveurperso/ACE-Step-1.5-GGUF/acestep-v15-sft-Q8_0.gguf
+    vram_estimate_gb: 4.0
+  acestep-cpp-text-encoder:
+    description: Qwen3-Embedding-0.6B text encoder GGUF Q8_0 for ACE-Step C++. Encodes musical
+      captions + lyrics into latent space for the LM pass.
+    device: gpu
+    download: file
+    path: audio/acestep-cpp/Qwen3-Embedding-0.6B-Q8_0.gguf
+    sha256: null
+    size_gb: 0.7
+    source: hf://Serveurperso/ACE-Step-1.5-GGUF/Qwen3-Embedding-0.6B-Q8_0.gguf
+    vram_estimate_gb: 1.0
+  acestep-cpp-vae:
+    description: ACE-Step 1.5 VAE BF16 GGUF. Audio decoder — converts DiT latents to final
+      48kHz stereo WAV in the /synth step.
+    device: gpu
+    download: file
+    path: audio/acestep-cpp/vae-BF16.gguf
+    sha256: null
+    size_gb: 0.4
+    source: hf://Serveurperso/ACE-Step-1.5-GGUF/vae-BF16.gguf
+    vram_estimate_gb: 0.5
   moss-audio-tokenizer:
     description: MOSS Audio Tokenizer (3.5B). Audio codec for MOSS-SoundEffect. Loaded to CPU to conserve
       VRAM.
@@ -1199,6 +1249,39 @@ video:
     size_gb: 18.0
     source: local (direct-cast from Wan-AI/Wan2.1-VACE-14B-diffusers)
     vram_estimate_gb: 22.0
+  cosmos3-nano:
+    description: Cosmos3-Nano video generation model. BF16, auto CPU offload (transformer ~27GB fits via
+      CPU offloading). FP8 blocked pending SGLang/vLLM-Omni support for Cosmos3 fused LLM params. Served
+      via omni-vllm BF16 mode or SGLang fallback. Already on disk.
+    device: gpu
+    download: skip
+    path: cosmos3-nano
+    sha256: null
+    size_gb: 27.0
+    source: (on disk \u2014 already downloaded)
+    vram_estimate_gb: 20.0
+  z-image-turbo-fp8:
+    description: Z-Image turbo (distilled) checkpoint in FP8 format. 8-step inference via vLLM-Omni
+      or SGLang using the same DiT pipeline as z-image-base. Served by inference-omni-vllm (primary)
+      or inference-sglang (fallback). Route name in pools: z-image.
+    device: gpu
+    download: manual
+    path: native/z-image-turbo-fp8
+    sha256: null
+    size_gb: 16.0
+    source: (manual \u2014 build from Z-Image turbo weights)
+    vram_estimate_gb: 20.0
+  z-image-base-fp8:
+    description: Z-Image base (non-distilled) checkpoint in FP8 format. Same architecture as z-image-turbo
+      but different weights \u2014 50-step inference for higher quality. Served by inference-omni-vllm (primary)
+      or inference-sglang (fallback). Route name in pools: z-image-base.
+    device: gpu
+    download: manual
+    path: native/z-image-base-fp8
+    sha256: null
+    size_gb: 16.0
+    source: (manual \u2014 build from Z-Image base weights)
+    vram_estimate_gb: 20.0
 vision:
   gemma-4-26b-a4b-mmproj-f16:
     description: Gemma 4 26B A4B mmproj (F16).
