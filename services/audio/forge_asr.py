@@ -1,18 +1,25 @@
 """Forge adapter for CrispASR — C++ speech recognition with diarization.
 
-Two modes — BOTH do speaker diarization:
-  FAST:    Pyannote v3 + TitaNet (5.7MB model, 10.15% DER, CPU-friendly)
-  QUALITY: VibeVoice-7B (14GB model, 9.19% DER, joint ASR+diarization)
+Source: github.com/CrispStrobe/CrispASR (upstream, unmodified)
+Docker: forge-reg.local:30500/tech-noir/asr:latest (built from infra/docker/Dockerfile.asr)
+API: OpenAI-compatible POST /v1/audio/transcriptions
 
-CPU-only — does NOT trigger GPU eviction. Coexists with everything.
+Two modes — both do speaker diarization:
+  base:  VibeVoice-7B Q4_K (vibevoice-asr-q4_k.gguf) — 9.19% DER, joint ASR+diarization
+  turbo: VibeVoice-Realtime 0.5B Q8_0 — low-latency streaming
+
+The diarization pool (base) and diarization-turbo pool are separate containers.
+Mode selects which pool URL to call; this adapter talks to whichever is reachable.
+
+VRAM: 1.5GB — coexists with GPU models without eviction.
 """
 from __future__ import annotations
 
+import base64
 import logging
 import os
-import time
-import base64
 import tempfile
+import time
 
 import httpx
 
@@ -21,27 +28,23 @@ from services.forge_persistence import Persistence
 
 logger = logging.getLogger(__name__)
 
+# K8s service name or direct host:port
 ASR_URL = os.environ.get("ASR_URL", "http://asr-service:8080")
+ASR_TURBO_URL = os.environ.get("ASR_TURBO_URL", "http://asr-turbo-service:8080")
 
-# Mode configs
-# FAST: Whisper/Canary transcription + Pyannote v3 diarization (modular pipeline)
-# QUALITY: VibeVoice-7B joint transcription + diarization (monolithic)
+# Mode configs — maps to the CrispASR container running that model
 ASR_MODES = {
-    "fast": {
-        "model": "/models/asr/parakeet-tdt-0.6b-v3.gguf",
-        "backend": "parakeet",
-        "diarize_method": "pyannote",
-        "segment_model": "/models/asr/pyannote-v3-segmentation-f32.gguf",
-        "embedder": "auto",  # TitaNet-Large
-        "description": "Pyannote v3 + TitaNet — 10.15% DER, CPU-friendly",
-    },
-    "quality": {
-        "model": "/models/asr/vibevoice-asr-q4_k.gguf",
+    "base": {
+        "model": "/models/vibevoice-cpp/vibevoice-asr-q4_k.gguf",
         "backend": "vibevoice",
-        "diarize_method": None,  # Built into VibeVoice
-        "segment_model": None,
-        "embedder": None,
-        "description": "VibeVoice-7B — 9.19% DER, joint ASR + diarization",
+        "description": "VibeVoice-7B Q4_K — 9.19% DER, joint ASR + diarization",
+        "pool_urls": [ASR_URL, "http://localhost:8051", "http://127.0.0.1:8051"],
+    },
+    "turbo": {
+        "model": "/models/vibevoice-cpp/vibevoice-realtime-0.5B-q8_0.gguf",
+        "backend": "vibevoice",
+        "description": "VibeVoice-Realtime 0.5B Q8_0 — low-latency streaming",
+        "pool_urls": [ASR_TURBO_URL, "http://localhost:8055", "http://127.0.0.1:8055"],
     },
 }
 
@@ -49,22 +52,27 @@ ASR_MODES = {
 class ASRForgeService(ForgeService):
     """Calls CrispASR server via OpenAI-compatible HTTP API.
 
-    Both modes produce speaker-diarized transcripts.
-    VRAM: 0 — CPU-only, does NOT trigger GPU eviction.
+    Modes: "base" (VibeVoice-7B Q4_K) or "turbo" (VibeVoice-Realtime 0.5B).
+    Each mode has its own pool container; this adapter probes both and uses
+    whichever is reachable for the requested mode.
+
+    VRAM: 1.5GB per container — coexists with GPU models.
     """
 
     service_name = "asr"
-    default_model = "fast"
+    default_model = "base"
     persistence = Persistence.TRANSIENT
     vram_mb = 0
 
     def __init__(self):
         super().__init__()
-        self._healthy = False
-        self._current_mode = "fast"
+        self._current_mode = "base"
+        self._mode_urls: dict[str, str] = {}
 
-    def _find_server(self) -> str | None:
-        for url in [ASR_URL, "http://localhost:8080", "http://127.0.0.1:8080"]:
+    def _find_server(self, mode: str) -> str | None:
+        """Find a reachable CrispASR container for the given mode."""
+        cfg = ASR_MODES.get(mode, ASR_MODES["base"])
+        for url in cfg["pool_urls"]:
             try:
                 with httpx.Client(timeout=5) as client:
                     if client.get(f"{url}/health").status_code == 200:
@@ -74,99 +82,74 @@ class ASRForgeService(ForgeService):
         return None
 
     def load(self, model_name: str | None = None, quant: str | None = None) -> None:
-        """Check ASR server and switch mode."""
         mode = model_name or self.default_model
         if mode not in ASR_MODES:
-            mode = self.default_mode
-
-        url = self._find_server()
+            mode = "base"
+        self._current_mode = mode
+        url = self._find_server(mode)
         if url:
-            self._asr_url = url
-            self._healthy = True
-            self._switch_mode(url, mode)
+            self._mode_urls[mode] = url
+            logger.info("ASR: %s mode reachable at %s", mode, url)
         else:
-            logger.warning("ASR: server not reachable")
-
+            logger.warning("ASR: %s mode server not reachable — will retry on first request", mode)
         self._loaded = True
 
-    def _switch_mode(self, url: str, mode: str):
-        """Switch CrispASR to the requested mode."""
-        cfg = ASR_MODES[mode]
-        try:
-            with httpx.Client(timeout=120) as client:
-                health = client.get(f"{url}/health").json()
-                loaded_backend = health.get("backend", "")
-
-                if loaded_backend != cfg["backend"]:
-                    logger.info("ASR: switching to %s (%s)", mode, cfg["description"])
-                    client.post(f"{url}/load", data={"model": cfg["model"]})
-                    logger.info("ASR: loaded %s", cfg["backend"])
-
-            self._current_mode = mode
-        except Exception as e:
-            logger.warning("ASR: mode switch failed: %s", e)
-            self._current_mode = mode  # Assume it worked
+    def unload(self) -> None:
+        self._loaded = False
+        self._mode_urls.clear()
 
     def infer(self, payload: dict) -> dict:
-        """Transcribe + diarize audio.
+        """Transcribe + diarize audio via CrispASR OpenAI-compatible API.
 
         payload:
-          audio_b64: base64 audio (required)
-          mode: "fast" or "quality" (optional override)
-          language: ISO-639-1
-          translate: bool
-          hotwords: comma-separated
-          max_speakers: int (hint for clustering)
-          vad: bool (voice activity detection)
+          audio_b64:   base64 audio (required)
+          mode:        "base" or "turbo" (default: base)
+          language:    ISO-639-1 (optional)
+          translate:   bool (optional)
+          hotwords:    comma-separated (optional)
+          max_speakers: int hint for diarization clustering (optional)
+          vad:         bool (optional)
         """
         audio_b64 = payload.get("audio_b64", "")
         if not audio_b64:
-            return {"status": "error", "error": "No audio"}
+            return {"status": "error", "error": "No audio provided"}
 
-        # Mode override
         mode = payload.get("mode", self._current_mode)
         if mode not in ASR_MODES:
-            mode = self.default_mode
+            mode = "base"
 
-        # Switch if needed
-        url = getattr(self, "_asr_url", ASR_URL)
-        if mode != self._current_mode:
-            self._switch_mode(url, mode)
+        url = self._mode_urls.get(mode) or self._find_server(mode)
+        if not url:
+            return {"status": "error", "error": f"CrispASR {mode} server not reachable"}
+        self._mode_urls[mode] = url
 
-        cfg = ASR_MODES[mode]
-
-        # Decode audio
         audio_bytes = base64.b64decode(audio_b64)
         with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
             f.write(audio_bytes)
             temp_path = f.name
+
+        # OpenAI-compatible multipart form for /v1/audio/transcriptions
+        data: dict[str, str] = {
+            "response_format": "verbose_json",
+            "diarize": "true",
+        }
+        for key in ("language", "prompt", "translate", "hotwords",
+                    "hotwords_boost", "detect_language", "vad"):
+            if key in payload:
+                data[key] = str(payload[key])
+        if payload.get("max_speakers"):
+            data["diarize_max_speakers"] = str(payload["max_speakers"])
 
         t0 = time.perf_counter()
         try:
             with httpx.Client(timeout=600) as client:
                 with open(temp_path, "rb") as audio_file:
                     files = {"file": ("audio.wav", audio_file, "audio/wav")}
-                    data = {"response_format": "verbose_json"}
-
-                    # FAST mode: configure modular diarization pipeline
-                    if mode == "fast":
-                        data["diarize"] = "true"
-                        data["diarize_method"] = cfg["diarize_method"]
-                        if cfg.get("segment_model"):
-                            data["diarize_segment_model"] = cfg["segment_model"]
-                        data["diarize_embedder"] = cfg.get("embedder", "auto")
-                        if payload.get("max_speakers"):
-                            data["diarize_max_speakers"] = str(payload["max_speakers"])
-
-                    # QUALITY mode: VibeVoice diarizes natively, no extra config needed
-
-                    # Common params
-                    for key in ("language", "prompt", "translate", "hotwords",
-                                "hotwords_boost", "detect_language", "vad"):
-                        if key in payload:
-                            data[key] = str(payload[key])
-
-                    resp = client.post(f"{url}/inference", files=files, data=data)
+                    resp = client.post(
+                        f"{url}/v1/audio/transcriptions",
+                        files=files,
+                        data=data,
+                    )
         finally:
             os.unlink(temp_path)
 
@@ -174,11 +157,10 @@ class ASRForgeService(ForgeService):
 
         if resp.status_code != 200:
             return {"status": "error",
-                    "error": f"ASR {resp.status_code}: {resp.text[:200]}"}
+                    "error": f"CrispASR {resp.status_code}: {resp.text[:200]}"}
 
         result = resp.json()
 
-        # Extract speakers from segments
         speakers = []
         for seg in result.get("segments", []):
             spk = seg.get("speaker") or seg.get("speaker_id")
@@ -192,18 +174,16 @@ class ASRForgeService(ForgeService):
                 "text": result.get("text", ""),
                 "segments": result.get("segments", []),
                 "language": result.get("language", ""),
-                "backend": result.get("backend", ""),
                 "mode": mode,
                 "speakers": speakers,
             },
             "metrics": {
                 "latency_ms": int(elapsed * 1000),
                 "mode": mode,
-                "backend": result.get("backend", ""),
                 "audio_duration_s": result.get("duration"),
                 "num_speakers": len(speakers),
             },
         }
 
     def actual_vram_mb(self) -> int:
-        return 0  # CPU-only
+        return 0
