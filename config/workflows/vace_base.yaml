@@ -1,9 +1,10 @@
 name: vace_base
-version: "1.0"
+version: "1.1"
 description: >
-  Wan2.2 VACE Base — 18-step full quality video generation.
+  Wan2.1 VACE 14B FP8 — full quality video generation (PROVEN on RTX 4090).
   Text-to-video / image-to-video with VACE conditioning.
-  Uses vLLM-Omni on RTX 4090 (24GB). Text encoder CPU-offloaded.
+  Uses vLLM-Omni 0.22 with FP8 weight-only patch (FP8 storage + BF16 matmul).
+  ~2:45 for 33-frame 640x480 at 25 steps; ~5-7 min for 81-frame 832x480.
 
 inputs:
   prompt:
@@ -22,18 +23,18 @@ inputs:
     default: -1
   width:
     type: integer
-    default: 832
+    default: 640
   height:
     type: integer
     default: 480
   frames:
     type: integer
-    default: 81
-    description: "Number of frames (max 81 for 24GB VRAM)"
+    default: 33
+    description: "Number of frames (33 safe for 24GB VRAM at 640x480)"
   steps:
     type: integer
-    default: 18
-    description: "Denoising steps (18 for Base)"
+    default: 25
+    description: "Denoising steps (25 for Base — good quality/speed tradeoff)"
   guidance:
     type: string
     default: "5.0"
@@ -44,7 +45,7 @@ inputs:
 steps:
   generate:
     type: vace_generate
-    model: wan2.1-vace-14b-fp8
+    model: wan2.1-vace-14b-fp8-diffusers
     params:
       input_prompt: "{{ inputs.prompt }}"
       image_b64: "{{ inputs.cond_image }}"

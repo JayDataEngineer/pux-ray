@@ -1655,6 +1655,20 @@ video:
     size_gb: 70.0
     source: hf://Wan-AI/Wan2.1-VACE-14B-diffusers
     vram_estimate_gb: 28.0
+  wan2.1-vace-14b-fp8-diffusers:
+    description: 'Wan2.1 VACE 14B direct-cast FP8 in diffusers format. PROVEN on
+      RTX 4090 (24GB) via vLLM-Omni 0.22 with the FP8 weight-only patch (FP8
+      storage + BF16 matmul, no activation quantization). Requires the patched
+      pipeline_wan2_2_vace_patch.py bind-mounted into the container — see
+      scripts/run_omni_14b.sh. ~14GB FP8 transformer + ~5GB BF16 text encoder
+      (CPU-offloaded). 25-step 640x480 generation in ~2:45.'
+    device: gpu
+    download: skip
+    path: video/wan2.1-vace-14b-fp8-diffusers
+    sha256: null
+    size_gb: 18.0
+    source: local (direct-cast from Wan-AI/Wan2.1-VACE-14B-diffusers)
+    vram_estimate_gb: 22.0
 vision:
   gemma-4-26b-a4b-mmproj-f16:
     description: Gemma 4 26B A4B mmproj (F16).
@@ -2113,3 +2127,17 @@ wan2gp:
     size_gb: 8.0
     source: hf://DeepBeepMeep/ZImage
     vram_estimate_gb: 8.0
+
+  wan2.1-vace-14b-fp8-lightning:
+    description: 'Wan2.1 VACE 14B direct-cast FP8 with LightX2V 4-step distilled
+      LoRA merge. Lightning fast T2V/I2V with full VACE conditioning. PROVEN on
+      RTX 4090 (24GB) via vLLM-Omni 0.22 + FP8 weight-only patch (same patch as
+      base FP8 model). Use with vace_lightning workflow (4 steps). Build by
+      merging the LightX2V LoRA into the BF16 base, then re-cast to FP8.'
+    device: gpu
+    download: skip
+    path: video/wan2.1-vace-14b-fp8-lightning
+    sha256: null
+    size_gb: 18.0
+    source: local (LightX2V LoRA from hf://lightx2v/Wan2.2-Distill-Loras merged into Wan-AI/Wan2.1-VACE-14B, then FP8 cast)
+    vram_estimate_gb: 22.0

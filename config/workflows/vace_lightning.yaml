@@ -1,9 +1,11 @@
 name: vace_lightning
-version: "1.0"
+version: "1.1"
 description: >
-  Wan2.2 VACE Lightning — 4-step Turbo speed mode.
+  Wan2.1 VACE 14B FP8 LIGHTNING — 4-step Turbo speed mode (PROVEN on RTX 4090).
   Uses LightX2V distillation for fast inference.
-  ~8-10s for 33 frames at 832×480 on RTX 4090.
+  Same FP8 weight-only patch as vace_base — the patch is applied at the
+  linear-layer level, so it works for distilled checkpoints too.
+  ~30-45s for 33 frames at 640x480 with 4 steps.
 
 inputs:
   prompt:
@@ -22,7 +24,7 @@ inputs:
     default: -1
   width:
     type: integer
-    default: 832
+    default: 640
   height:
     type: integer
     default: 480
@@ -44,7 +46,7 @@ inputs:
 steps:
   generate:
     type: vace_generate
-    model: wan2.1-vace-14b-fp8
+    model: wan2.1-vace-14b-fp8-lightning
     params:
       input_prompt: "{{ inputs.prompt }}"
       image_b64: "{{ inputs.cond_image }}"
