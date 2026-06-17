@@ -82,8 +82,8 @@ def test_every_route_pool_healthy_shape(mgr: PoolManager):
 
 
 @pytest.mark.parametrize("model,primary_pool,primary_tier", [
-    ("moss_tts", "moss", "A"),
-    ("moss_soundeffect", "moss", "A"),
+    ("moss-tts", "moss", "A"),
+    ("moss-soundeffect", "moss", "A"),
     ("diarization", "diarization", "A"),
     ("llama", "llama", "A"),
     ("llama-bee", "llama-bee", "A"),
@@ -97,7 +97,7 @@ def test_every_route_pool_healthy_shape(mgr: PoolManager):
     ("ideogram4", "sglang", "C"),
     ("ltx-video", "sglang", "C"),
     ("kimodo", "diffusers", "D"),
-    ("ace-step", "diffusers", "D"),
+    ("ace-step", "ace-step", "A"),
     ("kokoro", "diffusers", "D"),
 ])
 def test_primary_pool(mgr: PoolManager, model, primary_pool, primary_tier):
@@ -209,7 +209,7 @@ def test_dispatch_unknown_model_raises():
 
 def test_tier_a_models_have_single_pool(mgr: PoolManager):
     """Tier A specialized dockers have no fallback (one pool each)."""
-    for model in ("moss_tts", "moss_soundeffect", "diarization",
+    for model in ("moss-tts", "moss-soundeffect", "diarization",
                   "llama", "llama-bee", "comfyui"):
         targets = mgr.resolve(model)
         assert len(targets) == 1, f"{model} should have exactly one target"
@@ -330,7 +330,7 @@ async def test_route_list_models():
     resp = await inf.list_models(_FakeRequest())
     assert resp.status_code == 200
     body = resp.body.decode()
-    for model in ("qwen-image-edit", "z-image", "wan-vace", "moss_tts"):
+    for model in ("qwen-image-edit", "z-image", "wan-vace", "moss-tts"):
         assert model in body, f"{model} missing from list_models response"
 
 
