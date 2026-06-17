@@ -68,6 +68,62 @@ python3 -m registry.audit --summary
 python3 -m registry.reconcile --dry-run
 ```
 
+## Model Download Suite
+
+`scripts/download/models.sh` is the **IaC-driven download manager** — it reads model sources from `model_registry.yaml` and downloads everything to `/mnt/data/models/`.
+
+```bash
+# List available sections
+./scripts/download/models.sh --list-sections
+
+# List all models grouped by section
+./scripts/download/models.sh --list-models
+
+# Download a specific section
+./scripts/download/models.sh --section audio
+
+# Download everything
+./scripts/download/models.sh
+
+# Dry-run (show what would download)
+./scripts/download/models.sh --dry-run
+```
+
+### Special Operations
+
+The `--section special-ops` category includes custom builds and conversions:
+
+| Flag | What it does |
+|------|-------------|
+| `--fp8-qwen` | Build Qwen-Image-Edit FP8 weight-only from source |
+| `--fp8-zimage` | Build Z-Image Turbo/Base FP8 (script pending) |
+| `--fp8-vace` | Convert Wan VACE 14B to direct-cast FP8 |
+| `--moss-gguf` | Download MOSS-TTS Q4_K_M GGUF + ONNX audio tokenizer |
+| `--ace-xl` | Download ACE-Step 1.5 XL GGUF variants (turbo, sft, base) + LM 4B |
+
+```bash
+# Download MOSS GGUF models
+./scripts/download/models.sh --moss-gguf
+
+# Download ACE-Step XL variants
+./scripts/download/models.sh --ace-xl
+
+# Build custom FP8 model
+./scripts/download/models.sh --fp8-qwen
+```
+
+### ACE-Step Models
+
+| Name | DiT Size | Steps | Quality | File |
+|------|----------|-------|---------|------|
+| `ace-step` (SFT) | 1.7B | 50 | High | `acestep-v15-sft-Q8_0.gguf` |
+| `ace-step-turbo` | 1.7B | 8 | Fast | `acestep-v15-turbo-Q8_0.gguf` |
+| `ace-step-xl-turbo` | **4B** | 8 | Fast+XL | `acestep-v15-xl-turbo-Q8_0.gguf` |
+| `ace-step-xl-sft` | **4B** | 50 | High+XL | `acestep-v15-xl-sft-Q8_0.gguf` |
+| `ace-step-xl-base` | **4B** | 50 | Base+XL | `acestep-v15-xl-base-Q8_0.gguf` |
+
+All use the same two-step API: `POST /lm` (music codes) → `POST /synth` (render audio). Select variant via `dit_model=` parameter.
+
 ### Audit & GC tools
 
 | Tool | Purpose |

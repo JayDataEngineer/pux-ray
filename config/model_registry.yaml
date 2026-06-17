@@ -179,6 +179,45 @@ audio:
     size_gb: 8.1
     source: hf://declare-lab/TangoFlux
     vram_estimate_gb: 6.0
+  acestep-cpp-dit-xl-turbo:
+    description: ACE-Step 1.5 XL 4B DiT turbo GGUF Q8_0. 8-step distilled XL DiT for fast high-quality
+      music synthesis.
+    device: gpu
+    download: file
+    path: audio/acestep-cpp/acestep-v15-xl-turbo-Q8_0.gguf
+    sha256: null
+    size_gb: 4.5
+    source: hf://Serveurperso/ACE-Step-1.5-GGUF/acestep-v15-xl-turbo-Q8_0.gguf
+    vram_estimate_gb: 5.0
+  acestep-cpp-dit-xl-sft:
+    description: ACE-Step 1.5 XL 4B DiT SFT GGUF Q8_0. 50-step non-distilled XL DiT for high-quality music
+      synthesis.
+    device: gpu
+    download: file
+    path: audio/acestep-cpp/acestep-v15-xl-sft-Q8_0.gguf
+    sha256: null
+    size_gb: 4.5
+    source: hf://Serveurperso/ACE-Step-1.5-GGUF/acestep-v15-xl-sft-Q8_0.gguf
+    vram_estimate_gb: 5.0
+  acestep-cpp-dit-xl-base:
+    description: ACE-Step 1.5 XL 4B DiT base GGUF Q8_0. Base XL DiT (non-distilled, non-SFT).
+    device: gpu
+    download: file
+    path: audio/acestep-cpp/acestep-v15-xl-base-Q8_0.gguf
+    sha256: null
+    size_gb: 4.5
+    source: hf://Serveurperso/ACE-Step-1.5-GGUF/acestep-v15-xl-base-Q8_0.gguf
+    vram_estimate_gb: 5.0
+  acestep-cpp-lm-4b:
+    description: ACE-Step 1.5 LM 4B GGUF Q8_0. Larger language model for generating music codes from captions
+      + lyrics.
+    device: gpu
+    download: file
+    path: audio/acestep-cpp/acestep-5Hz-lm-4B-Q8_0.gguf
+    sha256: null
+    size_gb: 4.5
+    source: hf://Serveurperso/ACE-Step-1.5-GGUF/acestep-5Hz-lm-4B-Q8_0.gguf
+    vram_estimate_gb: 5.0
 avatar:
   flux-klein-4b-int8:
     description: FLUX.2 Klein 4B int8 for avatar rendering. 15-30 FPS on RTX 4090. Spatial KV Cache for
@@ -1440,6 +1479,30 @@ served-models:
     pool_ref: null
     status: active
     type: service
+  ace-step-xl-base:
+    description: ACE-Step XL 4B Base — base XL DiT (non-distilled, non-SFT)
+    pool_ref: audio/acestep-cpp-dit-xl-base
+    status: active
+    device: gpu
+    path: audio/acestep-cpp/acestep-v15-xl-base-Q8_0.gguf
+    size_gb: 4.5
+    vram_estimate_gb: 5.0
+  ace-step-xl-sft:
+    description: ACE-Step XL 4B SFT — 50-step non-distilled XL DiT for high-quality music synthesis
+    pool_ref: audio/acestep-cpp-dit-xl-sft
+    status: active
+    device: gpu
+    path: audio/acestep-cpp/acestep-v15-xl-sft-Q8_0.gguf
+    size_gb: 4.5
+    vram_estimate_gb: 5.0
+  ace-step-xl-turbo:
+    description: ACE-Step XL 4B Turbo — 8-step distilled XL DiT for fast music synthesis
+    pool_ref: audio/acestep-cpp-dit-xl-turbo
+    status: active
+    device: gpu
+    path: audio/acestep-cpp/acestep-v15-xl-turbo-Q8_0.gguf
+    size_gb: 4.5
+    vram_estimate_gb: 5.0
   anima-base:
     description: Anima Base 2B — Cosmos-Predict2 anime/illustration T2I via omni-vllm
     pool_ref: wan2gp/anima-base

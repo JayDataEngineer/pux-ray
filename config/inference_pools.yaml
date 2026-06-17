@@ -176,7 +176,7 @@ pools:
       Two-step API: POST /lm (generate music codes) → POST /synth (render audio).
       Turbo (8-step) vs Base/SFT (50-step) selected per request via DiT model name.
       Dockerfile: infra/docker/Dockerfile.acetep.
-    models: [ace-step, ace-step-turbo]
+    models: [ace-step, ace-step-turbo, ace-step-xl-turbo, ace-step-xl-sft, ace-step-xl-base]
     vram_mb: 8000
     health_path: /health
     volumes:
@@ -192,6 +192,24 @@ pools:
           generate: POST /lm
           synth: POST /synth
         note: "Turbo DiT 8-step (fast). Use dit_model=acestep-v15-turbo-Q8_0 in /lm request."
+      ace-step-xl-turbo:
+        registry_ref: served-models/ace-step-xl-turbo
+        api:
+          generate: POST /lm
+          synth: POST /synth
+        note: "XL Turbo 4B DiT 8-step. Use dit_model=acestep-v15-xl-turbo-Q8_0 in /lm request."
+      ace-step-xl-sft:
+        registry_ref: served-models/ace-step-xl-sft
+        api:
+          generate: POST /lm
+          synth: POST /synth
+        note: "XL SFT 4B DiT 50-step. Use dit_model=acestep-v15-xl-sft-Q8_0 in /lm request."
+      ace-step-xl-base:
+        registry_ref: served-models/ace-step-xl-base
+        api:
+          generate: POST /lm
+          synth: POST /synth
+        note: "XL Base 4B DiT. Use dit_model=acestep-v15-xl-base-Q8_0 in /lm request."
 
   comfyui:
     tier: A
@@ -508,6 +526,9 @@ routes:
   # ── Tier A — ACE-Step C++ (acestep.cpp, two-step /lm → /synth API) ─────────
   ace-step:                { primary: ace-step }
   ace-step-turbo:          { primary: ace-step }
+  ace-step-xl-turbo:       { primary: ace-step }
+  ace-step-xl-sft:         { primary: ace-step }
+  ace-step-xl-base:        { primary: ace-step }
 
   # ── Tier C — SGLang-exclusive (or SGLang-primary) ─────────────────────────
   ideogram4:               { primary: sglang }
