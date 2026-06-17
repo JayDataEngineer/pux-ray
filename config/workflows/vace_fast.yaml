@@ -1,0 +1,65 @@
+name: vace_fast
+version: "1.0"
+description: >
+  Wan2.1 VACE 14B FP8 — FAST mode (PROVEN on RTX 4090). Uses the same
+  direct-cast FP8 base model as vace_base but with 10 sampling steps instead
+  of 25, giving ~2.5x speedup (~70s vs ~165s for 33-frame 640x480) at a
+  modest quality cost. Text-to-video / image-to-video with VACE
+  conditioning. Uses vLLM-Omni 0.22 with FP8 weight-only patch.
+
+  This is the recommended speed tier until a Wan2.1-VACE-specific 4-step
+  distillation becomes available (see vace_lightning.yaml for status).
+
+inputs:
+  prompt:
+    type: string
+    required: true
+    description: "Text prompt for video content"
+  cond_image:
+    type: string
+    required: false
+    description: "Base64 conditioning image (VACE I2V mode, omit for T2V)"
+  negative_prompt:
+    type: string
+    default: ""
+  seed:
+    type: integer
+    default: -1
+  width:
+    type: integer
+    default: 640
+  height:
+    type: integer
+    default: 480
+  frames:
+    type: integer
+    default: 33
+    description: "Number of frames (33 safe for 24GB VRAM at 640x480)"
+  steps:
+    type: integer
+    default: 10
+    description: "Denoising steps (10 for Fast mode — good speed/quality tradeoff)"
+  guidance:
+    type: string
+    default: "5.0"
+  fps:
+    type: integer
+    default: 16
+
+steps:
+  generate:
+    type: vace_generate
+    model: wan2.1-vace-14b-fp8-diffusers
+    params:
+      input_prompt: "{{ inputs.prompt }}"
+      image_b64: "{{ inputs.cond_image }}"
+      n_prompt: "{{ inputs.negative_prompt }}"
+      seed: "{{ inputs.seed }}"
+      width: "{{ inputs.width }}"
+      height: "{{ inputs.height }}"
+      frame_num: "{{ inputs.frames }}"
+      sampling_steps: "{{ inputs.steps }}"
+      guide_scale: "{{ inputs.guidance }}"
+      fps: "{{ inputs.fps }}"
+    outputs:
+      video: { media_type: video/mp4 }
