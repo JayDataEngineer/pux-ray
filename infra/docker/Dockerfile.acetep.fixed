@@ -1,0 +1,41 @@
+# Dockerfile.acetep — ACE-Step C++ music generation server
+# Fixed: CMake 3.31.5 + CUDA arch limit (compute_89 for RTX 4090)
+
+FROM nvidia/cuda:12.8.0-cudnn-devel-ubuntu22.04 AS builder
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential git libopenblas-dev wget \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install recent CMake (system cmake 3.22 can't detect CUDA 12.8)
+RUN wget -q https://github.com/Kitware/CMake/releases/download/v3.31.5/cmake-3.31.5-linux-x86_64.tar.gz \
+    && tar xzf cmake-3.31.5-linux-x86_64.tar.gz -C /opt \
+    && ln -sf /opt/cmake-3.31.5-linux-x86_64/bin/cmake /usr/local/bin/cmake \
+    && ln -sf /opt/cmake-3.31.5-linux-x86_64/bin/ctest /usr/local/bin/ctest \
+    && rm cmake-3.31.5-linux-x86_64.tar.gz
+RUN cmake --version | head -1
+
+WORKDIR /build
+RUN git clone --recurse-submodules https://github.com/ServeurpersoCom/acestep.cpp.git
+WORKDIR /build/acestep.cpp
+
+# Build with explicit CUDA arch (RTX 4090 = compute_89)
+# nvcc 12.8 doesn't support compute_121a that CMake 3.31 auto-detects
+RUN rm -rf build && mkdir build && cd build \
+    && cmake .. -DGGML_CUDA=ON \
+                -DCMAKE_CUDA_COMPILER=/usr/local/cuda/bin/nvcc \
+                -DCMAKE_CUDA_ARCHITECTURES="89" \
+    && cmake --build . --config Release -j "$(nproc)"
+
+FROM nvidia/cuda:12.8.0-cudnn-runtime-ubuntu22.04
+LABEL description="ACE-Step 1.5 C++ music generation (GGML/GGUF). Turbo=8-step, Base=50-step sft."
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libopenblas0 \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY --from=builder /build/acestep.cpp/ace-server /app/ace-server
+ENV ACE_MODELS_DIR=/models/audio/acestep-cpp
+ENV PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+EXPOSE 8080
+CMD ["/app/ace-server", "--models", "/models/audio/acestep-cpp", "--host", "0.0.0.0", "--port", "8080", "--keep-loaded"]

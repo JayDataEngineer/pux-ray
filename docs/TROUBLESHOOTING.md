@@ -218,23 +218,27 @@ This is included in `scripts/launch_qwen_img_edit_fp8.py` and `scripts/omni_patc
 
 ---
 
-### 9. ACE-Step CUDA 12.8 Build Failure
+### 9. ACE-Step CUDA Build Failure
 
 **Error:**
 ```
-CMake Error at CMakeLists.txt:54 (add_subdirectory):
-  The source directory /build/acestep/ggml does not contain a CMakeLists.txt file.
+nvcc fatal   : Unsupported gpu architecture 'compute_121a'
+```
+or
+```
+CMake Error: The source directory /build/acestep/ggml does not contain a CMakeLists.txt file.
 ```
 or
 ```
 -- Configuring incomplete, errors occurred!
-  ...CMakeDetermineCompilerId.cmake:48 (__determine_compiler_id_test)
 ```
 
 **Root Causes:**
 
 A. **Missing submodules** — `git clone` without `--recurse-submodules`
 B. **Old CMake** — Ubuntu 22.04 ships CMake 3.22, which can't detect CUDA 12.8
+C. **Auto-detected arch too new** — CMake 3.31 detects compute_121a from CUDA 12.8
+   headers, but the nvcc binary in cudnn-devel doesn't support it
 
 **Fixes:**
 
@@ -244,6 +248,12 @@ B. Install CMake 3.31+:
    RUN wget -q https://github.com/Kitware/CMake/releases/download/v3.31.5/cmake-3.31.5-linux-x86_64.tar.gz \
        && tar xzf cmake-3.31.5-linux-x86_64.tar.gz -C /opt \
        && ln -sf /opt/cmake-3.31.5-linux-x86_64/bin/cmake /usr/local/bin/cmake
+   ```
+C. **Limit CUDA architectures** to what nvcc actually supports (RTX 4090 = compute_89):
+   ```bash
+   cmake .. -DGGML_CUDA=ON \
+            -DCMAKE_CUDA_COMPILER=/usr/local/cuda/bin/nvcc \
+            -DCMAKE_CUDA_ARCHITECTURES="89"
    ```
 
 See `infra/docker/Dockerfile.acetep.fixed` for the complete fixed Dockerfile.
