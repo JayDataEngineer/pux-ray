@@ -1,10 +1,18 @@
 name: vace_base
-version: "1.1"
+version: "1.2"
 description: >
   Wan2.1 VACE 14B FP8 — full quality video generation (PROVEN on RTX 4090).
   Text-to-video / image-to-video with VACE conditioning.
   Uses vLLM-Omni 0.22 with FP8 weight-only patch (FP8 storage + BF16 matmul).
-  ~2:45 for 33-frame 640x480 at 25 steps; ~5-7 min for 81-frame 832x480.
+
+  Verified 24GB VRAM ceilings (--cpu-offload-gb 20):
+    * 640x480 x 81 frames x 25 steps: WORKS (~510s, 5-second video)
+    * 640x480 x 33 frames x 25 steps: WORKS (~165s, default)
+    * 704x480 x 33 frames: WORKS (~120s)
+    * 720x480 and above: OOM (use vace_fast with fewer steps if needed)
+
+  Defaults below (33 frames @ 25 steps) give the best speed/quality
+  tradeoff and a 2-second clip at 16 fps.
 
 inputs:
   prompt:
@@ -30,7 +38,7 @@ inputs:
   frames:
     type: integer
     default: 33
-    description: "Number of frames (33 safe for 24GB VRAM at 640x480)"
+    description: "Number of frames (33 safe at 640x480; 81 verified for 5s clips)"
   steps:
     type: integer
     default: 25
