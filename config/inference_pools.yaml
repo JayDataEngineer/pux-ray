@@ -1,0 +1,331 @@
+# ════════════════════════════════════════════════════════════════════════════
+# Tech Noir — Inference Pool System (4-tier priority fallback)
+# ════════════════════════════════════════════════════════════════════════════
+# Replaces the monolithic "all-in-one" gpu-all docker with four independent
+# serving tiers. Pools are tried in priority order at request time; the first
+# healthy pool that serves a model wins.
+#
+# Tier A — Specialized dockers (one per service, mostly upstream images)
+#          Highest priority. Each model gets a dedicated docker.
+#          MOSS, Diarization, llama.cpp (upstream + BeeLlama fork), ComfyUI
+#
+# Tier B — Omni vLLM (single vllm/vllm-omni docker, multi-model)
+#          All Diffusion Transformer (DiT) models: Qwen-Image-Edit FP8,
+#          Wan VACE 14B FP8, Z-Image, Wan T2V/I2V, Cosmos3-Nano.
+#          Custom FP8-weight-only patches bind-mounted over in-image pipeline.
+#
+# Tier C — SGLang (single lmsysorg/sglang docker)
+#          Ideogram4 + alternative Z-Image/LTX-Video serving for fallback.
+#
+# Tier D — Diffusers generalized (single tech-noir/gpu-all docker)
+#          Catch-all for CPU-friendly and small models: Kimodo, ACE-Step,
+#          Kokoro, IndexTTS, VibeVoice, etc.
+#
+# Models may be served by multiple pools; the routes: table defines the
+# priority order per model. Resolution is data-driven from this file — no
+# Python changes required to add or relocate a model.
+# ════════════════════════════════════════════════════════════════════════════
+
+# ─── Defaults ────────────────────────────────────────────────────────────────
+defaults:
+  host: 127.0.0.1
+  health_timeout_s: 180        # max wait for /health on cold boot
+  health_interval_s: 2         # poll interval during boot
+  vram_total_mb: 24576         # RTX 4090 (24 GB)
+  vram_reserved_mb: 2048       # OS/display + safety margin
+  models_root: /mnt/data/models
+
+# ─── Pools (4 tiers, priority = boot + resolution order) ─────────────────────
+pools:
+
+  # ══════════════════════════════════════════════════════════════════════════
+  # TIER A — Specialized dockers (one per service)
+  # ══════════════════════════════════════════════════════════════════════════
+  moss:
+    tier: A
+    priority: 10
+    image: forge-reg.local:30500/tech-noir/moss:latest
+    container: inference-moss
+    port: 8050
+    framework: moss
+    description: MOSS Audio — TTS + Sound Effects (standalone)
+    models: [moss_tts, moss_soundeffect, moss_tts_realtime]
+    vram_mb: 6000
+    health_path: /health
+    volumes:
+      /models/audio: /mnt/data/models/audio
+    env:
+      HF_HOME: /models/hf-cache
+      PYTORCH_CUDA_ALLOC_CONF: expandable_segments:True
+
+  diarization:
+    tier: A
+    priority: 20
+    image: forge-reg.local:30500/tech-noir/gpu-all:latest
+    container: inference-diarization
+    port: 8051
+    framework: pyannote
+    description: Speaker diarization (pyannote.audio 3.1)
+    models: [diarization]
+    vram_mb: 1500
+    health_path: /health
+    env:
+      HF_TOKEN: ${HF_TOKEN:-}
+    volumes:
+      /models/hf-cache: /mnt/data/models/hf-cache
+
+  llama:
+    tier: A
+    priority: 30
+    image: forge-reg.local:30500/tech-noir/gpu-all:latest
+    container: inference-llama
+    port: 8052
+    framework: llama.cpp
+    description: Upstream llama.cpp server (ggml-org/llama.cpp stable)
+    models: [llama]
+    vram_mb: 4000
+    health_path: /health
+    start_args:
+      binary: llama-server-upstream
+      # model + quant set at runtime via /configure
+    volumes:
+      /models: /mnt/data/models
+
+  llama-bee:
+    tier: A
+    priority: 40
+    image: forge-reg.local:30500/tech-noir/gpu-all:latest
+    container: inference-llama-bee
+    port: 8053
+    framework: beellama
+    description: BeeLlama.cpp (Anbeeld fork) — DFlash + TurboQuant KV cache
+    models: [llama-bee]
+    vram_mb: 4000
+    health_path: /health
+    start_args:
+      binary: llama-server           # beellama fork binary
+    volumes:
+      /models: /mnt/data/models
+
+  comfyui:
+    tier: A
+    priority: 50
+    image: forge-reg.local:30500/tech-noir/gpu-all:latest
+    container: inference-comfyui
+    port: 8054
+    framework: comfyui
+    description: ComfyUI — node-based image/video pipeline
+    models: [comfyui]
+    vram_mb: 8000
+    health_path: /system_stats
+    volumes:
+      /models: /mnt/data/models
+      /ComfyUI/output: /mnt/data/comfyui-output
+
+  # ══════════════════════════════════════════════════════════════════════════
+  # TIER B — Omni vLLM (single docker, multi-model DiT serving)
+  # ══════════════════════════════════════════════════════════════════════════
+  omni-vllm:
+    tier: B
+    priority: 100
+    image: vllm/vllm-omni:latest
+    container: inference-omni-vllm
+    port: 8093
+    framework: vllm-omni
+    description: vLLM-Omni 0.22 — Diffusion Transformer serving with FP8 weight-only
+    models:
+      - qwen-image-edit          # 20B MMDiT, FP8 weight-only + Cache-DiT (LOCKED)
+      - wan-vace                 # 14B Wan2.1 VACE FP8 + TeaCache
+      - wan-t2v                  # Wan2.1 T2V
+      - wan-i2v                  # Wan2.1 I2V
+      - z-image                  # Z-Image Turbo/Base
+      - cosmos                   # Cosmos3-Nano (BF16 CPU offload for now)
+      - anima-base               # (future: replaces cosmos slot)
+    vram_mb: 22000
+    health_path: /health
+    # Per-model launch config. The "script" points at an existing launcher
+    # that knows how to docker-run the omni image with the right bind-mounts
+    # and env vars. The "patch" is bind-mounted over the in-image pipeline.
+    model_launchers:
+      qwen-image-edit:
+        script: scripts/run_omni_qwen_img_edit_fp8.sh
+        patch: scripts/pipeline_qwen_image_edit_plus_patch.py
+        model_dir: /mnt/data/models/image-gen/qwen-image-edit/2511-fp8
+        launcher: scripts/launch_qwen_img_edit_fp8.py
+        api:
+          generate: POST /v1/images/generations
+          edit:     POST /v1/images/edits
+        optimization:
+          quant: fp8-weight-only       # Float8_e4m3fn + BF16 dequant at matmul
+          cache_dit: true              # block-level caching
+          taylorseer: true             # O(2) calibration for Cache-DiT
+          vae_tiling: true
+          vae_slicing: true
+          fn_compute_blocks: 1
+          bn_compute_blocks: 0
+          max_warmup_steps: 4
+        benchmark:
+          - { steps: 4,  time_s: 8.6,  note: "Lightning distilled" }
+          - { steps: 20, time_s: 23.5, note: "Cache-DiT acceleration" }
+      wan-vace:
+        script: scripts/run_omni_14b.sh
+        patch: scripts/pipeline_wan2_2_vace_patch.py
+        model_dir: /mnt/data/models/video/wan2.1-vace-14b-fp8-diffusers
+        api:
+          generate: POST /v1/videos/generations
+        optimization:
+          quant: fp8-weight-only
+          teacache_thresh: 0.01        # ~70% speedup, quality-preserving
+          cpu_offload_gb: 20
+      z-image:
+        script: scripts/run_omni_z_image_fp8.sh   # (to be created)
+        model_dir: /mnt/data/models/native/z-image-turbo-fp8
+        api:
+          generate: POST /v1/images/generations
+        optimization:
+          quant: fp8
+          cache_dit: true
+          taylorseer: true
+      wan-t2v:
+        script: scripts/run_omni_wan_t2v.sh       # (to be created)
+        api:
+          generate: POST /v1/videos/generations
+      wan-i2v:
+        script: scripts/run_omni_wan_i2v.sh       # (to be created)
+        api:
+          generate: POST /v1/videos/generations
+      cosmos:
+        script: scripts/run_omni_cosmos.sh        # (to be created)
+        model_dir: /mnt/data/models/cosmos3-nano
+        api:
+          generate: POST /v1/videos/generations
+        optimization:
+          quant: bf16-cpu-offload      # FP8 blocked on fused LLM params (SGLang too)
+        note: "Later converted to anima-base slot when ready."
+    env:
+      VLLM_BATCH_INVARIANT: "1"             # BF16-dequant path for non-patched layers
+      PYTORCH_CUDA_ALLOC_CONF: expandable_segments:True
+      DIFFUSION_VAE_USE_SLICING: "1"
+      DIFFUSION_VAE_USE_TILING: "1"
+      DIFFUSION_CACHE_BACKEND: cache_dit
+      DIFFUSION_CACHE_CONFIG: '{"Fn_compute_blocks": 1, "Bn_compute_blocks": 0, "max_warmup_steps": 4, "enable_taylorseer": true}'
+
+  # ══════════════════════════════════════════════════════════════════════════
+  # TIER C — SGLang (single docker)
+  # ══════════════════════════════════════════════════════════════════════════
+  sglang:
+    tier: C
+    priority: 200
+    image: lmsysorg/sglang:latest
+    container: inference-sglang
+    port: 8081
+    framework: sglang
+    description: SGLang — high-throughput diffusion + LLM serving
+    models:
+      - ideogram4                # typography-aware T2I
+      - z-image                  # alt: SGLang Z-Image FP8 (used when omni is busy)
+      - ltx-video                # LTX-2.3 ModelOpt FP8 two-stage
+    vram_mb: 22000
+    health_path: /health
+    model_launchers:
+      ideogram4:
+        script: infra/docker/serve_ideogram4.sh
+        variant: nf4             # 16 GB on 24 GB card
+        api:
+          generate: POST /v1/images/generations
+        env_requires: [HF_TOKEN]
+      z-image:                   # launcher key matches canonical model name
+        script: infra/docker/serve_zimage_fp8.sh
+        variant: sglang          # distinguishes from omni-vllm z-image launcher
+        model_dir: /mnt/data/models/native/z-image-turbo-fp8
+        api:
+          generate: POST /v1/images/generations
+        optimization:
+          quant: fp8
+          cache_dit: true
+          taylorseer: true
+          fn_compute_blocks: 2
+          bn_compute_blocks: 1
+          warmup_steps: 2
+          rdt: 0.5
+          mc: 6
+        benchmark:
+          - { steps: 8,  time_s: 1.61, note: "RTX 4090, beats MI300X" }
+      ltx-video:
+        script: infra/docker/serve_ltx23_fp8.sh
+        model_dir: /mnt/data/models/native/ltx-2.3-fp8
+        api:
+          generate: POST /v1/videos/generations
+        optimization:
+          quant: modelopt-fp8     # required: standard FP8 crashes on CPU init
+          device_mode: snapshot
+    env:
+      PYTORCH_CUDA_ALLOC_CONF: expandable_segments:True
+
+  # ══════════════════════════════════════════════════════════════════════════
+  # TIER D — Diffusers generalized (catch-all fallback docker)
+  # ══════════════════════════════════════════════════════════════════════════
+  diffusers:
+    tier: D
+    priority: 300
+    image: forge-reg.local:30500/tech-noir/gpu-all:latest
+    container: inference-diffusers
+    port: 8095
+    framework: diffusers
+    description: Generalized diffusers fallback (CPU-capable + small GPU models)
+    models:
+      - kimodo                   # Viser interactive 3D motion
+      - ace-step                 # ACE-Step music generation
+      - kokoro                   # Kokoro TTS (CPU-capable)
+      - index-tts                # IndexTTS
+      - vibevoice-tts            # VibeVoice-7B TTS
+      - vibevoice-asr            # VibeVoice-7B ASR
+      - faster-whisper           # Faster-Whisper (CPU)
+      - see-through              # See-Through creative
+    vram_mb: 8000
+    health_path: /health
+    volumes:
+      /models: /mnt/data/models
+
+# ─── Routes: model → primary pool + fallback chain ───────────────────────────
+# Resolution order: primary first, then each fallback in order. A pool is
+# skipped if (a) it doesn't actually serve the model, or (b) it's unhealthy.
+# A model served by only one pool has an empty fallback list.
+routes:
+  # Tier A — single dedicated pool each
+  moss_tts:          { primary: moss }
+  moss_soundeffect:  { primary: moss }
+  moss_tts_realtime: { primary: moss }
+  diarization:       { primary: diarization }
+  llama:             { primary: llama }
+  llama-bee:         { primary: llama-bee }
+  comfyui:           { primary: comfyui }
+
+  # Tier B — DiT models via omni-vllm. Z-Image can fall back to SGLang.
+  qwen-image-edit:
+    primary: omni-vllm
+    fallback: []               # FP8 patch is omni-only
+  wan-vace:
+    primary: omni-vllm
+    fallback: []
+  wan-t2v:           { primary: omni-vllm }
+  wan-i2v:           { primary: omni-vllm }
+  z-image:
+    primary: omni-vllm
+    fallback: [sglang]         # SGLang has a parallel Z-Image FP8 deployment
+  cosmos:            { primary: omni-vllm }
+  anima-base:        { primary: omni-vllm }   # future — replaces cosmos slot
+
+  # Tier C — SGLang-exclusive
+  ideogram4:         { primary: sglang }
+  ltx-video:         { primary: sglang }
+
+  # Tier D — Diffusers catch-all
+  kimodo:           { primary: diffusers }
+  ace-step:         { primary: diffusers }
+  kokoro:           { primary: diffusers }
+  index-tts:        { primary: diffusers }
+  vibevoice-tts:    { primary: diffusers }
+  vibevoice-asr:    { primary: diffusers }
+  faster-whisper:   { primary: diffusers }
+  see-through:      { primary: diffusers }
