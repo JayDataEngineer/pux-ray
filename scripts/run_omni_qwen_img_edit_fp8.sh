@@ -33,6 +33,12 @@
 #   keeps FP8 weight storage but dequantizes to BF16 for matmul, adding
 #   zero memory overhead while eliminating the NaN cascade.
 #
+#   VLLM_BATCH_INVARIANT=1 is set so that vLLM's Fp8LinearMethod.apply
+#   itself takes the BF16-dequant + F.linear path (instead of CUTLASS FP8
+#   scaled GEMM) for layers that don't use the custom
+#   _Fp8WeightOnlyLinearMethod (modulation / img_in / txt_in / norm_out /
+#   proj_out / timestep_embedder).
+#
 # Pipeline patch:
 #   The patch file is bind-mounted over the vLLM-Omni pipeline file:
 #     scripts/pipeline_qwen_image_edit_plus_patch.py
@@ -68,6 +74,7 @@ CONTAINER_NAME="${3:-omni-qwen-img-edit-fp8}"
 IMAGE="vllm/vllm-omni:latest"
 CONTAINER_PORT=8000
 PATCH_FILE="/home/user/Documents/programs/ray/scripts/pipeline_qwen_image_edit_plus_patch.py"
+LAUNCHER="/home/user/Documents/programs/ray/scripts/launch_qwen_img_edit_fp8.py"
 
 # Reject if model dir doesn't exist
 if [[ ! -d "$MODEL_DIR" ]]; then
@@ -101,22 +108,22 @@ echo
 docker run -d --gpus all --ipc=host \
   -v "$MODEL_DIR":/models/qwen-img-edit-fp8:ro \
   -v "$PATCH_FILE":/usr/local/lib/python3.12/dist-packages/vllm_omni/diffusion/models/qwen_image/pipeline_qwen_image_edit_plus.py:ro \
+  -v "$LAUNCHER":/launcher.py:ro \
   -p "$HOST_PORT:$CONTAINER_PORT" \
   -e PYTHONUNBUFFERED=1 \
   -e PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True \
+  -e VLLM_BATCH_INVARIANT=1 \
+  -e DIFFUSION_VAE_USE_SLICING=1 \
+  -e DIFFUSION_VAE_USE_TILING=1 \
+  -e DIFFUSION_CACHE_BACKEND=cache_dit \
+  -e DIFFUSION_CACHE_CONFIG='{"Fn_compute_blocks": 1, "Bn_compute_blocks": 0, "max_warmup_steps": 4, "enable_taylorseer": true}' \
   --name "$CONTAINER_NAME" \
   "$IMAGE" \
-  python3 -m vllm_omni.entrypoints.openai.api_server \
+  python3 /launcher.py \
     --model /models/qwen-img-edit-fp8 \
     --host 0.0.0.0 --port "$CONTAINER_PORT" \
     --enforce-eager \
-    --quantization fp8 \
-    --dtype auto \
-    --cpu-offload-gb 20 \
-    --vae-use-slicing \
-    --vae-use-tiling \
-    --cache-backend cache_dit \
-    --cache-config '{"Fn_compute_blocks": 1, "Bn_compute_blocks": 0, "max_warmup_steps": 4, "enable_taylorseer": true}'
+    --dtype auto
 
 echo
 echo "Container started. Waiting for server..."

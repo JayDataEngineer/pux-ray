@@ -9,10 +9,19 @@
 # denoising timesteps and compounds activation quantization rounding
 # errors until the representation collapses to NaN/black output.
 #
-# Fix: Replace Fp8LinearMethod on DiT linear layers (attention + MLP)
-# with a subclass that keeps FP8 weight storage but overrides `apply`
-# to dequantize to BF16 and run BF16 matmul with un-quantized
-# activations. This eliminates activation quantization NaN.
+# Fix: Replace Fp8LinearMethod on ALL DiT linear layers (attention, MLP,
+# modulation, input/output projections) with a subclass that:
+#   1. Keeps FP8 weight storage (Float8_e4m3fn, 20GB for 20B DiT)
+#   2. Overrides `apply` to dequantize to BF16 using per-shard weight
+#      scales, then run F.linear (BF16 matmul, no activation quant)
+#   3. Overrides `process_weights_after_loading` to SKIP the parent's
+#      `process_fp8_weight_tensor_strategy` which COLLAPSES per-shard
+#      QKV scales (shape (3,)) to a single scalar via
+#      `requantize_with_max_scale`. Without this override, K and V
+#      would be dequantized with Q's scale → garbage attention output.
+#   4. Overrides `create_weights` to resize the per-tensor scale from
+#      scalar () to shape (N,) for fused modules (QKV, gate/up MLP),
+#      so `adjust_scalar_to_fused_array` can load per-shard scales.
 #
 # Why weight-only instead of UnquantizedLinearMethod?
 #   * UnquantizedLinearMethod stores weights as BF16 (~2× memory).
@@ -20,6 +29,15 @@
 #     sublayers each, that adds ~20GB — exceeding 24GB VRAM.
 #   * The FP8 weight-only path adds ~0 overhead since weights stay FP8
 #     and the dequant→BF16 matmul is trivially bandwidth-bound.
+#
+# Weight orientation:
+#   * Checkpoint stores weights as [out_features, in_features] (standard
+#     PyTorch nn.Linear convention).
+#   * process_weights_after_loading transposes to [in, out] (matching
+#     vLLM's kernel-compatible layout).
+#   * apply undoes the transpose with layer.weight.t() → [out, in] so
+#     per-shard scale broadcasting works correctly, then passes directly
+#     to F.linear (which expects [out, in]).
 #
 # This patch runs at IMPORT TIME in the worker process (where the model
 # is built) because it replaces pipeline_qwen_image_edit_plus.py before
@@ -48,17 +66,165 @@ try:
         denoising timesteps.
         """
 
+        def create_weights(
+            self,
+            layer,
+            input_size_per_partition,
+            output_partition_sizes,
+            input_size,
+            output_size,
+            params_dtype,
+            **extra_weight_attrs,
+        ):
+            # Delegate to the parent (Fp8LinearMethod) which creates:
+            #   weight      : FP8 ModelWeightParameter
+            #   weight_scale : PerTensorScaleParameter (len(output_partition_sizes),)
+            #   input_scale  : per-tensor (static activation scheme)
+            super().create_weights(
+                layer=layer,
+                input_size_per_partition=input_size_per_partition,
+                output_partition_sizes=output_partition_sizes,
+                input_size=input_size,
+                output_size=output_size,
+                params_dtype=params_dtype,
+                **extra_weight_attrs,
+            )
+            # ── Fix up per-tensor scales for FUSED layers ──────────────────
+            # Fp8LinearMethod.create_weights sets output_dim=0 on per-tensor
+            # scales, which sends them down the QKVParallelLinear narrowing
+            # path during weight loading.  For shape-(N,) scales (N>1, e.g.
+            # QKV fused), the narrowing uses element-count shard sizes
+            # (num_heads*head_size=3072) — that doesn't match a length-N
+            # scale tensor, causing `assert param_data.shape ==
+            # loaded_weight.shape`.
+            #
+            # The fix: for fused layers (len(output_partition_sizes)>1),
+            # mark the per-tensor scale with needs_scalar_to_array=True and
+            # remove output_dim so QKVParallelLinear.weight_loader takes the
+            # `adjust_scalar_to_fused_array` path (which indexes by shard_id).
+            if len(output_partition_sizes) > 1 and hasattr(layer, "weight_scale"):
+                scale_param = layer.weight_scale
+                # Tell QKV weight_loader to use scalar_to_array branch
+                scale_param.needs_scalar_to_array = True
+                # Remove output_dim so the narrowing branch is skipped
+                if hasattr(scale_param, "output_dim"):
+                    try:
+                        scale_param.output_dim = None
+                    except AttributeError:
+                        # frozen attribute — fall back to delattr
+                        try:
+                            del scale_param.output_dim
+                        except AttributeError:
+                            pass
+                # ── CRITICAL: resize per-tensor scale from scalar () to
+                # shape (N,) where N=len(output_partition_sizes).
+                # adjust_scalar_to_fused_array() does param_data[shard_id]
+                # which requires an indexable array. Without this resize,
+                # only the first shard's scale (Q) gets loaded and K/V are
+                # dequantized with the wrong scale → garbage attention.
+                n = len(output_partition_sizes)
+                if scale_param.data.dim() == 0:
+                    old_dtype = scale_param.data.dtype
+                    old_device = scale_param.data.device
+                    new_data = _torch.zeros(
+                        n, dtype=old_dtype, device=old_device
+                    )
+                    # Use layer._parameters to replace the Parameter entirely
+                    # (assigning to .data doesn't change the shape seen by
+                    # downstream code for some custom Parameter subclasses).
+                    layer._parameters["weight_scale"] = _torch.nn.Parameter(
+                        new_data, requires_grad=False
+                    )
+                    layer._parameters["weight_scale"].needs_scalar_to_array = True
+                _fp8_patch_logger.debug(
+                    "Patched per-tensor scale on fused layer %s: "
+                    "needs_scalar_to_array=True, output_dim=None, "
+                    "resized to shape (%d,)",
+                    getattr(layer, "prefix", "<unknown>"), n,
+                )
+
         def apply(self, layer, x, bias=None):
-            weight_bf16 = layer.weight.to(_torch.bfloat16)
-            return _torch.nn.functional.linear(x, weight_bf16.t(), bias)
+            # ── Proper FP8 → BF16 dequantization ───────────────────────────
+            # CRITICAL: must multiply by weight_scale during dequant.
+            # `weight.to(bfloat16)` alone only casts the raw FP8 values
+            # (range [-448, 448]) without applying the calibrated scale,
+            # producing garbage activations downstream.
+            #
+            # process_weights_after_loading stored the weight as [in, out]
+            # (transposed from checkpoint [out, in]). Undo that here so the
+            # per-shard scale broadcasting below works on [out, in] layout,
+            # and F.linear receives the [out, in] weight it expects.
+            weight_fp8 = layer.weight.t().to(_torch.bfloat16)  # [out, in]
+            weight_scale = layer.weight_scale.to(_torch.bfloat16)
+            if weight_scale.numel() == 1:
+                # Per-tensor: simple scalar multiplication
+                weight_bf16 = weight_fp8 * weight_scale
+            else:
+                # Fused modules (e.g. QKV): weight_scale has one value
+                # per logical shard; expand to per-row scale using
+                # `logical_widths` (= output_partition_sizes) so each
+                # shard's scale broadcasts across its rows in weight[out, in].
+                logical_widths = getattr(layer, "logical_widths", None)
+                if (
+                    logical_widths is not None
+                    and len(logical_widths) == weight_scale.shape[0]
+                    and sum(logical_widths) == weight_fp8.shape[0]
+                ):
+                    pieces = []
+                    for i, w in enumerate(logical_widths):
+                        pieces.append(
+                            _torch.full(
+                                (w,),
+                                float(weight_scale[i].item()),
+                                dtype=weight_fp8.dtype,
+                                device=weight_fp8.device,
+                            )
+                        )
+                    row_scale = _torch.cat(pieces).unsqueeze(1)  # [out, 1]
+                    weight_bf16 = weight_fp8 * row_scale          # [out, in]
+                elif (
+                    weight_scale.dim() == 1
+                    and weight_scale.shape[0] == weight_fp8.shape[0]
+                ):
+                    # Per-row / per-output-channel scale
+                    weight_bf16 = weight_fp8 * weight_scale.unsqueeze(1)
+                else:
+                    # Last-resort broadcast (may be wrong but won't crash)
+                    weight_bf16 = weight_fp8 * weight_scale
+            return _torch.nn.functional.linear(x, weight_bf16, bias)
+
+        def process_weights_after_loading(self, layer):
+            # OVERRIDE: skip the parent's call to
+            # process_fp8_weight_tensor_strategy() which COLLAPSES the
+            # per-shard (N,) weight_scale (one scale per Q/K/V or gate/up
+            # shard) into a single scalar via requantize_with_max_scale().
+            # That collapse means K and V get dequantized with Q's scale →
+            # garbage attention output ("pile of glitter").
+            #
+            # We still transpose the weight (matching the parent's layout
+            # convention: checkpoint stores [out, in], parent transposes to
+            # [in, out] for kernel compatibility). Our apply undoes this
+            # transpose with layer.weight.t() before scale broadcasting.
+            if getattr(layer, "_already_called_process_weights_after_loading", False):
+                return
+            weight = layer.weight
+            weight = weight.t()  # [out, in] → [in, out]
+            from vllm.model_executor.utils import (
+                replace_parameter as _replace_parameter,
+            )
+            _replace_parameter(layer, "weight", weight.data)
+            # Do NOT touch weight_scale — keep per-shard scales as loaded.
+            layer.input_scale = None
+            layer._already_called_process_weights_after_loading = True
+
 
     def _patched_get_quant_method(self, layer, prefix):
-        # Apply weight-only FP8 to ALL DiT linear layers (attention + MLP)
-        # within transformer_blocks. Modulation layers (img_mod, txt_mod)
-        # already have quant_config=None so they never reach this code.
-        if isinstance(layer, _LinearBase) and (
-            "attn" in prefix or "mlp" in prefix
-        ):
+        # Apply weight-only FP8 to ALL DiT linear layers (attention + MLP +
+        # modulation + input/output projections). The custom apply method
+        # uses pure BF16 dequant + torch.nn.functional.linear, avoiding
+        # vLLM's CUTLASS FP8 scaled GEMM kernels which produce NaN in
+        # Diffusion Transformer linear layers across denoising timesteps.
+        if isinstance(layer, _LinearBase):
             return _Fp8WeightOnlyLinearMethod(self)
         return _orig_get_quant_method(self, layer, prefix)
 
@@ -71,6 +237,175 @@ try:
     )
 except Exception as _e:
     _fp8_patch_logger.warning("Could not apply FP8 weight-only patch: %s", _e)
+    import traceback as _tb
+    _fp8_patch_logger.warning(_tb.format_exc())
+
+# ════════════════════════════════════════════════════════════════════════
+# FP8 FOR MODULATION LAYERS (img_mod, txt_mod)
+# ════════════════════════════════════════════════════════════════════════
+# QwenImageTransformerBlock hardcodes `quant_config=None` for img_mod and
+# txt_mod (ColumnParallelLinear).  But on disk these layers ARE FP8 (the
+# ComfyUI checkpoint quantized everything).  Without this patch, img_mod
+# and txt_mod each allocate 113 MB BF16 per block × 60 blocks = 13.5 GB,
+# busting the 24 GB budget.
+#
+# We can't simply pass quant_config because the hardcoded `=None` overrides
+# it.  Instead, monkey-patch ColumnParallelLinear.__init__ to inject the
+# block's quant_config when: (a) the caller passed None, and (b) the prefix
+# matches a modulation layer inside a transformer_block.
+#
+# A thread-local carries the active block's quant_config so the deep
+# ColumnParallelLinear constructor can pick it up.
+try:
+    import threading as _threading
+    from vllm.model_executor.layers.linear import (
+        ColumnParallelLinear as _ColumnParallelLinear,
+        LinearBase as _LinearBase2,
+        ReplicatedLinear as _ReplicatedLinear,
+    )
+    from vllm_omni.diffusion.models.qwen_image.qwen_image_transformer import (
+        QwenImageTransformer2DModel as _Transformer2D,
+        QwenImageTransformerBlock as _TransformerBlock,
+    )
+
+    _active_block_qc = _threading.local()
+
+    def _qc_push(qc):
+        """Push a quant_config onto the thread-local stack."""
+        stack = getattr(_active_block_qc, "stack", None)
+        if stack is None:
+            stack = []
+            _active_block_qc.stack = stack
+        stack.append(qc)
+
+    def _qc_pop():
+        """Pop the top quant_config from the stack (returns None if empty)."""
+        stack = getattr(_active_block_qc, "stack", None)
+        if not stack:
+            return None
+        return stack.pop()
+
+    def _qc_top():
+        """Read the top of the quant_config stack (returns None if empty)."""
+        stack = getattr(_active_block_qc, "stack", None)
+        if not stack:
+            return None
+        return stack[-1]
+
+    _orig_col_pll_init = _ColumnParallelLinear.__init__
+
+    def _patched_col_pll_init(
+        self,
+        input_size,
+        output_size,
+        bias=True,
+        *,
+        quant_config=None,
+        prefix="",
+        **_kw,
+    ):
+        if (
+            quant_config is None
+            and prefix
+            and ("img_mod" in prefix or "txt_mod" in prefix)
+        ):
+            qc = _qc_top()
+            if qc is not None:
+                quant_config = qc
+                _fp8_patch_logger.debug(
+                    "Injected quant_config into %s", prefix
+                )
+        _orig_col_pll_init(
+            self,
+            input_size,
+            output_size,
+            bias=bias,
+            quant_config=quant_config,
+            prefix=prefix,
+            **_kw,
+        )
+
+    _ColumnParallelLinear.__init__ = _patched_col_pll_init
+
+    # ReplicatedLinear is used for img_in/txt_in/norm_out.linear/proj_out
+    # which are also hardcoded `quant_config=None` but stored FP8 on disk.
+    # Also covers timestep_embedder.linear_{1,2} inside QwenTimestepProjEmbeddings.
+    _orig_repl_init = _ReplicatedLinear.__init__
+
+    def _patched_repl_init(
+        self,
+        input_size,
+        output_size,
+        bias=True,
+        *,
+        quant_config=None,
+        prefix="",
+        **_kw,
+    ):
+        if (
+            quant_config is None
+            and prefix
+            and any(
+                p in prefix
+                for p in (
+                    "img_in", "txt_in", "norm_out", "proj_out",
+                    "timestep_embedder",
+                )
+            )
+        ):
+            qc = _qc_top()
+            if qc is not None:
+                quant_config = qc
+                _fp8_patch_logger.debug(
+                    "Injected quant_config into ReplicatedLinear %s", prefix
+                )
+        _orig_repl_init(
+            self,
+            input_size,
+            output_size,
+            bias=bias,
+            quant_config=quant_config,
+            prefix=prefix,
+            **_kw,
+        )
+
+    _ReplicatedLinear.__init__ = _patched_repl_init
+
+    _orig_block_init = _TransformerBlock.__init__
+
+    def _patched_block_init(self, *args, quant_config=None, **kwargs):
+        _qc_push(quant_config)
+        try:
+            _orig_block_init(self, *args, quant_config=quant_config, **kwargs)
+        finally:
+            _qc_pop()
+
+    _TransformerBlock.__init__ = _patched_block_init
+
+    # Also set thread-local during the outer transformer model __init__
+    # so ReplicatedLinear children (img_in/txt_in/norm_out.linear/proj_out)
+    # see the quant_config.  Uses a STACK so that nested QwenImageTransformerBlock
+    # __init__ calls don't clobber the outer QwenImageTransformer2DModel setting
+    # (which would otherwise be cleared before norm_out.linear is constructed).
+    _orig_tf2d_init = _Transformer2D.__init__
+
+    def _patched_tf2d_init(self, *args, od_config=None, **kwargs):
+        qc = getattr(od_config, "quantization_config", None)
+        _qc_push(qc)
+        try:
+            _orig_tf2d_init(self, *args, od_config=od_config, **kwargs)
+        finally:
+            _qc_pop()
+
+    _Transformer2D.__init__ = _patched_tf2d_init
+
+    _fp8_patch_logger.warning(
+        "Patched ColumnParallelLinear + ReplicatedLinear + "
+        "QwenImageTransformer{Block,2DModel} to inject FP8 quant_config "
+        "into img_mod/txt_mod/img_in/txt_in/norm_out/proj_out"
+    )
+except Exception as _e:
+    _fp8_patch_logger.warning("Could not apply mod-layer FP8 patch: %s", _e)
     import traceback as _tb
     _fp8_patch_logger.warning(_tb.format_exc())
 
@@ -380,14 +715,27 @@ class QwenImageEditPlusPipeline(
             model, subfolder="scheduler", local_files_only=local_files_only
         )
 
-        # ── TEXT ENCODER ON CPU (saves ~14GB VRAM for the DiT) ──────────
-        self.text_encoder = from_pretrained_with_prefetch(
-            Qwen2_5_VLForConditionalGeneration.from_pretrained,
-            model,
-            subfolder="text_encoder",
-            prefetch_list=qwen_subfolders,
-            local_files_only=local_files_only,
-        ).cpu()
+        # ── TEXT ENCODER ON CPU (saves ~16GB VRAM for the DiT) ──────────
+        # CRITICAL: Load directly on CPU — NOT via .cpu() after GPU load.
+        # The parent caller wraps __init__ in `with target_device:` (CUDA),
+        # so by default from_pretrained allocates on GPU first.  For a 16GB
+        # text encoder that competes with the 20GB DiT for a 24GB card,
+        # the transient GPU copy causes OOM during DiT construction even
+        # though .cpu() frees it to the caching allocator afterwards
+        # (the allocator retains the memory and DiT blocks need it back as
+        # FP8 weights, but by then fragmentation + overlap kills us).
+        # Loading directly on CPU avoids the GPU roundtrip entirely.
+        import gc as _gc
+        with _torch.device("cpu"):
+            self.text_encoder = from_pretrained_with_prefetch(
+                Qwen2_5_VLForConditionalGeneration.from_pretrained,
+                model,
+                subfolder="text_encoder",
+                prefetch_list=qwen_subfolders,
+                local_files_only=local_files_only,
+            )
+        _gc.collect()
+        _torch.cuda.empty_cache()
 
         self.vae = from_pretrained_with_prefetch(
             AutoencoderKLQwenImage.from_pretrained,
@@ -398,6 +746,22 @@ class QwenImageEditPlusPipeline(
         ).to(self.device)
 
         transformer_kwargs = get_transformer_config_kwargs(od_config.tf_model_config, QwenImageTransformer2DModel)
+        # ── BUGFIX: Inject quant_config from od_config ──────────────────────
+        # get_transformer_config_kwargs calls tf_model_config.to_dict() which
+        # returns *only* self.params (the raw JSON keys).  The raw JSON has
+        # "quantization_config" (a dict), but QwenImageTransformer2DModel
+        # expects "quant_config" (a QuantizationConfig object).  Without this
+        # fix, quant_config defaults to None → every linear layer allocates
+        # BF16 weights → GPU OOM (20B model ~40GB on a 24GB card).
+        #
+        # od_config.quantization_config was already resolved to a
+        # QuantizationConfig instance by _propagate_quantization_from_tf_config
+        # inside enrich_config() — we just need to pass it along.
+        if "quant_config" not in transformer_kwargs:
+            qc = getattr(od_config, "quantization_config", None)
+            if qc is not None and not isinstance(qc, (str, dict)):
+                transformer_kwargs["quant_config"] = qc
+        # ─────────────────────────────────────────────────────────────────────
         self.transformer = QwenImageTransformer2DModel(od_config=od_config, **transformer_kwargs)
         self.tokenizer = Qwen2Tokenizer.from_pretrained(model, subfolder="tokenizer", local_files_only=local_files_only)
         self.processor = from_pretrained_with_prefetch(
@@ -963,3 +1327,4 @@ class QwenImageEditPlusPipeline(
     def load_weights(self, weights: Iterable[tuple[str, torch.Tensor]]) -> set[str]:
         loader = AutoWeightsLoader(self)
         return loader.load_weights(weights)
+
