@@ -1,0 +1,51 @@
+# Dockerfile.acetep — ACE-Step C++ music generation server
+# Source: github.com/ServeurpersoCom/acestep.cpp (upstream, no modifications)
+# Models: hf://Serveurperso/ACE-Step-1.5-GGUF/ (GGUF, local path at runtime)
+#
+# Two-step pipeline:
+#   POST /lm    → generate music codes from caption + lyrics
+#   POST /synth → render codes to 48kHz stereo WAV/MP3
+#   GET  /health → readiness probe
+#   GET  /props  → available models (lists GGUF files in --models dir)
+#
+# Base vs Turbo selected at request time by specifying different DiT GGUF file.
+# Both DiT files go in the same models dir — no container restart needed to switch.
+#
+# Build:
+#   docker build -f infra/docker/Dockerfile.acetep -t forge-reg.local:30500/tech-noir/ace-step:latest .
+
+# ── Stage 1: CUDA build ───────────────────────────────────────────────────────
+FROM nvidia/cuda:12.8.0-cudnn-devel-ubuntu22.04 AS builder
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential cmake git libopenblas-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /build
+RUN git clone --recurse-submodules https://github.com/ServeurpersoCom/acestep.cpp.git
+WORKDIR /build/acestep.cpp
+RUN ./buildcuda.sh
+
+# ── Stage 2: Slim runtime ────────────────────────────────────────────────────
+FROM nvidia/cuda:12.8.0-cudnn-runtime-ubuntu22.04
+
+LABEL description="ACE-Step 1.5 C++ music generation (GGML/GGUF). Turbo=8-step, Base=50-step sft."
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libopenblas0 \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY --from=builder /build/acestep.cpp/ace-server /app/ace-server
+
+# Default model dir (override with -v at runtime)
+ENV ACE_MODELS_DIR=/models/audio/acestep-cpp
+ENV PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+
+EXPOSE 8080
+
+# --keep-loaded keeps LM in VRAM between requests (recommended for throughput)
+CMD ["/app/ace-server", \
+     "--models", "/models/audio/acestep-cpp", \
+     "--host", "0.0.0.0", \
+     "--port", "8080", \
+     "--keep-loaded"]
