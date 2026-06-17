@@ -117,6 +117,7 @@ from typing import Any, cast
 
 import PIL.Image
 import torch
+from diffusers.models.modeling_outputs import Transformer2DModelOutput
 from diffusers.utils.torch_utils import randn_tensor
 from torch import nn
 from transformers import AutoTokenizer, UMT5EncoderModel
@@ -129,7 +130,7 @@ from vllm_omni.diffusion.distributed.autoencoders.autoencoder_kl_wan import Dist
 from vllm_omni.diffusion.distributed.cfg_parallel import CFGParallelMixin
 from vllm_omni.diffusion.distributed.pipeline_parallel import AsyncLatents, PipelineParallelMixin
 from vllm_omni.diffusion.distributed.utils import get_local_device
-from vllm_omni.diffusion.forward_context import set_forward_context_denoise_step_idx
+from vllm_omni.diffusion.forward_context import get_forward_context, set_forward_context_denoise_step_idx
 from vllm_omni.diffusion.model_loader.diffusers_loader import DiffusersPipelineLoader
 from vllm_omni.diffusion.model_loader.hub_prefetch import from_pretrained_with_prefetch, prefetch_subfolders
 from vllm_omni.diffusion.models.dmd2 import DMD2PipelineMixin
@@ -1167,3 +1168,220 @@ def _patch_te_forward():
     _UMT5._patched_fwd = True
 
 _patch_te_forward()
+
+# ════════════════════════════════════════════════════════════════════════
+# TEACACHE PATCH (Timestep Embedding Aware Cache)
+# ════════════════════════════════════════════════════════════════════════
+# Toggle: set OMNI_TEACACHE_THRESH=0 (off) or 0.001-0.1 (on).
+#
+# Principle: Consecutive diffusion timesteps produce similar time
+# embeddings, so the transformer block outputs change slowly. When
+# the timestep_proj L1 distance between consecutive steps is below a
+# threshold, we reuse the cached block output instead of recomputing.
+#
+# Cache signal: timestep_proj (second output of condition_embedder).
+# Distance metric: mean L1 over all feature dimensions, NO polynomial
+# rescaling (the official coefficients are calibrated for Wan2.1 T2V
+# 14B but produce abs(poly) ≈ 5-13 for typical distances of 0.001-0.04,
+# making the threshold never fire — so we use raw distance directly).
+#
+# Recommended thresholds (raw L1, no polynomial):
+#   0.001-0.003  conservative (~10-20% steps cached)
+#   0.005-0.010  balanced (~30-50% steps cached, good quality)
+#   0.015-0.030  aggressive (~50-70% steps cached, some quality loss)
+#   0.050+       very aggressive (quality may degrade noticeably)
+#
+# VACE handling: vace_blocks always run unconditionally. Only the main
+# self.blocks DiT loop is subject to caching.
+#
+# CFG handling: even-indexed forward passes (cond) and odd-indexed
+# (uncond) maintain independent cache state. First 2 CFG pairs always
+# compute to seed the cache.
+#
+# State machine (per CFG branch):
+#   self._tc_state[counter % 2] = {
+#       "prev_timestep_proj": tensor or None,
+#       "cached_hidden_states": tensor or None,
+#       "retention_left": 2,  # forced-compute countdown
+#   }
+# ════════════════════════════════════════════════════════════════════════
+import os as _tc_os
+
+_tc_thresh = float(_tc_os.environ.get("OMNI_TEACACHE_THRESH", "0"))
+
+if _tc_thresh > 0:
+    _tc_logger = _logging.getLogger("teacache_patch")
+
+    try:
+        _WanCls = WanTransformer3DModel
+        _orig_wan_forward = _WanCls.forward
+
+        def _teacache_forward(self, hidden_states, timestep, encoder_hidden_states,
+                              encoder_hidden_states_image=None, return_dict=True,
+                              attention_kwargs=None, vace_context=None,
+                              vace_context_scale=1.0):
+            """Forward with TeaCache — cached DiT blocks loop.
+
+            Replicates WanVACETransformer3DModel.forward exactly except the
+            main blocks loop (self.blocks) is cached via timestep_proj L1
+            distance threshold.
+            """
+            batch_size, _, num_frames, height, width = hidden_states.shape
+            p_t, p_h, p_w = self.config.patch_size
+            post_patch_num_frames = num_frames // p_t
+            post_patch_height = height // p_h
+            post_patch_width = width // p_w
+
+            # ── RoPE ───────────────────────────────────────────────────
+            current_rope_resolution = (post_patch_num_frames, post_patch_height, post_patch_width)
+            if self._cached_rope_resolution == current_rope_resolution and self._cached_rope_emb is not None:
+                rotary_emb = self._cached_rope_emb
+            else:
+                freqs_cos, freqs_sin = self.rope(hidden_states)
+                rotary_emb = (freqs_cos[..., 0::2].to(hidden_states.dtype),
+                              freqs_sin[..., 1::2].to(hidden_states.dtype))
+                self._hidden_states_shape = hidden_states.shape
+                self._cached_rope_emb = rotary_emb
+
+            # ── Patch embedding ────────────────────────────────────────
+            hidden_states = self.patch_embedding(hidden_states)
+            hidden_states = hidden_states.flatten(2).transpose(1, 2)
+
+            # ── Timestep handling ──────────────────────────────────────
+            if timestep.ndim == 2:
+                ts_seq_len = timestep.shape[1]
+                timestep = timestep.flatten()
+            else:
+                ts_seq_len = None
+
+            # ── Condition embedding → temb + timestep_proj (cache signal) ──
+            temb, timestep_proj, encoder_hidden_states, encoder_hidden_states_image = \
+                self.condition_embedder(
+                    timestep, encoder_hidden_states, encoder_hidden_states_image,
+                    timestep_seq_len=ts_seq_len,
+                )
+            timestep_proj = self.timestep_proj_prepare(timestep_proj, ts_seq_len)
+
+            if encoder_hidden_states_image is not None:
+                encoder_hidden_states = torch.concat(
+                    [encoder_hidden_states_image, encoder_hidden_states], dim=1
+                )
+
+            # ── SP shard point ─────────────────────────────────────────
+            hidden_states = self._sp_shard_point(hidden_states)
+
+            # ── SP mask ────────────────────────────────────────────────
+            hidden_states_mask = None
+            ctx = get_forward_context()
+            parallel_config = ctx.omni_diffusion_config.parallel_config
+            if ctx.sp_original_seq_len is not None and ctx.sp_padding_size > 0:
+                padded_seq_len = ctx.sp_original_seq_len + ctx.sp_padding_size
+                hidden_states_mask = torch.ones(
+                    batch_size, padded_seq_len, dtype=torch.bool, device=hidden_states.device,
+                )
+                hidden_states_mask[:, ctx.sp_original_seq_len:] = False
+
+            # ── VACE blocks (always run, never cached) ─────────────────
+            vace_hints = None
+            if vace_context is not None and self.vace_blocks is not None:
+                sp_size = parallel_config.sequence_parallel_size if parallel_config is not None else 1
+                full_seq_len = hidden_states.shape[1] * sp_size
+                control_hidden_states = self.embed_vace_context(
+                    vace_context.to(hidden_states.dtype), full_seq_len, sp_size,
+                )
+                vace_hints = []
+                for block in self.vace_blocks:
+                    conditioning_states, control_hidden_states = block(
+                        hidden_states, encoder_hidden_states, control_hidden_states,
+                        timestep_proj, rotary_emb, hidden_states_mask,
+                    )
+                    vace_hints.append(conditioning_states)
+
+            # Normalize scale to per-layer list
+            if vace_hints is not None and isinstance(vace_context_scale, (int, float)):
+                vace_context_scale = [vace_context_scale] * len(vace_hints)
+
+            # ── TeaCache state management ──────────────────────────────
+            if not hasattr(self, '_tc_call_counter'):
+                self._tc_call_counter = 0
+            branch_key = self._tc_call_counter % 2  # 0=cond, 1=uncond
+            self._tc_call_counter += 1
+
+            if not hasattr(self, '_tc_state'):
+                self._tc_state = {}
+            if branch_key not in self._tc_state:
+                self._tc_state[branch_key] = {
+                    "prev_timestep_proj": None,
+                    "cached_hidden_states": None,
+                    "retention_left": 2,
+                }
+            tc_s = self._tc_state[branch_key]
+
+            # ── Cache decision (raw L1 distance, no polynomial) ────────
+            current_proj = timestep_proj.detach().float()
+            use_cache = False
+            if tc_s["prev_timestep_proj"] is not None and tc_s["cached_hidden_states"] is not None:
+                # Mean L1 distance between current and previous timestep_proj
+                l1_dist = torch.nn.functional.l1_loss(
+                    current_proj, tc_s["prev_timestep_proj"], reduction='mean'
+                ).item()
+                use_cache = (l1_dist < _tc_thresh and tc_s["retention_left"] <= 0)
+            # retention_left applies even on first call (prev is None)
+            if tc_s["retention_left"] > 0:
+                tc_s["retention_left"] -= 1
+
+            if use_cache:
+                # ── Reuse cached hidden states ─────────────────────────
+                hidden_states = tc_s["cached_hidden_states"]
+            else:
+                # ── Full compute through all DiT blocks ────────────────
+                for i, block in enumerate(self.blocks):
+                    hidden_states = block(
+                        hidden_states, encoder_hidden_states, timestep_proj,
+                        rotary_emb, hidden_states_mask,
+                    )
+                    if vace_hints is not None and self.vace_layers_mapping is not None \
+                            and i in self.vace_layers_mapping:
+                        vace_idx = self.vace_layers_mapping[i]
+                        hidden_states = hidden_states + \
+                            vace_hints[vace_idx] * vace_context_scale[vace_idx]
+
+                tc_s["cached_hidden_states"] = hidden_states.clone()
+
+            tc_s["prev_timestep_proj"] = current_proj
+
+            # ── Output norm, projection & unpatchify ───────────────────
+            shift, scale = self.output_scale_shift_prepare(temb)
+            shift = shift.to(hidden_states.device)
+            scale = scale.to(hidden_states.device)
+            if shift.ndim == 2:
+                shift = shift.unsqueeze(1)
+                scale = scale.unsqueeze(1)
+
+            hidden_states = self.norm_out(hidden_states, scale, shift).type_as(hidden_states)
+            hidden_states = self.proj_out(hidden_states)
+
+            hidden_states = hidden_states.reshape(
+                batch_size, post_patch_num_frames, post_patch_height,
+                post_patch_width, p_t, p_h, p_w, -1,
+            )
+            hidden_states = hidden_states.permute(0, 7, 1, 4, 2, 5, 3, 6)
+            output = hidden_states.flatten(6, 7).flatten(4, 5).flatten(2, 3)
+
+            if not return_dict:
+                return (output,)
+            return Transformer2DModelOutput(sample=output)
+
+        _WanCls.forward = _teacache_forward
+        _tc_logger.warning(
+            "TeaCache ENABLED (raw L1 thresh=%.4f) — Wan VACE 14B "
+            "blocks loop cached via timestep_proj signal. "
+            "Set OMNI_TEACACHE_THRESH=0 to disable.",
+            _tc_thresh,
+        )
+    except Exception as _tc_e:
+        _tc_logger.warning("Could not apply TeaCache patch: %s", _tc_e)
+        import traceback as _tc_tb
+        _tc_logger.warning(_tc_tb.format_exc())
+else:
+    pass  # TeaCache disabled (OMNI_TEACACHE_THRESH=0 or unset)

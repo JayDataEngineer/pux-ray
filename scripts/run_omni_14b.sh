@@ -20,6 +20,17 @@
 #   ./run_omni_14b.sh                 # default model dir
 #   ./run_omni_14b.sh /path/to/model  # override model dir
 #   ./run_omni_14b.sh "" 8002         # override port
+#
+# TeaCache (Timestep Embedding Aware Cache):
+#   Disabled by default (OMNI_TEACACHE_THRESH=0).
+#   Enable by setting threshold before launch:
+#     OMNI_TEACACHE_THRESH=0.01 ./run_omni_14b.sh
+#   Recommended thresholds (raw L1 distance, no polynomial rescaling):
+#     0.005 → ~48% speedup, identical quality
+#     0.01  → ~70% speedup, great quality (sweet spot)
+#     0.015 → ~73% speedup, slight quality trade-off
+#   TeaCache caches DiT block outputs when consecutive timestep_proj
+#   vectors are similar — skip recomputation for near-identical steps.
 # ════════════════════════════════════════════════════════════════════════
 set -euo pipefail
 
@@ -48,6 +59,11 @@ echo "  Model:    $MODEL_DIR"
 echo "  Patch:    $PATCH_FILE"
 echo "  Port:     $HOST_PORT -> $CONTAINER_PORT"
 echo "  Container: $CONTAINER_NAME"
+if [[ "${OMNI_TEACACHE_THRESH:-0}" != "0" ]]; then
+  echo "  TeaCache: ON  (thresh=${OMNI_TEACACHE_THRESH})"
+else
+  echo "  TeaCache: OFF (set OMNI_TEACACHE_THRESH=0.01 to enable)"
+fi
 echo
 
 docker run -d --gpus all --ipc=host \
@@ -56,6 +72,7 @@ docker run -d --gpus all --ipc=host \
   -p "$HOST_PORT:$CONTAINER_PORT" \
   -e PYTHONUNBUFFERED=1 \
   -e PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True \
+  -e OMNI_TEACACHE_THRESH="${OMNI_TEACACHE_THRESH:-0}" \
   --name "$CONTAINER_NAME" \
   "$IMAGE" \
   python3 -m vllm_omni.entrypoints.openai.api_server \

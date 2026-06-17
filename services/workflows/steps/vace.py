@@ -12,7 +12,9 @@ parameters. Returns raw MP4 bytes directly (no base64 wrapping).
 Supports:
   - Text-to-video (prompt only)
   - Image-to-video (prompt + conditioning image)
-  - Base mode (18+ steps) and Lightning mode (4 steps)
+  - TeaCache: server-side toggle via OMNI_TEACACHE_THRESH env var
+    (set=0.01 on container for ~70% speedup with negligible quality loss)
+  - Base mode (18+ steps), Fast mode (6-12 steps)
 """
 from __future__ import annotations
 
@@ -54,8 +56,14 @@ class VaceGenerateStep(StepExecutor):
     Supports three quality tiers, all served from the same PROVEN
     direct-cast FP8 base model (wan2.1-vace-14b-fp8-diffusers):
       - vace_base:    25 steps, full quality (~165s for 33-frame 640x480)
-      - vace_fast:    10 steps, ~2.5x speedup (~70s)
+                       with TeaCache (0.01): ~49s (70% speedup)
+      - vace_fast:    10 steps, ~2.5x speedup (~72s)
+                       with TeaCache (0.01): ~35s
       - vace_lightning: PENDING — needs compatible Wan2.1-VACE distillation
+
+    TeaCache is a SERVER-SIDE toggle (OMNI_TEACACHE_THRESH env var on the
+    container). When the server has TeaCache enabled, all requests benefit
+    automatically. The step executor has no per-request TeaCache control.
 
     Routes to the correct Omni API endpoint based on the *_model parameter.
 

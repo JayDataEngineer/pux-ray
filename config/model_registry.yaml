@@ -1661,7 +1661,7 @@ video:
       storage + BF16 matmul, no activation quantization). Requires the patched
       pipeline_wan2_2_vace_patch.py bind-mounted into the container — see
       scripts/run_omni_14b.sh. ~14GB FP8 transformer + ~5GB BF16 text encoder
-      (CPU-offloaded). 25-step 640x480 generation in ~2:45.'
+      (CPU-offloaded). 25-step 640x480 generation: ~165s baseline, ~49s with TeaCache enabled (OMNI_TEACACHE_THRESH=0.01).'
     device: gpu
     download: skip
     path: video/wan2.1-vace-14b-fp8-diffusers

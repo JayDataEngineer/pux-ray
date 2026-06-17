@@ -1,14 +1,16 @@
 name: vace_fast
-version: "1.0"
+version: "1.1"
 description: >
   Wan2.1 VACE 14B FP8 — FAST mode (PROVEN on RTX 4090). Uses the same
-  direct-cast FP8 base model as vace_base but with 10 sampling steps instead
-  of 25, giving ~2.5x speedup (~70s vs ~165s for 33-frame 640x480) at a
-  modest quality cost. Text-to-video / image-to-video with VACE
-  conditioning. Uses vLLM-Omni 0.22 with FP8 weight-only patch.
+  direct-cast FP8 base model as vace_base with 10 sampling steps, giving
+  ~2.5x speedup (~72s vs ~165s for 33-frame 640x480). When TeaCache is
+  enabled on the container (OMNI_TEACACHE_THRESH=0.01), runs in ~35s.
 
-  This is the recommended speed tier until a Wan2.1-VACE-specific 4-step
-  distillation becomes available (see vace_lightning.yaml for status).
+  Note: with TeaCache ON, the 25-step vace_base runs at ~49s — actually
+  FASTER than 10-step vace_fast without TeaCache, with better quality.
+  If TeaCache is available, prefer vace_base + TeaCache over vace_fast.
+
+  Text-to-video / image-to-video with VACE conditioning.
 
 inputs:
   prompt:

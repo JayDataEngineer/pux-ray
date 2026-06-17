@@ -1,5 +1,5 @@
 name: vace_base
-version: "1.2"
+version: "1.3"
 description: >
   Wan2.1 VACE 14B FP8 — full quality video generation (PROVEN on RTX 4090).
   Text-to-video / image-to-video with VACE conditioning.
@@ -10,6 +10,11 @@ description: >
     * 640x480 x 33 frames x 25 steps: WORKS (~165s, default)
     * 704x480 x 33 frames: WORKS (~120s)
     * 720x480 and above: OOM (use vace_fast with fewer steps if needed)
+
+  TeaCache (Timestep Embedding Aware Cache) is available server-side.
+  When enabled on the container (OMNI_TEACACHE_THRESH=0.01), this 25-step
+  workflow runs in ~49s instead of ~165s (70% speedup) with negligible
+  quality impact (std ~83 vs baseline ~84).
 
   Defaults below (33 frames @ 25 steps) give the best speed/quality
   tradeoff and a 2-second clip at 16 fps.
