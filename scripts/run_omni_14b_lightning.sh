@@ -1,38 +1,35 @@
 #!/usr/bin/env bash
 # ════════════════════════════════════════════════════════════════════════
-# Wan2.1 VACE 14B FP8 — vLLM-Omni server on RTX 4090 (24GB)
+# Wan2.1 VACE 14B FP8 LIGHTNING — vLLM-Omni server on RTX 4090 (24GB)
 # ════════════════════════════════════════════════════════════════════════
-# Serves direct-cast FP8 14B VACE on a single 24GB GPU via vLLM-Omni 0.22.
-# The pipeline_wan2_2_vace_patch.py file is bind-mounted over the in-image
-# pipeline and applies the FP8 weight-only patch (FP8 storage + BF16 matmul,
-# no activation quantization) — required because vLLM's standard FP8 path
-# NaN-cascades on DiT linear layers across denoising timesteps.
+# 4-step lightning distilled variant of VACE 14B for fast inference.
+# Same FP8 weight-only patch as the base model — the patch is applied at
+# the linear-layer level, so it works for any Wan2.1-VACE-14B checkpoint
+# regardless of whether it has been distilled.
 #
-# Memory layout on RTX 4090 (24GB):
-#   * FP8 transformer weights      ~14 GB (on GPU)
-#   * VAE + tokenizer                ~1 GB (on GPU)
-#   * Activations + temp BF16 dequant ~3 GB peak (per forward pass)
-#   * Headroom / fragmentation       ~6 GB
-#   `--cpu-offload-gb 20` lets vLLM spill up to 20 GB of weights to CPU
-#   if needed; in practice GPU stays ~21 GB during inference.
+# A lightning checkpoint should be a direct-cast FP8 model directory
+# containing the same structure as the base model (transformer/, vae/,
+# text_encoder/, tokenizer/, scheduler/). The transformer weights must
+# be the 4-step distilled variant (e.g., LightX2V LoRA merged in BF16,
+# then re-cast to FP8).
 #
 # Usage:
-#   ./run_omni_14b.sh                 # default model dir
-#   ./run_omni_14b.sh /path/to/model  # override model dir
-#   ./run_omni_14b.sh "" 8002         # override port
+#   ./run_omni_14b_lightning.sh                       # defaults
+#   ./run_omni_14b_lightning.sh /path/to/model 8001   # override
 # ════════════════════════════════════════════════════════════════════════
 set -euo pipefail
 
-MODEL_DIR="${1:-/mnt/data/models/video/wan2.1-vace-14b-fp8-diffusers}"
-HOST_PORT="${2:-8000}"
-CONTAINER_NAME="${3:-omni-14b-vace-fp8}"
+MODEL_DIR="${1:-/mnt/data/models/video/wan2.1-vace-14b-fp8-lightning}"
+HOST_PORT="${2:-8001}"
+CONTAINER_NAME="${3:-omni-14b-vace-lightning}"
 PATCH_FILE="/home/user/Documents/programs/ray/scripts/pipeline_wan2_2_vace_patch.py"
 IMAGE="vllm/vllm-omni:latest"
 CONTAINER_PORT=8000
 
-# Reject if model dir doesn't exist
 if [[ ! -d "$MODEL_DIR" ]]; then
-  echo "ERROR: model dir not found: $MODEL_DIR" >&2
+  echo "ERROR: lightning model dir not found: $MODEL_DIR" >&2
+  echo "Hint: create one by merging LightX2V 4-step LoRA into the base" >&2
+  echo "      BF16 model, then cast to FP8 (see convert_to_fp8.py)." >&2
   exit 1
 fi
 if [[ ! -f "$PATCH_FILE" ]]; then
@@ -40,10 +37,9 @@ if [[ ! -f "$PATCH_FILE" ]]; then
   exit 1
 fi
 
-# Stop any existing container with this name
 docker rm -f "$CONTAINER_NAME" 2>/dev/null || true
 
-echo "Starting Omni VACE 14B FP8 server..."
+echo "Starting Omni Lightning 14B FP8 server..."
 echo "  Model:    $MODEL_DIR"
 echo "  Patch:    $PATCH_FILE"
 echo "  Port:     $HOST_PORT -> $CONTAINER_PORT"
@@ -51,7 +47,7 @@ echo "  Container: $CONTAINER_NAME"
 echo
 
 docker run -d --gpus all --ipc=host \
-  -v "$MODEL_DIR":/models/vace-fp8:ro \
+  -v "$MODEL_DIR":/models/vace-fp8-lightning:ro \
   -v "$PATCH_FILE":/usr/local/lib/python3.12/dist-packages/vllm_omni/diffusion/models/wan2_2/pipeline_wan2_2.py:ro \
   -p "$HOST_PORT:$CONTAINER_PORT" \
   -e PYTHONUNBUFFERED=1 \
@@ -59,7 +55,7 @@ docker run -d --gpus all --ipc=host \
   --name "$CONTAINER_NAME" \
   "$IMAGE" \
   python3 -m vllm_omni.entrypoints.openai.api_server \
-    --model /models/vace-fp8 \
+    --model /models/vace-fp8-lightning \
     --host 0.0.0.0 --port "$CONTAINER_PORT" \
     --enforce-eager \
     --cpu-offload-gb 20 \
@@ -70,12 +66,11 @@ echo
 echo "Container started. Waiting for server..."
 for i in $(seq 1 90); do
   if curl -sf "http://localhost:$HOST_PORT/health" >/dev/null 2>&1; then
-    echo "✓ Ready on http://localhost:$HOST_PORT  ($(( i * 2 ))s)"
+    echo "✓ Lightning ready on http://localhost:$HOST_PORT  ($(( i * 2 ))s)"
     echo "  Models:   curl http://localhost:$HOST_PORT/v1/models"
     echo "  Logs:     docker logs -f $CONTAINER_NAME"
     exit 0
   fi
-  # Check if container died
   status=$(docker ps -a --filter "name=$CONTAINER_NAME" --format "{{.Status}}")
   if [[ "$status" == Exited* ]]; then
     echo "✗ Container exited unexpectedly:" >&2
