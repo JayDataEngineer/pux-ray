@@ -137,6 +137,22 @@ Response:
 | `POST` | `/v1/workflows/{workflow}` | Execute workflow |
 | `GET` | `/v1/run/catalog` | Discover available pipelines and services |
 
+### Inference Pools
+
+The 4-tier priority fallback pool system. Source of truth:
+`config/inference_pools.yaml`. Mirrors the MCP tools in `mcp/inference/server.py`.
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/v1/inference/pools` | List all pools (priority order) |
+| `GET` | `/v1/inference/pools/{pool}` | Single pool docker + health status |
+| `POST` | `/v1/inference/pools/{pool}/start` | Start pool (body: `{"model": "..."}`) |
+| `POST` | `/v1/inference/pools/{pool}/stop` | Stop and remove container |
+| `GET` | `/v1/inference/models` | Every routable model with primary pool + fallback |
+| `GET` | `/v1/inference/models/{model}/resolve` | Ordered resolution chain with optimization |
+| `GET` | `/v1/inference/models/{model}/optimization` | Optimization + benchmark for a model |
+| `GET` | `/v1/inference/resolve/{model}` | Alias for resolve |
+
 ### Web UIs
 
 | Method | Path | Description |

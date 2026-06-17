@@ -3,8 +3,10 @@
 Step types:
   vace_generate  — Full Wan2.2 VACE video generation (T2V or I2V)
 
-Calls the Omni API video sync endpoint at
-  http://<host>:8000/v1/videos/sync
+Calls the Omni API video sync endpoint at the URL resolved by the inference
+pool system (services.inference.dispatch). The pool system's
+inference_pools.yaml declares wan-vace on the omni-vllm pool with
+api.generate pointing at /v1/videos/sync (set in the launcher).
 
 Uses multipart form-data (required by the video API) to send all
 parameters. Returns raw MP4 bytes directly (no base64 wrapping).
@@ -26,25 +28,59 @@ from typing import Any
 import aiohttp
 
 from . import StepExecutor, StepContext, StepResult
+from services.inference.dispatch import resolve_step
 
 logger = logging.getLogger(__name__)
 
-# Model → API server routing.
-# - wan2.1-vace-14b-fp8-diffusers: the PROVEN direct-cast FP8 model served by
-#   scripts/run_omni_14b.sh (container: omni-14b-vace-fp8). Used by both
-#   vace_base (25 steps) and vace_fast (10 steps) workflows.
-# - wan2.1-vace-14b-fp8: legacy alias for the same container.
-# - wan2.1-vace-14b-fp8-lightning: PENDING. The LightX2V LoRA at
-#   hf://lightx2v/Wan2.2-Distill-Loras targets Wan2.2-I2V-A14B (not VACE),
-#   so the previous merge produced washed-out output. Routing entry kept
-#   so the workflow IaC is ready when a compatible distillation lands.
-OMNI_ENDPOINTS = {
-    "wan2.1-vace-14b-fp8-diffusers": ("http://omni-14b-vace-fp8:8000",        "/models/vace-fp8"),
-    "wan2.1-vace-14b-fp8":           ("http://omni-14b-vace-fp8:8000",        "/models/vace-fp8"),
-    "wan2.1-vace-14b-fp8-lightning": ("http://omni-14b-vace-lightning:8000",  "/models/vace-fp8-lightning"),
+# Legacy fallback map — only used if the pool config is unavailable.
+# The pool system is the source of truth for routing.
+_FALLBACK_BASES = {
+    "wan2.1-vace-14b-fp8-diffusers": "http://omni-14b-vace-fp8:8000",
+    "wan2.1-vace-14b-fp8":           "http://omni-14b-vace-fp8:8000",
+    "wan2.1-vace-14b-fp8-lightning": "http://omni-14b-vace-lightning:8000",
 }
-DEFAULT_BASE = "http://omni-14b-vace-fp8:8000"
+_FALLBACK_MODEL_PATHS = {
+    "wan2.1-vace-14b-fp8-diffusers": "/models/vace-fp8",
+    "wan2.1-vace-14b-fp8":           "/models/vace-fp8",
+    "wan2.1-vace-14b-fp8-lightning": "/models/vace-fp8-lightning",
+}
+_DEFAULT_BASE = "http://omni-14b-vace-fp8:8000"
+_DEFAULT_MODEL_PATH = "/models/vace-fp8"
 OMNI_TIMEOUT = 600  # 10 min for long generations
+
+
+def _resolve_api_base(model_id: str) -> tuple[str, str]:
+    """Resolve model → (api_base_url, model_path).
+
+    The base URL comes from the pool system (services.inference.dispatch).
+    The in-container model path is the bind-mount target declared by the
+    launch script (e.g. /models/vace-fp8), which isn't in the YAML — the
+    legacy map below stays authoritative for that.
+
+    Falls back to the legacy map for both fields if the pool config is
+    unavailable.
+    """
+    base_url: str | None = None
+    try:
+        # wan-vace in the YAML uses model name 'wan-vace'; accept the
+        # legacy HuggingFace-style ids too by mapping to the canonical name.
+        canonical = "wan-vace" if "vace" in model_id else model_id
+        plan = resolve_step(service=None, model=canonical, action="generate")
+        if plan:
+            # Strip the /v1/... path to get the base URL.
+            base_url = plan[0].url.rsplit("/v1/", 1)[0]
+    except (ValueError, FileNotFoundError) as e:
+        logger.warning(
+            "Pool resolution failed for vace %r — using legacy map: %s",
+            model_id, e
+        )
+
+    # Model path is the in-container mount, declared by the launch script.
+    # Not derivable from YAML — the legacy map stays authoritative here.
+    path = _FALLBACK_MODEL_PATHS.get(model_id, _DEFAULT_MODEL_PATH)
+    if base_url is None:
+        base_url = _FALLBACK_BASES.get(model_id, _DEFAULT_BASE)
+    return base_url, path
 
 
 class VaceGenerateStep(StepExecutor):
@@ -94,15 +130,8 @@ class VaceGenerateStep(StepExecutor):
         guidance = params.get("guide_scale", 5.0)
         model_id = params.get("_model", "wan2.1-vace-14b-fp8-diffusers")
 
-        # Resolve API base URL + model path
-        ep_info = OMNI_ENDPOINTS.get(model_id)
-        if ep_info:
-            api_base = ep_info[0]
-            model_path = ep_info[1]
-        else:
-            api_base = DEFAULT_BASE
-            model_path = "/models/vace-fp8"
-
+        # Resolve Omni API base URL + in-container model path via the pool system.
+        api_base, model_path = _resolve_api_base(model_id)
         api_url = f"{api_base}/v1/videos/sync"
 
         logger.info(

@@ -62,6 +62,7 @@ class WorkflowEngine:
         from .steps.ltx_video import LTXGenerateStep, LTXSpatialUpscaleStep
         from .steps.vace import VaceGenerateStep
         from .steps.img_edit import ImageEditStep
+        from .steps.pool import PoolStepExecutor
 
         self.registry.register("forge", ForgeStepExecutor)
         self.registry.register("serve", ServeStepExecutor)
@@ -74,6 +75,9 @@ class WorkflowEngine:
         self.registry.register("ltx_upscale", LTXSpatialUpscaleStep)
         self.registry.register("vace_generate", VaceGenerateStep)
         self.registry.register("img_edit", ImageEditStep)
+        # Generic pool dispatch — uses inference_pools.yaml resolution.
+        # Used by workflows that don't need service-specific payload shaping.
+        self.registry.register("pool", PoolStepExecutor)
 
     # ------------------------------------------------------------------
     # Run lifecycle

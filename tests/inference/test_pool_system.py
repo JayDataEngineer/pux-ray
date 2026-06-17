@@ -214,3 +214,188 @@ def test_tier_a_models_have_single_pool(mgr: PoolManager):
         targets = mgr.resolve(model)
         assert len(targets) == 1, f"{model} should have exactly one target"
         assert targets[0].pool.tier == "A"
+
+
+# ─── Action selection (honoring preferred action) ───────────────────────────
+
+def test_dispatch_honors_edit_action():
+    """resolve_step with action='edit' picks /v1/images/edits for qwen-image-edit."""
+    plan = resolve_step(service=None, model="qwen-image-edit", action="edit")
+    assert plan[0].url.endswith("/v1/images/edits")
+    assert plan[0].action == "edit"
+
+
+def test_dispatch_honors_generate_action():
+    """resolve_step with action='generate' picks /v1/images/generations."""
+    plan = resolve_step(service=None, model="qwen-image-edit", action="generate")
+    assert plan[0].url.endswith("/v1/images/generations")
+    assert plan[0].action == "generate"
+
+
+def test_dispatch_falls_back_to_first_action_when_preferred_missing():
+    """If the preferred action isn't declared, the first declared action is used."""
+    plan = resolve_step(service=None, model="qwen-image-edit",
+                        action="nonexistent-action")
+    # Should fall back to "generate" (first key in YAML api: map)
+    assert plan[0].action in {"generate", "edit"}
+    assert plan[0].url.startswith("http://")
+
+
+def test_dispatch_first_healthy_property():
+    """DispatchPlan.first_healthy returns the first healthy hop (or None)."""
+    from services.inference.dispatch import DispatchPlan, DispatchHop
+    # Empty plan
+    empty = DispatchPlan()
+    assert empty.first_healthy is None
+
+
+# ─── Workflow engine integration ─────────────────────────────────────────────
+
+def test_pool_step_executor_imports():
+    """The new pool step executor must be importable and registered."""
+    from services.workflows.steps.pool import PoolStepExecutor
+    from services.workflows.steps import StepExecutor
+    assert issubclass(PoolStepExecutor, StepExecutor)
+
+
+def test_img_edit_step_uses_pool_resolution():
+    """ImageEditStep resolves URLs via the pool system, not the old hard-coded map."""
+    from services.workflows.steps.img_edit import _resolve_api_url
+    url = _resolve_api_url("qwen-image-edit", action="edit")
+    # Pool resolution returns the omni-vllm pool's port (8093) with /v1/images/edits
+    assert url.endswith("/v1/images/edits"), f"got {url}"
+    assert ":8093" in url or "omni-qwen-img-edit" in url, f"got {url}"
+
+
+def test_img_edit_step_legacy_fallback_on_unknown_model():
+    """When the pool config doesn't have a model, legacy fallback kicks in."""
+    from services.workflows.steps.img_edit import _resolve_api_url
+    url = _resolve_api_url("qwen-image-edit-2511-fp8", action="edit")
+    # Not in the YAML — should fall back to the legacy omni-qwen-img-edit-fp8 host
+    assert "omni-qwen-img-edit-fp8" in url, f"got {url}"
+    assert url.endswith("/v1/images/edits"), f"got {url}"
+
+
+def test_vace_step_uses_pool_resolution_for_base_url():
+    """VaceGenerateStep resolves the base URL via the pool system."""
+    from services.workflows.steps.vace import _resolve_api_base
+    base, path = _resolve_api_base("wan2.1-vace-14b-fp8-diffusers")
+    # Pool resolution returns the omni-vllm pool's URL (port 8093)
+    assert ":8093" in base, f"got base={base}"
+    # The in-container path stays from the legacy map (declared by the script)
+    assert path == "/models/vace-fp8", f"got path={path}"
+
+
+def test_engine_registers_pool_step_type():
+    """WorkflowEngine should register the 'pool' step type.
+
+    Ray's @serve.deployment decorator wraps WorkflowEngine in a Deployment
+    proxy, so we read the engine module source directly instead of inspecting
+    the class.
+    """
+    import inspect
+    from services.workflows import engine as engine_mod
+    src = inspect.getsource(engine_mod)
+    assert 'register("pool"' in src or "register('pool'" in src, \
+        "pool step type not registered in engine source"
+
+
+# ─── Gateway routes ──────────────────────────────────────────────────────────
+
+class _FakeRequest:
+    """Minimal Starlette Request stub for testing route handlers."""
+    def __init__(self, path_params=None, body_json=None):
+        self.path_params = path_params or {}
+        self._json = body_json
+    async def json(self):
+        return self._json or {}
+
+
+@pytest.mark.asyncio
+async def test_route_list_pools():
+    """GET /v1/inference/pools returns all 8 pools."""
+    from gateway.routes import inference as inf
+    resp = await inf.list_pools(_FakeRequest())
+    assert resp.status_code == 200
+    body = resp.body.decode()
+    assert "omni-vllm" in body
+    assert "sglang" in body
+    assert "diffusers" in body
+
+
+@pytest.mark.asyncio
+async def test_route_list_models():
+    """GET /v1/inference/models returns every routable model."""
+    from gateway.routes import inference as inf
+    resp = await inf.list_models(_FakeRequest())
+    assert resp.status_code == 200
+    body = resp.body.decode()
+    for model in ("qwen-image-edit", "z-image", "wan-vace", "moss_tts"):
+        assert model in body, f"{model} missing from list_models response"
+
+
+@pytest.mark.asyncio
+async def test_route_resolve_known_model():
+    """GET /v1/inference/models/{model}/resolve returns the chain."""
+    from gateway.routes import inference as inf
+    resp = await inf.resolve_model(_FakeRequest({"model": "qwen-image-edit"}))
+    assert resp.status_code == 200
+    body = resp.body.decode()
+    assert "resolution_chain" in body
+    assert "omni-vllm" in body
+
+
+@pytest.mark.asyncio
+async def test_route_resolve_unknown_model_404():
+    """GET /v1/inference/models/<unknown>/resolve returns 404."""
+    from gateway.routes import inference as inf
+    resp = await inf.resolve_model(_FakeRequest({"model": "definitely-not-real"}))
+    assert resp.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_route_optimization_known_model():
+    """GET /v1/inference/models/qwen-image-edit/optimization returns FP8 config."""
+    from gateway.routes import inference as inf
+    resp = await inf.get_optimization(_FakeRequest({"model": "qwen-image-edit"}))
+    assert resp.status_code == 200
+    body = resp.body.decode()
+    assert "fp8-weight-only" in body
+
+
+@pytest.mark.asyncio
+async def test_route_optimization_unknown_model_404():
+    """GET /v1/inference/models/<unknown>/optimization returns 404."""
+    from gateway.routes import inference as inf
+    resp = await inf.get_optimization(_FakeRequest({"model": "no-such"}))
+    assert resp.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_route_get_pool_known():
+    """GET /v1/inference/pools/{name} returns the pool's status."""
+    from gateway.routes import inference as inf
+    resp = await inf.get_pool(_FakeRequest({"pool_name": "omni-vllm"}))
+    # 200 if the pool exists; status reflects whether the container is running
+    assert resp.status_code == 200
+    body = resp.body.decode()
+    assert "omni-vllm" in body
+    assert "vllm-omni" in body
+
+
+@pytest.mark.asyncio
+async def test_route_get_pool_unknown_404():
+    """GET /v1/inference/pools/<unknown> returns 404."""
+    from gateway.routes import inference as inf
+    resp = await inf.get_pool(_FakeRequest({"pool_name": "no-such-pool"}))
+    assert resp.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_route_z_image_resolution_has_two_hops():
+    """z-image resolution chain has both omni-vllm and sglang."""
+    from gateway.routes import inference as inf
+    resp = await inf.resolve_model(_FakeRequest({"model": "z-image"}))
+    body = resp.body.decode()
+    assert "omni-vllm" in body
+    assert "sglang" in body

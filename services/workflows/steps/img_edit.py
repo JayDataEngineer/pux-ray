@@ -3,8 +3,10 @@
 Step types:
   img_edit  — Qwen-Image-Edit-2511 image editing (instruction-based)
 
-Calls the Omni image edits API at
-  http://<host>:8000/v1/images/edits
+Calls the Omni image edits API at the URL resolved by the inference pool
+system (services.inference.dispatch). The pool system's inference_pools.yaml
+declares qwen-image-edit on the omni-vllm pool with api.edit pointing at
+/v1/images/edits.
 
 Uses multipart form-data (OpenAI DALL-E compatible) to send the input
 image and parameters. Returns base64-encoded PNG bytes.
@@ -26,21 +28,47 @@ from typing import Any
 import aiohttp
 
 from . import StepExecutor, StepContext, StepResult
+from services.inference.dispatch import resolve_step
 
 logger = logging.getLogger(__name__)
 
-# Model → API server routing.
-#  qwen-image-edit-2511     — BF16 + layerwise offload (slow, 24GB VRAM)
-#  qwen-image-edit-2511-fp8 — FP8 weight-only (fast, all 60 blocks on GPU)
-OMNI_ENDPOINTS = {
-    "qwen-image-edit-2511":     ("http://omni-qwen-img-edit:8000", "/models/qwen-img-edit"),
-    "qwen-image-edit-2511-fp8": ("http://omni-qwen-img-edit-fp8:8000", "/models/qwen-img-edit-fp8"),
-    "qwen-image-edit":           ("http://omni-qwen-img-edit:8000", "/models/qwen-img-edit"),
+# Legacy fallback map — only consulted if the pool system is unavailable
+# (e.g. config file missing). The pool system is the source of truth.
+_FALLBACK_ENDPOINTS = {
+    "qwen-image-edit-2511":     "http://omni-qwen-img-edit:8000",
+    "qwen-image-edit-2511-fp8": "http://omni-qwen-img-edit-fp8:8000",
+    "qwen-image-edit":          "http://omni-qwen-img-edit:8000",
 }
-DEFAULT_BASE = "http://omni-qwen-img-edit:8000"
+_DEFAULT_MODEL = "qwen-image-edit-2511"
 # FP8 weight-only is faster (no CPU offload), but BF16 + layerwise-offload
 # is slow. Keep timeout high enough for the slow path.
 OMNI_TIMEOUT = 300  # 5 min max for slow BF16 + layerwise-offload inference
+
+
+def _resolve_api_url(model_id: str, action: str = "edit") -> str:
+    """Resolve (model, action) → full Omni API URL via the pool system.
+
+    Falls back to the legacy hard-coded map if the pool config is missing
+    or the model isn't declared in inference_pools.yaml.
+    """
+    try:
+        plan = resolve_step(service=None, model=model_id, action=action)
+        for hop in plan:
+            # The Omni endpoint shape is fully captured by the pool's launcher
+            # api: map — use the action's URL directly.
+            if hop.action == action or action is None:
+                return hop.url
+        # Action mismatch — take whatever the first hop gives us.
+        if plan:
+            return plan[0].url
+    except (ValueError, FileNotFoundError) as e:
+        logger.warning(
+            "Pool resolution failed for img_edit %r (%s) — using legacy map: %s",
+            model_id, action, e
+        )
+    # Legacy fallback: assume the BF16 omni container name.
+    base = _FALLBACK_ENDPOINTS.get(model_id, "http://omni-qwen-img-edit:8000")
+    return f"{base}/v1/images/edits"
 
 
 class ImageEditStep(StepExecutor):
@@ -83,12 +111,10 @@ class ImageEditStep(StepExecutor):
         steps = params.get("sampling_steps", 40)
         guidance = params.get("guidance_scale", 1.5)
         mask_b64 = params.get("mask_b64", "")
-        model_id = params.get("_model", "qwen-image-edit-2511")
+        model_id = params.get("_model", _DEFAULT_MODEL)
 
-        # Resolve API base URL
-        ep_info = OMNI_ENDPOINTS.get(model_id)
-        api_base = ep_info[0] if ep_info else DEFAULT_BASE
-        api_url = f"{api_base}/v1/images/edits"
+        # Resolve Omni API URL via the inference pool system.
+        api_url = _resolve_api_url(model_id, action="edit")
 
         logger.info(
             "Image edit [%s]: prompt=%.60s size=%dx%d steps=%d",

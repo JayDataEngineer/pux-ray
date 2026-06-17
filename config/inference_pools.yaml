@@ -178,7 +178,7 @@ pools:
           teacache_thresh: 0.01        # ~70% speedup, quality-preserving
           cpu_offload_gb: 20
       z-image:
-        script: scripts/run_omni_z_image_fp8.sh   # (to be created)
+        script: scripts/run_omni_z_image_fp8.sh
         model_dir: /mnt/data/models/native/z-image-turbo-fp8
         api:
           generate: POST /v1/images/generations
@@ -187,15 +187,15 @@ pools:
           cache_dit: true
           taylorseer: true
       wan-t2v:
-        script: scripts/run_omni_wan_t2v.sh       # (to be created)
+        script: scripts/run_omni_wan_t2v.sh
         api:
           generate: POST /v1/videos/generations
       wan-i2v:
-        script: scripts/run_omni_wan_i2v.sh       # (to be created)
+        script: scripts/run_omni_wan_i2v.sh
         api:
           generate: POST /v1/videos/generations
       cosmos:
-        script: scripts/run_omni_cosmos.sh        # (to be created)
+        script: scripts/run_omni_cosmos.sh
         model_dir: /mnt/data/models/cosmos3-nano
         api:
           generate: POST /v1/videos/generations

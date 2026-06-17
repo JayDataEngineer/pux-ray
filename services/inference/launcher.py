@@ -99,7 +99,15 @@ class PoolLauncher:
                 message=f"Launch script not found: {script_path}",
             )
 
-        args = [str(pool.port), *(extra_args or [])]
+        # Scripts expect: [MODEL_DIR] HOST_PORT [extra...]
+        # Pass the launcher's declared model_dir (if any) so the YAML's
+        # value overrides the script's built-in default. Scripts use
+        # MODEL_DIR="${1:-default}" HOST_PORT="${2:-default}".
+        args: list[str] = []
+        if launcher is not None and launcher.model_dir:
+            args.append(launcher.model_dir)
+        args.append(str(pool.port))
+        args.extend(extra_args or [])
         import time
         t0 = time.perf_counter()
         try:

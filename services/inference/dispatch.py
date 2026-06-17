@@ -98,11 +98,21 @@ class DispatchPlan(list[DispatchHop]):
 
 # ─── Resolver ────────────────────────────────────────────────────────────────
 
-def _pick_action(target: ResolvedTarget, fallback: str = "generate") -> tuple[str, str]:
-    """Return (action_name, http_path) from the launcher's api: map."""
+def _pick_action(target: ResolvedTarget, preferred: str | None = None,
+                 fallback: str = "generate") -> tuple[str, str]:
+    """Return (action_name, http_path) from the launcher's api: map.
+
+    Honors ``preferred`` if it's declared in the api map; otherwise picks
+    the first declared action.
+    """
     if target.launcher and target.launcher.api:
-        # Pick first declared action (typically "generate" or "edit").
-        action, endpoint = next(iter(target.launcher.api.items()))
+        api = target.launcher.api
+        # Prefer the requested action if it exists.
+        action = preferred if (preferred and preferred in api) else None
+        if action is None:
+            # Fall back to first declared action.
+            action = next(iter(api.keys()))
+        endpoint = api[action]
         # Endpoint looks like "POST /v1/images/generations"
         try:
             method, path = endpoint.split(" ", 1)
@@ -121,6 +131,12 @@ def resolve_step(service: str | None, model: str,
     serves the model becomes a DispatchHop with its URL + action path. Use
     the plan to make HTTP calls in priority order, falling through on
     connection errors or unhealthy pools.
+
+    ``action`` is the PREFERRED action key from the launcher's api: map
+    (e.g. "edit" vs "generate"). If the preferred action isn't declared
+    for a pool, the first declared action is used instead — so a pool
+    that only declares "generate" can still serve an "edit" workflow step
+    via its generate endpoint.
     """
     mgr = manager or PoolManager.from_yaml()
 
@@ -143,7 +159,7 @@ def resolve_step(service: str | None, model: str,
 
     plan: DispatchPlan = DispatchPlan()
     for target in targets:
-        picked_action, path = _pick_action(target, fallback=action)
+        picked_action, path = _pick_action(target, preferred=action, fallback=action)
         url = f"{target.pool.base_url}{path}"
         method = "POST"
         if target.launcher and target.launcher.api:

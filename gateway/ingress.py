@@ -36,6 +36,15 @@ from gateway.routes.wf_engine import (
     wf_list_specs, wf_get_spec, wf_start_run, wf_get_run, wf_cancel_run,
     wf_approve_step, wf_rerun_step, wf_execute_step, wf_get_artifact, wf_list_artifacts, wf_events,
 )
+from gateway.routes.inference import (
+    list_pools as inf_list_pools,
+    get_pool as inf_get_pool,
+    list_models as inf_list_models,
+    resolve_model as inf_resolve_model,
+    get_optimization as inf_get_optimization,
+    start_pool as inf_start_pool,
+    stop_pool as inf_stop_pool,
+)
 from gateway.studio import studio_page, studio_apps, studio_switch, studio_release
 from gateway.mcp_app_host import handle_mcp_host
 from registry.config import Config
@@ -845,6 +854,17 @@ def create_app() -> Starlette:
         Route("/v1/wf/{spec_name}/runs/{run_id}/artifacts", wf_list_artifacts),
         Route("/v1/wf/{spec_name}/runs/{run_id}/artifacts/{step_id}/{filename}", wf_get_artifact),
         Route("/v1/wf/{spec_name}/runs/{run_id}/events", wf_events),
+        # Inference pool system — mirrors the MCP inference tools. Source of
+        # truth is config/inference_pools.yaml. Lets the web-ui browse pools,
+        # resolve models, and (admin) start/stop containers over plain HTTP.
+        Route("/v1/inference/pools", inf_list_pools),
+        Route("/v1/inference/pools/{pool_name}", inf_get_pool),
+        Route("/v1/inference/pools/{pool_name}/start", inf_start_pool, methods=["POST"]),
+        Route("/v1/inference/pools/{pool_name}/stop", inf_stop_pool, methods=["POST"]),
+        Route("/v1/inference/models", inf_list_models),
+        Route("/v1/inference/models/{model}/resolve", inf_resolve_model),
+        Route("/v1/inference/models/{model}/optimization", inf_get_optimization),
+        Route("/v1/inference/resolve/{model}", inf_resolve_model),
     ]
 
     middleware = []

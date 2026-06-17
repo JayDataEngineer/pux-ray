@@ -144,14 +144,41 @@ This is the **workflow ↔ pool** bridge. The DAG engine calls:
 
 ```python
 from services.inference.dispatch import resolve_step
-plan = resolve_step(service="forge", model="qwen-image-edit")
+plan = resolve_step(service="forge", model="qwen-image-edit", action="edit")
 # → DispatchPlan[ DispatchHop(omni-vllm, .../v1/images/edits) ]
 ```
 
 Each `DispatchHop` carries the full URL, HTTP method, and a TNAP envelope
 builder. The workflow engine iterates the plan, skipping unhealthy pools.
 
-### 5. Workflow specs — `config/workflows/*.yaml`
+The `action` argument is the **preferred** action key from the launcher's
+`api:` map (e.g. `"edit"` vs `"generate"`). If a pool doesn't declare the
+preferred action, the first declared action is used instead — so a pool
+that only exposes `/v1/images/generations` can still serve an `"edit"` step
+via that endpoint. `_pick_action(target, preferred, fallback)` implements
+this preference cascade.
+
+### 5. Workflow engine integration — `services/workflows/engine.py`
+
+The engine has three ways to invoke pools, in order of abstraction:
+
+1. **`forge` step type** — legacy path. Routes through the Ray Serve Forge
+   deployment (VRAM-aware scheduler). Kept for backward compatibility.
+2. **Specialized step types** (`img_edit`, `vace_generate`, `ltx_generate`) —
+   each has its own executor that crafts service-specific payloads (e.g.
+   multipart form-data for Omni) but **resolves URLs via the dispatch bridge**:
+   ```python
+   from services.inference.dispatch import resolve_step
+   api_url = _resolve_api_url("qwen-image-edit", action="edit")
+   # → http://127.0.0.1:8093/v1/images/edits  (from inference_pools.yaml)
+   ```
+   Falls back to a hard-coded legacy map if the pool config is missing.
+3. **`pool` step type** *(new)* — generic pool client. Uses `resolve_step()`
+   to get an ordered plan, then walks hops in priority order with auto-fallback
+   on connection errors or unhealthy pools. The right choice for any new model
+   that speaks OpenAI-compatible JSON over HTTP.
+
+### 6. Workflow specs — `config/workflows/*.yaml`
 
 Workflows reference models **by name**. They don't know which pool serves them.
 The dispatch bridge resolves that at runtime, so the YAMLs stay portable.
@@ -160,25 +187,46 @@ The dispatch bridge resolves that at runtime, so the YAMLs stay portable.
 # config/workflows/tech_noir_state.yaml
 steps:
   edit_state:
-    type: forge
-    service: native              # logical service (any will do)
+    type: img_edit               # specialized executor → dispatch-resolved URL
     model: qwen-image-edit       # ← canonical model name
+    params: { ... }
+  generate:
+    type: pool                   # generic pool dispatch (new)
+    service: native
+    model: z-image
     params: { ... }
 ```
 
-### 6. MCP servers — `mcp/dag/` + `mcp/inference/`
+### 7. MCP servers — `mcp/dag/` + `mcp/inference/`
 
 Two MCP servers expose the system to web-ui / external clients:
 
 - **`mcp/dag/server.py`** — workflow operations: `list_workflows`,
   `start_workflow`, `get_run_status`, `cancel_run`, `list_native_models`.
-- **`mcp/inference/server.py`** *(new)* — pool operations:
+- **`mcp/inference/server.py`** — pool operations:
   `list_inference_pools`, `resolve_model`, `get_pool_status`,
   `get_model_optimization`, `start_inference_pool`, `stop_inference_pool`.
 
 A chat UI can ask `resolve_model("z-image")` to learn it's served by
 omni-vllm (with FP8+Cache-DiT) and falls back to sglang (1.61s benchmark),
 then `start_workflow("native_generate", {"model": "z-image", ...})` to run.
+
+### 8. HTTP routes — `gateway/routes/inference.py`
+
+Same surface area as the MCP server, exposed as REST under `/v1/inference/*`.
+Both interfaces consume the same Python modules and YAML config — the web-ui
+can use whichever is more convenient per call.
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/v1/inference/pools` | All pools in priority order |
+| `GET` | `/v1/inference/pools/{name}` | Single pool docker + health status |
+| `POST` | `/v1/inference/pools/{name}/start` | Start pool (body: `{"model": "..."}`) |
+| `POST` | `/v1/inference/pools/{name}/stop` | Stop and remove container |
+| `GET` | `/v1/inference/models` | Every routable model |
+| `GET` | `/v1/inference/models/{model}/resolve` | Ordered resolution chain |
+| `GET` | `/v1/inference/models/{model}/optimization` | Optimization + benchmark |
+| `GET` | `/v1/inference/resolve/{model}` | Alias for resolve |
 
 ## CLI — `scripts/inference/pool_ctl.py`
 
