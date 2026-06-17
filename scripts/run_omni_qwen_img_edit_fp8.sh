@@ -108,6 +108,7 @@ echo
 docker run -d --gpus all --ipc=host \
   -v "$MODEL_DIR":/models/qwen-img-edit-fp8:ro \
   -v "$PATCH_FILE":/usr/local/lib/python3.12/dist-packages/vllm_omni/diffusion/models/qwen_image/pipeline_qwen_image_edit_plus.py:ro \
+  -v "$(dirname "$PATCH_FILE")/fp8_weight_only_patch.py":/usr/local/lib/python3.12/dist-packages/fp8_weight_only_patch.py:ro \
   -v "$LAUNCHER":/launcher.py:ro \
   -p "$HOST_PORT:$CONTAINER_PORT" \
   -e PYTHONUNBUFFERED=1 \
