@@ -30,13 +30,17 @@ from . import StepExecutor, StepContext, StepResult
 logger = logging.getLogger(__name__)
 
 # Model → API server routing.
-# All Qwen-Image-Edit models served from the same container.
+#  qwen-image-edit-2511     — BF16 + layerwise offload (slow, 24GB VRAM)
+#  qwen-image-edit-2511-fp8 — FP8 weight-only (fast, all 60 blocks on GPU)
 OMNI_ENDPOINTS = {
-    "qwen-image-edit-2511": ("http://omni-qwen-img-edit:8000", "/models/qwen-img-edit"),
-    "qwen-image-edit":      ("http://omni-qwen-img-edit:8000", "/models/qwen-img-edit"),
+    "qwen-image-edit-2511":     ("http://omni-qwen-img-edit:8000", "/models/qwen-img-edit"),
+    "qwen-image-edit-2511-fp8": ("http://omni-qwen-img-edit-fp8:8000", "/models/qwen-img-edit-fp8"),
+    "qwen-image-edit":           ("http://omni-qwen-img-edit:8000", "/models/qwen-img-edit"),
 }
 DEFAULT_BASE = "http://omni-qwen-img-edit:8000"
-OMNI_TIMEOUT = 300  # 5 min for slow layerwise-offload inference
+# FP8 weight-only is faster (no CPU offload), but BF16 + layerwise-offload
+# is slow. Keep timeout high enough for the slow path.
+OMNI_TIMEOUT = 300  # 5 min max for slow BF16 + layerwise-offload inference
 
 
 class ImageEditStep(StepExecutor):

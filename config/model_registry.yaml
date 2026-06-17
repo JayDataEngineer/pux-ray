@@ -1683,6 +1683,19 @@ video:
     size_gb: 40.0
     source: hf://Qwen/Qwen-Image-Edit-2511
     vram_estimate_gb: 22.0
+  qwen-image-edit-2511-fp8:
+    description: 'Qwen-Image-Edit-2511 20B MMDiT FP8 weight-only diffusers format for
+      vLLM-Omni. DiT stored as Float8_e4m3fn with per-tensor scales — 20GB on disk vs
+      40GB BF16. ALL 60 DiT blocks fit on GPU (no layerwise offload needed). Text encoder
+      CPU-offloaded to save ~14GB VRAM. Cache-DiT acceleration (~2.38x).
+      See scripts/run_omni_qwen_img_edit_fp8.sh. API: POST /v1/images/edits.'
+    device: gpu
+    download: manual
+    path: image-gen/qwen-image-edit/2511-fp8
+    sha256: null
+    size_gb: 35.0
+    source: (build from scripts/prepare_qwen_img_edit_fp8.py)
+    vram_estimate_gb: 23.0
 vision:
   gemma-4-26b-a4b-mmproj-f16:
     description: Gemma 4 26B A4B mmproj (F16).
