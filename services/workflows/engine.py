@@ -61,6 +61,7 @@ class WorkflowEngine:
         from .steps.mock import MockStepExecutor
         from .steps.ltx_video import LTXGenerateStep, LTXSpatialUpscaleStep
         from .steps.vace import VaceGenerateStep
+        from .steps.img_edit import ImageEditStep
 
         self.registry.register("forge", ForgeStepExecutor)
         self.registry.register("serve", ServeStepExecutor)
@@ -72,6 +73,7 @@ class WorkflowEngine:
         self.registry.register("ltx_generate", LTXGenerateStep)
         self.registry.register("ltx_upscale", LTXSpatialUpscaleStep)
         self.registry.register("vace_generate", VaceGenerateStep)
+        self.registry.register("img_edit", ImageEditStep)
 
     # ------------------------------------------------------------------
     # Run lifecycle
@@ -463,6 +465,19 @@ class WorkflowEngine:
                         run.artifacts[f"{step.id}.{name}"] = ref.to_dict()
                 except OSError:
                     continue  # Not a valid file path (e.g., base64 data)
+
+            # Handle binary data output (video, image bytes)
+            if result.data is not None:
+                ext = "mp4" if result.media_type == "video/mp4" else "png"
+                artifact = await self.artifacts.store(
+                    run_id, step.id,
+                    f"output.{ext}",
+                    result.data,
+                    result.media_type,
+                )
+                run.artifacts[f"{step.id}.output"] = artifact.to_dict()
+                # Also make it accessible as a named output
+                result.outputs["_raw"] = str(artifact.file_path)
             await self.state_store.save(run)
 
             update_kwargs = dict(

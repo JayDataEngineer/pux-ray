@@ -25,19 +25,30 @@ class StepContext:
 
 
 class StepResult:
-    """Returned by a step executor after successful execution."""
+    """Returned by a step executor after successful execution.
 
-    __slots__ = ("outputs", "duration_ms", "metadata")
+    Two usage patterns:
+      1) Binary output (video, image): set data=bytes + media_type.
+         The engine stores the raw bytes as an artifact.
+      2) Dict output: set outputs=dict with key→value pairs.
+         String values that look like file paths are stored as artifacts.
+    """
+
+    __slots__ = ("outputs", "duration_ms", "metadata", "data", "media_type")
 
     def __init__(
         self,
         outputs: dict[str, Any] | None = None,
         duration_ms: int = 0,
         metadata: dict | None = None,
+        data: bytes | None = None,
+        media_type: str = "application/octet-stream",
     ):
         self.outputs = outputs or {}
         self.duration_ms = duration_ms
         self.metadata = metadata or {}
+        self.data = data
+        self.media_type = media_type
 
 
 class StepExecutor:

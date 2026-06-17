@@ -1669,6 +1669,20 @@ video:
     size_gb: 18.0
     source: local (direct-cast from Wan-AI/Wan2.1-VACE-14B-diffusers)
     vram_estimate_gb: 22.0
+  qwen-image-edit-2511:
+    description: 'Qwen-Image-Edit-2511 20B MMDiT diffusers format for vLLM-Omni.
+      Instruction-based image editing with built-in LoRA support, multi-image input,
+      improved character consistency. Served via vLLM-Omni 0.22 using Cache-DiT
+      acceleration (~2.38x speedup) and layerwise CPU offload for 24GB VRAM.
+      See scripts/run_omni_qwen_img_edit.sh. API: POST /v1/images/edits (OpenAI DALL-E
+      compatible). 40-step 1024x1024 edit: ~21.6s with Cache-DiT.'
+    device: gpu
+    download: snapshot
+    path: image-gen/qwen-image-edit/2511
+    sha256: null
+    size_gb: 40.0
+    source: hf://Qwen/Qwen-Image-Edit-2511
+    vram_estimate_gb: 22.0
 vision:
   gemma-4-26b-a4b-mmproj-f16:
     description: Gemma 4 26B A4B mmproj (F16).

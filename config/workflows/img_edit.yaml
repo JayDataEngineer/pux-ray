@@ -1,0 +1,73 @@
+name: img_edit
+version: "1.0"
+description: >
+  Qwen-Image-Edit-2511 — instruction-based image editing (PROVEN on RTX 4090).
+  Served via vLLM-Omni 0.22 with Cache-DiT acceleration (~2.38x speedup) and
+  layerwise CPU offload (20B MMDiT model fits in 24GB VRAM).
+
+  Uses the OpenAI DALL-E compatible /v1/images/edits endpoint. Accepts a
+  single input image and an edit instruction prompt.
+
+  Server-side optimizations (configured in run_omni_qwen_img_edit.sh):
+    * Cache-DiT backend with TaylorSeer: 51.5s → 21.6s on single GPU
+    * VAE tiling + slicing: prevents OOM at high resolutions
+    * Layerwise CPU offload: enables 20B model on 24GB VRAM
+
+  Works with any Qwen-Image-Edit variant (base, 2509, 2511) depending on
+  the model loaded in the container.
+
+inputs:
+  prompt:
+    type: string
+    required: true
+    description: "Edit instruction (e.g., 'add a blue hat', 'make it night')"
+  image_b64:
+    type: string
+    required: true
+    description: "Base64-encoded input image (PNG)"
+  image_b64_2:
+    type: string
+    required: false
+    description: "Optional second image for multi-image composition (2511 only)"
+  negative_prompt:
+    type: string
+    default: ""
+  seed:
+    type: integer
+    default: -1
+  width:
+    type: integer
+    default: 1024
+  height:
+    type: integer
+    default: 1024
+  steps:
+    type: integer
+    default: 40
+    description: "Denoising steps (10-50; 40 is default for quality)"
+  guidance:
+    type: float
+    default: 1.5
+    description: "CFG guidance scale (distilled model default: 1.5)"
+  mask_b64:
+    type: string
+    required: false
+    description: "Base64-encoded mask (white=edit region)"
+
+steps:
+  edit:
+    type: img_edit
+    model: qwen-image-edit-2511
+    params:
+      input_prompt: "{{ inputs.prompt }}"
+      image_b64: "{{ inputs.image_b64 }}"
+      image_b64_2: "{{ inputs.image_b64_2 }}"
+      n_prompt: "{{ inputs.negative_prompt }}"
+      seed: "{{ inputs.seed }}"
+      width: "{{ inputs.width }}"
+      height: "{{ inputs.height }}"
+      sampling_steps: "{{ inputs.steps }}"
+      guidance_scale: "{{ inputs.guidance }}"
+      mask_b64: "{{ inputs.mask_b64 }}"
+    outputs:
+      image: { media_type: image/png }
