@@ -9,21 +9,35 @@
 | **FP8-WORKFLOW.md** | FP8 quantization deep-dive: Triton fp8e4nv issue, FP8 weight-only pipeline patch approach, ModelOpt format, Cache-DiT, format comparison |
 | **MODEL-LIFECYCLE.md** | Model storage layout, quantization format reference, conversion pipeline, deployment checklist, VRAM strategy |
 | **TROUBLESHOOTING.md** | All known errors and their fixes: Triton crash, CUDA fork, OOM, missing packages, model format issues |
+| **MOSS-GGUF-MIGRATION.md** | MOSS TTS GGUF migration path: why GGUF, download steps, build instructions, model inventory |
 
 ## Quick Start — Testing a Model
 
 ```bash
+# ── Auto-evict GPU before switching models ──
+./scripts/auto_evict_gpu.sh --status          # check current VRAM usage
+./scripts/auto_evict_gpu.sh                    # stop all inference containers
+./scripts/auto_evict_gpu.sh --keep diarization # stop all except diarization
+
 # ── Qwen-Image-Edit (working) ──
 ./scripts/run_omni_qwen_img_edit_fp8.sh
 curl http://localhost:8093/health
 curl -X POST http://localhost:8093/v1/images/edits \
   -F "image=@input.png" -F "prompt=add text"
 
+# ── Z-Image Turbo (pipeline patch ready) ──
+./scripts/auto_evict_gpu.sh                    # free VRAM from previous model
+./scripts/run_omni_z_image_fp8.sh              # start on port 8094
+curl http://localhost:8094/health
+curl -X POST http://localhost:8094/v1/images/generations \
+  -H "Content-Type: application/json" \
+  -d '{"model":"/models/z-image-fp8","prompt":"a cat","n":1,"size":"1024x1024"}'
+
 # ── MOSS SoundEffect (working) ──
+./scripts/auto_evict_gpu.sh
 docker run -d --gpus all -v /mnt/data/models/audio:/models/audio \
   -p 8050:8081 --name inference-moss \
   forge-reg.local:30500/tech-noir/moss:latest
-# Fix missing deps:
 docker exec inference-moss pip install diffusers
 docker exec inference-moss apt-get install -y build-essential
 curl -X POST http://localhost:8050/load -d '{"model":"moss-soundeffect-v2"}'
@@ -31,6 +45,7 @@ curl -X POST http://localhost:8050/generate \
   -d '{"prompt":"rain","model":"moss-soundeffect-v2","seconds":3}'
 
 # ── CrispASR (working) ──
+./scripts/auto_evict_gpu.sh
 docker run -d --gpus all -p 8051:8080 \
   -e CRISPASR_AUTO_DOWNLOAD=1 \
   ghcr.io/crispstrobe/crispasr:main-cuda-12 \
@@ -51,10 +66,15 @@ docker ps --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}'
    Triton kernel crashes. The pipeline patch approach (FP8 weight-only dequant to BF16)
    is the only way to run 20B models on 24 GB.
 
-3. **VRAM is the constraint**: With a single RTX 4090, only ONE large model can run
-   at a time. Use auto-gpu-evict system between container swaps.
+3. **DRY FP8 patch module**: All model pipeline patches now import from
+   `scripts/fp8_weight_only_patch.py` (shared `apply_fp8_weight_only_patch()` function).
+   This eliminates duplicated patch code across qwen, vace, and z-image pipelines.
+   See `scripts/fp8_weight_only_patch.py` for the shared implementation.
 
-4. **Container images vs upstream**: Where possible use upstream images directly
+4. **VRAM is the constraint**: With a single RTX 4090, only ONE large model can run
+   at a time. Use `scripts/auto_evict_gpu.sh` between container swaps.
+
+5. **Container images vs upstream**: Where possible use upstream images directly
    (vllm/vllm-omni, ghcr.io/crispstrobe/crispasr). Custom images are tagged
    under `forge-reg.local:30500/tech-noir/`.
 
