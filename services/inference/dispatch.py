@@ -45,17 +45,69 @@ logger = logging.getLogger(__name__)
 # Workflow specs use abstract service names; we collapse them into the model
 # name for routing. The pool that owns the model handles the actual call.
 SERVICE_TO_MODEL_HINT: dict[str, str] = {
-    # Legacy "forge" / "native" services become a no-op — model name drives routing.
+    # Legacy "forge" / "native" services — model name drives routing.
     "forge": "",
     "native": "",
     "wan2gp": "",
-    # Services where the service name IS the model name (Tier A specialized).
-    "moss": "moss_tts",
-    "moss_soundeffect": "moss_soundeffect",
+
+    # ── Tier A: MOSS (Python server, migrating to OpenMOSS C++) ─────────────
+    "moss": "moss-tts",
+    "moss_tts": "moss-tts",
+    "moss-tts": "moss-tts",
+    "moss_ttsd": "moss-ttsd",
+    "moss-ttsd": "moss-ttsd",
+    "moss_soundeffect": "moss-soundeffect",
+    "moss-soundeffect": "moss-soundeffect",
+    "moss_soundeffect_v2": "moss-soundeffect-v2",
+    "moss-soundeffect-v2": "moss-soundeffect-v2",
+    "moss_tts_realtime": "moss-tts-realtime",
+    "moss-tts-realtime": "moss-tts-realtime",
+    "moss_tts_local_transformer": "moss-tts-local-transformer",
+    "moss-tts-local-transformer": "moss-tts-local-transformer",
+    "moss_voicegenerator": "moss-voicegenerator",
+    "moss-voicegenerator": "moss-voicegenerator",
+    "moss_tts_nano": "moss-tts-nano",
+    "moss-tts-nano": "moss-tts-nano",
+
+    # ── Tier A: Diarization / ASR / Whisper (all via CrispASR) ─────────────
     "diarization": "diarization",
+    "diarization-base": "diarization-base",
+    "diarization-turbo": "diarization-turbo",
+    "asr": "diarization",                     # generic "asr" service → base
+    "whisper": "diarization",                 # CrispASR handles whisper requests
+    "faster-whisper": "diarization",          # legacy alias → diarization
+    "faster_whisper": "diarization",
+
+    # ── Tier A: LLM / ComfyUI ───────────────────────────────────────────────
     "comfyui": "comfyui",
     "llm": "llama",
+    "llama": "llama",
     "llama-bee": "llama-bee",
+
+    # ── Tier A: ACE-Step C++ (acestep.cpp, /lm → /synth two-step) ────────────
+    "ace-step": "ace-step",
+    "ace-step-turbo": "ace-step-turbo",
+    "ace_step": "ace-step",
+    "ace_step_turbo": "ace-step-turbo",
+
+    # ── Tier B: vLLM-Omni DiT models ────────────────────────────────────────
+    "qwen-image-edit": "qwen-image-edit",
+    "qwen-image-edit-turbo": "qwen-image-edit-turbo",
+    "wan-vace": "wan-vace",
+    "wan-vace-turbo": "wan-vace-turbo",
+    "z-image": "z-image",
+    "z-image-turbo": "z-image",              # turbo alias → z-image (omni-vllm primary)
+    "z-image-base": "z-image-base",          # base: same pipeline, non-distilled weights (omni-vllm → sglang fallback)
+    "cosmos": "cosmos",
+
+    # ── Tier C: SGLang ───────────────────────────────────────────────────────
+    "ideogram4": "ideogram4",
+    "ltx-video": "ltx-video",
+
+    # ── Tier D: Diffusers catch-all ──────────────────────────────────────────
+    "kimodo": "kimodo",
+    "kokoro": "kokoro",
+    "see-through": "see-through",
 }
 
 
