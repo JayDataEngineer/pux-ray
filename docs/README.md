@@ -11,6 +11,71 @@
 | **TROUBLESHOOTING.md** | All known errors and their fixes: Triton crash, CUDA fork, OOM, missing packages, model format issues |
 | **MOSS-GGUF-MIGRATION.md** | MOSS TTS GGUF migration path: why GGUF, download steps, build instructions, model inventory |
 
+## Registry System (v2.0)
+
+The model registry (`config/model_registry.yaml`) is the **single source of truth** for all models on disk. It documents every model's:
+
+  - **Physical path** on disk (`path:`)
+  - **Download source** (`source:`) and method (`download:`)
+  - **Size and VRAM estimates** (`size_gb:`, `vram_estimate_gb:`)
+  - **Device** (`device: cpu | gpu`)
+  - **Status** (`status: active | legacy | pending`)
+  - **Pool cross-reference** (`serves:` — which pool-facing name this satisfies)
+
+### served-models section
+
+The `served-models:` section at the bottom maps **pool-facing names** (used in `inference_pools.yaml` routes) to their physical model entries via `pool_ref:`. This is the lookup table for "what pool name → what physical model".
+
+```yaml
+# Example: served-models entry
+z-image:
+  description: Pool-facing name for video/z-image-turbo-fp8
+  pool_ref: video/z-image-turbo-fp8
+  status: active
+  path: native/z-image-turbo-fp8
+  size_gb: 16.0
+```
+
+### Cross-reference flow
+
+```
+Workflow step (service="native", model="z-image")
+  → DISPATCH: resolve_step() uses inference_pools.yaml routes
+  → POOL: omni-vllm has registry_ref: served-models/z-image
+  → REGISTRY: served-models/z-image has pool_ref: video/z-image-turbo-fp8
+  → PHYSICAL: video/z-image-turbo-fp8 has path: native/z-image-turbo-fp8
+```
+
+### Querying the registry
+
+```bash
+# List all served models
+python3 -c "import yaml; r=yaml.safe_load(open('config/model_registry.yaml')); [print(k) for k in r.get('served-models',{})]"
+
+# Show physical entry for a pool model
+python3 -c "
+import yaml
+r=yaml.safe_load(open('config/model_registry.yaml'))
+ref=r['served-models']['z-image']['pool_ref']
+cat,entry=ref.split('/',1)
+print(r[cat][entry])
+"
+
+# Run storage audit
+python3 -m registry.audit --summary
+
+# Reconcile registry vs disk (dry-run)
+python3 -m registry.reconcile --dry-run
+```
+
+### Audit & GC tools
+
+| Tool | Purpose |
+|------|---------|
+| `registry/audit.py` | Scan disk against registry — finds stale entries, HF caches, orphans, duplicates |
+| `registry/gc.py` | Safe garbage collection — purge HF caches, hardlink dupes, delete orphans |
+| `registry/reconcile.py` | Remove registry entries whose paths no longer exist on disk |
+
 ## Quick Start — Testing a Model
 
 ```bash
@@ -77,6 +142,12 @@ docker ps --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}'
 5. **Container images vs upstream**: Where possible use upstream images directly
    (vllm/vllm-omni, ghcr.io/crispstrobe/crispasr). Custom images are tagged
    under `forge-reg.local:30500/tech-noir/`.
+
+6. **Model Registry v2.0 is the single source of truth**: All model metadata
+   (paths, sources, sizes, VRAM estimates) lives in `config/model_registry.yaml`.
+   The `inference_pools.yaml` cross-references it via `registry_ref:` fields.
+   Registry audit/reconcile/GC tools in `registry/` keep disk in sync.
+   The `served-models:` section maps pool-facing names to physical entries.
 
 ## GPU Memory State (Typical)
 

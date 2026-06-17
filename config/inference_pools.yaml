@@ -24,6 +24,12 @@
 # Models may be served by multiple pools; the routes: table defines the
 # priority order per model. Resolution is data-driven from this file — no
 # Python changes required to add or relocate a model.
+#
+# ════════════════════════════════════════════════════════════════════════════
+# Registry cross-reference:
+#   Physical model metadata (size, source, path, VRAM) lives in
+#   config/model_registry.yaml under the "served-models:" section.
+#   The `registry_ref:` field below links pool launchers to that section.
 # ════════════════════════════════════════════════════════════════════════════
 
 # ─── Defaults ────────────────────────────────────────────────────────────────
@@ -233,6 +239,7 @@ pools:
         patch: scripts/pipeline_qwen_image_edit_plus_patch.py
         model_dir: /mnt/data/models/image-gen/qwen-image-edit/2511-fp8
         launcher: scripts/launch_qwen_img_edit_fp8.py
+        registry_ref: served-models/qwen-image-edit
         api:
           generate: POST /v1/images/generations
           edit:     POST /v1/images/edits
@@ -252,6 +259,7 @@ pools:
         script: scripts/run_omni_14b.sh
         patch: scripts/pipeline_wan2_2_vace_patch.py
         model_dir: /mnt/data/models/video/wan2.1-vace-14b-fp8-diffusers
+        registry_ref: served-models/wan-vace
         api:
           generate: POST /v1/videos/generations
         optimization:
@@ -263,6 +271,7 @@ pools:
         patch: scripts/pipeline_z_image_patch.py
         shared_patch: scripts/fp8_weight_only_patch.py
         model_dir: /mnt/data/models/native/z-image-turbo-fp8
+        registry_ref: served-models/z-image
         api:
           generate: POST /v1/images/generations
         optimization:
@@ -279,6 +288,7 @@ pools:
         patch: scripts/pipeline_z_image_patch.py
         shared_patch: scripts/fp8_weight_only_patch.py
         model_dir: /mnt/data/models/native/z-image-base-fp8
+        registry_ref: served-models/z-image-base
         api:
           generate: POST /v1/images/generations
         optimization:
@@ -328,6 +338,7 @@ pools:
       cosmos:
         script: scripts/run_omni_cosmos.sh
         model_dir: /mnt/data/models/cosmos3-nano
+        registry_ref: served-models/cosmos
         api:
           generate: POST /v1/videos/generations
         optimization:
@@ -363,6 +374,7 @@ pools:
       ideogram4:
         script: infra/docker/serve_ideogram4.sh
         variant: nf4             # 16 GB on 24 GB card (text_encoder 5.5GB + transformer 5.2GB)
+        registry_ref: served-models/ideogram4
         api:
           generate: POST /v1/images/generations
         env_requires: [HF_TOKEN]
@@ -370,6 +382,7 @@ pools:
       z-image-base:              # fallback when omni-vllm is occupied
         script: infra/docker/serve_zimage_base_fp8.sh
         model_dir: /mnt/data/models/native/z-image-base-fp8
+        registry_ref: served-models/z-image-base
         api:
           generate: POST /v1/images/generations
         optimization:
@@ -386,6 +399,7 @@ pools:
         script: infra/docker/serve_zimage_fp8.sh
         variant: sglang
         model_dir: /mnt/data/models/native/z-image-turbo-fp8
+        registry_ref: served-models/z-image
         api:
           generate: POST /v1/images/generations
         optimization:
@@ -403,6 +417,7 @@ pools:
       ltx-video:
         script: infra/docker/serve_ltx23_fp8.sh
         model_dir: /mnt/data/models/native/ltx-2.3-fp8
+        registry_ref: served-models/ltx-video
         api:
           generate: POST /v1/videos/generations
         optimization:

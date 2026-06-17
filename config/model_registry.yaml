@@ -1,3 +1,17 @@
+# ════════════════════════════════════════════════════════════════════════════
+# Tech Noir Model Registry v2.0 — Single source of truth for all models on disk
+# Updated: 2026-06-17
+# See served-models: section for pool-facing name lookup
+# ════════════════════════════════════════════════════════════════════════════
+
+_meta:
+  description: Tech Noir Model Registry — single source of truth for all models on disk
+  fields:
+    pool_ref: Cross-reference to served-models/ entry
+    serves: Pool-facing name(s) this model satisfies (links to served-models section)
+    status: active | legacy (still on disk but superseded) | pending (not yet downloaded)
+  updated: '2026-06-17'
+  version: '2.0'
 3d:
   anigen:
     description: AniGen checkpoints. SLAT DAE, SS DAE, dinov2, dsine, vgg, flow models.
@@ -57,8 +71,8 @@
     vram_estimate_gb: 0.3
 asr:
   distil-whisper-large-v3:
-    description: Distil-Whisper large-v3 in CTranslate2 format. CPU inference via faster-whisper. Used by
-      the faster_whisper Tier 1 service.
+    description: Distil-Whisper large-v3 in CTranslate2 format. CPU inference via faster-whisper. Used
+      by the faster_whisper Tier 1 service.
     device: cpu
     download: snapshot
     path: asr/faster-whisper/
@@ -67,8 +81,8 @@ asr:
     source: hf://Systran/faster-distil-whisper-large-v3
     vram_estimate_gb: 0.0
   vibevoice-asr-7b:
-    description: Microsoft VibeVoice-ASR 7B. GPU ASR with native speaker diarization. Used by the
-      vibevoice_microsoft Tier 2 service.
+    description: Microsoft VibeVoice-ASR 7B. GPU ASR with native speaker diarization. Used by the vibevoice_microsoft
+      Tier 2 service.
     device: gpu
     download: snapshot
     path: asr/vibevoice-asr/
@@ -78,37 +92,19 @@ asr:
     vram_estimate_gb: 16.0
 audio:
   ace-step:
-    description: ACE-STEP 1.5 music generation (diffusers format). Legacy — superseded by acestep-cpp GGUF pipeline.
+    description: ACE-STEP 1.5 music generation (diffusers format). Legacy — superseded by acestep-cpp
+      GGUF pipeline.
     device: gpu
     download: snapshot
     path: audio/acestep/
     sha256: null
     size_gb: 8.0
     source: hf://ACE-Step/Ace-Step1.5
+    status: legacy
     vram_estimate_gb: 8.0
-  acestep-cpp-lm-1.7b:
-    description: ACE-Step 1.5 LM 1.7B GGUF Q8_0. First step in the two-step pipeline — generates
-      music codes from caption + lyrics. Used by infra/docker/Dockerfile.acetep (acestep.cpp).
-    device: gpu
-    download: file
-    path: audio/acestep-cpp/acestep-5Hz-lm-1.7B-Q8_0.gguf
-    sha256: null
-    size_gb: 1.9
-    source: hf://Serveurperso/ACE-Step-1.5-GGUF/acestep-5Hz-lm-1.7B-Q8_0.gguf
-    vram_estimate_gb: 2.0
-  acestep-cpp-dit-turbo:
-    description: ACE-Step 1.5 DiT turbo GGUF Q8_0. 8-step distilled DiT for fast music synthesis.
-      Second step after /lm — renders music codes to audio via /synth.
-    device: gpu
-    download: file
-    path: audio/acestep-cpp/acestep-v15-turbo-Q8_0.gguf
-    sha256: null
-    size_gb: 3.9
-    source: hf://Serveurperso/ACE-Step-1.5-GGUF/acestep-v15-turbo-Q8_0.gguf
-    vram_estimate_gb: 4.0
   acestep-cpp-dit-sft:
-    description: ACE-Step 1.5 DiT SFT GGUF Q8_0. 50-step non-distilled DiT for high-quality
-      music synthesis (base variant). Second step after /lm — renders music codes to audio.
+    description: ACE-Step 1.5 DiT SFT GGUF Q8_0. 50-step non-distilled DiT for high-quality music synthesis
+      (base variant). Second step after /lm — renders music codes to audio.
     device: gpu
     download: file
     path: audio/acestep-cpp/acestep-v15-sft-Q8_0.gguf
@@ -116,9 +112,29 @@ audio:
     size_gb: 3.9
     source: hf://Serveurperso/ACE-Step-1.5-GGUF/acestep-v15-sft-Q8_0.gguf
     vram_estimate_gb: 4.0
+  acestep-cpp-dit-turbo:
+    description: ACE-Step 1.5 DiT turbo GGUF Q8_0. 8-step distilled DiT for fast music synthesis. Second
+      step after /lm — renders music codes to audio via /synth.
+    device: gpu
+    download: file
+    path: audio/acestep-cpp/acestep-v15-turbo-Q8_0.gguf
+    sha256: null
+    size_gb: 3.9
+    source: hf://Serveurperso/ACE-Step-1.5-GGUF/acestep-v15-turbo-Q8_0.gguf
+    vram_estimate_gb: 4.0
+  acestep-cpp-lm-1.7b:
+    description: ACE-Step 1.5 LM 1.7B GGUF Q8_0. First step in the two-step pipeline — generates music
+      codes from caption + lyrics. Used by infra/docker/Dockerfile.acetep (acestep.cpp).
+    device: gpu
+    download: file
+    path: audio/acestep-cpp/acestep-5Hz-lm-1.7B-Q8_0.gguf
+    sha256: null
+    size_gb: 1.9
+    source: hf://Serveurperso/ACE-Step-1.5-GGUF/acestep-5Hz-lm-1.7B-Q8_0.gguf
+    vram_estimate_gb: 2.0
   acestep-cpp-text-encoder:
-    description: Qwen3-Embedding-0.6B text encoder GGUF Q8_0 for ACE-Step C++. Encodes musical
-      captions + lyrics into latent space for the LM pass.
+    description: Qwen3-Embedding-0.6B text encoder GGUF Q8_0 for ACE-Step C++. Encodes musical captions
+      + lyrics into latent space for the LM pass.
     device: gpu
     download: file
     path: audio/acestep-cpp/Qwen3-Embedding-0.6B-Q8_0.gguf
@@ -127,8 +143,8 @@ audio:
     source: hf://Serveurperso/ACE-Step-1.5-GGUF/Qwen3-Embedding-0.6B-Q8_0.gguf
     vram_estimate_gb: 1.0
   acestep-cpp-vae:
-    description: ACE-Step 1.5 VAE BF16 GGUF. Audio decoder — converts DiT latents to final
-      48kHz stereo WAV in the /synth step.
+    description: ACE-Step 1.5 VAE BF16 GGUF. Audio decoder — converts DiT latents to final 48kHz stereo
+      WAV in the /synth step.
     device: gpu
     download: file
     path: audio/acestep-cpp/vae-BF16.gguf
@@ -166,6 +182,7 @@ audio:
     sha256: null
     size_gb: 33.5
     source: hf://OpenMOSS-Team/MOSS-SoundEffect
+    status: legacy
     vram_estimate_gb: 18.0
   moss-soundeffect-v2:
     description: MOSS-SoundEffect v2.0 (1.3B DiT+FlowMatching). Self-contained, no tokenizer needed.
@@ -184,6 +201,7 @@ audio:
     sha256: null
     size_gb: 33.5
     source: hf://OpenMOSS-Team/MOSS-TTS
+    status: legacy
     vram_estimate_gb: 18.0
   moss-tts-local-transformer:
     description: MOSS-TTS-Local-Transformer 1.7B lighter TTS variant with local transformer decoder. Requires
@@ -194,6 +212,7 @@ audio:
     sha256: null
     size_gb: 6.2
     source: hf://OpenMOSS-Team/MOSS-TTS-Local-Transformer
+    status: legacy
     vram_estimate_gb: 4.0
   moss-tts-nano:
     description: MOSS-TTS-Nano 100M ultra-lightweight TTS. GPT-2 backbone, SentencePiece tokenizer, 48kHz
@@ -204,6 +223,7 @@ audio:
     sha256: null
     size_gb: 0.25
     source: hf://OpenMOSS-Team/MOSS-TTS-Nano-100M
+    status: legacy
     vram_estimate_gb: 0.2
   moss-tts-realtime:
     description: MOSS-TTS-Realtime 2.3B streaming TTS with RVQ local transformer. Prefill/step streaming
@@ -214,6 +234,7 @@ audio:
     sha256: null
     size_gb: 4.7
     source: hf://OpenMOSS-Team/MOSS-TTS-Realtime
+    status: legacy
     vram_estimate_gb: 4.0
   moss-ttsd:
     description: MOSS-TTSD v1.0 8B dialogue TTS. Expressive multi-speaker ultra-long dialogue generation.
@@ -224,6 +245,7 @@ audio:
     sha256: null
     size_gb: 33.5
     source: hf://OpenMOSS-Team/MOSS-TTSD-v1.0
+    status: legacy
     vram_estimate_gb: 18.0
   moss-voicegenerator:
     description: MOSS-VoiceGenerator 1.7B voice design. Generate diverse voices and styles from text prompts
@@ -234,6 +256,7 @@ audio:
     sha256: null
     size_gb: 7.0
     source: hf://OpenMOSS-Team/MOSS-VoiceGenerator
+    status: legacy
     vram_estimate_gb: 4.0
   tangoflux:
     description: TangoFlux text-to-audio generation. Flow matching with DiT/MMDiT, CRPO-aligned. Generates
@@ -262,6 +285,7 @@ avatar:
     device: gpu
     download: snapshot
     path: avatar/kimodo/Kimodo-SOMA-RP-v1.1/
+    serves: kimodo
     sha256: null
     size_gb: 1.1
     source: hf://nvidia/Kimodo-SOMA-RP-v1.1
@@ -297,8 +321,8 @@ cache:
     vram_estimate_gb: 0.0
 comfyui:
   checkpoint-ilflatmix:
-    description: "ALF mix IL v4.3 [final] \u2014 Illustrious 8-step checkpoint. VNCCS author's mix (Shio_N).\
-      \ LCM/Euler A, CFG 1.8-2.0, 6-8 steps. Civitai version 2044675."
+    description: ALF mix IL v4.3 [final] — Illustrious 8-step checkpoint. VNCCS author's mix (Shio_N).
+      LCM/Euler A, CFG 1.8-2.0, 6-8 steps. Civitai version 2044675.
     device: gpu
     download: civitai
     path: image-gen/comfyui/checkpoints/Illustrious/ILFlatMix.safetensors
@@ -307,8 +331,8 @@ comfyui:
     source: civitai://2044675
     vram_estimate_gb: 7.5
   checkpoint-ilflatmix-v4:
-    description: "ALF mix IL v4.3 [00001] \u2014 Illustrious checkpoint. VNCCS SDXL pipeline. Civitai\
-      \ version 2044675."
+    description: ALF mix IL v4.3 [00001] — Illustrious checkpoint. VNCCS SDXL pipeline. Civitai version
+      2044675.
     device: gpu
     download: civitai
     path: image-gen/comfyui/checkpoints/Illustrious/ILFlatMixV4_00001_.safetensors
@@ -714,8 +738,8 @@ comfyui:
     source: hf://unsloth/Qwen-Image-Edit-2511-GGUF/qwen-image-edit-2511-Q5_0.gguf
     vram_estimate_gb: 8.0
   unet-zimage-base:
-    description: "Z-Image Base UNet (BF16). Non-distilled foundation model \u2014 full diversity for training\
-      \ data generation. Apache 2.0."
+    description: Z-Image Base UNet (BF16). Non-distilled foundation model — full diversity for training
+      data generation. Apache 2.0.
     device: gpu
     download: file
     path: image-gen/comfyui/unet/z_image_bf16.safetensors
@@ -724,8 +748,8 @@ comfyui:
     source: hf://Comfy-Org/z_image/split_files/diffusion_models/z_image_bf16.safetensors
     vram_estimate_gb: 12.0
   unet-zimage-turbo:
-    description: "Z-Image Turbo UNet (BF16). Distilled variant \u2014 faster but less diversity. From\
-      \ Comfy-Org repackaged."
+    description: Z-Image Turbo UNet (BF16). Distilled variant — faster but less diversity. From Comfy-Org
+      repackaged.
     device: gpu
     download: file
     path: image-gen/comfyui/unet/z_image_turbo_bf16.safetensors
@@ -898,7 +922,7 @@ embeddings:
     vram_estimate_gb: 0.5
 lance:
   lance-image:
-    description: "Lance 3B image bf16 (24.7 GB). Reference only \u2014 use GGUF or AWQ."
+    description: Lance 3B image bf16 (24.7 GB). Reference only — use GGUF or AWQ.
     device: gpu
     download: manual
     path: lance/Lance_3B/
@@ -927,7 +951,7 @@ lance:
     source: hf://bytedance-research/Lance
     vram_estimate_gb: 1.0
   lance-video:
-    description: "Lance 3B video bf16 (28.4 GB). Reference only \u2014 use GGUF or AWQ."
+    description: Lance 3B video bf16 (28.4 GB). Reference only — use GGUF or AWQ.
     device: gpu
     download: manual
     path: lance/Lance_3B_Video/
@@ -993,8 +1017,8 @@ llm:
     cache_type_k: turbo4
     cache_type_v: turbo3_tcq
     ctx_size: 102400
-    description: "Q5_K_S 100K + DFlash + TurboQuant + Vision (mmproj on GPU). Sacrificed 200K\u2192100K\
-      \ context to fit mmproj in VRAM for faster vision."
+    description: Q5_K_S 100K + DFlash + TurboQuant + Vision (mmproj on GPU). Sacrificed 200K→100K context
+      to fit mmproj in VRAM for faster vision.
     device: gpu
     download: file
     engine: beellama
@@ -1224,31 +1248,6 @@ vibevoice-cpp:
     source: hf://mudler/vibevoice.cpp-models/voice-en-Emma.gguf
     vram_estimate_gb: 0.01
 video:
-  qwen-image-edit-2511-fp8:
-    description: "Qwen-Image-Edit-2511 20B MMDiT FP8 weight-only diffusers format for vLLM-Omni. DiT stored\
-      \ as Float8_e4m3fn with per-tensor scales \u2014 20GB on disk vs 40GB BF16. ALL 60 DiT blocks fit\
-      \ on GPU (no layerwise offload needed). Text encoder CPU-offloaded to save ~14GB VRAM. Cache-DiT\
-      \ acceleration (~2.38x). See scripts/run_omni_qwen_img_edit_fp8.sh. API: POST /v1/images/edits."
-    device: gpu
-    download: manual
-    path: image-gen/qwen-image-edit/2511-fp8
-    sha256: null
-    size_gb: 35.0
-    source: (build from scripts/prepare_qwen_img_edit_fp8.py)
-    vram_estimate_gb: 23.0
-  wan2.1-vace-14b-fp8-diffusers:
-    description: "Wan2.1 VACE 14B direct-cast FP8 in diffusers format. PROVEN on RTX 4090 (24GB) via vLLM-Omni\
-      \ 0.22 with the FP8 weight-only patch (FP8 storage + BF16 matmul, no activation quantization). Requires\
-      \ the patched pipeline_wan2_2_vace_patch.py bind-mounted into the container \u2014 see scripts/run_omni_14b.sh.\
-      \ ~14GB FP8 transformer + ~5GB BF16 text encoder (CPU-offloaded). 25-step 640x480 generation: ~165s\
-      \ baseline, ~49s with TeaCache enabled (OMNI_TEACACHE_THRESH=0.01)."
-    device: gpu
-    download: skip
-    path: video/wan2.1-vace-14b-fp8-diffusers
-    sha256: null
-    size_gb: 18.0
-    source: local (direct-cast from Wan-AI/Wan2.1-VACE-14B-diffusers)
-    vram_estimate_gb: 22.0
   cosmos3-nano:
     description: Cosmos3-Nano video generation model. BF16, auto CPU offload (transformer ~27GB fits via
       CPU offloading). FP8 blocked pending SGLang/vLLM-Omni support for Cosmos3 fused LLM params. Served
@@ -1256,31 +1255,61 @@ video:
     device: gpu
     download: skip
     path: cosmos3-nano
+    serves: cosmos
     sha256: null
     size_gb: 27.0
     source: (on disk \u2014 already downloaded)
     vram_estimate_gb: 20.0
-  z-image-turbo-fp8:
-    description: Z-Image turbo (distilled) checkpoint in FP8 format. 8-step inference via vLLM-Omni
-      or SGLang using the same DiT pipeline as z-image-base. Served by inference-omni-vllm (primary)
-      or inference-sglang (fallback). Route name in pools: z-image.
+  qwen-image-edit-2511-fp8:
+    description: 'Qwen-Image-Edit-2511 20B MMDiT FP8 weight-only diffusers format for vLLM-Omni. DiT stored
+      as Float8_e4m3fn with per-tensor scales — 20GB on disk vs 40GB BF16. ALL 60 DiT blocks fit on GPU
+      (no layerwise offload needed). Text encoder CPU-offloaded to save ~14GB VRAM. Cache-DiT acceleration
+      (~2.38x). See scripts/run_omni_qwen_img_edit_fp8.sh. API: POST /v1/images/edits.'
     device: gpu
     download: manual
-    path: native/z-image-turbo-fp8
+    path: image-gen/qwen-image-edit/2511-fp8
+    serves: qwen-image-edit
     sha256: null
-    size_gb: 16.0
-    source: (manual \u2014 build from Z-Image turbo weights)
-    vram_estimate_gb: 20.0
+    size_gb: 35.0
+    source: (build from scripts/prepare_qwen_img_edit_fp8.py)
+    vram_estimate_gb: 23.0
+  wan2.1-vace-14b-fp8-diffusers:
+    description: 'Wan2.1 VACE 14B direct-cast FP8 in diffusers format. PROVEN on RTX 4090 (24GB) via vLLM-Omni
+      0.22 with the FP8 weight-only patch (FP8 storage + BF16 matmul, no activation quantization). Requires
+      the patched pipeline_wan2_2_vace_patch.py bind-mounted into the container — see scripts/run_omni_14b.sh.
+      ~14GB FP8 transformer + ~5GB BF16 text encoder (CPU-offloaded). 25-step 640x480 generation: ~165s
+      baseline, ~49s with TeaCache enabled (OMNI_TEACACHE_THRESH=0.01).'
+    device: gpu
+    download: skip
+    path: video/wan2.1-vace-14b-fp8-diffusers
+    serves: wan-vace
+    sha256: null
+    size_gb: 18.0
+    source: local (direct-cast from Wan-AI/Wan2.1-VACE-14B-diffusers)
+    vram_estimate_gb: 22.0
   z-image-base-fp8:
-    description: Z-Image base (non-distilled) checkpoint in FP8 format. Same architecture as z-image-turbo
-      but different weights \u2014 50-step inference for higher quality. Served by inference-omni-vllm (primary)
-      or inference-sglang (fallback). Route name in pools: z-image-base.
+    description: 'Z-Image base (non-distilled) checkpoint in FP8 format. Same architecture as z-image-turbo
+      but different weights — 50-step inference for higher quality. Served by inference-omni-vllm (primary)
+      or inference-sglang (fallback). Route name in pools: z-image-base.'
     device: gpu
     download: manual
     path: native/z-image-base-fp8
+    serves: z-image-base
     sha256: null
     size_gb: 16.0
     source: (manual \u2014 build from Z-Image base weights)
+    vram_estimate_gb: 20.0
+  z-image-turbo-fp8:
+    description: 'Z-Image turbo (distilled) checkpoint in FP8 format. 8-step inference via vLLM-Omni or
+      SGLang using the same DiT pipeline as z-image-base. Served by inference-omni-vllm (primary) or inference-sglang
+      (fallback). Route name in pools: z-image.'
+    device: gpu
+    download: manual
+    path: native/z-image-turbo-fp8
+    serves: z-image
+    sha256: null
+    size_gb: 16.0
+    source: (manual \u2014 build from Z-Image turbo weights)
     vram_estimate_gb: 20.0
 vision:
   gemma-4-26b-a4b-mmproj-f16:
@@ -1370,8 +1399,8 @@ wan2gp:
     source: hf://DeepBeepMeep/ACE-Step
     vram_estimate_gb: 8.0
   anima-base:
-    description: "Anima Base 2B \u2014 Cosmos-Predict2 anime/illustration T2I by CircleStone Labs + Comfy\
-      \ Org. 30 steps, CFG 4-5, 512-1536px. Danbooru tags."
+    description: Anima Base 2B — Cosmos-Predict2 anime/illustration T2I by CircleStone Labs + Comfy Org.
+      30 steps, CFG 4-5, 512-1536px. Danbooru tags.
     device: gpu
     download: file
     path: wan2gp/anima-base-v1.0.safetensors
@@ -1488,3 +1517,211 @@ wan2gp:
     size_gb: 1.9
     source: hf://DeepBeepMeep/TTS
     vram_estimate_gb: 2.0
+served-models:
+  ace-step:
+    description: 'Pool service: ace-step — defined in inference_pools.yaml'
+    pool_ref: null
+    status: active
+    type: service
+  ace-step-turbo:
+    description: 'Pool service: ace-step-turbo — defined in inference_pools.yaml'
+    pool_ref: null
+    status: active
+    type: service
+  anima-base:
+    description: Anima Base 2B — Cosmos-Predict2 anime/illustration T2I via omni-vllm
+    pool_ref: wan2gp/anima-base
+    path: wan2gp/anima-base-v1.0.safetensors
+    size_gb: 4.0
+    status: active
+    device: gpu
+    vram_estimate_gb: 6.0
+  comfyui:
+    description: 'Pool service: comfyui — defined in inference_pools.yaml'
+    pool_ref: null
+    status: active
+    type: service
+  cosmos:
+    description: Pool-facing name for video/cosmos3-nano
+    path: cosmos3-nano
+    pool_ref: video/cosmos3-nano
+    size_gb: 27.0
+    status: active
+  cosmos-sglang:
+    description: Cosmos3-Nano via SGLang fallback (primary is omni-vllm)
+    path: cosmos3-nano
+    pool_ref: video/cosmos3-nano
+    size_gb: 27.0
+    status: active
+  diarization:
+    description: 'Pool service: diarization — defined in inference_pools.yaml'
+    pool_ref: null
+    status: active
+    type: service
+  diarization-base:
+    description: 'Pool service: diarization-base — defined in inference_pools.yaml'
+    pool_ref: null
+    status: active
+    type: service
+  diarization-turbo:
+    description: 'Pool service: diarization-turbo — defined in inference_pools.yaml'
+    pool_ref: null
+    status: active
+    type: service
+  faster-whisper:
+    description: 'Pool service: faster-whisper — defined in inference_pools.yaml'
+    pool_ref: null
+    status: active
+    type: service
+  ideogram4:
+    description: Ideogram 4 — typography-aware text-to-image generation via SGLang. NF4 quantized (16GB
+      on 24GB card).
+    device: gpu
+    pool_ref: 'TODO: add physical entry'
+    size_gb: 16.0
+    source: hf://ideogram-ai/Ideogram-V4
+    status: active
+    vram_estimate_gb: 16.0
+  kimodo:
+    description: Kimodo-SOMA-RP kinematic motion diffusion (served via diffusers pool)
+    pool_ref: avatar/kimodo-soma-rp
+    path: avatar/kimodo/Kimodo-SOMA-RP-v1.1/
+    size_gb: 1.1
+    status: active
+    device: gpu
+    vram_estimate_gb: 3.0
+  kokoro:
+    description: Kokoro 82M TTS — multi-voice text-to-speech, CPU-capable
+    pool_ref: tts/kokoro
+    path: tts/kokoro/
+    size_gb: 0.35
+    status: active
+    device: cpu
+    vram_estimate_gb: 1.0
+  llama:
+    description: 'Pool service: llama — defined in inference_pools.yaml'
+    pool_ref: null
+    status: active
+    type: service
+  llama-bee:
+    description: 'Pool service: llama-bee — defined in inference_pools.yaml'
+    pool_ref: null
+    status: active
+    type: service
+  ltx-video:
+    description: LTX Video 2.3 FP8 — text-to-video / image-to-video generation via SGLang
+    device: gpu
+    path: native/ltx-2.3-fp8
+    pool_ref: 'TODO: add physical entry'
+    size_gb: 27.0
+    source: hf://Lightricks/LTX-2.3-fp8
+    status: active
+  moss-soundeffect:
+    description: Pool-facing name for audio/moss-soundeffect
+    pool_ref: audio/moss-soundeffect
+    status: active
+    path: audio/moss-soundeffect/bf16/
+    size_gb: 33.5
+  moss-soundeffect-v2:
+    description: Pool-facing name for audio/moss-soundeffect-v2
+    pool_ref: audio/moss-soundeffect-v2
+    status: active
+    path: audio/moss-soundeffect-v2
+    size_gb: 11.3
+  moss-tts:
+    description: Pool-facing name for audio/moss-tts
+    pool_ref: audio/moss-tts
+    status: active
+    path: audio/moss-tts/
+    size_gb: 33.5
+  moss-tts-local-transformer:
+    description: Pool-facing name for audio/moss-tts-local-transformer
+    pool_ref: audio/moss-tts-local-transformer
+    status: active
+    path: audio/moss-tts-local-transformer/
+    size_gb: 6.2
+  moss-tts-nano:
+    description: Pool-facing name for audio/moss-tts-nano
+    pool_ref: audio/moss-tts-nano
+    status: active
+    path: audio/moss-tts-nano/
+    size_gb: 0.25
+  moss-tts-realtime:
+    description: Pool-facing name for audio/moss-tts-realtime
+    pool_ref: audio/moss-tts-realtime
+    status: active
+    path: audio/moss-tts-realtime/
+    size_gb: 4.7
+  moss-ttsd:
+    description: Pool-facing name for audio/moss-ttsd
+    pool_ref: audio/moss-ttsd
+    status: active
+    path: audio/moss-ttsd/
+    size_gb: 33.5
+  moss-voicegenerator:
+    description: Pool-facing name for audio/moss-voicegenerator
+    pool_ref: audio/moss-voicegenerator
+    status: active
+    path: audio/moss-voicegenerator/
+    size_gb: 7.0
+  qwen-image-edit:
+    description: Pool-facing name for video/qwen-image-edit-2511-fp8
+    path: image-gen/qwen-image-edit/2511-fp8
+    pool_ref: video/qwen-image-edit-2511-fp8
+    size_gb: 35.0
+    status: active
+  qwen-image-edit-turbo:
+    description: Pool-facing name for TBD
+    pool_ref: null
+    status: pending
+  see-through:
+    description: See-Through — anime character layer decomposition (layerdiff3d + marigold)
+    pool_ref: 'TODO: add physical entry'
+    path: image/see-through/
+    size_gb: 1.5
+    status: active
+    device: gpu
+    vram_estimate_gb: 4.0
+  vibevoice-tts:
+    description: VibeVoice 7B TTS — voice cloning and synthesis
+    pool_ref: tts/vibevoice-tts
+    path: tts/vibevoice/
+    size_gb: 18.7
+    status: active
+    device: gpu
+    vram_estimate_gb: 20.0
+  wan-i2v:
+    description: Pool-facing name for Wan2.1 WAN-I2V — served via omni-vllm
+    pool_ref: 'TODO: add physical entry'
+    status: active
+  wan-t2v:
+    description: Pool-facing name for Wan2.1 WAN-T2V — served via omni-vllm
+    pool_ref: 'TODO: add physical entry'
+    status: active
+  wan-vace:
+    description: Pool-facing name for video/wan2.1-vace-14b-fp8-diffusers
+    path: video/wan2.1-vace-14b-fp8-diffusers
+    pool_ref: video/wan2.1-vace-14b-fp8-diffusers
+    size_gb: 18.0
+    status: active
+  wan-vace-turbo:
+    description: Pool-facing name for TBD
+    pool_ref: null
+    status: pending
+  whisper:
+    description: 'Pool service: whisper — defined in inference_pools.yaml'
+    pool_ref: null
+    status: active
+    type: service
+  z-image:
+    description: Pool-facing name for video/z-image-turbo-fp8
+    path: native/z-image-turbo-fp8
+    pool_ref: video/z-image-turbo-fp8
+    size_gb: 16.0
+    status: active
+  z-image-base:
+    description: Pool-facing name for video/z-image-base-fp8
+    path: native/z-image-base-fp8
+    pool_ref: video/z-image-base-fp8
+    size_gb: 16.0
+    status: active
