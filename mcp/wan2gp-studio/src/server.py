@@ -23,6 +23,9 @@ LLM tools:
 - chat: Send messages to the LLM (llama.cpp GPU)
 - llm_configure: Configure LLM model, system prompt, hardware settings
 
+Video tools:
+- video_generate: Generate video via VACE on OMNI-vLLM (T2V or I2V)
+
 Admin tools:
 - load_service: Preload a model on GPU
 - unload_services: Release all GPU memory
@@ -75,6 +78,9 @@ mcp = FastMCP(
         "  - `list_models` to discover available models by category\n"
         "  - `list_services` to see all registered services and their capabilities\n"
         "  - `get_service` for detailed info on a specific service\n\n"
+        "Video:\n"
+        "  - `video_generate` to create video from text (T2V) or text+image (I2V) via OMNI-vLLM VACE\n"
+        "  - Three quality modes: base (25 steps), fast (10 steps), lightning (4 steps)\n\n"
         "Audio:\n"
         "  - `tts_speak` to generate speech (kokoro CPU, moss GPU, espeak CPU, index_tts GPU)\n"
         "  - `tts_voices` to list TTS engines and voice presets\n"
@@ -118,6 +124,7 @@ from .tools.audio import (
 )
 from .tools.llm import chat, llm_configure
 from .tools.admin import load_service, unload_services
+from .tools.video import video_generate
 from .tools.workflow import (
     workflow_list_specs,
     workflow_get_spec,
@@ -281,6 +288,13 @@ mcp.tool(load_service, meta={
 mcp.tool(unload_services, meta={
     "ui": {"resourceUri": "ui://apps/admin"},
     "openai/toolInvocation/invoking": "Releasing GPU…",
+    "openai/toolInvocation/invoked": "Done",
+})
+
+# Video Director
+mcp.tool(video_generate, meta={
+    "ui": {"resourceUri": "ui://apps/video"},
+    "openai/toolInvocation/invoking": "Generating video with OMNI-vLLM VACE…",
     "openai/toolInvocation/invoked": "Done",
 })
 

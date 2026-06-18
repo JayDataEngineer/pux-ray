@@ -22,6 +22,7 @@ APPS = {
     "ui://apps/generate": {"name": "Generate", "description": "Run any GPU generation service"},
     "ui://apps/tts": {"name": "TTS Speech", "description": "Text-to-speech with voice design"},
     "ui://apps/audio": {"name": "Audio Studio", "description": "Transcription, sound effects, music"},
+    "ui://apps/video": {"name": "Video Director", "description": "VACE video generation via OMNI-vLLM"},
     "ui://apps/admin": {"name": "GPU Admin", "description": "GPU status, load/unload services"},
     "ui://apps/workflow": {"name": "Workflow Runner", "description": "Interactive pipeline runner"},
 }

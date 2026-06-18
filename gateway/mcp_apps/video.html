@@ -1,0 +1,281 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: system-ui, sans-serif; padding: 16px; background: #0a0a0a; color: #e5e5e5; font-size: 13px; }
+  .tabs { display: flex; gap: 4px; margin-bottom: 16px; }
+  .tab { padding: 6px 14px; border-radius: 6px 6px 0 0; background: #171717; border: 1px solid #333; cursor: pointer; font-size: 13px; color: #a3a3a3; }
+  .tab.active { background: #262626; color: #e5e5e5; border-bottom-color: transparent; }
+  .panel { display: none; }
+  .panel.active { display: block; }
+  .field { margin-bottom: 12px; }
+  label { display: block; font-size: 11px; color: #a3a3a3; margin-bottom: 4px; font-weight: 500; }
+  .desc { font-size: 10px; color: #52525b; margin-bottom: 4px; }
+  select, input, textarea { width: 100%; padding: 8px; border-radius: 6px; border: 1px solid #333; background: #171717; color: #e5e5e5; font-size: 13px; font-family: inherit; }
+  textarea { min-height: 70px; resize: vertical; }
+  input[type=file] { display: none; }
+  .file-btn { display: inline-block; padding: 6px 12px; border-radius: 6px; background: #27272a; color: #a1a1aa; cursor: pointer; font-size: 12px; border: 1px dashed #52525b; }
+  .file-btn:hover { background: #3f3f46; }
+  .preview { max-width: 100%; max-height: 160px; border-radius: 6px; margin-top: 6px; display: none; }
+  .row { display: flex; gap: 8px; }
+  .row > * { flex: 1; }
+  button { padding: 8px 20px; border-radius: 6px; border: none; background: #2563eb; color: #fff; font-size: 13px; cursor: pointer; font-weight: 500; }
+  button:hover { background: #1d4ed8; }
+  button:disabled { opacity: 0.5; cursor: not-allowed; }
+  button.danger { background: #dc2626; }
+  .result { margin-top: 12px; display: none; }
+  video { width: 100%; max-height: 360px; border-radius: 8px; background: #000; }
+  .error { color: #ef4444; font-size: 12px; }
+  .meta { font-size: 11px; color: #71717a; margin-top: 6px; }
+  .badge { display: inline-block; font-size: 10px; padding: 2px 6px; border-radius: 4px; margin-left: 4px; }
+  .badge.omni { background: #7c3aed; color: #e5e5e5; }
+  .loading { text-align: center; padding: 20px; color: #71717a; }
+  .loading::after { content: ''; display: inline-block; width: 16px; height: 16px; border: 2px solid #52525b; border-top-color: #2563eb; border-radius: 50%; animation: spin 0.8s linear infinite; margin-left: 8px; vertical-align: middle; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+</style>
+</head>
+<body>
+  <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px">
+    <h2 style="font-size:15px;font-weight:600">Video Director</h2>
+    <span class="badge omni">vLLM-Omni VACE</span>
+  </div>
+
+  <div class="tabs">
+    <div class="tab active" onclick="switchTab('t2v')">Text-to-Video</div>
+    <div class="tab" onclick="switchTab('i2v')">Image-to-Video</div>
+    <div class="tab" onclick="switchTab('settings')">Settings</div>
+  </div>
+
+  <!-- ─── Text-to-Video ─────────────────────────────────────────────── -->
+  <div id="t2v" class="panel active">
+    <div class="field">
+      <label>Prompt</label>
+      <div class="desc">Describe the scene, motion, and style</div>
+      <textarea id="prompt" placeholder="A cinematic shot of a cyberpunk street at night, neon reflections, slow pan..." oninput="syncPrompt()"></textarea>
+    </div>
+    <div class="field">
+      <label>Negative Prompt</label>
+      <textarea id="negPrompt" placeholder="blurry, low quality, deformed, bad anatomy" rows="2"></textarea>
+    </div>
+  </div>
+
+  <!-- ─── Image-to-Video ────────────────────────────────────────────── -->
+  <div id="i2v" class="panel">
+    <div class="field">
+      <label>Conditioning Image</label>
+      <div class="desc">Upload a reference image for I2V mode. Leave empty for T2V.</div>
+      <label class="file-btn" for="condImage">Choose Image</label>
+      <input type="file" id="condImage" accept="image/png,image/jpeg" onchange="handleImage(event)">
+      <img id="condPreview" class="preview">
+    </div>
+    <div class="field">
+      <label>Prompt (overrides T2V prompt if set here)</label>
+      <textarea id="i2vPrompt" placeholder="Optional: override prompt for this image" rows="2"></textarea>
+    </div>
+  </div>
+
+  <!-- ─── Settings ──────────────────────────────────────────────────── -->
+  <div id="settings" class="panel">
+    <div class="row">
+      <div class="field">
+        <label>Mode</label>
+        <select id="mode">
+          <option value="base">Base (25 steps, full quality)</option>
+          <option value="fast" selected>Fast (10 steps, 2.5x speedup)</option>
+          <option value="lightning" disabled>Lightning (4 steps — pending)</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>FPS</label>
+        <select id="fps">
+          <option value="16">16 (smooth)</option>
+          <option value="24" selected>24 (standard)</option>
+          <option value="30">30 (cinematic)</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="row">
+      <div class="field">
+        <label>Resolution</label>
+        <select id="resolution">
+          <option value="640x480">640×480 (safe, 24GB)</option>
+          <option value="832x480">832×480 (wide)</option>
+          <option value="704x480">704×480 (balanced)</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>Frames</label>
+        <select id="frames">
+          <option value="33">33 frames (~1.4s @ 24fps)</option>
+          <option value="49">49 frames (~2s)</option>
+          <option value="81" selected>81 frames (~3.4s)</option>
+          <option value="121">121 frames (~5s)</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="row">
+      <div class="field">
+        <label>Seed</label>
+        <input type="number" id="seed" value="-1" min="-1" max="999999" style="width:100%">
+        <div class="desc">-1 = random</div>
+      </div>
+      <div class="field">
+        <label>Guidance Scale</label>
+        <input type="number" id="guidance" value="5.0" min="1.0" max="15.0" step="0.5">
+      </div>
+    </div>
+  </div>
+
+  <button id="genBtn" onclick="doGenerate()">Generate Video</button>
+  <div id="result" class="result"></div>
+
+<script>
+const bridge = window.__mcp || window.__MCP_BRIDGE || {
+  callTool: async (name, args) => {
+    const resp = await fetch('/mcp/wan2gp-studio/mcp', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Accept': 'application/json, text/event-stream' },
+      body: JSON.stringify({ jsonrpc: '2.0', id: Date.now(), method: 'tools/call', params: { name, arguments: args } }),
+    });
+    const text = await resp.text();
+    const dataLine = text.split('\n').find(l => l.startsWith('data: '));
+    if (dataLine) {
+      const msg = JSON.parse(dataLine.slice(6));
+      const content = msg.result?.content;
+      if (content?.[0]?.type === 'text') return JSON.parse(content[0].text);
+      return msg.result;
+    }
+    const msg = JSON.parse(text);
+    const c = msg.result?.content;
+    if (c?.[0]?.type === 'text') return JSON.parse(c[0].text);
+    return msg.result;
+  }
+};
+
+let condImageB64 = '';
+
+function switchTab(id) {
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+  document.querySelector(`.tab[onclick*="'${id}'"]`).classList.add('active');
+  document.getElementById(id).classList.add('active');
+}
+
+function syncPrompt() {
+  const t2v = document.getElementById('prompt').value;
+  const i2v = document.getElementById('i2vPrompt');
+  if (!i2v.value) i2v.placeholder = t2v ? t2v : 'Optional: override prompt for this image';
+}
+
+function handleImage(e) {
+  const file = e.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = function(ev) {
+    condImageB64 = ev.target.result.split(',')[1];
+    const preview = document.getElementById('condPreview');
+    preview.src = ev.target.result;
+    preview.style.display = 'block';
+  };
+  reader.readAsDataURL(file);
+}
+
+async function doGenerate() {
+  const btn = document.getElementById('genBtn');
+  btn.disabled = true;
+  btn.textContent = 'Generating...';
+
+  const prompt = document.getElementById('prompt').value.trim();
+  if (!prompt) {
+    showError('Please enter a prompt');
+    btn.disabled = false;
+    btn.textContent = 'Generate Video';
+    return;
+  }
+
+  const mode = document.getElementById('mode').value;
+  const [width, height] = document.getElementById('resolution').value.split('x').map(Number);
+  const frames = parseInt(document.getElementById('frames').value);
+  const fps = parseInt(document.getElementById('fps').value);
+  const seed = parseInt(document.getElementById('seed').value);
+  const guidance = parseFloat(document.getElementById('guidance').value);
+  const negPrompt = document.getElementById('negPrompt').value.trim();
+  const i2vPrompt = document.getElementById('i2vPrompt').value.trim();
+
+  const args = {
+    mode: mode,
+    prompt: i2vPrompt || prompt,
+    negative_prompt: negPrompt,
+    width: width,
+    height: height,
+    frames: frames,
+    fps: fps,
+    seed: seed,
+    guidance: guidance,
+  };
+  if (condImageB64) args.cond_image_b64 = condImageB64;
+
+  showLoading('Generating video with OMNI-vLLM VACE...');
+
+  try {
+    const result = await bridge.callTool('video_generate', args);
+    if (result.status === 'success' && result.video_data) {
+      showVideo(result.video_data, result);
+    } else if (result.status === 'error') {
+      showError(result.error || 'Generation failed');
+    } else if (result.video_url) {
+      showResult('<video controls src="' + result.video_url + '"></video>' +
+        '<div class="meta">' + formatMeta(result) + '</div>');
+    } else {
+      showError(JSON.stringify(result));
+    }
+  } catch (e) {
+    showError(e.message || 'Request failed');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Generate Video';
+  }
+}
+
+function showVideo(base64, meta) {
+  const el = document.getElementById('result');
+  el.style.display = 'block';
+  el.innerHTML = '<video controls autoplay muted src="data:video/mp4;base64,' + base64 + '"></video>' +
+    '<div class="meta">' + formatMeta(meta) + '</div>';
+}
+
+function showLoading(msg) {
+  const el = document.getElementById('result');
+  el.style.display = 'block';
+  el.innerHTML = '<div class="loading">' + msg + '</div>';
+}
+
+function showError(msg) {
+  const el = document.getElementById('result');
+  el.style.display = 'block';
+  el.innerHTML = '<div class="error">' + msg + '</div>';
+}
+
+function showResult(html) {
+  const el = document.getElementById('result');
+  el.style.display = 'block';
+  el.innerHTML = html;
+}
+
+function formatMeta(m) {
+  const parts = [];
+  if (m.mode) parts.push('Mode: ' + m.mode);
+  if (m.elapsed_s) parts.push('Time: ' + m.elapsed_s.toFixed(1) + 's');
+  if (m.frames) parts.push('Frames: ' + m.frames);
+  if (m.width && m.height) parts.push('Resolution: ' + m.width + '×' + m.height);
+  if (m.inference_time_s) parts.push('Inference: ' + m.inference_time_s.toFixed(1) + 's');
+  if (m.peak_memory_mb) parts.push('Peak VRAM: ' + Math.round(m.peak_memory_mb) + 'MB');
+  return parts.join(' · ');
+}
+</script>
+</body>
+</html>
