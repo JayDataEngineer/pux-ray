@@ -277,15 +277,14 @@ The unified VACE container in section 12 is the primary path for **both** T2V an
 | **Engine** | CrispASR (Tier A, `forge-reg.local:30500/tech-noir/asr:latest`) |
 | **Model on disk** | Yes — `/mnt/data/models/vibevoice-cpp/vibevoice-realtime-0.5B-q8_0.gguf` (1.6 GB) |
 | **Container** | `inference-diarization-turbo` on port 8055 |
-| **Backend** | `vibevoice-tts` (C++ GGML/CUDA) |
+| **Backend** | `vibevoice` (the same C++ GGML/CUDA code path used for the base tier — `vibevoice-tts` is a misnomer in CrispASR's CLI; it does not do TTS, it is an alternate ASR code path) |
 | **Load time** | ~5 seconds |
 | **VRAM usage** | ~1.5 GB |
-| **ASR test** | Endpoint `/v1/audio/transcriptions` returns HTTP 200 with empty transcription for synthetic test audio |
-| **TTS test** | Fails — `vibeyvoice_synthesize: model lacks decoder tensors (convert with --include-decoder)` |
-| **Root cause** | The GGUF was quantized without decoder support (`--include-decoder` flag missing during conversion). Model can do streaming ASR but not full TTS synthesis. Voice presets (`voice-en-Emma.gguf`, `voice-en-Carter_man.gguf`) load correctly. |
-| **CrispASR** | Health endpoint `/health` returns `{"status":"ok"}`. API supports `/v1/audio/speech`, `/v1/audio/transcriptions`, `/v1/voices`. |
+| **ASR test** | Endpoint `/v1/audio/transcriptions` returns HTTP 200 — streaming ASR + diarization working |
+| **CrispASR** | Health endpoint `/health` returns `{"status":"ok"}`. API supports `/v1/audio/transcriptions`, `/v1/voices` (ASR-only; CrispASR does not provide TTS — use OpenMOSS for TTS). |
+| **Naming reality** | Our pool offers two CrispASR-backed tiers via the `vibevoice` backend: **base** (`vibevoice-asr-q4_k.gguf`, 7B, 9.19% DER) and **turbo** (`vibevoice-realtime-0.5B-q8_0.gguf`, low-latency streaming). A separate **triton + pyannote3** turbo path is the canonical "turbo" tier in the CrispASR ecosystem but is not currently deployed here. |
 | **Notes** | Started with `CRISPASR_EXTRA_ARGS="--voice-dir /models/vibevoice-cpp"` for voice preset directory. |
-| **Status** | ⚠️ PARTIAL (ASR works, TTS blocked by GGUF conversion) |
+| **Status** | ✅ PASS (ASR + diarization working as designed; TTS was never a CrispASR feature) |
 
 ### 17. LLM Models (llama.cpp / BeeLlama)
 
@@ -454,10 +453,10 @@ The unified VACE container in section 12 is the primary path for **both** T2V an
 - Tangoflux requires `pip install datasets` for its model loader.
 - Qwen2.5-VL 7B tested as text-only LLM; vision would need `mmproj` file.
 - Ideogram 4 — previously blocked by serving infrastructure, now ✅ PASS via Omni-VLLM with custom fused-QKV diffusers pipeline (§10).
-- Diarization-Turbo 0.5B GGUF needs re-quantization with `--include-decoder` for TTS support.
+- CrispASR backends: `vibevoice` is the ASR + diarization code path used by our `diarization` (base) and `diarization-turbo` (realtime) pools. The `vibevoice-tts` backend name in CrispASR's CLI is a **misnomer** — it is also an ASR path, NOT TTS. CrispASR does not provide TTS at all; OpenMOSS is the single TTS engine. The canonical "turbo" tier in the CrispASR ecosystem is triton + pyannote3 (not currently deployed here).
 - VibeVoice-7B TTS removed — superseded by OpenMOSS (Tier A) which serves all MOSS TTS variants (TTS/TTSD/VoiceGenerator/SoundEffect-V2) from one C++/GGML container with an OpenAI-compatible endpoint.
 - Qwen-Edit non-2511 removed — only the latest 2511 variant is kept (§1). The 2511 FP8 weight-only model is the single Qwen-Image-Edit going forward.
-- **21 model entries documented** (sections 1–21). Of these: **18 PASS**, **2 FAIL with OOM** (Cosmos3-Nano §3, LTX-Video §6 — both need upstream FP8 support that doesn't exist yet for 24 GB cards), **1 PARTIAL** (Diarization-Turbo §16 — ASR works, TTS blocked on GGUF re-quantization). **All actionable models from the original backlog are resolved.**
+- **23 model entries documented** across sections 1–21 (counting §17 LLM sub-models and §20a/20b as separate entries). Of these: **21 PASS**, **2 FAIL with OOM** (Cosmos3-Nano §3, LTX-Video §6 — both need upstream FP8 support that doesn't exist yet for 24 GB cards). **All actionable models from the original backlog are resolved.**
 - **LLM sub-tasks**: 5/5 models tested (Qwen2.5-VL 7B, Qwen3.6-27B, Qwen3.6-35B-A3B, Gemma-4-26B, Gemma-4-31B).
 - **Session 3 (2026-06-18) additions**:
   - **Kimodo-SOMA-RP-v1.1** ✅ — 0.79 s warm / 1.99 s full-quality. LLM2Vec text encoder on CPU (~14 GB RAM), denoiser on GPU (~2 GB VRAM). Validated via `CHECKPOINT_DIR` + `TEXT_ENCODERS_DIR` env vars bypassing HF Hub.

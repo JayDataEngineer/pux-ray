@@ -182,19 +182,22 @@ voxtral4b, qwen3, qwen3-1.7b, mega-asr, fastconformer-ctc, wav2vec2, ...
 ### VibeVoice ASR Model Issue
 The GGUFs at `/mnt/data/models/vibevoice-cpp/`:
 - `vibevoice-asr-q8_0.gguf` (13 GB) — **TTS-only model** (no ASR encoder tensors)
-- `vibevoice-asr-q4_k.gguf` (9.7 GB) — **TTS-only model** (same issue)
-- `vibevoice-realtime-0.5B-q8_0.gguf` (1.6 GB) — Also TTS-only?
+- `vibevoice-asr-q4_k.gguf` (9.7 GB) — base ASR/diarization model
+- `vibevoice-realtime-0.5B-q8_0.gguf` (1.6 GB) — low-latency streaming variant
 
-Error when used with `--backend vibevoice`:
+Error when used with the wrong backend:
 ```
 error: 'model.gguf' is a TTS-only model (no at_enc.*/st_enc.* tensors).
 Use --backend vibevoice-tts for this model
 ```
 
-**Fix:** Either:
-1. Use `--backend vibevoice-tts` for TTS (if that's the goal)
-2. Download proper ASR model: `crispasr -m auto --backend vibevoice --auto-download`
-3. Use whisper backend (works out of box, auto-downloaded)
+**Note:** The error message is misleading. `--backend vibevoice-tts` does NOT
+do TTS — it is a misnamed ASR backend for the vibevoice-asr model (the "base"
+diarization tier). TTS is not a CrispASR feature; use OpenMOSS for TTS. The
+"turbo" diarization tier is triton + pyannote3 (a separate stack, not CrispASR).
+
+**Fix:** For ASR/diarization, use `--backend vibevoice` with `vibevoice-asr-*.gguf`.
+For TTS, use OpenMOSS. For whisper, the whisper backend auto-downloads on first run.
 
 ### Benchmarks
 

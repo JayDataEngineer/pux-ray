@@ -157,18 +157,28 @@ error: 'model.gguf' is a TTS-only model (no at_enc.*/st_enc.* tensors).
 Use --backend vibevoice-tts for this model
 ```
 
-**Root Cause:** The vibevoice GGUFs at `/mnt/data/models/vibevoice-cpp/` are TTS
-models (speech synthesis), not ASR models (speech recognition). They lack the
-encoder tensors needed for recognition/diarization.
+**Root Cause:** CrispASR's error message is misleading. Despite what it says,
+`--backend vibevoice-tts` does NOT do TTS — it is a misnamed ASR backend that
+runs the `vibevoice-asr` model (the "base" diarization tier). The error fires
+when you point the default `--backend vibevoice` at a GGUF that lacks the
+encoder tensors CrispASR expects for that code path.
 
-**Files on disk:**
-- `vibevoice-asr-q8_0.gguf` (13 GB) — MISNAMED, is actually TTS
-- `vibevoice-asr-q4_k.gguf` (9.7 GB) — MISNAMED, is actually TTS
-- `vibevoice-realtime-0.5B-q8_0.gguf` (1.6 GB) — Probably also TTS
+**Naming reality (CrispASR backends):**
+- `--backend vibevoice` — default ASR + diarization path (what our `diarization`
+  pool uses with `vibevoice-asr-q4_k.gguf`, the **base** tier)
+- `--backend vibevoice-tts` — also ASR (NOT TTS, despite the name); alternate
+  code path that accepts a different GGUF tensor layout
+- TTS is **not a CrispASR feature** — for TTS use OpenMOSS (Tier A, `moss-tts`)
+- **Turbo tier** is a different stack entirely: triton + pyannote3 (not CrispASR)
+
+**Files on disk (`/mnt/data/models/vibevoice-cpp/`):**
+- `vibevoice-asr-q4_k.gguf` (9.7 GB) — base tier, works with `--backend vibevoice`
+- `vibevoice-asr-q8_0.gguf` (13 GB) — base tier, higher fidelity
+- `vibevoice-realtime-0.5B-q8_0.gguf` (1.6 GB) — low-latency streaming variant
 
 **Fixes:**
-1. Use `--backend vibevoice-tts` if TTS is desired
-2. Download proper ASR model: `crispasr -m auto --backend vibevoice --auto-download`
+1. For ASR/diarization, use `--backend vibevoice` with `vibevoice-asr-*.gguf`
+2. For TTS, use OpenMOSS (`moss-tts` pool) — CrispASR cannot do TTS
 3. Use whisper backend (works out of box, auto-downloaded on first run)
 
 ---
