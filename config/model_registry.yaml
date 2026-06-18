@@ -1653,17 +1653,8 @@ served-models:
     device: gpu
     vram_estimate_gb: 16.0
     primary_pool: omni-vllm
-  qwen-edit:
-    description: Qwen-Edit non-2511 — ModelOpt FP8 → compressed-tensors FP8 weight-only for Omni-VLLM
-    pool_ref: image-gen/qwen-edit-non2511-fp8
-    path: image-gen/qwen-edit-non2511-fp8/
-    size_gb: 28.0
-    source: Built from native/qwen-edit-modelopt-fp8-transformer + native/qwen-edit-nf4-textenc
-    status: active
-    device: gpu
-    vram_estimate_gb: 22.0
-    primary_pool: omni-vllm
-    prerequisite: Run scripts/prepare_qwen_edit_non2511_fp8.py to convert ModelOpt FP8 → compressed-tensors
+  # qwen-edit (non-2511) removed — only the latest 2511 variant is kept.
+  # See qwen-image-edit for the active Qwen-Image-Edit 2511 FP8 model.
   boogu-edit:
     description: Boogu-Image-0.1-Edit — Apache-2.0 unified image generation and editing. Qwen3-VL MLLM + custom DiT + FLUX.1 VAE. 35.8 GB. Custom diffusers pipeline (OmniGen2 fork). T2I + TI2I editing. Served via vllm-omni container (boogu-omni image).
     pool_ref: image-gen/Boogu-Image-0.1-Edit
