@@ -47,41 +47,50 @@ const COMMON_PARAMS = [
   "negative_prompt", "voice", "language",
 ]
 
-// ── Dynamic TTS: per-engine field visibility ────────────────────────────
-// When engine changes, irrelevant fields for other engines are hidden.
+// ── TTS: field visibility per engine ─────────────────────────────────────
+// When engine changes, irrelevant fields are hidden. New engines show all fields.
+// Derives the engine list from the tool's input schema.
 
-const TTS_ENGINE_VISIBLE_FIELDS: Record<string, string[]> = {
-  kokoro: ["text", "engine", "voice"],
-  espeak: ["text", "engine", "language"],
-  moss_tts: [
-    "text", "engine", "instruct", "ref_audio_b64", "language", "seed",
-    "max_new_tokens",
-    "text_temperature", "text_top_p", "text_top_k", "text_repetition_penalty",
-    "audio_temperature", "audio_top_p", "audio_top_k", "audio_repetition_penalty",
-    "n_vq_for_inference",
-  ],
+function ttsEngineNames(tool: MCPTool | undefined): string[] {
+  const engineProp = tool?.inputSchema?.properties?.["engine"]
+  return (engineProp?.enum as string[]) ?? []
 }
 
-function ttsVisibleFields(engine: string, allFields: FieldDef[]): FieldDef[] {
-  const visible = TTS_ENGINE_VISIBLE_FIELDS[engine]
+function ttsFieldKeysForEngine(engine: string): string[] {
+  // UI mapping: which fields to show per TTS engine
+  const mapping: Record<string, string[]> = {
+    kokoro: ["text", "engine", "voice"],
+    espeak: ["text", "engine", "language"],
+  }
+  return mapping[engine] ?? undefined // undefined → show all
+}
+
+function ttsVisibleFields(engine: string, allFields: FieldDef[], tool: MCPTool | undefined): FieldDef[] {
+  const visible = ttsFieldKeysForEngine(engine)
   if (!visible) return allFields  // Unknown engine → show all
   return allFields.filter((f) => visible.includes(f.name))
 }
 
-// ── Dynamic Voice Creator: per-engine field visibility ──────────────────────
-function voiceCreatorVisibleFields(engine: string, mode: string, allFields: FieldDef[]): FieldDef[] {
-  // moss_voicegenerator - show all fields including ref_audio_b64_list
+// ── Voice Creator: show all fields dynamically ──────────────────────────────
+function voiceCreatorVisibleFields(_engine: string, _mode: string, allFields: FieldDef[]): FieldDef[] {
   return allFields
+}
+
+function fieldDefault(tool: MCPTool | undefined, name: string, fallback: string): string {
+  const prop = tool?.inputSchema?.properties?.[name]
+  if (prop && prop.default !== undefined) return String(prop.default)
+  return fallback
+}
+
+function firstEngineOrDefault(tool: MCPTool | undefined, fallback: string): string {
+  const engines = ttsEngineNames(tool)
+  if (engines.length > 0) return engines[0]
+  return fallback
 }
 
 const GENRE_ORDER = ["image", "audio", "motion", "3d", "external"]
 
 const GENRE_ICONS: Record<string, string> = { image: "◎", audio: "♪", motion: "↝", "3d": "⟁", external: "⤴" }
-
-// Map backend category → genre for sidebar grouping
-const CATEGORY_TO_GENRE: Record<string, string> = {
-  audio: "audio", motion: "motion", "3d": "3d",
-}
 
 // Helper component for field labels with tooltips
 function FieldLabel({ label, tooltip }: { label: string; tooltip?: string }) {
@@ -105,45 +114,28 @@ function FieldLabel({ label, tooltip }: { label: string; tooltip?: string }) {
   )
 }
 
-const SERVICE_GENRE: Record<string, string> = {
-  generate: "image", edit: "image", generate_character_sheet: "image",
-  generate_image: "image", pose_edit: "image", char_sheet: "image",
-  generate_music: "audio", ace_step: "audio",
-  generate_sound: "audio", moss_soundeffect: "audio",
-  tts_speak: "audio",
-  voice_creator: "audio",
-  kimodo: "motion", kimodo_demo: "motion", hy_motion: "motion", gemx: "motion",
-  _kimodo_studio: "external",
-  _llm_chat: "external",
+// ── Sidebar: derive everything from tool/service data ─────────────────────
+// No hardcoded service/engine name maps — all dynamic from backend.
+
+// Genre classification based on tool name prefix/convention.
+// These are pattern-based, not name-based — will match any new tool
+// that follows the naming convention.
+function toolGenre(name: string): string {
+  if (name.startsWith("_")) return "external"
+  if (name.includes("music") || name.includes("ace_step")) return "audio"
+  if (name.includes("sound") || name.includes("moss_soundeffect")) return "audio"
+  if (name.includes("tts") || name.includes("voice")) return "audio"
+  if (name.includes("motion") || name.includes("kimodo") || name.includes("hy_motion") || name.includes("gemx")) return "motion"
+  if (name.includes("3d") || name.includes("trellis") || name.includes("anigen") || name.includes("body_mesh") || name.includes("pixal")) return "3d"
+  return "image"  // default for generate/edit/char_sheet etc.
 }
 
-const SERVICE_LABELS: Record<string, string> = {
-  generate: "Generate", generate_image: "Generate",
-  edit: "Edit", pose_edit: "Edit",
-  generate_character_sheet: "Character Sheet", char_sheet: "Character Sheet",
-  generate_music: "Music", ace_step: "Music",
-  generate_sound: "Sound Effect", moss_soundeffect: "Sound Effect",
-  tts_speak: "Text to Speech",
-  voice_creator: "Voice Creator",
-  kimodo: "Kimodo Motion",
-  kimodo_demo: "Kimodo Demo",
-  hy_motion: "HY-Motion",
-  gemx: "GEM-X Pose",
-  body_mesh: "BodyMesh",
-  _kimodo_studio: "Kimodo Motion Studio",
-  _llm_chat: "AI Chat",
-}
-
-// Backend-only services hidden from sidebar
-const HIDDEN_SERVICES = new Set([
-  "z_image", "wan2gp", "comfyui", "llm", "faster_whisper", "vibevoice_asr",
-  "see_through", "nvidia_upscale", "dwpose", "lance", "kohya", "avatar",
-  "kokoro", "espeak",
-  "moss_voicegenerator", "moss_tts",
-  "clone_character", "list_pipelines",
-  "kimodo", "kimodo_demo", "hy_motion", "hy_motion_lite", "gemx",
-  "trellis", "anigen", "body_mesh", "pixal3d",
-])
+// Tool types that are internal plumbing (not user-facing)
+const INTERNAL_TOOL_PATTERNS = [
+  "run", "list_", "get_", "forge_", "load_", "unload_",
+  "tts_voices", "chat", "transcribe", "llm_configure",
+  "workflow_",
+]
 
 
 function extractCommonParams(desc: string): FieldDef[] {
@@ -510,31 +502,53 @@ function ServicesSidebar({ selected, onSelect, onOpenKimodo, onOpenLLM }: { sele
     fetch("/v1/services").then((r) => r.json()).then(setServices).catch(() => {})
   }, [])
 
+  // Hide a backend service if it's already covered by an MCP tool
+  // (e.g., tts_speak tool replaces individual TTS backend services)
+  const isCoveredByTool = (s: { name: string }) =>
+    tools.some((t) => t.name === s.name || t.name.includes(s.name.replace(/_/g, "")))
+
+  // Hide internal/plumbing tools (matched by name prefix patterns)
+  const isInternalTool = (t: MCPTool) =>
+    INTERNAL_TOOL_PATTERNS.some((p) => t.name.startsWith(p) || t.name === p)
+
+  // Collect all engine option names from tool schemas (e.g., tts_speak's engine enum)
+  const engineEnumNames = new Set(
+    tools.flatMap((t) =>
+      Object.entries(t.inputSchema?.properties ?? {}).flatMap(([key, prop]: [string, any]) =>
+        key === "engine" && Array.isArray(prop?.enum) ? prop.enum : []
+      )
+    )
+  )
+
+  // Hide a service if it's already covered by an MCP tool or is an engine option
+  const isHiddenService = (s: { name: string; category: string }) => {
+    if (isCoveredByTool(s)) return true
+    if (engineEnumNames.has(s.name)) return true
+    return false
+  }
+
   const allItems = [
-    ...tools.filter((t) =>
-      !["run","list_models","list_services","get_service","forge_status","load_service","unload_services","tts_voices","chat","transcribe","llm_configure"].includes(t.name) &&
-      !t.name.startsWith("workflow_") &&
-      !HIDDEN_SERVICES.has(t.name)
-    ),
-    ...services.filter((s) => !tools.find((t) => t.name === s.name) && !HIDDEN_SERVICES.has(s.name)),
+    ...tools.filter((t) => !isInternalTool(t) && !t.name.startsWith("workflow_")),
+    ...services.filter((s) => !tools.find((t) => t.name === s.name) && !isHiddenService(s)),
     // External links
-    { name: "_kimodo_studio", label: "Kimodo Motion Studio", category: "external" } as { name: string; label: string; category: string },
-    { name: "_llm_chat", label: "AI Chat", category: "external" } as { name: string; label: string; category: string },
+    { name: "_kimodo_studio", label: "Kimodo Motion Studio" },
+    { name: "_llm_chat", label: "AI Chat" },
   ]
 
-  const getLabel = (item: MCPTool | { name: string; label: string }) => {
-    const name = ("name" in item) ? (item as any).name : ""
-    if (SERVICE_LABELS[name]) return SERVICE_LABELS[name]
-    if ("label" in item && (item as any).label && (item as any).label !== name) return (item as any).label
+  const getLabel = (item: any) => {
+    const name = item.name || ""
+    if (item.label && item.label !== name) return item.label
+    if ("description" in item && item.description) {
+      const fromDesc = item.description.split("—")[0]?.trim()
+      if (fromDesc && fromDesc.length < 40) return fromDesc
+    }
     return name.replace(/_/g, " ").replace(/\b\w/g, (c: string) => c.toUpperCase())
   }
 
-  // Resolve genre: only items in SERVICE_GENRE or with mapped category get shown
-  const getGenre = (item: MCPTool | { name: string; label: string; category?: string }) => {
-    const name = ("name" in item) ? (item as any).name : ""
-    if (SERVICE_GENRE[name]) return SERVICE_GENRE[name]
-    const cat = ("category" in item && (item as any).category) ? (item as any).category : ""
-    return CATEGORY_TO_GENRE[cat] || ""
+  const getGenre = (item: any) => {
+    const name = item.name || ""
+    if (item.category) return item.category
+    return toolGenre(name)
   }
 
   // Group by genre, deduplicate by label
@@ -977,8 +991,8 @@ function AssetsTab({ selectedService, jobs, onAddJob, nextJobId, onOpenKimodo, o
           text,
           instruct: `Voice for ${speaker}`,
           language: values.language || "English",
-          engine: values.engine || "moss_voicegenerator",
-          mode: values.mode || "voice_design",
+          engine: values.engine || firstEngineOrDefault(currentTool, "moss_voicegenerator"),
+          mode: values.mode || fieldDefault(currentTool, "mode", "voice_design"),
         })
       }
     })
@@ -1169,7 +1183,7 @@ function AssetsTab({ selectedService, jobs, onAddJob, nextJobId, onOpenKimodo, o
 
     // Generate multiple items based on quantity
     const totalItems = quantity
-    const jobName = SERVICE_LABELS[selectedService] || currentService?.label || selectedService
+    const jobName = currentService?.label || selectedService.replace(/_/g, " ").replace(/\b\w/g, (c: string) => c.toUpperCase())
     const jobId = nextJobId.current++
     const abortController = new AbortController()
 
@@ -1338,7 +1352,7 @@ function AssetsTab({ selectedService, jobs, onAddJob, nextJobId, onOpenKimodo, o
             )}
 
             {/* MOSS Sampling Presets */}
-            {selectedService === "voice_creator" && String(values.engine || "moss_voicegenerator") === "moss_voicegenerator" && (
+            {selectedService === "voice_creator" && String(values.engine || firstEngineOrDefault(currentTool, "moss_voicegenerator")) === "moss_voicegenerator" && (
               <div className="space-y-2">
                 <div className="flex items-center gap-2">
                   <Label className="text-xs font-medium">MOSS Sampling Presets</Label>
@@ -1696,11 +1710,11 @@ function AssetsTab({ selectedService, jobs, onAddJob, nextJobId, onOpenKimodo, o
 
                       {/* Additional Advanced Fields */}
                       {(selectedService === "tts_speak"
-                        ? ttsVisibleFields(String(values.engine || "kokoro"), fields)
+                        ? ttsVisibleFields(String(values.engine || firstEngineOrDefault(currentTool, "kokoro")), fields, currentTool)
                         : selectedService === "voice_creator"
                         ? voiceCreatorVisibleFields(
-                            String(values.engine || "moss_voicegenerator"),
-                            String(values.mode || "voice_design"),
+                            String(values.engine || firstEngineOrDefault(currentTool, "moss_voicegenerator")),
+                            String(values.mode || fieldDefault(currentTool, "mode", "voice_design")),
                             fields
                           )
                         : fields
@@ -1857,11 +1871,11 @@ function AssetsTab({ selectedService, jobs, onAddJob, nextJobId, onOpenKimodo, o
               {/* ── Remaining Text Fields (for non-image services) ──────────────────────────── */}
               {!(selectedService === "generate" || selectedService === "generate_image" || selectedService?.includes("generate")) &&
                 (selectedService === "tts_speak"
-                  ? ttsVisibleFields(String(values.engine || "kokoro"), fields)
+                  ? ttsVisibleFields(String(values.engine || firstEngineOrDefault(currentTool, "kokoro")), fields, currentTool)
                   : selectedService === "voice_creator"
                   ? voiceCreatorVisibleFields(
-                      String(values.engine || "moss_voicegenerator"),
-                      String(values.mode || "voice_design"),
+                      String(values.engine || firstEngineOrDefault(currentTool, "moss_voicegenerator")),
+                      String(values.mode || fieldDefault(currentTool, "mode", "voice_design")),
                       fields
                     ).filter((f) => voiceAdvancedOpen || ![
                       "max_new_tokens", "audio_temperature", "audio_top_p",
