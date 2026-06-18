@@ -406,6 +406,110 @@ SERVICE_REGISTRY: dict[str, ServiceEntry] = {
             ParamSpec(type="number", label="Seed", default=-1, placeholder="-1 (random)"),
         ],
     ),
+
+    # ── Omni-VLLM / SGLang pool services ──────────────────────────────────────
+    "ideogram4": ServiceEntry(
+        deployment="forge", app="forge",
+        label="Ideogram 4.0", category="image",
+        needs_gpu=True, default_model="ideogram-4-nf4",
+        output_type="image",
+        description="Ideogram 4.0 NF4 — typography-aware text-to-image via Omni-VLLM. Structured JSON prompts, 4 presets.",
+        params_schema=[
+            ParamSpec(type="textarea", label="Prompt", required=True, placeholder="A cinematic shot of..."),
+            ParamSpec(type="select", label="Preset", default="V4_DEFAULT_20", options=["V4_DEFAULT_20", "V4_QUALITY_48", "V4_TURBO_12"]),
+            ParamSpec(type="number", label="Width", default=1024, placeholder="1024"),
+            ParamSpec(type="number", label="Height", default=1024, placeholder="1024"),
+        ],
+    ),
+    "qwen_image_edit": ServiceEntry(
+        deployment="forge", app="forge",
+        label="Qwen Image Edit", category="image",
+        needs_gpu=True, default_model="qwen-image-edit-2511-fp8",
+        output_type="image",
+        description="Qwen-Image-Edit 2511 20B — FP8 on Omni-VLLM. Text-guided image editing with Cache-DiT acceleration.",
+        params_schema=[
+            ParamSpec(type="textarea", label="Prompt", required=True, placeholder="Add a cyberpunk city background..."),
+            ParamSpec(type="file", label="Input Image", required=True, placeholder="Upload image to edit"),
+            ParamSpec(type="number", label="Steps", default=4, placeholder="4"),
+        ],
+    ),
+    "wan_vace": ServiceEntry(
+        deployment="forge", app="forge",
+        label="Wan VACE Video", category="video",
+        needs_gpu=True, default_model="wan2.1-vace-14b-fp8",
+        output_type="video",
+        description="Wan2.1 VACE 14B FP8 — text-to-video and image-to-video via Omni-VLLM with TeaCache acceleration.",
+        params_schema=[
+            ParamSpec(type="textarea", label="Prompt", required=True, placeholder="A cyberpunk street scene, rain falling..."),
+            ParamSpec(type="file", label="Input Image", required=False, placeholder="Optional first frame (I2V)"),
+            ParamSpec(type="number", label="Steps", default=25, placeholder="25"),
+            ParamSpec(type="number", label="Width", default=640, placeholder="640"),
+            ParamSpec(type="number", label="Height", default=480, placeholder="480"),
+            ParamSpec(type="number", label="Frames", default=81, placeholder="81"),
+        ],
+    ),
+    "wan_t2v": ServiceEntry(
+        deployment="forge", app="forge",
+        label="Wan T2V (Legacy)", category="video",
+        needs_gpu=True, default_model="wan2.1-t2v-14b",
+        output_type="video",
+        description="Wan2.1 T2V 14B BF16 — legacy text-to-video fallback. Use wan_vace for day-to-day T2V.",
+        params_schema=[
+            ParamSpec(type="textarea", label="Prompt", required=True, placeholder="Describe the video..."),
+            ParamSpec(type="number", label="Steps", default=20, placeholder="20"),
+        ],
+    ),
+    "wan_i2v": ServiceEntry(
+        deployment="forge", app="forge",
+        label="Wan I2V (Legacy)", category="video",
+        needs_gpu=True, default_model="wan2.1-i2v-14b",
+        output_type="video",
+        description="Wan2.1 I2V 14B BF16 — legacy image-to-video fallback. Use wan_vace for day-to-day I2V.",
+        params_schema=[
+            ParamSpec(type="file", label="Input Image", required=True, placeholder="Upload first frame"),
+            ParamSpec(type="textarea", label="Prompt", required=True, placeholder="Describe the motion..."),
+        ],
+    ),
+    "ltx_video": ServiceEntry(
+        deployment="forge", app="forge",
+        label="LTX Video 2.3", category="video",
+        needs_gpu=True, default_model="ltx-2.3-fp8",
+        output_type="video",
+        description="LTX-Video 2.3 22B FP8 — text-to-video / image-to-video via SGLang-Diffusion or Omni-VLLM.",
+        params_schema=[
+            ParamSpec(type="textarea", label="Prompt", required=True, placeholder="Describe the video..."),
+            ParamSpec(type="file", label="Input Image", required=False, placeholder="Optional first frame"),
+            ParamSpec(type="number", label="Steps", default=20, placeholder="20"),
+            ParamSpec(type="number", label="Width", default=640, placeholder="640"),
+            ParamSpec(type="number", label="Height", default=480, placeholder="480"),
+            ParamSpec(type="number", label="Frames", default=49, placeholder="49"),
+        ],
+    ),
+    "cosmos": ServiceEntry(
+        deployment="forge", app="forge",
+        label="Cosmos3-Nano", category="video",
+        needs_gpu=True, default_model="cosmos3-nano",
+        output_type="video",
+        description="Cosmos3-Nano — video generation via Omni-VLLM. BF16 with CPU offload.",
+        params_schema=[
+            ParamSpec(type="textarea", label="Prompt", required=True, placeholder="Describe the video..."),
+            ParamSpec(type="number", label="Steps", default=20, placeholder="20"),
+        ],
+    ),
+    "boogu_edit": ServiceEntry(
+        deployment="forge", app="forge",
+        label="Boogu Image Edit", category="image",
+        needs_gpu=True, default_model="Boogu-Image-0.1-Edit",
+        output_type="image",
+        description="Boogu-Image-0.1-Edit — Apache-2.0 unified T2I + TI2I editing. Qwen3-VL MLLM + custom DiT.",
+        params_schema=[
+            ParamSpec(type="textarea", label="Prompt", required=True, placeholder="Describe what to generate or edit..."),
+            ParamSpec(type="file", label="Input Image", required=False, placeholder="Optional image for editing"),
+            ParamSpec(type="number", label="Steps", default=4, placeholder="4"),
+            ParamSpec(type="number", label="Width", default=1024, placeholder="1024"),
+            ParamSpec(type="number", label="Height", default=1024, placeholder="1024"),
+        ],
+    ),
 }
 
 

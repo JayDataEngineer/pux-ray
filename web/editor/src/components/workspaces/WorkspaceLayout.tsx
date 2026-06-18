@@ -88,9 +88,9 @@ function firstEngineOrDefault(tool: MCPTool | undefined, fallback: string): stri
   return fallback
 }
 
-const GENRE_ORDER = ["image", "audio", "motion", "3d", "external"]
+const GENRE_ORDER = ["image", "video", "audio", "motion", "3d", "external"]
 
-const GENRE_ICONS: Record<string, string> = { image: "◎", audio: "♪", motion: "↝", "3d": "⟁", external: "⤴" }
+const GENRE_ICONS: Record<string, string> = { image: "◎", video: "▶", audio: "♪", motion: "↝", "3d": "⟁", external: "⤴" }
 
 // Helper component for field labels with tooltips
 function FieldLabel({ label, tooltip }: { label: string; tooltip?: string }) {
@@ -127,6 +127,7 @@ function toolGenre(name: string): string {
   if (name.includes("tts") || name.includes("voice")) return "audio"
   if (name.includes("motion") || name.includes("kimodo") || name.includes("hy_motion") || name.includes("gemx")) return "motion"
   if (name.includes("3d") || name.includes("trellis") || name.includes("anigen") || name.includes("body_mesh") || name.includes("pixal")) return "3d"
+  if (name.includes("video") || name.includes("vace") || name.includes("cosmos") || name.includes("ltx") || name.includes("wan_")) return "video"
   return "image"  // default for generate/edit/char_sheet etc.
 }
 
