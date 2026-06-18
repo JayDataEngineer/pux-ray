@@ -61,9 +61,6 @@ SERVICE_MAP: dict[str, tuple[str, str]] = {
     # Route specific model families to native service
     "z-image":   ("services.native.forge_adapter",    "NativeForgeService"),
     "anima":     ("services.native.forge_adapter",    "NativeForgeService"),
-    # NOTE: wan2gp service removed — replaced by native.
-    # If legacy wan2gp is needed, uncomment and install mmgp:
-    # "wan2gp":    ("services.wan2gp.forge_adapter",    "Wan2GPForgeService"),
     # MOSS audio — standalone container (TTS + Sound Effects)
     "moss":      ("services.audio.forge_moss",        "MossForgeService"),
     # CrispASR — C++ speech recognition (CPU-only, coexists with everything)

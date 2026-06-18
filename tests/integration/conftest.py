@@ -1,11 +1,8 @@
-"""Integration test fixtures — VRAM-aware service lifecycle.
+"""Integration test fixtures — binary data generators.
 
-Provides `wan2gp_svc` fixture that:
-  - Creates a fresh Wan2GPService per test
-  - Unloads model + clears VRAM after each test (even on failure)
-  - Verifies VRAM returns to baseline (detects leaks)
-
-Also registers the `autoregressive` marker for skip-by-marker.
+NOTE: wan2gp service has been removed. The `wan2gp_svc` fixture is gone.
+Integration tests now target individual container HTTP endpoints.
+See docs/TEST-REPORT.md for per-container benchmark results.
 
 Includes binary data fixtures (sample_wav_b64, sample_png_b64) so tests
 can run standalone without the root conftest.py.
@@ -115,51 +112,6 @@ def sample_png_b64(sample_png_bytes) -> str:
     return base64.b64encode(sample_png_bytes).decode()
 
 
-# ─── Service lifecycle fixture ────────────────────────────────────────────
-
-
-def _vram_mb():
-    try:
-        import torch
-        if torch.cuda.is_available():
-            return torch.cuda.memory_allocated(0) // (1024 * 1024)
-    except Exception:
-        pass
-    return 0
-
-
-@pytest.fixture
-def wan2gp_svc():
-    """Yield a Wan2GPService with guaranteed VRAM cleanup after each test."""
-    from services.wan2gp.deployment import Wan2GPService
-
-    baseline = _vram_mb()
-    svc = Wan2GPService()
-
-    yield svc
-
-    # ── Teardown: unload + clear VRAM ──
-    try:
-        svc.unload()
-    except Exception:
-        pass
-
-    del svc
-    gc.collect()
-
-    try:
-        import torch
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
-    except Exception:
-        pass
-
-    # Verify VRAM returned close to baseline (allow 200MB for mmgp overhead)
-    after = _vram_mb()
-    if after > baseline + 200:
-        import warnings
-        warnings.warn(
-            f"Potential VRAM leak: baseline={baseline}MB, after={after}MB "
-            f"(delta={after - baseline}MB)",
-            stacklevel=1,
-        )
+# ─── [wan2gp_svc fixture removed] ─────────────────────────────────────────
+# The old Wan2GPService-based fixture was deleted along with the wan2gp service.
+# Integration tests should use direct HTTP to each container's API endpoint.

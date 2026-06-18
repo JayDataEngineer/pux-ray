@@ -240,7 +240,7 @@ batch_size = 1
             P("/tmp/klein_model"),
             P("/mnt/4tb/Dataset/models"),
             P("/home/user/Documents/programs/ray/infra/repos/ComfyUI/models/unet"),
-            P("/home/user/Documents/programs/ray/opt/wan2gp/ckpts"),
+            P("/mnt/data/models"),
         ]:
             if loc.exists():
                 for f in loc.rglob("*.safetensors"):

@@ -13,64 +13,11 @@ from unittest.mock import patch
 import pytest
 
 
-# ─── Payload edge cases ─────────────────────────────────────────────────────
-
-
-class TestBuildKwargsEdgeCases:
-    """Edge cases for _build_generate_kwargs."""
-
-    @pytest.mark.unit
-    def test_empty_payload_and_defaults(self):
-        from services.wan2gp.deployment import _build_generate_kwargs
-        result = _build_generate_kwargs({}, {})
-        assert "seed" in result
-        assert result["seed"] == -1
-
-    @pytest.mark.unit
-    def test_extra_keys_ignored(self):
-        """Unknown keys not in _KEY_MAP or _SAFE_PASSTHROUGH are silently dropped."""
-        from services.wan2gp.deployment import _build_generate_kwargs
-        result = _build_generate_kwargs({"unknown_key": "val", "prompt": "hello"}, {})
-        assert "unknown_key" not in result
-        assert result["input_prompt"] == "hello"
-
-    @pytest.mark.unit
-    def test_none_values_passed_through(self):
-        from services.wan2gp.deployment import _build_generate_kwargs
-        result = _build_generate_kwargs({"seed": None}, {})
-        assert result["seed"] is None
-
-    @pytest.mark.unit
-    def test_zero_values_preserved(self):
-        from services.wan2gp.deployment import _build_generate_kwargs
-        result = _build_generate_kwargs({"width": 0, "height": 0}, {})
-        assert result["width"] == 0
-        assert result["height"] == 0
-
-    @pytest.mark.unit
-    def test_large_values_preserved(self):
-        from services.wan2gp.deployment import _build_generate_kwargs
-        result = _build_generate_kwargs({"seed": 2**32}, {})
-        assert result["seed"] == 2**32
-
-    @pytest.mark.unit
-    def test_string_values_preserved(self):
-        from services.wan2gp.deployment import _build_generate_kwargs
-        result = _build_generate_kwargs({"text": "Hello 世界 🌍"}, {})
-        assert result["text"] == "Hello 世界 🌍"
-
-    @pytest.mark.unit
-    @pytest.mark.parametrize("blocked_key", [
-        "input_custom", "output_dir", "model_filename",
-        "lora_dir", "input_frames", "input_video", "input_masks",
-    ])
-    def test_individual_blocked_keys(self, blocked_key):
-        from services.wan2gp.deployment import _build_generate_kwargs
-        result = _build_generate_kwargs({blocked_key: "evil"}, {})
-        assert blocked_key not in result
-
-
 # ─── Config edge cases ──────────────────────────────────────────────────────
+
+# Note: wan2gp payload edge cases removed (services/wan2gp/deployment.py deleted)
+# The new 4-tier pool system uses HTTP-based dispatch — payload validation
+# happens at the container level.
 
 
 class TestConfigEdgeCases:
