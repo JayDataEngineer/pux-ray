@@ -1,0 +1,125 @@
+# Dockerfile.openmoss — OpenMOSS TTS server (pwilkin/openmoss C++/GGML)
+# Source: github.com/pwilkin/openmoss (upstream, no modifications)
+# Models: GGUF format (converted from HF via scripts/convert_hf_to_gguf.py)
+#
+# API:
+#   GET  /health → readiness probe
+#   GET  /info   → model dims + codec status
+#   POST /tts    → JSON in, audio/wav out (TTS + voice cloning)
+#   POST /v1/audio/speech → OpenAI-compatible TTS endpoint
+#
+# Build:
+#   docker build -f infra/docker/Dockerfile.openmoss \
+#     -t forge-reg.local:30500/tech-noir/openmoss:latest .
+#
+# Weight conversion (run once on host before first deploy):
+#   pip install safetensors numpy huggingface_hub gguf
+#   python infra/repos/openmoss/scripts/convert_hf_to_gguf.py \
+#     --moss-tts OpenMOSS-Team/MOSS-TTS \
+#     --codec OpenMOSS-Team/MOSS-Audio-Tokenizer \
+#     --output /mnt/data/models/audio/moss-tts/moss-tts.gguf \
+#     --llama-cpp-dir infra/repos/llama.cpp \
+#     --backbone-dtype f16
+#
+# Quantize backbone (optional — Q8_0 gives ~9 GB backbone + ~5 GB aux ≈ 14 GB):
+#   infra/repos/llama.cpp/build/bin/llama-quantize \
+#     --token-embedding-type f16 \
+#     /mnt/data/models/audio/moss-tts/moss-tts.gguf \
+#     /mnt/data/models/audio/moss-tts/moss-tts-q8_0.gguf Q8_0
+#
+# Run:
+#   docker run --gpus all -p 8080:8080 \
+#     -v /mnt/data/models/audio/moss-tts:/models/audio/moss-tts \
+#     forge-reg.local:30500/tech-noir/openmoss:latest
+#
+# Test:
+#   curl -X POST http://localhost:8080/tts \
+#     -H 'Content-Type: application/json' \
+#     -d '{"text":"Hello, world!","max_new_tokens":300}' -o out.wav
+
+# ── Stage 1: CUDA build ───────────────────────────────────────────────────────
+FROM nvidia/cuda:12.8.0-cudnn-devel-ubuntu22.04 AS builder
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    cmake \
+    git \
+    libopenblas-dev \
+    libgomp1 \
+    nlohmann-json3-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# Symlink CUDA stubs into standard lib path so linker can resolve libcuda.so
+# The stub libcuda.so provides symbols for linking; real one comes from host driver at runtime
+RUN ln -sf /usr/local/cuda/lib64/stubs/libcuda.so /usr/lib/x86_64-linux-gnu/libcuda.so && \
+    ln -sf /usr/local/cuda/lib64/stubs/libcuda.so /usr/lib/x86_64-linux-gnu/libcuda.so.1
+
+# ── Build llama.cpp with shared libraries + CUDA ──────────────────────────────
+WORKDIR /build
+RUN git clone --recurse-submodules https://github.com/ggml-org/llama.cpp.git
+WORKDIR /build/llama.cpp
+# Only build shared library targets (tools/examples need CUDA driver linking which fails in Docker)
+RUN mkdir build && cd build && \
+    cmake .. \
+      -DBUILD_SHARED_LIBS=ON \
+      -DGGML_CUDA=ON \
+      -DCMAKE_BUILD_TYPE=Release \
+      -DCMAKE_CUDA_COMPILER=/usr/local/cuda/bin/nvcc \
+      -DCMAKE_CUDA_ARCHITECTURES="89;90" \
+      -DGGML_CUDA_GRAPHS=ON \
+      -DLLAMA_NATIVE=OFF \
+      -DLLAMA_BUILD_EXAMPLES=OFF \
+      -DLLAMA_BUILD_TESTS=OFF \
+      -DLLAMA_BUILD_SERVER=OFF \
+      -DLLAMA_BUILD_TOOLS=OFF && \
+    cmake --build . --config Release -j $(nproc) --target ggml-cuda --target ggml --target ggml-base --target ggml-cpu --target llama
+
+# ── Build openmoss ────────────────────────────────────────────────────────────
+WORKDIR /build
+RUN git clone https://github.com/pwilkin/openmoss.git
+WORKDIR /build/openmoss
+RUN mkdir build && cd build && \
+    cmake .. \
+      -DLLAMA_CPP_DIR=/build/llama.cpp \
+      -DGGML_CUDA=ON \
+      -DCMAKE_BUILD_TYPE=Release && \
+    cmake --build . --config Release -j $(nproc)
+
+# ── Stage 2: Slim runtime ─────────────────────────────────────────────────────
+FROM nvidia/cuda:12.8.0-cudnn-runtime-ubuntu22.04
+
+LABEL description="OpenMOSS TTS server (pwilkin/openmoss) — Qwen3-8B backbone + 32 RVQ audio codec + 1.6B codec"
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libopenblas0 \
+    libgomp1 \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy the openmoss binaries
+COPY --from=builder /build/openmoss/build/moss-tts-server  /app/moss-tts-server
+COPY --from=builder /build/openmoss/build/moss-tts-cli     /app/moss-tts-cli
+COPY --from=builder /build/openmoss/build/tests/moss-tts-info    /app/moss-tts-info
+
+# Copy the llama.cpp shared libraries needed at runtime
+COPY --from=builder /build/llama.cpp/build/bin/libllama.so     /usr/lib/libllama.so
+COPY --from=builder /build/llama.cpp/build/bin/libggml.so      /usr/lib/libggml.so
+COPY --from=builder /build/llama.cpp/build/bin/libggml-base.so /usr/lib/libggml-base.so
+COPY --from=builder /build/llama.cpp/build/bin/libggml-cuda.so /usr/lib/libggml-cuda.so
+COPY --from=builder /build/llama.cpp/build/bin/libggml-cpu.so  /usr/lib/libggml-cpu.so
+
+# Copy the WebUI from the openmoss build staging
+COPY --from=builder /build/openmoss/build/webui /app/webui
+
+ENV LD_LIBRARY_PATH=/usr/lib
+
+# Default model path (override with -e at runtime or mount at different location)
+ENV MOSS_MODEL=/models/audio/moss-tts/moss-tts.gguf
+ENV MOSS_HOST=0.0.0.0
+ENV MOSS_PORT=8080
+
+EXPOSE 8080
+
+CMD ["sh", "-c", "/app/moss-tts-server \
+     --model ${MOSS_MODEL} \
+     --host ${MOSS_HOST} \
+     --port ${MOSS_PORT}"]

@@ -47,33 +47,29 @@ pools:
   # ══════════════════════════════════════════════════════════════════════════
   # TIER A — Specialized dockers (one per service)
   # ══════════════════════════════════════════════════════════════════════════
-  moss:
+  openmoss:
     tier: A
     priority: 10
-    image: forge-reg.local:30500/tech-noir/moss:latest
-    container: inference-moss
+    image: forge-reg.local:30500/tech-noir/openmoss:latest
+    container: inference-openmoss
     port: 8050
-    framework: moss
+    framework: openmoss
     description: >-
-      MOSS Audio — TTS + Sound Effects. All TTS models handled by the MOSS Docker.
-      Model data (GGUF format) is managed inside the container or mounted externally.
-      Dispatch routes all moss-* model names here; the Docker resolves internally.
+      OpenMOSS TTS (pwilkin/openmoss) — C++/GGML port of MOSS-TTS-Delay.
+      Qwen3-8B backbone + 32 RVQ audio codebooks + 1.6B pure-transformer audio codec.
+      OpenAI-compatible /v1/audio/speech endpoint. Voice cloning via reference WAV.
+      GGUF format models mounted from host. Built from source with CUDA.
+      Does NOT handle sound effects (moss-soundeffect-v2 is orphaned — no pool serves it).
     models:
       - moss-tts
       - moss-ttsd
-      - moss-soundeffect
-      - moss-soundeffect-v2
-      - moss-tts-realtime
-      - moss-tts-local-transformer
       - moss-voicegenerator
-      - moss-tts-nano
-    vram_mb: 6000
+    vram_mb: 15000
     health_path: /health
     volumes:
-      /models/audio: /mnt/data/models/audio
+      /models/audio/moss-tts: /mnt/data/models/audio/moss-tts
     env:
-      HF_HOME: /models/hf-cache
-      PYTORCH_CUDA_ALLOC_CONF: expandable_segments:True
+      MOSS_MODEL: /models/audio/moss-tts/moss-tts.gguf
 
   diarization:
     tier: A
@@ -487,15 +483,12 @@ pools:
 # skipped if (a) it doesn't actually serve the model, or (b) it's unhealthy.
 # A model served by only one pool has an empty fallback list.
 routes:
-  # ── Tier A — MOSS (all TTS models handled by the MOSS Docker) ──────────────
-  moss-tts:                { primary: moss }
-  moss-ttsd:               { primary: moss }
-  moss-soundeffect:        { primary: moss }
-  moss-soundeffect-v2:     { primary: moss }
-  moss-tts-realtime:       { primary: moss }
-  moss-tts-local-transformer: { primary: moss }
-  moss-voicegenerator:     { primary: moss }
-  moss-tts-nano:           { primary: moss }
+  # ── Tier A — OpenMOSS (TTS only — C++/GGML, OpenAI-compatible endpoint) ────
+  moss-tts:                { primary: openmoss }
+  moss-ttsd:               { primary: openmoss }
+  moss-voicegenerator:     { primary: openmoss }
+  # moss-soundeffect-v2 is orphaned — no pool serves it (was custom Python pipeline, deleted).
+  # moss-soundeffect, moss-tts-realtime, moss-tts-local-transformer, moss-tts-nano: legacy, not served.
   # ── Tier A — Diarization / Whisper (CrispASR handles all ASR/transcription)
   diarization:             { primary: diarization }        # default = base
   diarization-base:        { primary: diarization }

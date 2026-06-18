@@ -1639,9 +1639,10 @@ served-models:
   moss-soundeffect-v2:
     description: Pool-facing name for audio/moss-soundeffect-v2
     pool_ref: audio/moss-soundeffect-v2
-    status: active
+    status: orphaned
     path: audio/moss-soundeffect-v2
     size_gb: 11.3
+    note: Orphaned — no pool serves this. Custom Python pipeline was deleted. Needs port to Diffusers or new C++ server.
   moss-tts:
     description: Pool-facing name for audio/moss-tts
     pool_ref: null
