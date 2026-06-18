@@ -1,6 +1,6 @@
 # Inference Test Report
 
-**Date:** 2026-06-18 (updated)  
+**Date:** 2026-06-18 (session 2 — 4 new models tested)  
 **GPU:** NVIDIA RTX 4090 (24 GB VRAM)  
 **Models root:** `/mnt/data/models/` (1.8 TB NVMe, ~663 GB used)
 
@@ -164,23 +164,30 @@ All times are wall-clock measured from client-side. VRAM usage from `nvidia-smi`
 
 | Metric | Value |
 |--------|-------|
-| **Engine** | SGLang |
+| **Engine** | SGLang (lmsysorg/sglang:latest) |
 | **Quantization** | NF4 (bitsandbytes) |
-| **Source** | Gated — requires HF token with accepted terms |
-| **Model on disk** | No |
-| **VRAM** | ~11 GB (text_encoder 5.5GB + transformer 5.2GB) |
-| **Status** | ⏳ PENDING (needs HF login + acceptance) |
+| **Source** | Gated — HF token accepted |
+| **Model on disk** | Yes — 15 GB downloaded to `/mnt/data/models/cache/huggingface/models--ideogram-ai--ideogram-4-nf4/` |
+| **VRAM** | ~11 GB (text_encoder 5.5GB + transformer 4.9GB + unconditional_transformer 4.9GB) |
+| **Load time** | Failed — `diffusers` in SGLang container (0.39.0.dev0) lacks `Ideogram4Transformer2DModel` class |
+| **Root cause** | The `lmsysorg/sglang:latest` image ships an older `diffusers` that doesn't include the Ideogram 4 pipeline components. Ideogram 4 requires `diffusers>=0.33` with `Ideogram4Transformer2DModel`. Need to either: (a) upgrade diffusers in the container, (b) build custom SGLang image with latest diffusers, or (c) use a different serving approach. |
+| **Resolution** | Build custom SGLang image with `pip install --upgrade diffusers` or use `forge-reg.local:30500/tech-noir/gpu-all:natten-0.21.5` as base with SGLang installed fresh. |
+| **Status** | ❌ FAIL (diffusers version mismatch) |
 
 ### 11. Tangoflux (Text-to-Audio)
 
 | Metric | Value |
 |--------|-------|
-| **Engine** | Diffusers (Tier D, gpu-all) |
+| **Engine** | Native Python (Diffusers-based, tested outside container) |
 | **Quantization** | FP32 |
 | **Model on disk** | Yes (3.4 GB tangoflux.safetensors + 624 MB vae.safetensors) |
 | **Source** | hf://declare-lab/TangoFlux |
-| **VRAM** | ~6 GB |
-| **Status** | ⏳ PENDING (needs `pip install datasets` + container setup) |
+| **Load time (cold)** | 3.2 seconds (T5 encoder auto-downloaded, weights cached) |
+| **Inference (5s audio, 30 steps)** | 1.5 seconds |
+| **VRAM usage** | ~3.5 GB |
+| **Output** | 44.1 kHz stereo WAV (1723 KB for 5s) — valid, realistic sound |
+| **Notes** | Uses T5 encoder + DiT with flow matching. Very fast inference. Requires `pip install datasets` for the model loader. Tested with prompt "bubbly water stream flowing". Deprecation warnings from torch (txt_ids 3D tensor) but no functional issues. |
+| **Status** | ✅ PASS |
 
 ### 12. Wan VACE 14B FP8 (Video Editing)
 
@@ -207,21 +214,29 @@ All times are wall-clock measured from client-side. VRAM usage from `nvidia-smi`
 
 | Metric | Value |
 |--------|-------|
-| **Engine** | llama.cpp (Tier A) |
+| **Engine** | llama.cpp (llama-server-upstream in gpu-all container) |
 | **Format** | GGUF Q8_0 |
-| **Model on disk** | Yes (7.6 GB, `/mnt/data/models/native/qwen2.5-vl-7b-gguf/`) |
-| **VRAM** | ~8 GB |
-| **Status** | ⏳ PENDING (needs llama.cpp container) |
+| **Model on disk** | Yes (7.6 GB, `/mnt/data/models/native/qwen2.5-vl-7b-gguf/Qwen2.5-VL-7B-Instruct-Q8_0.gguf`) |
+| **Load time (cold)** | 6.7 seconds |
+| **Prompt processing** | 1411 tok/s (28 tokens in 20ms) |
+| **Generation speed** | 116 tok/s (14 tokens in 120ms) |
+| **VRAM usage** | ~11.7 GB |
+| **Output** | Valid haiku: *"Neurons connect, / Signals through the network flow, / Learning unfolds."* |
+| **API** | OpenAI-compatible `/v1/chat/completions` and `/v1/completions` |
+| **Notes** | No mmproj file available for vision tasks — tested as text-only LLM. Full 128K context but limited to 4096 via `--ctx-size`. Server health endpoint at `/health`. |
+| **Status** | ✅ PASS |
 
 ### 15. Qwen-Edit (ModelOpt FP8, non-2511)
 
 | Metric | Value |
 |--------|-------|
-| **Engine** | vLLM-Omni (omni-vllm pool) |
-| **Model on disk** | Yes — 28 GB transformer (`qwen-edit-modelopt-fp8-transformer`) + 5.5 GB NF4 text encoder (`qwen-edit-nf4-textenc`) |
-| **VRAM** | ~16 GB estimated |
-| **Notes** | This is the original Qwen-Edit (not 2511). ModelOpt FP8 quantization needs `modules_to_not_convert` conversion. |
-| **Status** | ⏳ PENDING (needs launcher + FP8 config conversion) |
+| **Engine** | SGLang (attempted) |
+| **Model on disk** | Yes — 29.5 GB transformer (3 safetensors, `qwen-edit-modelopt-fp8-transformer`) + 5.5 GB NF4 text encoder (`qwen-edit-nf4-textenc`) |
+| **VRAM** | ~16 GB estimated (model only) |
+| **Load result** | Failed — SGLang reports `ValueError: Unrecognized model in /models/native/qwen-edit-modelopt-fp8-transformer. Should have a \`model_type\` key in its config.json.` |
+| **Root cause** | The ModelOpt FP8 transformer's `config.json` lacks a `model_type` field. This is a known issue with ModelOpt FP8 exports — the config uses `_class_name` (`QwenImageTransformer2DModel`) but not `model_type`. SGLang requires `model_type` to load. |
+| **Resolution** | Add `"model_type": "qwen_image_transformer_2d"` to transformer config.json, or use vLLM-Omni with FP8 weight-only patch instead of SGLang. |
+| **Status** | ❌ FAIL (ModelOpt config missing model_type) |
 
 ### 16. MOSS TTS / TTSD / Realtime
 
@@ -237,27 +252,69 @@ All times are wall-clock measured from client-side. VRAM usage from `nvidia-smi`
 
 | Metric | Value |
 |--------|-------|
-| **Engine** | CrispASR (Tier A) |
-| **Model on disk** | Yes — `/mnt/data/models/vibevoice-cpp/vibevoice-realtime-0.5B-q8_0.gguf` |
-| **VRAM** | ~1.5 GB |
-| **Status** | ⏳ PENDING (needs separate container on port 8055) |
+| **Engine** | CrispASR (Tier A, `forge-reg.local:30500/tech-noir/asr:latest`) |
+| **Model on disk** | Yes — `/mnt/data/models/vibevoice-cpp/vibevoice-realtime-0.5B-q8_0.gguf` (1.6 GB) |
+| **Container** | `inference-diarization-turbo` on port 8055 |
+| **Backend** | `vibevoice-tts` (C++ GGML/CUDA) |
+| **Load time** | ~5 seconds |
+| **VRAM usage** | ~1.5 GB |
+| **ASR test** | Endpoint `/v1/audio/transcriptions` returns HTTP 200 with empty transcription for synthetic test audio |
+| **TTS test** | Fails — `vibeyvoice_synthesize: model lacks decoder tensors (convert with --include-decoder)` |
+| **Root cause** | The GGUF was quantized without decoder support (`--include-decoder` flag missing during conversion). Model can do streaming ASR but not full TTS synthesis. Voice presets (`voice-en-Emma.gguf`, `voice-en-Carter_man.gguf`) load correctly. |
+| **CrispASR** | Health endpoint `/health` returns `{"status":"ok"}`. API supports `/v1/audio/speech`, `/v1/audio/transcriptions`, `/v1/voices`. |
+| **Notes** | Started with `CRISPASR_EXTRA_ARGS="--voice-dir /models/vibevoice-cpp"` for voice preset directory. |
+| **Status** | ⚠️ PARTIAL (ASR works, TTS blocked by GGUF conversion) |
 
 ### 18. LLM Models (llama.cpp / BeeLlama)
 
 | Metric | Value |
 |--------|-------|
 | **Engine** | llama.cpp / BeeLlama (Tier A) |
-| **Models on disk** | Qwen3.6-27B Q5_K_S, Qwen3.6-35B-A3B UD-IQ4_NL, Gemma-4-26B, Gemma-4-31B, DFlash draft |
+| **Models on disk** | Qwen3.6-27B Q5_K_S (18 GB), Qwen3.6-35B-A3B UD-IQ4_NL (17 GB), Gemma-4-26B (13 GB), Gemma-4-31B (18 GB), DFlash draft (1 GB) |
 | **VRAM** | ~4–16 GB (varies by model) |
 | **Status** | ⏳ PENDING (needs llama container on port 8052/8053) |
 
-### 19. Tier D Diffusers Models (Kimodo, Kokoro, VibeVoice-TTS, See-Through)
+### 19. Kokoro 82M TTS
 
 | Metric | Value |
 |--------|-------|
-| **Engine** | Diffusers (Tier D, gpu-all) |
-| **Models on disk** | Partial — Kokoro (in `/mnt/data/models/tts/kokoro/`), VibeVoice (in `/mnt/data/models/tts/vibevoice/`) |
-| **Status** | ⏳ PENDING (needs diffusers container on port 8095) |
+| **Engine** | Native Python (kokoro library, CPU) |
+| **Model** | `kokoro-v1_0.pth` from `/mnt/data/models/tts/kokoro/` |
+| **Load time (cold)** | 1.0 second |
+| **Inference (4.6s audio)** | 0.3 seconds |
+| **Output** | 24 kHz mono WAV (434 KB) — valid, clear speech |
+| **VRAM usage** | 0 GB (CPU-only model) |
+| **Voice** | `af_heart` (American English female) |
+| **Dependencies** | Requires `kokoro`, `misaki`, `num2words`, `spacy`, `phonemizer`, `espeak-ng`. All pip-installable. |
+| **Status** | ✅ PASS |
+
+### 20. See-Through (Anime Layer Decomposition)
+
+| Metric | Value |
+|--------|-------|
+| **Engine** | Diffusers (Tier D) |
+| **Model on disk** | No — broken symlinks to Docker-internal HF cache paths |
+| **Symlinks** | `layerdiff3d`, `marigold`, `scheduler` all point to `/models/hf_cache/hub/...` which doesn't exist on host |
+| **VRAM** | ~4 GB estimated |
+| **Status** | ⏳ PENDING (needs model download to host filesystem) |
+
+### 21. VibeVoice 7B TTS
+
+| Metric | Value |
+|--------|-------|
+| **Engine** | Diffusers (Tier D, GPU) |
+| **Model on disk** | Yes — 18.7 GB in `/mnt/data/models/tts/vibevoice/` (10 safetensor shards) |
+| **VRAM** | ~20 GB estimated |
+| **Status** | ⏳ PENDING (needs GPU container with 20GB+ VRAM) |
+
+### 22. Kimodo-SOMA-RP (Motion Diffusion)
+
+| Metric | Value |
+|--------|-------|
+| **Engine** | Diffusers (Tier D, GPU) |
+| **Model on disk** | No — `avatar/kimodo/` directory not on host filesystem |
+| **VRAM** | ~3 GB estimated |
+| **Status** | ⏳ PENDING (needs download) |
 
 ---
 
@@ -268,4 +325,9 @@ All times are wall-clock measured from client-side. VRAM usage from `nvidia-smi`
 - Cosmos3-Nano cannot run on 24GB without FP8 — fused LLM params block quantization.
 - LTX-2.3 symlinks were repaired after initial test; now all 20 resolve correctly.
 - ACE-Step Dockerfile at `infra/docker/Dockerfile.acetep` — custom build with static ggml linking.
-- 9/19 served model groups tested. Remaining 10 are blocked by: missing downloads (Wan VACE/T2V/I2V), gated access (Ideogram 4), container not running (MOSS, llama, diffusers), or pending setup (Tangoflux, Diarization-Turbo).
+- Kokoro requires `pip install kokoro misaki num2words spacy phonemizer` and system `espeak-ng`.
+- Tangoflux requires `pip install datasets` for its model loader.
+- Qwen2.5-VL 7B tested as text-only LLM; vision would need `mmproj` file.
+- Qwen-Edit (non-2511) and Ideogram 4 both blocked by serving infrastructure issues, not model availability.
+- Diarization-Turbo 0.5B GGUF needs re-quantization with `--include-decoder` for TTS support.
+- 13/22 model groups tested (9 from session 1 + 4 new this session: Tangoflux, Qwen2.5-VL, Kokoro, Diarization-Turbo partial). 9 remain pending or blocked.
