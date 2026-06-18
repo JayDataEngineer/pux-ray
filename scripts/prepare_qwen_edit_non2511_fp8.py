@@ -190,7 +190,7 @@ def assemble_model():
             continue
         s = os.path.join(MODEL_2511, item)
         d = os.path.join(OUTPUT_DIR, item)
-        if d.exists():
+        if os.path.exists(d):
             continue
         if os.path.isdir(s):
             shutil.copytree(s, d, symlinks=True)
