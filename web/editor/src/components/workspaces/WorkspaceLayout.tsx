@@ -60,8 +60,6 @@ const TTS_ENGINE_VISIBLE_FIELDS: Record<string, string[]> = {
     "audio_temperature", "audio_top_p", "audio_top_k", "audio_repetition_penalty",
     "n_vq_for_inference",
   ],
-  index_tts: ["text", "engine"],
-  qwen3_tts: ["text", "engine", "mode", "voice", "instruct", "ref_audio_b64", "language"],
 }
 
 function ttsVisibleFields(engine: string, allFields: FieldDef[]): FieldDef[] {
@@ -72,25 +70,8 @@ function ttsVisibleFields(engine: string, allFields: FieldDef[]): FieldDef[] {
 
 // ── Dynamic Voice Creator: per-engine field visibility ──────────────────────
 function voiceCreatorVisibleFields(engine: string, mode: string, allFields: FieldDef[]): FieldDef[] {
-  if (engine === "qwen3_tts") {
-    if (mode === "voice_clone") {
-      return allFields.filter((f) =>
-        ["text", "engine", "mode", "ref_audio_b64", "ref_audio_b64_list", "language"].includes(f.name)
-      )
-    } else if (mode === "custom_voice") {
-      return allFields.filter((f) =>
-        ["text", "engine", "mode", "voice", "language"].includes(f.name)
-      )
-    } else {
-      // voice_design
-      return allFields.filter((f) =>
-        ["text", "engine", "mode", "instruct", "language"].includes(f.name)
-      )
-    }
-  } else {
-    // moss_voicegenerator - show all fields including ref_audio_b64_list
-    return allFields
-  }
+  // moss_voicegenerator - show all fields including ref_audio_b64_list
+  return allFields
 }
 
 const GENRE_ORDER = ["image", "audio", "motion", "3d", "external"]
@@ -157,7 +138,7 @@ const SERVICE_LABELS: Record<string, string> = {
 const HIDDEN_SERVICES = new Set([
   "z_image", "wan2gp", "comfyui", "llm", "faster_whisper", "vibevoice_asr",
   "see_through", "nvidia_upscale", "dwpose", "lance", "kohya", "avatar",
-  "kokoro", "espeak", "index_tts", "faster_qwen3_tts",
+  "kokoro", "espeak",
   "moss_voicegenerator", "moss_tts",
   "clone_character", "list_pipelines",
   "kimodo", "kimodo_demo", "hy_motion", "hy_motion_lite", "gemx",
@@ -1149,21 +1130,9 @@ function AssetsTab({ selectedService, jobs, onAddJob, nextJobId, onOpenKimodo, o
         })
       }
       setFields(extracted)
-      // ── Dynamic TTS: inject engine options for tts_speak ─────────────────
-      if (selectedService === "tts_speak") {
-        const engineField = extracted.find((f) => f.name === "engine")
-        if (engineField) {
-          engineField.type = "select"
-          engineField.options = ["kokoro", "qwen3_tts", "moss_tts", "espeak", "index_tts"]
-          engineField.default = "kokoro"
-        }
-        const modeField = extracted.find((f) => f.name === "mode")
-        if (modeField) {
-          modeField.type = "select"
-          modeField.options = ["custom_voice", "voice_design", "voice_clone"]
-          modeField.default = "custom_voice"
-        }
-      }
+      // ── TTS: engine options come from the MCP tool schema (enum) ─────────
+      // No hardcoded override — the backend's tts_speak tool provides the
+      // correct engine enum dynamically from SERVICE_REGISTRY.
       const d: Record<string, unknown> = {}
       for (const f of extracted) { if (f.default !== undefined) d[f.name] = f.default }
       setValues(d)

@@ -638,3 +638,34 @@ to see cloud fallback rate over time.
 pre-commit install           # Install hooks
 pre-commit run --all-files   # Validate all K8s manifests
 ```
+
+## Critical Lessons (June 2026)
+
+### CiliumNetworkPolicy broke the entire cluster for 6 days
+A `CiliumNetworkPolicy` named `allow-k8s-api-egress` with `endpointSelector: {}` was deployed to ALL namespaces. It only allowed egress to `kube-apiserver` — meaning pods could NOT resolve DNS, reach other services, or access the internet. This broke Flux (couldn't reach Forgejo), act-runner push jobs (couldn't reach Gitea), and KubeRay operator (couldn't reach Ray dashboard).
+
+**Fix**: Add per-namespace `allow-dns-egress` + `allow-intra-namespace` CiliumNetworkPolicies that allow DNS (port 53 UDP/TCP) and inter-service traffic on required ports.
+
+**Affected namespaces that needed fixes**: `flux-system`, `git`, `ray-system`, `ai-services` (already had `allow-dns-egress`).
+
+### ALL hardcoded engine/service lists must be removed from frontend code
+The editor frontend (`web/editor/src/components/workspaces/WorkspaceLayout.tsx`) had MULTIPLE hardcoded TTS engine arrays:
+- `TTS_ENGINE_VISIBLE_FIELDS` with `index_tts` and `qwen3_tts`
+- `voiceCreatorVisibleFields()` with `qwen3_tts`-specific handling
+- `HIDDEN_SERVICES` with `index_tts`, `faster_qwen3_tts`
+- Hardcoded engine options override in the form builder: `engineField.options = ["kokoro", "qwen3_tts", "moss_tts", "espeak", "index_tts"]`
+
+**Rule**: The MCP tool schema (from `tts_speak` → `_ENGINE_IDS`) is the SOURCE OF TRUTH for engine options. Frontend must NEVER hardcode engine lists. Use `r.enum` from the tool's `inputSchema.properties` — that data comes from the backend.
+
+**To rebuild editor after source changes**: `cd web/editor && npx vite build` (bypasses tsc check since pre-existing TS errors exist in test files). Output goes to `gateway/editor/assets/`.
+
+### Editor has TWO access paths
+- **Vite dev server**: `http://100.86.69.57:5173/editor/` — hot-reloads from `web/editor/src/`
+- **Production bundle**: Served through Ray Serve gateway at port 30080 from `gateway/editor/assets/`
+Both must be updated when making frontend changes.
+
+### Flux reconciliation blocked by Cilium (not Flux itself)
+When Flux shows "Source artifact not found" for ALL kustomizations for extended periods, it's NOT a Flux bug — check if the source-controller can resolve DNS and reach the git server. The root cause is likely a CiliumNetworkPolicy blocking egress. Test from within the source-controller pod:
+```bash
+kubectl -n flux-system exec deploy/source-controller -- nslookup forgejo.redshiftdb-gitops.svc.cluster.local
+```

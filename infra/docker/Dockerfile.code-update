@@ -1,0 +1,14 @@
+# Dockerfile.code-update — quick code overlay on existing native image
+# Build: docker build -f infra/docker/Dockerfile.code-update -t forge-reg.local:30500/tech-noir/native:latest .
+FROM forge-reg.local:30500/tech-noir/native:latest
+
+# Copy updated project code
+COPY services/ /app/services/
+COPY gateway/ /app/gateway/
+COPY registry/ /app/registry/
+COPY sdk/ /app/sdk/
+COPY pyproject.toml /app/
+COPY infra/k8s/serve_config.py /app/serve_config.py
+COPY infra/k8s/serve_deploy.py /app/serve_deploy.py
+
+WORKDIR /app
