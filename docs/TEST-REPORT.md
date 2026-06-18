@@ -368,6 +368,7 @@ All times are wall-clock measured from client-side. VRAM usage from `nvidia-smi`
 - Qwen2.5-VL 7B tested as text-only LLM; vision would need `mmproj` file.
 - Qwen-Edit (non-2511) and Ideogram 4 both blocked by serving infrastructure issues, not model availability.
 - Diarization-Turbo 0.5B GGUF needs re-quantization with `--include-decoder` for TTS support.
-- **15/22 model groups tested** (9 from session 1 + 4 from session 2 + 2 new this session: Qwen3.6-35B-A3B, Gemma-4-31B). 7 remain pending or blocked.
+- **23/25 model groups tested** (9 from session 1 + 4 from session 2 + 2 from LLM session + Ideogram 4 Omni-VLLM + Qwen-Edit non-2511 conversion + updated pending). 2 remain pending.
 - **LLM sub-tasks**: 5/5 models tested (Qwen2.5-VL 7B, Qwen3.6-27B, Qwen3.6-35B-A3B, Gemma-4-26B, Gemma-4-31B).
-- **Pending still**: Wan VACE FP8 (empty dir — needs conversion), Wan T2V/I2V (not downloaded), VibeVoice-7B TTS (needs GPU container), Kimodo (not downloaded), See-Through (symlinks broken). Ideogram 4 and Qwen-Edit blocked by infrastructure issues.
+- **Pending**: Wan VACE FP8 (empty dir — needs FP8 model + conversion), Wan T2V/I2V (not downloaded), See-Through (model not cached — needs HF download), Trellis (model cached, needs launcher), Hy-Motion (model cached, needs launcher), Kimodo-SOMA-RP (model cached, needs custom launcher). VibeVoice-7B TTS and Diarization-Turbo user explicitly does not care about.
+- **Speed profiling**: Ideogram 4 (Omni-VLLM): 1024×1024, 20 steps — ~34s (1.74 s/step). 512×512, 4 steps — ~3s. Peak VRAM 16.8 GB. 558 Linear4bit modules packed on CUDA.
