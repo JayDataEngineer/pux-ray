@@ -1594,6 +1594,17 @@ served-models:
     device: gpu
     vram_estimate_gb: 16.0
     primary_pool: omni-vllm
+  qwen-edit:
+    description: Qwen-Edit non-2511 — ModelOpt FP8 → compressed-tensors FP8 weight-only for Omni-VLLM
+    pool_ref: image-gen/qwen-edit-non2511-fp8
+    path: image-gen/qwen-edit-non2511-fp8/
+    size_gb: 28.0
+    source: Built from native/qwen-edit-modelopt-fp8-transformer + native/qwen-edit-nf4-textenc
+    status: active
+    device: gpu
+    vram_estimate_gb: 22.0
+    primary_pool: omni-vllm
+    prerequisite: Run scripts/prepare_qwen_edit_non2511_fp8.py to convert ModelOpt FP8 → compressed-tensors
   kimodo:
     description: Kimodo-SOMA-RP kinematic motion diffusion (served via diffusers pool)
     pool_ref: avatar/kimodo-soma-rp

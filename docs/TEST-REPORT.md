@@ -232,13 +232,18 @@ All times are wall-clock measured from client-side. VRAM usage from `nvidia-smi`
 
 | Metric | Value |
 |--------|-------|
-| **Engine** | SGLang (attempted) |
-| **Model on disk** | Yes — 29.5 GB transformer (3 safetensors, `qwen-edit-modelopt-fp8-transformer`) + 5.5 GB NF4 text encoder (`qwen-edit-nf4-textenc`) |
-| **VRAM** | ~16 GB estimated (model only) |
-| **Load result** | Failed — SGLang reports `ValueError: Unrecognized model in /models/native/qwen-edit-modelopt-fp8-transformer. Should have a \`model_type\` key in its config.json.` |
-| **Root cause** | The ModelOpt FP8 transformer's `config.json` lacks a `model_type` field. This is a known issue with ModelOpt FP8 exports — the config uses `_class_name` (`QwenImageTransformer2DModel`) but not `model_type`. SGLang requires `model_type` to load. |
-| **Resolution** | Add `"model_type": "qwen_image_transformer_2d"` to transformer config.json, or use vLLM-Omni with FP8 weight-only patch instead of SGLang. |
-| **Status** | ❌ FAIL (ModelOpt config missing model_type) |
+| **Engine** | Omni-VLLM (target) — custom pipeline patch + weight conversion |
+| **Architecture** | Identical to 2511: 60-layer QwenImageTransformer2DModel, 24 heads, 128 head dim |
+| **Model on disk** | Yes — 28 GB transformer (ModelOpt FP8: `qwen-edit-modelopt-fp8-transformer`) + 5.5 GB NF4 text encoder (`qwen-edit-nf4-textenc`) |
+| **Weight format** | Native Float8_e4m3fn + BF16 hybrid (unlike 2511's compressed-tensors format) |
+| **BF16 dequant test** | ✅ Loads successfully after casting FP8→BF16 (native torch cast, no modelopt needed) |
+| **VRAM (BF16)** | ~40 GB estimated — too large for RTX 4090 24 GB |
+| **VRAM (FP8 target)** | ~20 GB estimated after compressed-tensors conversion |
+| **Conversion needed** | ModelOpt FP8 → compressed-tensors FP8 weight-only (with per-tensor scales) |
+| **Conversion script** | `scripts/prepare_qwen_edit_non2511_fp8.py` — loads ModelOpt weights, casts FP8→BF16, re-quantizes to FP8 weight-only with per-tensor scales, adds compressed-tensors quantization_config |
+| **Root cause** | The ModelOpt FP8 format stores weights as native Float8_e4m3fn with per-tensor metadata embedded in safetensor headers. Omni-VLLM's pipeline patch expects compressed-tensors format with explicit `weight_scale` tensors. Conversion required. |
+| **Resolution** | Run `python3 scripts/prepare_qwen_edit_non2511_fp8.py` to convert, then serve through Omni-VLLM using the same pipeline patch (`pipeline_qwen_image_edit_plus_patch.py`) as the 2511 model. |
+| **Status** | 🔄 IN PROGRESS — need to run conversion script then verify generation on 24 GB |
 
 ### 16. MOSS TTS / TTSD / Realtime
 

@@ -245,6 +245,7 @@ pools:
       - anima-base               # Cosmos-Predict2 anime T2I (replaces cosmos slot)
       - ltx-video                # LTX-2.3 FP8 fallback (primary is SGLang)
       - ideogram4                # Ideogram 4 NF4 — custom diffusers pipeline with QKV injection
+      - qwen-edit                # Qwen-Edit non-2511 — ModelOpt FP8 (needs conversion)
     vram_mb: 22000
     health_path: /health
     # Per-model launch config. The "script" points at an existing launcher
@@ -383,6 +384,26 @@ pools:
           quant: modelopt-fp8
           vae_decode_parallel: true
         note: "LTX-2.3 FP8 fallback. Primary is SGLang (layerwise offload gives better perf). Added v0.22+."
+      qwen-edit:
+        script: scripts/prepare_qwen_edit_non2511_fp8.py
+        patch: scripts/pipeline_qwen_image_edit_plus_patch.py
+        launcher: scripts/launch_qwen_img_edit_fp8.py
+        model_dir: /mnt/data/models/image-gen/qwen-edit-non2511-fp8
+        registry_ref: served-models/qwen-edit
+        api:
+          generate: POST /v1/images/generations
+          edit:     POST /v1/images/edits
+        optimization:
+          quant: fp8-weight-only       # Converted from ModelOpt FP8 → compressed-tensors
+          cache_dit: true
+          taylorseer: true
+          vae_tiling: true
+          vae_slicing: true
+          fn_compute_blocks: 1
+          bn_compute_blocks: 0
+          max_warmup_steps: 4
+        prerequisite: "Run scripts/prepare_qwen_edit_non2511_fp8.py first to convert weights"
+        note: "Non-2511 Qwen-Edit — ModelOpt FP8 → compressed-tensors conversion required. Same arch as 2511."
     env:
       VLLM_BATCH_INVARIANT: "1"             # BF16-dequant path for non-patched layers
       PYTORCH_CUDA_ALLOC_CONF: expandable_segments:True
@@ -550,6 +571,7 @@ routes:
 
   # ── Tier C — SGLang-exclusive (or SGLang-primary) ─────────────────────────
   ideogram4:               { primary: omni-vllm }
+  qwen-edit:               { primary: omni-vllm }
   ltx-video:
     primary: sglang
     fallback: [omni-vllm]       # vLLM-Omni v0.22+ LTX-2.3 support (dual-engine)
