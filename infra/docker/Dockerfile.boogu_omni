@@ -1,0 +1,66 @@
+# Dockerfile.boogu_omni — Boogu-Image-0.1-Edit served via vLLM-Omni container
+#
+# Pattern: same as ideogram4 — a custom FastAPI server running inside the
+# vllm-omni:fork image so Boogu lives in the omni-vllm pool alongside
+# qwen-edit, ideogram4, z-image, etc.
+#
+# Build:
+#   docker build -t forge-reg.local:30500/tech-noir/boogu-omni:latest \
+#     -f infra/docker/Dockerfile.boogu_omni .
+#   docker push forge-reg.local:30500/tech-noir/boogu-omni:latest
+#
+# Base image already provides: torch 2.11.0+cu130, diffusers 0.38.0,
+# transformers 5.12.0, bitsandbytes 0.49.2, flashinfer, uv.
+
+FROM forge-reg.local:30500/tech-noir/vllm-omni:fork
+
+LABEL description="Boogu-Image-0.1-Edit — Apache-2.0 image gen & edit (Omni-VLLM pool)"
+
+# ── Boogu-specific Python deps ────────────────────────────────────────────────
+# vllm-omni already has: torch, diffusers, transformers, accelerate, peft,
+# safetensors, bitsandbytes, flashinfer. We add only what Boogu needs:
+#   * kernels     — HF kernel loader (boogu-image dependency)
+#   * cache-dit   — block-cache / CPU offload helpers used by Boogu pipeline
+#   * omegaconf   — YAML loader used by boogu checkpoints
+#   * python-dotenv — env file loader used by boogu CLI
+#   * torchao     — FP8 quantization utilities
+#   * einops      — tensor reshaping (boogu dep, not preinstalled)
+#   * fastapi     — already present in vllm-omni, but pin to be safe
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv pip install --system \
+    "kernels>=0.14,<0.15" \
+    "cache-dit>=1.3,<2" \
+    "omegaconf>=2.3,<3" \
+    "python-dotenv>=1.0,<2" \
+    "torchao>=0.15,<0.18" \
+    "einops>=0.7" \
+    "fastapi>=0.115"
+
+# ── Boogu package (from GitHub source) ────────────────────────────────────────
+# Trust-remote-code model: pip installs the boogu-image package which provides
+# BooguImagePipeline (a fork of OmniGen2 diffusers pipeline).
+RUN git clone --depth 1 https://github.com/boogu-project/Boogu-Image.git /opt/boogu-src && \
+    cd /opt/boogu-src && \
+    uv pip install --system --no-deps -e . && \
+    uv pip install --system webdataset scipy || true
+
+# ── flash-attn 2.8.3 (prebuilt wheel for cu130 / torch 2.11 / py3.12) ─────────
+# Source: mjun0812/flash-attention-prebuild-wheels v0.9.4
+# Boogu's attention processor raises ImportError without flash_attn.
+RUN uv pip install --system \
+    "https://github.com/mjun0812/flash-attention-prebuild-wheels/releases/download/v0.9.4/flash_attn-2.8.3%2Bcu130torch2.11-cp312-cp312-linux_x86_64.whl"
+
+# ── API server ────────────────────────────────────────────────────────────────
+COPY infra/docker/api_boogu.py /opt/api_boogu.py
+
+# ── Runtime env ───────────────────────────────────────────────────────────────
+ENV BOOGU_MODEL_PATH=/mnt/data/models/image-gen/Boogu-Image-0.1-Edit
+ENV BOOGU_DEVICE=cuda:0
+ENV BOOGU_OFFLOAD=model_cpu
+ENV BOOGU_PORT=8096
+ENV PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+ENV SAFETENSORS_DISABLE_MMAP=1
+
+EXPOSE 8096
+
+ENTRYPOINT ["python3", "/opt/api_boogu.py"]

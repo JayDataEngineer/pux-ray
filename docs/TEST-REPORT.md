@@ -354,6 +354,32 @@ All times are wall-clock measured from client-side. VRAM usage from `nvidia-smi`
 | **VRAM** | ~3 GB estimated |
 | **Status** | ⏳ PENDING (needs download) |
 
+### 23. Boogu-Image-0.1-Edit (T2I + TI2I Editing) — via Omni-VLLM
+
+| Metric | Value |
+|--------|-------|
+| **Engine** | Omni-VLLM (`forge-reg.local:30500/tech-noir/boogu-omni:latest`) — custom diffusers pipeline |
+| **Architecture** | Qwen3-VL MLLM (text encoder) + custom `BooguImageTransformer2DModel` (DiT) + FLUX.1 VAE |
+| **Pipeline** | `boogu.pipelines.boogu.pipeline_boogu.BooguImagePipeline` (OmniGen2 fork, `trust_remote_code=True`) |
+| **Scheduler** | `FlowMatchEulerDiscreteScheduler` |
+| **Source** | Apache-2.0, public — `hf://Boogu/Boogu-Image-0.1-Edit` |
+| **Model on disk** | Yes — 35.8 GB at `/mnt/data/models/image-gen/Boogu-Image-0.1-Edit/` (5 components: mllm, processor, scheduler, transformer, vae) |
+| **VRAM (idle, sequential offload)** | ~2 GB (model lives on CPU, layers streamed to GPU per step) |
+| **VRAM (peak, model_cpu offload)** | ~22 GB (one submodel on GPU at a time) |
+| **VRAM (peak, no offload)** | ~40 GB (full model resident, needs 48 GB card) |
+| **Load time (cold)** | 7.8 s |
+| **T2I 512×512, 4 steps (model_cpu)** | 54.2 s wall (first-step warmup dominates: 31 s for text encode + DiT swap-in; steady-state ≈ 0.3 s/step) |
+| **T2I 768×768, 20 steps (sequential)** | 152.0 s (~7.6 s/step) |
+| **T2I 1024×1024, 20 steps (sequential)** | 170.0 s (~6.7 s/step steady-state after first-step warmup) — **native resolution** |
+| **TI2I 768×768, 8 steps (sequential)** | 100.8 s (image editing pipeline — preserves structure, follows edit instruction) |
+| **Output** | Valid RGB PNG; 1024×1024 T2I shows warm sunset palette (mean RGB [92,72,70], center [118,106,114] — orange/yellow sunset glow over dark blue sky). TI2I test correctly preserved the brown house in center while darkening the sky to near-black (mean top-corner RGB [5,5,19]). |
+| **Offload strategy** | `BOOGU_OFFLOAD=sequential` (default — keeps VRAM ≤2 GB so the pool can co-tenant with qwen-edit, ideogram4, etc.). Switch to `BOOGU_OFFLOAD=model_cpu` for ~3× speedup when the GPU is idle. |
+| **Dependencies** | `boogu-image` (from github.com/boogu-project/Boogu-Image), `flash_attn==2.8.3+cu130torch2.11` (prebuilt wheel from mjun0812), `kernels>=0.14,<0.15`, `cache-dit>=1.3`, `omegaconf`, `torchao`, `einops`, `webdataset`. All layered on top of vllm-omni:fork base (torch 2.11+cu130, diffusers 0.38, transformers 5.12). |
+| **Image build** | `infra/docker/Dockerfile.boogu_omni` — builds FROM `forge-reg.local:30500/tech-noir/vllm-omni:fork`, clones Boogu-Image repo, installs prebuilt flash_attn wheel. Image pushed to `forge-reg.local:30500/tech-noir/boogu-omni:latest`. |
+| **Launcher** | `infra/docker/serve_boogu_omni.sh` — `docker run` with model bind-mount and `BOOGU_OFFLOAD` env var |
+| **API** | `POST /v1/images/generations` — T2I when `input_image_b64` omitted; TI2I editing when present. Fields: `prompt`, `negative_prompt`, `height`, `width`, `num_inference_steps`, `text_guidance_scale`, `image_guidance_scale`, `seed`, `num_images`, `input_image_b64`. |
+| **Status** | ✅ PASS (Omni-VLLM) — T2I + TI2I both verified. Sequential offload lets the model co-tenant with other omni-vllm models on a 24 GB card. |
+
 ---
 
 ## Notes
@@ -371,4 +397,6 @@ All times are wall-clock measured from client-side. VRAM usage from `nvidia-smi`
 - **23/25 model groups tested** (9 from session 1 + 4 from session 2 + 2 from LLM session + Ideogram 4 Omni-VLLM + Qwen-Edit non-2511 conversion + updated pending). 2 remain pending.
 - **LLM sub-tasks**: 5/5 models tested (Qwen2.5-VL 7B, Qwen3.6-27B, Qwen3.6-35B-A3B, Gemma-4-26B, Gemma-4-31B).
 - **Pending**: Wan VACE FP8 (empty dir — needs FP8 model + conversion), Wan T2V/I2V (not downloaded), See-Through (model not cached — needs HF download), Trellis (model cached, needs launcher), Hy-Motion (model cached, needs launcher), Kimodo-SOMA-RP (model cached, needs custom launcher). VibeVoice-7B TTS and Diarization-Turbo user explicitly does not care about.
-- **Speed profiling**: Ideogram 4 (Omni-VLLM): 1024×1024, 20 steps — ~34s (1.74 s/step). 512×512, 4 steps — ~3s. Peak VRAM 16.8 GB. 558 Linear4bit modules packed on CUDA.
+- **Speed profiling**:
+  - Ideogram 4 (Omni-VLLM): 1024×1024, 20 steps — ~34s (1.74 s/step). 512×512, 4 steps — ~3s. Peak VRAM 16.8 GB. 558 Linear4bit modules packed on CUDA.
+  - Boogu-Image-0.1-Edit (Omni-VLLM): 1024×1024, 20 steps — 170s (~6.7 s/step steady-state). 768×768, 20 steps — 152s. TI2I 768×768, 8 steps — 101s. Sequential CPU offload keeps idle VRAM ≤2 GB so it co-tenants with other omni-vllm models; `BOOGU_OFFLOAD=model_cpu` gives ~3× speedup at the cost of ~22 GB VRAM.

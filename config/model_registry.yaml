@@ -1605,6 +1605,25 @@ served-models:
     vram_estimate_gb: 22.0
     primary_pool: omni-vllm
     prerequisite: Run scripts/prepare_qwen_edit_non2511_fp8.py to convert ModelOpt FP8 → compressed-tensors
+  boogu-edit:
+    description: Boogu-Image-0.1-Edit — Apache-2.0 unified image generation and editing. Qwen3-VL MLLM + custom DiT + FLUX.1 VAE. 35.8 GB. Custom diffusers pipeline (OmniGen2 fork). T2I + TI2I editing. Served via vllm-omni container (boogu-omni image).
+    pool_ref: image-gen/Boogu-Image-0.1-Edit
+    path: image-gen/Boogu-Image-0.1-Edit/
+    size_gb: 35.8
+    source: hf://Boogu/Boogu-Image-0.1-Edit
+    status: active
+    device: gpu
+    vram_estimate_gb: 22.0
+    primary_pool: omni-vllm
+    container: forge-reg.local:30500/tech-noir/boogu-omni:latest
+    launcher: infra/docker/serve_boogu_omni.sh
+    prerequisite: "Default BOOGU_OFFLOAD=sequential (<2 GB VRAM, shares GPU with other omni-vllm models). Set BOOGU_OFFLOAD=model_cpu for ~3× speedup when GPU is idle (~22 GB)."
+    benchmark:
+      t2i_512x512_4step: "54.2 s (model_cpu offload)"
+      t2i_768x768_20step: "152.0 s (sequential offload)"
+      t2i_1024x1024_20step: "170.0 s (sequential offload, ~6.7 s/step steady)"
+      ti2i_768x768_8step: "100.8 s (sequential offload)"
+    note: "Supports T2I (prompt→image) and TI2I (prompt+image→edited image). Use input_image_b64 for editing."
   kimodo:
     description: Kimodo-SOMA-RP kinematic motion diffusion (served via diffusers pool)
     pool_ref: avatar/kimodo-soma-rp

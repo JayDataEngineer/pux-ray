@@ -1,0 +1,47 @@
+# Dockerfile.boogu — DEPRECATED: use Dockerfile.boogu_omni instead
+# ═════════════════════════════════════════════════════════════════════════════
+# This is the standalone (non-Omni-VLLM) build of Boogu-Image-0.1-Edit, kept
+# only as a fallback if vllm-omni is unavailable. The primary path is via
+# Omni-VLLM (Dockerfile.boogu_omni) per user direction.
+#
+# Build (fallback only):
+#   docker build -t forge-reg.local:30500/tech-noir/boogu:latest \
+#     -f infra/docker/Dockerfile.boogu .
+#
+# Runtime base: tech-noir/native (Python 3.10, PyTorch 2.10, CUDA 12.8)
+# ═════════════════════════════════════════════════════════════════════════════
+
+FROM forge-reg.local:30500/tech-noir/native:latest
+
+LABEL description="Boogu-Image-0.1-Edit — Apache-2.0 image generation & editing (STANDALONE fallback)"
+
+# Install Boogu-specific dependencies (fastapi for API server, boogu deps)
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv pip install \
+    omegaconf \
+    cache-dit \
+    "python-dotenv>=1.0" \
+    "torchao>=0.15.0" \
+    "fastapi>=0.115"
+
+# Clone and install Boogu package
+RUN git clone --depth 1 https://github.com/boogu-project/Boogu-Image.git /opt/boogu-src && \
+    cd /opt/boogu-src && uv pip install -e .
+
+# Install flash-attn from prebuilt wheel
+RUN python3 /opt/boogu-src/utils/get_flash_attn.py || \
+    uv pip install flash-attn --no-build-isolation
+
+# Copy API server
+COPY infra/docker/api_boogu.py /opt/api_boogu.py
+
+# Set environment
+ENV BOOGU_MODEL_PATH=/mnt/data/models/image-gen/Boogu-Image-0.1-Edit
+ENV BOOGU_DEVICE=cuda:0
+ENV BOOGU_OFFLOAD=model_cpu
+ENV BOOGU_PORT=8096
+ENV PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+
+EXPOSE 8096
+
+ENTRYPOINT ["python3", "/opt/api_boogu.py"]

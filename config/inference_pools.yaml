@@ -246,6 +246,7 @@ pools:
       - ltx-video                # LTX-2.3 FP8 fallback (primary is SGLang)
       - ideogram4                # Ideogram 4 NF4 — custom diffusers pipeline with QKV injection
       - qwen-edit                # Qwen-Edit non-2511 — ModelOpt FP8 (needs conversion)
+      - boogu-edit               # Boogu-Image-0.1-Edit — T2I + TI2I editing, custom BooguImagePipeline
     vram_mb: 22000
     health_path: /health
     # Per-model launch config. The "script" points at an existing launcher
@@ -404,6 +405,30 @@ pools:
           max_warmup_steps: 4
         prerequisite: "Run scripts/prepare_qwen_edit_non2511_fp8.py first to convert weights"
         note: "Non-2511 Qwen-Edit — ModelOpt FP8 → compressed-tensors conversion required. Same arch as 2511."
+      boogu-edit:
+        script: infra/docker/serve_boogu_omni.sh
+        patch: infra/docker/api_boogu.py
+        model_dir: /mnt/data/models/image-gen/Boogu-Image-0.1-Edit
+        registry_ref: served-models/boogu-edit
+        api:
+          generate: POST /v1/images/generations
+          edit:     POST /v1/images/generations    # Same endpoint with input_image_b64
+        optimization:
+          quant: bf16                          # No FP8 conversion yet; native BF16 weights
+          cpu_offload: sequential               # <2 GB VRAM, slower but fits alongside other models
+          cpu_offload_alt: model_cpu            # ~22 GB VRAM, faster, requires dedicated GPU
+        benchmark:
+          - { steps: 4,  resolution: "512×512",   time_s: 54.2,  offload: model_cpu,   note: "Cold-start turbo" }
+          - { steps: 20, resolution: "768×768",   time_s: 152.0, offload: sequential, note: "Sequential offload steady-state ~7.6 s/step" }
+          - { steps: 20, resolution: "1024×1024", time_s: 170.0, offload: sequential, note: "Native res, steady-state ~6.7 s/step" }
+          - { steps: 8,  resolution: "768×768",   time_s: 100.8, offload: sequential, mode: "TI2I edit", note: "Editing pipeline" }
+        note: >-
+          Boogu-Image-0.1-Edit via custom diffusers pipeline (BooguImagePipeline,
+          fork of OmniGen2). Apache-2.0. Qwen3-VL MLLM + custom DiT + FLUX.1 VAE.
+          T2I: prompt→image. TI2I: prompt + input_image_b64 → edited image.
+          Sequential offload (~2 GB VRAM) is the default so the pool can share
+          the GPU with other omni-vllm models; switch BOOGU_OFFLOAD=model_cpu
+          for ~3× speedup when the GPU is idle.
     env:
       VLLM_BATCH_INVARIANT: "1"             # BF16-dequant path for non-patched layers
       PYTORCH_CUDA_ALLOC_CONF: expandable_segments:True
@@ -576,6 +601,9 @@ routes:
     primary: sglang
     fallback: [omni-vllm]       # vLLM-Omni v0.22+ LTX-2.3 support (dual-engine)
   cosmos-sglang:           { primary: sglang }
+
+  # ── Tier B — Boogu-Image (omni-vllm pool, dedicated container) ───────────
+  boogu-edit:              { primary: omni-vllm }
 
   # ── Tier D — Diffusers catch-all ─────────────────────────────────────────
   kimodo:                  { primary: diffusers }
