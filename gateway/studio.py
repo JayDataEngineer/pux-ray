@@ -30,7 +30,10 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 STUDIO_APPS: dict[str, dict] = {
-    # --- Interactive tools (have native Web UIs) ---
+    # ════════════════════════════════════════════════════════════════════════
+    # Auto-generated from SERVICE_REGISTRY — one entry per registered service
+    # with UI metadata added for the Studio frontend.
+    # ════════════════════════════════════════════════════════════════════════
     "comfyui": {
         "label": "ComfyUI",
         "url": "/comfyui/",
@@ -39,7 +42,6 @@ STUDIO_APPS: dict[str, dict] = {
         "gpu": True,
         "manage_type": "subprocess",
     },
-    # --- API-only tools ---
     "llm": {
         "label": "LLM (llama.cpp)",
         "url": None,
@@ -47,116 +49,176 @@ STUDIO_APPS: dict[str, dict] = {
         "category": "LLM",
         "gpu": True,
         "manage_type": "scheduler",
-        "default_model": "qwen3.6-27b-ud-q4_k_xl",
+        "default_model": "qwen3.6-27b-q5_k_s-32k",
     },
+    # ── Image ─────────────────────────────────────────────────────────────
+    "native": {
+        "label": "Native Models",
+        "url": None, "has_ui": False,
+        "category": "Image", "gpu": True, "manage_type": "scheduler",
+        "default_model": "z_image",
+    },
+    "z_image": {
+        "label": "Z-Image Generation",
+        "url": None, "has_ui": False,
+        "category": "Image", "gpu": True, "manage_type": "scheduler",
+        "default_model": "z_image",
+    },
+    "anima": {
+        "label": "Anima (Anime)",
+        "url": None, "has_ui": False,
+        "category": "Image", "gpu": True, "manage_type": "scheduler",
+        "default_model": "anima",
+    },
+    "nvidia_upscale": {
+        "label": "GPU Upscale",
+        "url": None, "has_ui": False,
+        "category": "Image", "gpu": True, "manage_type": "scheduler",
+        "default_model": "nvidia_upscale",
+    },
+    "dwpose": {
+        "label": "DWPose Detection",
+        "url": None, "has_ui": False,
+        "category": "Image", "gpu": False, "manage_type": "none",
+    },
+    # ── 3D ────────────────────────────────────────────────────────────────
     "trellis": {
-        "label": "TRELLIS.2",
-        "url": None,
-        "has_ui": False,
-        "category": "3D",
-        "gpu": True,
-        "manage_type": "scheduler",
+        "label": "TRELLIS.2 3D",
+        "url": None, "has_ui": False,
+        "category": "3D", "gpu": True, "manage_type": "scheduler",
         "default_model": "trellis",
     },
     "anigen": {
-        "label": "AniGen",
-        "url": None,
-        "has_ui": False,
-        "category": "3D",
-        "gpu": True,
-        "manage_type": "scheduler",
+        "label": "AniGen 3D",
+        "url": None, "has_ui": False,
+        "category": "3D", "gpu": True, "manage_type": "scheduler",
         "default_model": "anigen",
     },
+    "body_mesh": {
+        "label": "BodyMesh Renderer",
+        "url": None, "has_ui": False,
+        "category": "3D", "gpu": False, "manage_type": "none",
+    },
+    # ── Motion ────────────────────────────────────────────────────────────
     "kimodo_demo": {
         "label": "Kimodo Motion",
-        "url": "/kimodo/",
-        "has_ui": True,
-        "category": "3D",
-        "gpu": True,
-        "manage_type": "subprocess",
+        "url": "/kimodo/", "has_ui": True,
+        "category": "Motion", "gpu": True, "manage_type": "subprocess",
     },
+    "kimodo": {
+        "label": "Kimodo (API)",
+        "url": None, "has_ui": False,
+        "category": "Motion", "gpu": True, "manage_type": "scheduler",
+        "default_model": "kimodo",
+    },
+    "hy_motion": {
+        "label": "HY-Motion",
+        "url": None, "has_ui": False,
+        "category": "Motion", "gpu": True, "manage_type": "scheduler",
+        "default_model": "hy_motion",
+    },
+    "gemx": {
+        "label": "GEM-X Pose",
+        "url": None, "has_ui": False,
+        "category": "Motion", "gpu": True, "manage_type": "scheduler",
+        "default_model": "gemx",
+    },
+    # ── Audio / Music ──────────────────────────────────────────────────────────
     "ace_step": {
-        "label": "ACE-Step",
-        "url": None,
-        "has_ui": False,
-        "category": "Music",
-        "gpu": True,
-        "manage_type": "scheduler",
+        "label": "ACE-Step Music",
+        "url": None, "has_ui": False,
+        "category": "Audio", "gpu": True, "manage_type": "scheduler",
         "default_model": "ace_step",
     },
+    "moss_soundeffect": {
+        "label": "MOSS SoundEffect",
+        "url": None, "has_ui": False,
+        "category": "Audio", "gpu": True, "manage_type": "scheduler",
+        "default_model": "moss_soundeffect",
+    },
+    # ── Creative ───────────────────────────────────────────────────────────────
     "see_through": {
         "label": "See-Through",
-        "url": None,
-        "has_ui": False,
-        "category": "Creative",
-        "gpu": True,
-        "manage_type": "scheduler",
+        "url": None, "has_ui": False,
+        "category": "Creative", "gpu": True, "manage_type": "scheduler",
         "default_model": "see_through",
     },
+    "lance": {
+        "label": "Lance Multimodal",
+        "url": None, "has_ui": False,
+        "category": "Creative", "gpu": True, "manage_type": "scheduler",
+        "default_model": "lance",
+    },
+    # ── Avatar ────────────────────────────────────────────────────────────
+    "avatar": {
+        "label": "Avatar Pipeline",
+        "url": None, "has_ui": False,
+        "category": "Avatar", "gpu": True, "manage_type": "scheduler",
+        "default_model": "avatar",
+    },
+    # ── TTS ─────────────────────────────────────────────────────────────────
+    "moss_tts": {
+        "label": "MOSS TTS (GPU)",
+        "url": None, "has_ui": False,
+        "category": "TTS", "gpu": True, "manage_type": "scheduler",
+        "default_model": "moss_tts",
+    },
+    "moss_voicegenerator": {
+        "label": "MOSS Voice Design (GPU)",
+        "url": None, "has_ui": False,
+        "category": "TTS", "gpu": True, "manage_type": "scheduler",
+        "default_model": "moss_voicegenerator",
+    },
     "index_tts": {
-        "label": "IndexTTS",
-        "url": None,
-        "has_ui": False,
-        "category": "TTS",
-        "gpu": True,
-        "manage_type": "scheduler",
+        "label": "IndexTTS (GPU)",
+        "url": None, "has_ui": False,
+        "category": "TTS", "gpu": True, "manage_type": "scheduler",
         "default_model": "index_tts",
     },
-    # qwen_tts removed — superseded by MOSS VoiceGenerator (Tier A) + Kokoro (Tier D)
-    "vibevoice_community_tts": {
-        "label": "VibeVoice Community TTS (7B)",
-        "url": None,
-        "has_ui": False,
-        "category": "TTS",
-        "gpu": True,
-        "manage_type": "scheduler",
-        "default_model": "vibevoice_community_tts",
+    "kokoro": {
+        "label": "Kokoro TTS (CPU)",
+        "url": None, "has_ui": False,
+        "category": "TTS", "gpu": False, "manage_type": "none",
     },
-    "kokoro_tts": {
-        "label": "Kokoro TTS",
-        "url": None,
-        "has_ui": False,
-        "category": "TTS",
-        "gpu": False,
-        "manage_type": "none",
+    "espeak": {
+        "label": "eSpeak TTS (CPU)",
+        "url": None, "has_ui": False,
+        "category": "TTS", "gpu": False, "manage_type": "none",
     },
-    "espeak_tts": {
-        "label": "eSpeak TTS",
-        "url": None,
-        "has_ui": False,
-        "category": "TTS",
-        "gpu": False,
-        "manage_type": "none",
+    # ── ASR / Transcription ───────────────────────────────────────────────
+    "vibevoice_asr": {
+        "label": "VibeVoice ASR (GPU)",
+        "url": None, "has_ui": False,
+        "category": "ASR", "gpu": True, "manage_type": "scheduler",
+        "default_model": "vibevoice_asr",
     },
     "faster_whisper": {
-        "label": "Faster-Whisper",
-        "url": None,
-        "has_ui": False,
-        "category": "ASR",
-        "gpu": False,
-        "manage_type": "none",
+        "label": "Faster-Whisper (CPU)",
+        "url": None, "has_ui": False,
+        "category": "ASR", "gpu": False, "manage_type": "none",
     },
-    # --- MCP Servers (always-on, CPU, managed outside Ray) ---
+    # ── Training ──────────────────────────────────────────────────────────
+    "kohya": {
+        "label": "kohya_ss LoRA Trainer",
+        "url": None, "has_ui": False,
+        "category": "Training", "gpu": True, "manage_type": "scheduler",
+        "default_model": "kohya",
+    },
+    # ── MCP Servers (always-on, CPU) ──────────────────────────────────────
     "local_web_mcp": {
         "label": "Local Web MCP",
-        "url": "/mcp/web/",
-        "has_ui": False,
-        "category": "MCP",
-        "gpu": False,
-        "manage_type": "persistent",
+        "url": "/mcp/web/", "has_ui": False,
+        "category": "MCP", "gpu": False, "manage_type": "persistent",
     },
     "media_analysis_mcp": {
         "label": "Media Analysis MCP",
-        "url": "/mcp/media/",
-        "has_ui": False,
-        "category": "MCP",
-        "gpu": False,
-        "manage_type": "persistent",
+        "url": "/mcp/media/", "has_ui": False,
+        "category": "MCP", "gpu": False, "manage_type": "persistent",
     },
 }
 
 # Ordered categories for sidebar grouping
-CATEGORY_ORDER = ["Image", "LLM", "3D", "Music", "Creative", "TTS", "ASR", "MCP"]
+CATEGORY_ORDER = ["Image", "LLM", "3D", "Motion", "Audio", "Creative", "Avatar", "TTS", "ASR", "Training", "MCP"]
 
 
 # ---------------------------------------------------------------------------
