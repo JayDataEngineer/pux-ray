@@ -59,7 +59,7 @@ class TestNoManualDownloads:
             for name, meta in models.items():
                 if meta.get("download") == "manual":
                     manual.append(f"{cat}/{name}")
-        # wan2gp models are self-managed by mmgp — manual download is expected
+        # Models under wan2gp/ prefixed paths are handled by the inference pool system
         allowed = {m for m in manual if m.startswith("wan2gp/")}
         unexpected = set(manual) - allowed
         assert len(unexpected) == 0, f"Unexpected manual download models: {unexpected}"

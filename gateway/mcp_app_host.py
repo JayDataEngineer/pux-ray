@@ -62,7 +62,7 @@ TTS_ENGINES: list[dict[str, Any]] = [
         "label": "MOSS TTS (GPU)",
         "category": "tts",
         "gpu": True,
-        "service": "wan2gp",
+        "service": "moss_tts",
         "model": "moss-tts",
         "description": "MOSS TTS — text-to-speech with voice cloning via reference audio.",
         "params": [
@@ -94,7 +94,7 @@ TTS_ENGINES: list[dict[str, Any]] = [
         "label": "IndexTTS (GPU)",
         "category": "tts",
         "gpu": True,
-        "service": "wan2gp",
+        "service": "index_tts",
         "model": "index_tts/v2",
         "description": "IndexTTS v2 — high-quality neural TTS with voice cloning.",
         "params": [
@@ -193,14 +193,14 @@ async def handle_mcp_host(request: Request) -> JSONResponse:
                         payload["instruction"] = tool_args["instruct"]
                     if tool_args.get("ref_audio_b64"):
                         payload["ref_audio_b64"] = tool_args["ref_audio_b64"]
-                    result = await ingress._dispatch_service("wan2gp", payload)
+                    result = await ingress._dispatch_service("moss_tts", payload)
 
                 elif engine_id == "index_tts":
                     payload: dict[str, Any] = {
                         "model": "index_tts/v2",
                         "text": tool_args.get("text", ""),
                     }
-                    result = await ingress._dispatch_service("wan2gp", payload)
+                    result = await ingress._dispatch_service("index_tts", payload)
 
                 else:
                     return JSONResponse(
@@ -234,7 +234,7 @@ async def handle_mcp_host(request: Request) -> JSONResponse:
         if tool_name == "run":
             from gateway.ingress import APIIngress
             ingress = APIIngress()
-            service = tool_args.get("service", "wan2gp")
+            service = tool_args.get("service", "kokoro")
             tool_params = tool_args.get("params", {})
             try:
                 result = await ingress._dispatch_service(service, tool_params)

@@ -145,13 +145,13 @@ def test_proxy_first_load():
     adapter = MockForgeService(vram_mb=3000)
     adapter.persistence = Persistence.TRANSIENT
 
-    core = _make_core({"wan2gp": adapter})
+    core = _make_core({"native": adapter})
     proxy = ForgeProxy(core)
 
     proxy.load("z_image")
 
-    assert proxy._wan2gp_loaded is True
-    assert core._loaded["wan2gp"]
+    assert proxy._native_loaded is True
+    assert core._loaded["native"]
     assert adapter.model_name == "z_image"
 
 
@@ -159,19 +159,19 @@ def test_proxy_model_swap():
     """Subsequent loads swap the model and reconcile VRAM."""
     adapter = MockForgeService(vram_mb=3000)
 
-    core = _make_core({"wan2gp": adapter})
+    core = _make_core({"native": adapter})
     proxy = ForgeProxy(core)
 
     # First load
     proxy.load("z_image")
-    assert core._vram_allocations["wan2gp"] == 3000
+    assert core._vram_allocations["native"] == 3000
 
     # Simulate VRAM change on model swap
     adapter._vram_mb = 5000
     proxy.load("qwen-image-edit")
 
     assert adapter.model_name == "qwen-image-edit"
-    assert core._vram_allocations["wan2gp"] == 5000
+    assert core._vram_allocations["native"] == 5000
 
 
 def test_proxy_infer():

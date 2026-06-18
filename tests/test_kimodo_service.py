@@ -303,21 +303,21 @@ class TestLiveKimodoLoad:
         status = _forge_req({"action": "status"}, timeout=10)
         assert "kimodo_demo" not in status.get("loaded", {})
 
-    def test_wan2gp_to_kimodo_swap(self):
-        """Loading kimodo after wan2gp should evict wan2gp and load kimodo."""
-        # Load wan2gp first
+    def test_swap_eviction(self):
+        """Loading a second service evicts the first."""
+        # Load native first (replaces old wan2gp catch-all)
         r = _forge_req({
-            "service": "wan2gp",
-            "model": "wan/t2v_1.3B",
+            "service": "native",
+            "model": "z-image-turbo",
             "prompt": "test",
             "seed": 42,
         }, timeout=300)
         if r.get("status") == "error":
-            pytest.skip(f"Wan2GP load failed: {r.get('error', '')[:200]}")
+            pytest.skip(f"Native load failed: {r.get('error', '')[:200]}")
 
-        # Now load kimodo — should evict wan2gp
+        # Now load kimodo — should evict native
         r = _forge_req({"action": "preload", "service": "kimodo_demo"}, timeout=900)
-        assert r["status"] == "loaded", f"Kimodo should load after wan2gp eviction: {r}"
+        assert r["status"] == "loaded", f"Kimodo should load after eviction: {r}"
 
         # Cleanup
         _forge_req({"action": "release"}, timeout=60)

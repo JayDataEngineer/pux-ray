@@ -706,7 +706,7 @@ class TestIngressRoutes:
         assert isinstance(body, list)
         svc_names = [s["name"] for s in body]
         assert "llm" in svc_names
-        assert "wan2gp" in svc_names
+        assert "z_image" in svc_names
         assert "comfyui" in svc_names
 
     def test_service_info(self, ingress_client: TestClient):
@@ -768,6 +768,6 @@ class TestIngressRoutes:
 
     def test_service_has_model_aliases(self, ingress_client: TestClient):
         resp = ingress_client.get("/v1/services")
-        svc = next(s for s in resp.json() if s["name"] == "wan2gp")
+        svc = next(s for s in resp.json() if s["name"] == "lance")
         assert "model_aliases" in svc
         assert len(svc["model_aliases"]) > 0

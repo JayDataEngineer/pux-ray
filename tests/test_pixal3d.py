@@ -1,8 +1,9 @@
-"""Pixal3D handler e2e — validates wiring without GPU or weights.
+import pytest
+pytestmark = pytest.mark.skip(reason="wan2gp service removed — handlers obsolete")
 
-Tests the full integration chain:
-  handler → spec resolution → registry paths → _Pipeline construction → generate() signature
-  vendor source import chain → model_names_to_load → co-tenants
+"""Pixal3D handler e2e — SKIPPED (wan2gp service deleted)
+
+NOTE: The wan2gp service has been removed. All tests below are skipped.
 """
 from __future__ import annotations
 

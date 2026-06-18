@@ -83,7 +83,7 @@ def main():
             "text_encoders": "text_encoders",
         },
         "wan2gp_all": {
-            "base_path": "/opt/wan2gp/ckpts",
+            "base_path": "/mnt/data/models",
             # Diffusion models at base level (Anima, Qwen Image Edit, LTX, Flux, etc.)
             "unet": "",
             "diffusion_models": "",

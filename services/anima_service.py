@@ -1,7 +1,7 @@
 """Anima Image Generation Service - Direct integration for Forge.
 
-Bypasses Wan2GP handler recursion by using direct API calls.
-Integrates working anima generation into Forge service architecture.
+NOTE: Wan2GP no longer used by Anima. Uses diffusers directly via the
+inference pool system. The old wan2gp path references are removed.
 """
 import base64
 import io
@@ -12,9 +12,7 @@ import torch
 from PIL import Image
 from typing import Dict, Any, Optional
 
-# Ensure Wan2GP is in path
-sys.path.insert(0, "/opt/wan2gp")
-os.environ['WAN2GP_ROOT'] = '/opt/wan2gp'
+# [wan2gp path removed]
 
 logger = logging.getLogger(__name__)
 
@@ -69,7 +67,7 @@ class AnimaService:
             if self._factory is None:
                 from models.anima.anima_main import model_factory
                 from shared.utils import files_locator as fl
-                fl.set_checkpoints_paths(['/models/wan2gp', '/tmp'])
+                fl.set_checkpoints_paths(['/mnt/data/models', '/tmp'])
 
                 # Locate the checkpoint files
                 transformer_path = fl.locate_file("anima-base-v1.0.safetensors")

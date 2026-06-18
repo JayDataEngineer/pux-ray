@@ -1,6 +1,10 @@
 """Comprehensive E2E tests for Forge GPU models.
 
-Tests every Wan2GP model that has weights on the PVC. Each test:
+NOTE: wan2gp service removed. These tests need updating to use direct service
+names that exist in the Forge's SERVICE_MAP (native, moss, asr, lance, etc.)
+instead of routing through the old "wan2gp" catch-all.
+
+Each test:
 1. Sends an inference request through the Forge (/forge endpoint)
 2. Validates the response (status, output data, media type)
 3. Releases the model

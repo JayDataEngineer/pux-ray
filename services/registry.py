@@ -1,7 +1,8 @@
 """Centralized service registry — single source of truth for all deployments.
 
-Every model service routes through the Forge → Wan2GP → family_handlers pipeline.
-The registry maps public service names to metadata for API docs, dashboard, and routing.
+Every model service routes through the Forge (VRAM-aware subprocess manager) or
+directly to its deployment handle. The registry maps public service names to
+metadata for API docs, dashboard, and routing.
 
 params_schema defines the inputs a service accepts. The web UI uses this to
 auto-generate forms without hardcoding per-service parameters.
@@ -63,27 +64,6 @@ class ServiceEntry:
 
 
 SERVICE_REGISTRY: dict[str, ServiceEntry] = {
-    # ── Wan2GP — standalone GPU deployment (mmgp-managed, ALL models) ──────────
-    "wan2gp": ServiceEntry(
-        deployment="wan2gp", app="wan2gp",
-        label="Wan2GP Pool", category="creative",
-        needs_gpu=True, default_model="wan/t2v",
-        output_type="video",
-        model_aliases={
-            "wan-t2v": "wan/t2v", "wan-i2v": "wan/i2v",
-            "ltx2": "ltx2", "ltx2-22b": "ltx2", "ltx2-19b": "ltx2_19B",
-            "ltxv": "ltxv_098_13b",
-        },
-        description="Wan2GP — unified model pool with mmgp VRAM management.",
-        params_schema=[
-            ParamSpec(type="text", label="Prompt", required=True, placeholder="Describe what to generate..."),
-            ParamSpec(type="select", label="Model", default="wan/t2v", options=[
-                "wan/t2v", "wan/i2v",
-                "ltx2", "ltx2_19B", "ltxv_098_13b",
-            ]),
-        ],
-    ),
-
     # ── Forge Services (subprocess-based) ──────────────────────────────────────
     "comfyui": ServiceEntry(
         deployment="forge", app="forge",
@@ -133,7 +113,7 @@ SERVICE_REGISTRY: dict[str, ServiceEntry] = {
         ],
     ),
     "espeak": ServiceEntry(
-        deployment="wan2gp", app="wan2gp",
+        deployment="forge", app="forge",
         label="eSpeak TTS", category="tts",
         needs_gpu=False, default_model="espeak",
         output_type="audio",
@@ -147,7 +127,7 @@ SERVICE_REGISTRY: dict[str, ServiceEntry] = {
         ],
     ),
     "faster_whisper": ServiceEntry(
-        deployment="wan2gp", app="wan2gp",
+        deployment="forge", app="forge",
         label="Faster-Whisper", category="asr",
         needs_gpu=False, default_model="faster_whisper",
         output_type="json",
@@ -159,7 +139,7 @@ SERVICE_REGISTRY: dict[str, ServiceEntry] = {
         ],
     ),
     "index_tts": ServiceEntry(
-        deployment="wan2gp", app="wan2gp",
+        deployment="forge", app="forge",
         label="IndexTTS", category="tts",
         needs_gpu=True, default_model="index_tts/v2",
         output_type="audio",
@@ -171,7 +151,7 @@ SERVICE_REGISTRY: dict[str, ServiceEntry] = {
         ],
     ),
     "moss_soundeffect": ServiceEntry(
-        deployment="wan2gp", app="wan2gp",
+        deployment="forge", app="forge",
         label="MOSS-SoundEffect", category="audio",
         needs_gpu=True, default_model="moss/moss-soundeffect",
         output_type="audio",
@@ -182,7 +162,7 @@ SERVICE_REGISTRY: dict[str, ServiceEntry] = {
         ],
     ),
     "ace_step": ServiceEntry(
-        deployment="wan2gp", app="wan2gp",
+        deployment="forge", app="forge",
         label="ACE-Step", category="audio",
         needs_gpu=True, default_model="ace_step/v1_5",
         output_type="audio",
@@ -193,7 +173,7 @@ SERVICE_REGISTRY: dict[str, ServiceEntry] = {
         ],
     ),
     "vibevoice_asr": ServiceEntry(
-        deployment="wan2gp", app="wan2gp",
+        deployment="forge", app="forge",
         label="VibeVoice ASR", category="asr",
         needs_gpu=True, default_model="vibevoice_asr",
         output_type="json",
@@ -203,9 +183,9 @@ SERVICE_REGISTRY: dict[str, ServiceEntry] = {
         ],
     ),
 
-    # ── Additional Wan2GP services (previously missing from registry) ──────────
+    # ── Additional Forge-managed services ──────────────────────────────────────
     "trellis": ServiceEntry(
-        deployment="wan2gp", app="wan2gp",
+        deployment="forge", app="forge",
         label="TRELLIS 3D", category="3d",
         needs_gpu=True, default_model="trellis",
         output_type="model_3d",
@@ -216,7 +196,7 @@ SERVICE_REGISTRY: dict[str, ServiceEntry] = {
         ],
     ),
     "anigen": ServiceEntry(
-        deployment="wan2gp", app="wan2gp",
+        deployment="forge", app="forge",
         label="AniGen 3D", category="3d",
         needs_gpu=True, default_model="anigen",
         output_type="model_3d",
@@ -226,11 +206,11 @@ SERVICE_REGISTRY: dict[str, ServiceEntry] = {
         ],
     ),
     "z_image": ServiceEntry(
-        deployment="wan2gp", app="wan2gp",
+        deployment="forge", app="forge",
         label="Z-Image Generation", category="image",
         needs_gpu=True, default_model="z_image",
         output_type="image",
-        description="Wan2GP image generation (Flux, SD variants).",
+        description="Z-Image generation (Flux, SD variants) via Forge.",
         params_schema=[
             ParamSpec(type="textarea", label="Prompt", required=True, placeholder="A cyberpunk samurai in a neon-lit alleyway..."),
             ParamSpec(type="text", label="Negative Prompt", required=False, placeholder="blurry, low quality, distorted..."),
@@ -245,7 +225,7 @@ SERVICE_REGISTRY: dict[str, ServiceEntry] = {
     # weights, faster_qwen3_tts handler, and opt/wan2gp/models/TTS/qwen3/
     # tree have been deleted.
     "moss_voicegenerator": ServiceEntry(
-        deployment="wan2gp", app="wan2gp",
+        deployment="forge", app="forge",
         label="MOSS Voice Design", category="tts",
         needs_gpu=True, default_model="moss-voicegenerator",
         output_type="audio",
@@ -259,7 +239,7 @@ SERVICE_REGISTRY: dict[str, ServiceEntry] = {
         ],
     ),
     "moss_tts": ServiceEntry(
-        deployment="wan2gp", app="wan2gp",
+        deployment="forge", app="forge",
         label="MOSS TTS", category="tts",
         needs_gpu=True, default_model="moss-tts",
         output_type="audio",
@@ -275,7 +255,7 @@ SERVICE_REGISTRY: dict[str, ServiceEntry] = {
         ],
     ),
     "hy_motion": ServiceEntry(
-        deployment="wan2gp", app="wan2gp",
+        deployment="forge", app="forge",
         label="HY-Motion", category="motion",
         needs_gpu=True, default_model="hy_motion",
         output_type="motion",
@@ -286,7 +266,7 @@ SERVICE_REGISTRY: dict[str, ServiceEntry] = {
         ],
     ),
     "see_through": ServiceEntry(
-        deployment="wan2gp", app="wan2gp",
+        deployment="forge", app="forge",
         label="See-Through", category="creative",
         needs_gpu=True, default_model="see_through",
         output_type="image",
@@ -296,7 +276,7 @@ SERVICE_REGISTRY: dict[str, ServiceEntry] = {
         ],
     ),
     "nvidia_upscale": ServiceEntry(
-        deployment="wan2gp", app="wan2gp",
+        deployment="forge", app="forge",
         label="GPU Upscale", category="image",
         needs_gpu=True, default_model="nvidia_upscale",
         output_type="video",
@@ -307,7 +287,7 @@ SERVICE_REGISTRY: dict[str, ServiceEntry] = {
         ],
     ),
     "dwpose": ServiceEntry(
-        deployment="wan2gp", app="wan2gp",
+        deployment="forge", app="forge",
         label="DWPose Detection", category="image",
         needs_gpu=False, default_model="dwpose",
         output_type="json",
@@ -317,7 +297,7 @@ SERVICE_REGISTRY: dict[str, ServiceEntry] = {
         ],
     ),
     "body_mesh": ServiceEntry(
-        deployment="wan2gp", app="wan2gp",
+        deployment="forge", app="forge",
         label="BodyMesh Renderer", category="3d",
         needs_gpu=False, default_model="body_mesh",
         output_type="image",
@@ -329,7 +309,7 @@ SERVICE_REGISTRY: dict[str, ServiceEntry] = {
 
     # ── Kimodo Motion (Forge-managed, standalone) ────────────────────────────
     "kimodo": ServiceEntry(
-        deployment="wan2gp", app="wan2gp",
+        deployment="forge", app="forge",
         label="Kimodo Motion", category="motion",
         needs_gpu=True, default_model="kimodo-soma-rp",
         output_type="motion",
@@ -340,7 +320,7 @@ SERVICE_REGISTRY: dict[str, ServiceEntry] = {
         ],
     ),
     "lance": ServiceEntry(
-        deployment="wan2gp", app="wan2gp",
+        deployment="forge", app="forge",
         label="Lance Multimodal", category="creative",
         needs_gpu=True, default_model="lance/lance-video",
         output_type="video",
@@ -405,11 +385,11 @@ SERVICE_REGISTRY: dict[str, ServiceEntry] = {
 
     # ── Anima (anime/illustration image generation) ──────────────────────────────
     "anima": ServiceEntry(
-        deployment="wan2gp", app="wan2gp",
+        deployment="forge", app="forge",
         label="Anima", category="image",
         needs_gpu=True, default_model="anima",
         output_type="image",
-        description="Anima — anime/illustration image generation via Wan2GP.",
+        description="Anima — anime/illustration image generation via Forge.",
         params_schema=[
             ParamSpec(type="textarea", label="Prompt", required=True, placeholder="A beautiful anime girl..."),
             ParamSpec(type="number", label="Width", default=1024, placeholder="1024"),
@@ -419,7 +399,7 @@ SERVICE_REGISTRY: dict[str, ServiceEntry] = {
         ],
     ),
 
-    # ── Native — diffusers model classes + manual denoise (replaces Wan2GP) ────
+    # ── Native — diffusers model classes + manual denoise ───────────────────────
     "native": ServiceEntry(
         deployment="forge", app="forge",
         label="Native Models", category="image",

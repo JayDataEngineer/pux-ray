@@ -1,9 +1,10 @@
-"""GPU integration tests — load_model() contract verification for all handlers.
+import pytest
+pytestmark = pytest.mark.skip(reason="wan2gp service removed — handlers obsolete")
 
-Run on the GPU server: pytest tests/integration/test_handler_load.py -m gpu
+"""GPU integration tests — SKIPPED (wan2gp service deleted)
 
-Verifies that load_model() returns (pipeline, {"pipe": dict, "coTenantsMap": dict})
-and that the pipeline has a callable generate() method.
+NOTE: The wan2gp service has been removed. All tests below are skipped.
+"""
 """
 from __future__ import annotations
 

@@ -8,7 +8,7 @@ Tests:
   4. LTX with FFLF (first-frame + last-frame conditioning)
   5. LTX with spatial upscaling
 
-Requires a running Ray Serve cluster with the wan2gp forge service
+Requires a running Ray Serve cluster with the Forge service
 and LTX2 model loaded.
 """
 from __future__ import annotations

@@ -4,9 +4,9 @@ Scans directories or single files for .safetensors, .pth, .pt, .ckpt files,
 identifies FP32 tensors, and converts them to the target dtype.
 
 Usage:
-    python3 scripts/convert_fp16.py /mnt/data/models/wan2gp/ --dry-run
-    python3 scripts/convert_fp16.py /mnt/data/models/wan2gp/kokoro-v1_0.pth --apply
-    python3 scripts/convert_fp16.py /mnt/data/models/wan2gp/ --apply --dtype bfloat16
+    python3 scripts/convert_fp16.py /mnt/data/models/ --dry-run
+    python3 scripts/convert_fp16.py /mnt/data/models/kokoro-v1_0.pth --apply
+    python3 scripts/convert_fp16.py /mnt/data/models/ --apply --dtype bfloat16
 """
 import argparse
 import os

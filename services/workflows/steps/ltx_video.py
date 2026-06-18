@@ -97,7 +97,7 @@ class LTXGenerateStep(StepExecutor):
 
         # Call Forge via Ray handle
         forge = serve.get_deployment_handle("forge", "forge")
-        result = await forge.invoke.remote("wan2gp", forge_params, model)
+        result = await forge.invoke.remote("native", forge_params, model)
 
         elapsed_ms = int((time.monotonic() - t0) * 1000)
 
@@ -219,7 +219,7 @@ class LTXSpatialUpscaleStep(StepExecutor):
         params["_mode"] = "spatial_upscale"
 
         forge = serve.get_deployment_handle("forge", "forge")
-        result = await forge.invoke.remote("wan2gp", params, model)
+        result = await forge.invoke.remote("native", params, model)
 
         elapsed_ms = int((time.monotonic() - t0) * 1000)
 

@@ -73,19 +73,8 @@ def _mock_ray_core():
         p.stop()
 
 
-# ─── Handler sys.path setup ────────────────────────────────────────────────
-
-
-@pytest.fixture(autouse=True, scope="session")
-def _setup_custom_models_path():
-    """Add opt/wan2gp to sys.path for handler imports from the fork."""
-    project_root = Path(__file__).resolve().parent.parent
-    fork_root = project_root / "opt" / "wan2gp"
-
-    if os.path.isdir(str(fork_root)) and str(fork_root) not in sys.path:
-        sys.path.insert(0, str(fork_root))
-    os.environ.setdefault("WAN2GP_ROOT", str(fork_root))
-    yield
+# ─── [wan2gp handler sys.path setup removed] ──────────────────────────────
+# The opt/wan2gp/ directory was deleted — no custom model paths needed.
 
 
 # ─── Binary test data generators ────────────────────────────────────────────

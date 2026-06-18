@@ -6,7 +6,7 @@ from pathlib import Path
 from huggingface_hub import hf_hub_download, snapshot_download
 
 def main():
-    ckpts_dir = Path("/home/user/Documents/programs/ray/opt/wan2gp/ckpts")
+    ckpts_dir = Path("/mnt/data/models")
     qwen_dir = ckpts_dir / "Qwen3-0.6B"
     qwen_dir.mkdir(parents=True, exist_ok=True)
     

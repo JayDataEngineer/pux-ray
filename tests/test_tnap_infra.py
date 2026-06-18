@@ -38,7 +38,7 @@ class TestServiceRegistry:
         expected = {
             "kokoro", "espeak", "faster_whisper",
             "moss_soundeffect", "ace_step",
-            "comfyui", "llm", "wan2gp",
+            "comfyui", "llm",
             "index_tts", "vibevoice_asr", "vibevoice_tts",
         }
         assert expected.issubset(set(SERVICE_REGISTRY.keys())), \
@@ -47,7 +47,7 @@ class TestServiceRegistry:
     def test_all_route_through_correct_deployment(self):
         from services.registry import SERVICE_REGISTRY
         for name, entry in SERVICE_REGISTRY.items():
-            assert entry.deployment in ("forge", "wan2gp"), \
+            assert entry.deployment in ("forge", "diffusers"), \
                 f"{name} unexpected deployment '{entry.deployment}'"
 
     def test_get_service_found(self):

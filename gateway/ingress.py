@@ -87,7 +87,7 @@ def _is_forge_service(service_name: str) -> bool:
 
 
 def _model_name_for(service_name: str, entry) -> str:
-    """Map a service name to the Wan2GP model name."""
+    """Return the default model name for a service entry."""
     return entry.default_model
 
 
@@ -97,7 +97,7 @@ class APIIngress:
     # ── Service dispatch (shared by TNAP + pipeline) ───────────────────────────
 
     async def _dispatch_service(self, service_name: str, body: dict) -> dict:
-        """Dispatch a request to the correct backend (Forge/Wan2GP/direct)."""
+        """Dispatch a request to the correct backend (Forge/direct)."""
         entry = get_service(service_name)
         if entry is None:
             raise ValueError(
@@ -106,9 +106,8 @@ class APIIngress:
             )
 
         # Route through Forge if the service or its deployment is forge-managed.
-        # Individual model services (moss_soundeffect, ace_step, etc.) have
-        # deployment="wan2gp" which is a forge service — route them through
-        # the forge using the deployment name as the forge service key.
+        # Services with deployment="forge" route through the Forge's invoke
+        # method if the deployment name is registered in SERVICE_MAP.
         forge_key = service_name if _is_forge_service(service_name) else (
             entry.deployment if _is_forge_service(entry.deployment) else None
         )
@@ -229,7 +228,7 @@ class APIIngress:
         """POST /v1/images/generations — OpenAI-compatible image generation.
 
         Supports model names from the service registry (e.g. "z_image", "flux_schnell")
-        or aliases. Falls back to z_image (Flux/Z-Image via Wan2GP) if model is unknown.
+        or aliases. Falls back to z_image if model is unknown.
         """
         body = await request.json()
         prompt = body.get("prompt", "")
@@ -316,16 +315,8 @@ class APIIngress:
         else:
             service_key, entry = "kokoro", get_service("kokoro")
 
-        if _is_forge_service(service_key):
-            forge = _get_forge()
-            result = await forge.invoke.remote(service_key, body)
-        elif entry.deployment == "wan2gp":
-            body.setdefault("model", _model_name_for(service_key, entry))
-            forge = _get_forge()
-            result = await forge.invoke.remote("wan2gp", body)
-        else:
-            handle = serve.get_deployment_handle(entry.deployment, entry.app)
-            return await handle.remote(request)
+        # Use the centralized dispatch — handles Forge, direct deployments, etc.
+        result = await self._dispatch_service(service_key, body)
 
         # OpenAI-compatible: return raw binary audio, not JSON+base64
         if isinstance(result, dict) and result.get("data"):
@@ -354,8 +345,7 @@ class APIIngress:
         body = {k: v for k, v in form.items()}
         body.setdefault("model", _model_name_for(service_key, entry))
 
-        forge = _get_forge()
-        result = await forge.invoke.remote("wan2gp", body)
+        result = await self._dispatch_service(service_key, body)
         return JSONResponse(result)
 
     # ── Service discovery ──────────────────────────────────────────────────────
@@ -703,9 +693,9 @@ class APIIngress:
         """POST /v1/run — unified interface for single-service and pipeline calls.
 
         Three payload shapes:
-          Single service:  {"service": "wan2gp", "model": "z_image", "params": {...}}
+          Single service:  {"service": "z_image", "model": "z_image", "params": {...}}
           Named pipeline:  {"pipeline": "tech-noir/generate", "params": {"prompt": "..."}}
-          Inline steps:    {"steps": [{"name": "gen", "service": "wan2gp", "params": {...}}]}
+          Inline steps:    {"steps": [{"name": "gen", "service": "z_image", "params": {...}}]}
         """
         try:
             body = await request.json()

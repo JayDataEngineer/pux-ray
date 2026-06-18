@@ -61,7 +61,7 @@ class TestReadEndpoints:
         r = _req("GET", "/v1/services")
         assert isinstance(r, list)
         names = [s["name"] for s in r]
-        for required in ("llm", "wan2gp", "comfyui", "kokoro", "espeak", "faster_whisper", "trellis"):
+        for required in ("llm", "comfyui", "kokoro", "espeak", "faster_whisper", "trellis", "z_image"):
             assert required in names, f"Missing service: {required}"
 
     def test_service_info_llm(self):

@@ -19,7 +19,7 @@ Usage from the workflow engine:
 Key design points:
   - The workflow spec's ``service:`` field (e.g. "forge", "native") is the
     LOGICAL service. The pool system is the PHYSICAL backend. Multiple
-    logical services may map into the same pool (e.g. "native" + "wan2gp"
+    logical services may map into the same pool (e.g. "forge" + "native"
     both resolve to omni-vllm for DiT models).
   - ``model:`` is the canonical model name; resolution walks the pool
     chain from PoolManager.resolve().
@@ -45,10 +45,9 @@ logger = logging.getLogger(__name__)
 # Workflow specs use abstract service names; we collapse them into the model
 # name for routing. The pool that owns the model handles the actual call.
 SERVICE_TO_MODEL_HINT: dict[str, str] = {
-    # Legacy "forge" / "native" services — model name drives routing.
+    # Legacy services — model name drives routing.
     "forge": "",
     "native": "",
-    "wan2gp": "",
 
     # ── Tier A: MOSS (Python server, migrating to OpenMOSS C++) ─────────────
     "moss": "moss-tts",

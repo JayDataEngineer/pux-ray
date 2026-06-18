@@ -22,12 +22,11 @@ _EDITOR_DIR = Path(__file__).resolve().parents[1] / "editor"
 
 
 def _resolve_loras_base() -> Path:
-    """Resolve the wan2gp loras root via Config().models_root.
+    """Resolve the loras root via Config().models_root.
 
-    Mirrors the inference code (services/wan2gp/deployment.py) which searches
-    ``<models_root>/wan2gp/loras/<model>``.  The old source-relative path
-    (``<repo>/opt/wan2gp/loras``) was wrong inside the container where the
-    code lives under /app but models are mounted at models_root (e.g. /models).
+    LoRAs were preserved from the old wan2gp service. They live under
+    ``<models_root>/wan2gp/loras/`` on the inference server, or can be
+    found at ``<repo>/opt/wan2gp/loras`` on dev workstations.
     """
     try:
         from registry.config import Config
@@ -37,6 +36,9 @@ def _resolve_loras_base() -> Path:
     except Exception:
         pass
     # Fallback: source-relative path (dev workstations where repo == models root)
+    ref_path = Path(__file__).resolve().parents[2] / "reference" / "wan2gp" / "loras"
+    if ref_path.is_dir():
+        return ref_path
     return Path(__file__).resolve().parents[2] / "opt" / "wan2gp" / "loras"
 
 # Map frontend model IDs to the lora subdirectory on disk.

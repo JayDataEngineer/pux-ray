@@ -25,9 +25,9 @@ def test_parallel_groups():
         inputs={"prompt": {"type": "string", "required": True}},
         steps=[
             StepSpec(id="voice", type="serve", service="kokoro", depends_on=[]),
-            StepSpec(id="sfx", type="forge", service="wan2gp", model="moss_soundeffect", depends_on=["video"]),
+            StepSpec(id="sfx", type="forge", service="moss_soundeffect", depends_on=["video"]),
             StepSpec(id="music", type="forge", service="ace_step", depends_on=[]),
-            StepSpec(id="video", type="forge", service="wan2gp", model="ltx2", depends_on=[]),
+            StepSpec(id="video", type="forge", service="z_image", depends_on=[]),
             StepSpec(id="mix", type="compose", method="ffmpeg_mix", depends_on=["voice", "sfx", "music"]),
         ],
     )

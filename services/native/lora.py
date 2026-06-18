@@ -20,7 +20,7 @@ class LoRAManager:
 
     def load(self, path: str, name: str = "default", weight_name: str | None = None) -> str:
         if not os.path.exists(path):
-            for prefix in ("/models/loras", "/models/wan2gp/loras", "/models"):
+            for prefix in ("/models/loras", "/models/wan2gp/loras", "/models/lora/wan2gp-loras", "/models"):
                 candidate = os.path.join(prefix, path)
                 if os.path.exists(candidate):
                     path = candidate

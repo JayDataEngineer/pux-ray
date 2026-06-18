@@ -63,11 +63,11 @@ class AvatarForgeService(ForgeService):
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
 
-    def _get_wan2gp(self):
-        """Get the Wan2GP ForgeService from the same Forge process.
+    def _get_kimodo(self):
+        """Get the Kimodo service from the same Forge process.
 
-        Both avatar and wan2gp are registered in the Forge's SERVICE_MAP
-        and run in the same Ray Serve replica. The forge_core reference
+        Kimodo is now a dedicated service in the Forge's SERVICE_MAP
+        (services.motion.kimodo_service). The forge_core reference
         is injected during service registration.
         """
         if self._wan2gp_svc is not None:
@@ -77,15 +77,15 @@ class AvatarForgeService(ForgeService):
         if core is None:
             raise RuntimeError("ForgeCore not injected — service not registered via Forge")
 
-        wan2gp = core._get_service("wan2gp")
-        if not core._loaded.get("wan2gp"):
-            core._do_load("wan2gp", model="kimodo-soma-rp")
-        self._wan2gp_svc = wan2gp
-        return wan2gp
+        kimodo = core._get_service("kimodo_demo")
+        if not core._loaded.get("kimodo_demo"):
+            core._do_load("kimodo_demo", model="kimodo-soma-rp")
+        self._wan2gp_svc = kimodo
+        return kimodo
 
     def _call_kimodo(self, text: str, duration_s: float, emotion: str,
                       denoising_steps: int, model: str) -> dict:
-        """Call Kimodo through the Wan2GP service (mmgp-managed GPU)."""
+        """Call Kimodo through the Forge service."""
         prompt = text
         if emotion:
             prompt = f"a person expressing {emotion}, {text}"
@@ -101,8 +101,8 @@ class AvatarForgeService(ForgeService):
             "seed": 42,
         }
 
-        wan2gp = self._get_wan2gp()
-        return wan2gp.infer(payload)
+        kimodo = self._get_kimodo()
+        return kimodo.infer(payload)
 
     def infer(self, payload: dict) -> dict:
         """Run the full avatar pipeline.
