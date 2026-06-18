@@ -579,35 +579,11 @@ function showApiPanel(app) {
 }
 
 function getApiEndpoints(name) {
-    const map = {
-        'llm': [{method: 'POST', path: '/v1/chat/completions'}],
-        'comfyui': [{method: 'GET', path: '/comfyui/'}],
-        'native': [{method: 'POST', path: '/v1/run'}],
-        'z_image': [{method: 'POST', path: '/v1/run'}],
-        'anima': [{method: 'POST', path: '/v1/run'}],
-        'nvidia_upscale': [{method: 'POST', path: '/v1/run'}],
-        'dwpose': [{method: 'POST', path: '/v1/run'}],
-        'trellis': [{method: 'POST', path: '/3d/trellis'}],
-        'anigen': [{method: 'POST', path: '/3d/anigen'}],
-        'body_mesh': [{method: 'POST', path: '/v1/run'}],
-        'kimodo_demo': [{method: 'GET', path: '/kimodo/'}],
-        'kimodo': [{method: 'POST', path: '/v1/run'}],
-        'hy_motion': [{method: 'POST', path: '/v1/run'}],
-        'gemx': [{method: 'POST', path: '/v1/run'}],
-        'ace_step': [{method: 'POST', path: '/music/generate'}],
-        'moss_soundeffect': [{method: 'POST', path: '/v1/run'}],
-        'see_through': [{method: 'POST', path: '/creative/decompose'}],
-        'lance': [{method: 'POST', path: '/v1/run'}],
-        'avatar': [{method: 'POST', path: '/v1/run'}],
-        'kokoro': [{method: 'POST', path: '/v1/audio/speech'}],
-        'espeak': [{method: 'POST', path: '/v1/audio/speech'}],
-        'moss_tts': [{method: 'POST', path: '/v1/audio/speech'}],
-        'moss_voicegenerator': [{method: 'POST', path: '/v1/audio/speech'}],
-        'vibevoice_asr': [{method: 'POST', path: '/v1/audio/transcriptions'}],
-        'faster_whisper': [{method: 'POST', path: '/v1/audio/transcriptions'}],
-        'kohya': [{method: 'POST', path: '/v1/run'}],
-    };
-    return map[name] || [{method: 'POST', path: '/v1/run'}];
+    // Dynamic — built from service metadata embedded at render time
+    const map = typeof __API_ENDPOINTS__ !== 'undefined' ? __API_ENDPOINTS__ : {};
+    const fallback = [{method: 'POST', path: '/v1/run'}];
+    if (!map[name]) return fallback;
+    return map[name];
 }
 
 // ---- Loading overlay ----

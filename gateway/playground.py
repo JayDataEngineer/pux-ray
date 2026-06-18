@@ -23,140 +23,85 @@ from services.registry import get_service
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
-# Playground metadata — input fields per service (drives the dynamic form UI)
+# Playground metadata — built dynamically from SERVICE_REGISTRY
 # ---------------------------------------------------------------------------
-# Each field has:
-#   key        — the TNAP input field name
-#   label      — human-readable label
-#   type       — text, textarea, number, range, image, audio, select, checkbox
-#   required   — whether the field is required
-#   default    — default value
-#   placeholder
-#   min/max/step   — for range/number
-#   options        — for select
-#   help           — help text shown below field
 
-PLAYGROUND_META: dict[str, dict] = {
-    "kokoro": {
-        "category": "TTS",
-        "gpu": False,
-        "route": "/v1/kokoro/generate",
-        "format": "tnap",
-        "input_fields": [
-            {"key": "text", "label": "Text to speak", "type": "textarea", "required": True, "placeholder": "Enter text to synthesize..."},
-            {"key": "voice", "label": "Voice", "type": "text", "default": "af_bella", "help": "Available: af_bella, af_heart, af_nicole, am_adam, am_michael, bf_emma, bf_isabella, bm_george, bm_lewis"},
-            {"key": "speed", "label": "Speed", "type": "range", "min": 0.5, "max": 2.0, "step": 0.1, "default": 1.0},
-        ],
-    },
-    "espeak": {
-        "category": "TTS",
-        "gpu": False,
-        "route": "/v1/espeak/generate",
-        "format": "tnap",
-        "input_fields": [
-            {"key": "text", "label": "Text to speak", "type": "textarea", "required": True, "placeholder": "Enter text to synthesize..."},
-            {"key": "voice", "label": "Voice / Language", "type": "text", "default": "en", "placeholder": "en, fr, de, es, ja, etc."},
-            {"key": "speed", "label": "Speed", "type": "range", "min": 0.5, "max": 2.0, "step": 0.1, "default": 1.0},
-        ],
-    },
-    "faster_whisper": {
-        "category": "ASR",
-        "gpu": False,
-        "route": "/v1/faster_whisper/generate",
-        "format": "tnap",
-        "input_fields": [
-            {"key": "audio", "label": "Audio file", "type": "audio", "required": True, "help": "Upload audio to transcribe (WAV, MP3, M4A, etc.)"},
-            {"key": "language", "label": "Language hint", "type": "text", "default": "", "placeholder": "en, fr, de, or leave empty for auto-detect"},
-        ],
-    },
-    },
-    "moss_soundeffect": {
-        "category": "Audio",
-        "gpu": True,
-        "route": "/v1/moss_soundeffect/generate",
-        "format": "tnap",
-        "input_fields": [
-            {"key": "prompt", "label": "Sound description", "type": "textarea", "required": True, "placeholder": "e.g., thunder and heavy rain, ocean waves crashing, footsteps on gravel..."},
-        ],
-    },
-    "ace_step": {
-        "category": "Music",
-        "gpu": True,
-        "route": "/v1/ace_step/generate",
-        "format": "tnap",
-        "input_fields": [
-            {"key": "prompt", "label": "Music description", "type": "textarea", "required": True, "placeholder": "e.g., upbeat electronic dance music with a driving bass line"},
-            {"key": "duration", "label": "Duration (seconds)", "type": "number", "default": 30, "min": 5, "max": 120},
-            {"key": "bpm", "label": "BPM", "type": "number", "default": 120, "min": 40, "max": 200},
-            {"key": "instrumental", "label": "Instrumental only", "type": "checkbox", "default": True},
-        ],
-    },
-    "llm": {
-        "category": "LLM",
-        "gpu": True,
-        "route": "/v1/chat/completions",
-        "format": "openai",
-        "input_fields": [
-            {"key": "system", "label": "System prompt", "type": "textarea", "required": False, "placeholder": "You are a helpful assistant...", "default": ""},
-            {"key": "messages", "label": "Message", "type": "textarea", "required": True, "placeholder": "Enter your message..."},
-            {"key": "temperature", "label": "Temperature", "type": "range", "min": 0.0, "max": 2.0, "step": 0.1, "default": 0.7},
-            {"key": "max_tokens", "label": "Max tokens", "type": "number", "min": 64, "max": 32768, "default": 2048},
-        ],
-    },
-    "trellis": {
-        "category": "3D",
-        "gpu": True,
-        "route": "/v1/trellis/generate",
-        "format": "tnap",
-        "input_fields": [
-            {"key": "image", "label": "Source image", "type": "image", "required": True, "help": "Upload an image to convert to 3D mesh"},
-            {"key": "seed", "label": "Seed", "type": "number", "default": 1},
-            {"key": "steps", "label": "Steps", "type": "number", "default": 12, "min": 1, "max": 50},
-            {"key": "guidance", "label": "Guidance scale", "type": "range", "min": 1.0, "max": 20.0, "step": 0.5, "default": 7.5},
-        ],
-    },
-    "anigen": {
-        "category": "3D",
-        "gpu": True,
-        "route": "/v1/anigen/generate",
-        "format": "tnap",
-        "input_fields": [
-            {"key": "image", "label": "Anime image", "type": "image", "required": True, "help": "Upload an anime-style image to convert to 3D"},
-            {"key": "seed", "label": "Seed", "type": "number", "default": -1},
-            {"key": "steps", "label": "Steps", "type": "number", "default": 12, "min": 1, "max": 50},
-            {"key": "guidance", "label": "Guidance scale", "type": "range", "min": 1.0, "max": 20.0, "step": 0.5, "default": 7.0},
-        ],
-    },
-    "see_through": {
-        "category": "Creative",
-        "gpu": True,
-        "route": "/v1/see_through/generate",
-        "format": "tnap",
-        "input_fields": [
-            {"key": "image", "label": "Anime image", "type": "image", "required": True, "help": "Upload an anime image for layer decomposition"},
-        ],
-    },
-    "comfyui": {
-        "category": "Image",
-        "gpu": True,
-        "route": "/comfyui",
-        "format": "tnap",
-        "input_fields": [
-            {"key": "prompt", "label": "ComfyUI workflow JSON", "type": "textarea", "required": True, "placeholder": "Paste ComfyUI workflow JSON..."},
-        ],
-    },
-    "hy_motion": {
-        "category": "3D",
-        "gpu": True,
-        "route": "/v1/hy_motion/generate",
-        "format": "tnap",
-        "input_fields": [
-            {"key": "text", "label": "Motion description", "type": "textarea", "required": True, "placeholder": "e.g., a person walking then waving..."},
-            {"key": "duration", "label": "Duration (seconds)", "type": "number", "default": 3.0, "min": 1.0, "max": 30.0, "step": 0.5},
-            {"key": "seed", "label": "Seed", "type": "number", "default": 42},
-        ],
-    },
+def _build_playground_meta() -> dict[str, dict]:
+    """Build playground service metadata from SERVICE_REGISTRY."""
+    from services.registry import SERVICE_REGISTRY, ParamSpec
+
+    meta: dict[str, dict] = {}
+
+    for name, entry in SERVICE_REGISTRY.items():
+        inp = _param_to_playground_field(entry.params_schema or [])
+        # Infer category override for special cases
+        cat = entry.category.capitalize()
+        if name == "ace_step":
+            cat = "Music"  # not "Audio"
+
+        meta[name] = {
+            "category": cat,
+            "gpu": entry.needs_gpu,
+            "route": _infer_route(name),
+            "format": "openai" if name == "llm" else "tnap",
+            "input_fields": inp,
+        }
+
+    return meta
+
+
+def _infer_route(name: str) -> str:
+    """Infer TNAP/API route from service name."""
+    if name == "llm":
+        return "/v1/chat/completions"
+    if name == "comfyui":
+        return "/comfyui"
+    return f"/v1/{name}/generate"
+
+
+def _param_to_playground_field(params: list) -> list[dict]:
+    """Convert ParamSpec list to playground input_fields format."""
+    fields = []
+    for p in params or []:
+        ftype = _map_param_type(p.type)
+        field = {
+            "key": p.label.lower().replace(" ", "_"),
+            "label": p.label,
+            "type": ftype,
+        }
+        if p.required:
+            field["required"] = True
+        if p.default is not None:
+            field["default"] = p.default
+        if p.placeholder:
+            field["placeholder"] = p.placeholder
+        if p.description:
+            field["help"] = p.description
+        if p.options:
+            field["options"] = p.options
+        fields.append(field)
+    return fields
+
+
+_PARAM_TYPE_MAP = {
+    "text": "text",
+    "textarea": "textarea",
+    "number": "number",
+    "select": "select",
+    "file": "file",
+    "bool": "checkbox",
+    "json": "textarea",
+    "image": "image",
+    "audio": "audio",
+    "range": "range",
 }
+
+
+def _map_param_type(ptype: str) -> str:
+    return _PARAM_TYPE_MAP.get(ptype, "text")
+
+
+PLAYGROUND_META = _build_playground_meta()
 
 
 # Endpoints

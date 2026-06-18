@@ -26,179 +26,16 @@ from gateway.dashboard import query_service_status
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
-# Studio app registry — extends KNOWN_DEPLOYMENTS with UI metadata
+# Studio app registry — built dynamically from SERVICE_REGISTRY
 # ---------------------------------------------------------------------------
 
-STUDIO_APPS: dict[str, dict] = {
-    # ════════════════════════════════════════════════════════════════════════
-    # Auto-generated from SERVICE_REGISTRY — one entry per registered service
-    # with UI metadata added for the Studio frontend.
-    # ════════════════════════════════════════════════════════════════════════
-    "comfyui": {
-        "label": "ComfyUI",
-        "url": "/comfyui/",
-        "has_ui": True,
-        "category": "Image",
-        "gpu": True,
-        "manage_type": "subprocess",
-    },
-    "llm": {
-        "label": "LLM (llama.cpp)",
-        "url": None,
-        "has_ui": False,
-        "category": "LLM",
-        "gpu": True,
-        "manage_type": "scheduler",
-        "default_model": "qwen3.6-27b-q5_k_s-32k",
-    },
-    # ── Image ─────────────────────────────────────────────────────────────
-    "native": {
-        "label": "Native Models",
-        "url": None, "has_ui": False,
-        "category": "Image", "gpu": True, "manage_type": "scheduler",
-        "default_model": "z_image",
-    },
-    "z_image": {
-        "label": "Z-Image Generation",
-        "url": None, "has_ui": False,
-        "category": "Image", "gpu": True, "manage_type": "scheduler",
-        "default_model": "z_image",
-    },
-    "anima": {
-        "label": "Anima (Anime)",
-        "url": None, "has_ui": False,
-        "category": "Image", "gpu": True, "manage_type": "scheduler",
-        "default_model": "anima",
-    },
-    "nvidia_upscale": {
-        "label": "GPU Upscale",
-        "url": None, "has_ui": False,
-        "category": "Image", "gpu": True, "manage_type": "scheduler",
-        "default_model": "nvidia_upscale",
-    },
-    "dwpose": {
-        "label": "DWPose Detection",
-        "url": None, "has_ui": False,
-        "category": "Image", "gpu": False, "manage_type": "none",
-    },
-    # ── 3D ────────────────────────────────────────────────────────────────
-    "trellis": {
-        "label": "TRELLIS.2 3D",
-        "url": None, "has_ui": False,
-        "category": "3D", "gpu": True, "manage_type": "scheduler",
-        "default_model": "trellis",
-    },
-    "anigen": {
-        "label": "AniGen 3D",
-        "url": None, "has_ui": False,
-        "category": "3D", "gpu": True, "manage_type": "scheduler",
-        "default_model": "anigen",
-    },
-    "body_mesh": {
-        "label": "BodyMesh Renderer",
-        "url": None, "has_ui": False,
-        "category": "3D", "gpu": False, "manage_type": "none",
-    },
-    # ── Motion ────────────────────────────────────────────────────────────
-    "kimodo_demo": {
-        "label": "Kimodo Motion",
-        "url": "/kimodo/", "has_ui": True,
-        "category": "Motion", "gpu": True, "manage_type": "subprocess",
-    },
-    "kimodo": {
-        "label": "Kimodo (API)",
-        "url": None, "has_ui": False,
-        "category": "Motion", "gpu": True, "manage_type": "scheduler",
-        "default_model": "kimodo",
-    },
-    "hy_motion": {
-        "label": "HY-Motion",
-        "url": None, "has_ui": False,
-        "category": "Motion", "gpu": True, "manage_type": "scheduler",
-        "default_model": "hy_motion",
-    },
-    "gemx": {
-        "label": "GEM-X Pose",
-        "url": None, "has_ui": False,
-        "category": "Motion", "gpu": True, "manage_type": "scheduler",
-        "default_model": "gemx",
-    },
-    # ── Audio / Music ──────────────────────────────────────────────────────────
-    "ace_step": {
-        "label": "ACE-Step Music",
-        "url": None, "has_ui": False,
-        "category": "Audio", "gpu": True, "manage_type": "scheduler",
-        "default_model": "ace_step",
-    },
-    "moss_soundeffect": {
-        "label": "MOSS SoundEffect",
-        "url": None, "has_ui": False,
-        "category": "Audio", "gpu": True, "manage_type": "scheduler",
-        "default_model": "moss_soundeffect",
-    },
-    # ── Creative ───────────────────────────────────────────────────────────────
-    "see_through": {
-        "label": "See-Through",
-        "url": None, "has_ui": False,
-        "category": "Creative", "gpu": True, "manage_type": "scheduler",
-        "default_model": "see_through",
-    },
-    "lance": {
-        "label": "Lance Multimodal",
-        "url": None, "has_ui": False,
-        "category": "Creative", "gpu": True, "manage_type": "scheduler",
-        "default_model": "lance",
-    },
-    # ── Avatar ────────────────────────────────────────────────────────────
-    "avatar": {
-        "label": "Avatar Pipeline",
-        "url": None, "has_ui": False,
-        "category": "Avatar", "gpu": True, "manage_type": "scheduler",
-        "default_model": "avatar",
-    },
-    # ── TTS ─────────────────────────────────────────────────────────────────
-    "moss_tts": {
-        "label": "MOSS TTS (GPU)",
-        "url": None, "has_ui": False,
-        "category": "TTS", "gpu": True, "manage_type": "scheduler",
-        "default_model": "moss_tts",
-    },
-    "moss_voicegenerator": {
-        "label": "MOSS Voice Design (GPU)",
-        "url": None, "has_ui": False,
-        "category": "TTS", "gpu": True, "manage_type": "scheduler",
-        "default_model": "moss_voicegenerator",
-    },
-    "kokoro": {
-        "label": "Kokoro TTS (CPU)",
-        "url": None, "has_ui": False,
-        "category": "TTS", "gpu": False, "manage_type": "none",
-    },
-    "espeak": {
-        "label": "eSpeak TTS (CPU)",
-        "url": None, "has_ui": False,
-        "category": "TTS", "gpu": False, "manage_type": "none",
-    },
-    # ── ASR / Transcription ───────────────────────────────────────────────
-    "vibevoice_asr": {
-        "label": "VibeVoice ASR (GPU)",
-        "url": None, "has_ui": False,
-        "category": "ASR", "gpu": True, "manage_type": "scheduler",
-        "default_model": "vibevoice_asr",
-    },
-    "faster_whisper": {
-        "label": "Faster-Whisper (CPU)",
-        "url": None, "has_ui": False,
-        "category": "ASR", "gpu": False, "manage_type": "none",
-    },
-    # ── Training ──────────────────────────────────────────────────────────
-    "kohya": {
-        "label": "kohya_ss LoRA Trainer",
-        "url": None, "has_ui": False,
-        "category": "Training", "gpu": True, "manage_type": "scheduler",
-        "default_model": "kohya",
-    },
-    # ── MCP Servers (always-on, CPU) ──────────────────────────────────────
+# Special overrides for services that need extra UI metadata not in the registry.
+# All other services get sensible defaults from their ServiceEntry.
+_STUDIO_OVERRIDES: dict[str, dict] = {
+    # Services with web UIs
+    "comfyui": {"url": "/comfyui/", "has_ui": True, "manage_type": "subprocess"},
+    "kimodo_demo": {"url": "/kimodo/", "has_ui": True, "manage_type": "subprocess"},
+    # MCP servers (not in SERVICE_REGISTRY — deployed separately)
     "local_web_mcp": {
         "label": "Local Web MCP",
         "url": "/mcp/web/", "has_ui": False,
@@ -211,8 +48,63 @@ STUDIO_APPS: dict[str, dict] = {
     },
 }
 
-# Ordered categories for sidebar grouping
-CATEGORY_ORDER = ["Image", "LLM", "3D", "Motion", "Audio", "Creative", "Avatar", "TTS", "ASR", "Training", "MCP"]
+
+def _build_studio_apps() -> dict[str, dict]:
+    """Build studio app registry from SERVICE_REGISTRY + overrides.
+
+    Every registered service gets a studio entry with sensible defaults.
+    Services with special UI metadata are overridden via _STUDIO_OVERRIDES.
+    """
+    from services.registry import SERVICE_REGISTRY
+
+    apps: dict[str, dict] = {}
+
+    for name, entry in SERVICE_REGISTRY.items():
+        label = entry.label
+        category = entry.category.capitalize() if entry.category else "Other"
+        gpu = entry.needs_gpu
+        mgr = entry.default_model
+
+        # Infer manage_type from service properties
+        if gpu:
+            manage_type = "scheduler"
+        else:
+            manage_type = "none"
+
+        app: dict = {
+            "label": label,
+            "url": None,
+            "has_ui": False,
+            "category": category,
+            "gpu": gpu,
+            "manage_type": manage_type,
+        }
+        if mgr:
+            app["default_model"] = mgr
+
+        # Apply overrides
+        if name in _STUDIO_OVERRIDES:
+            app.update(_STUDIO_OVERRIDES[name])
+
+        apps[name] = app
+
+    # Add extras not in SERVICE_REGISTRY (MCP servers deployed separately)
+    for name, override in _STUDIO_OVERRIDES.items():
+        if name not in apps:
+            apps[name] = dict(override)
+
+    return apps
+
+
+STUDIO_APPS = _build_studio_apps()
+
+# Ordered categories for sidebar grouping — derived from actual categories
+_CATEGORY_PRIORITY = ["Image", "Llm", "3d", "Motion", "Audio", "Creative",
+                      "Avatar", "Tts", "Asr", "Training", "Mcp"]
+CATEGORY_ORDER = sorted(
+    {a["category"] for a in STUDIO_APPS.values()},
+    key=lambda c: _CATEGORY_PRIORITY.index(c) if c in _CATEGORY_PRIORITY else 99,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -247,7 +139,36 @@ _STUDIO_HTML = Path(__file__).parent / "studio.html"
 
 async def studio_page(request: Request) -> HTMLResponse:
     """GET /studio — serve the studio switcher page."""
-    return HTMLResponse(_STUDIO_HTML.read_text())
+    from services.registry import SERVICE_REGISTRY
+
+    html = _STUDIO_HTML.read_text()
+
+    # Build dynamic endpoint map from SERVICE_REGISTRY
+    endpoints = {}
+    for name, entry in SERVICE_REGISTRY.items():
+        if entry.category == "llm":
+            endpoints[name] = [{"method": "POST", "path": "/v1/chat/completions"}]
+        elif name == "comfyui":
+            endpoints[name] = [{"method": "GET", "path": "/comfyui/"}]
+        elif name == "kimodo_demo":
+            endpoints[name] = [{"method": "GET", "path": "/kimodo/"}]
+        elif entry.category == "asr":
+            endpoints[name] = [{"method": "POST", "path": "/v1/audio/transcriptions"}]
+        elif entry.category == "tts":
+            endpoints[name] = [{"method": "POST", "path": "/v1/audio/speech"}]
+        elif name == "ace_step":
+            endpoints[name] = [{"method": "POST", "path": "/music/generate"}]
+        elif name == "see_through":
+            endpoints[name] = [{"method": "POST", "path": "/creative/decompose"}]
+        else:
+            endpoints[name] = [{"method": "POST", "path": "/v1/run"}]
+
+    # Inject into HTML before the first <script>
+    import json
+    script_tag = f"<script>var __API_ENDPOINTS__ = {json.dumps(endpoints)};</script>"
+    html = html.replace("</title>", f"</title>{script_tag}", 1)
+
+    return HTMLResponse(html)
 
 
 async def studio_apps(request: Request) -> JSONResponse:

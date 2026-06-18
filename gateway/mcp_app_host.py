@@ -78,7 +78,9 @@ def _build_tts_engines() -> list[dict[str, Any]]:
     return engines
 
 
-TTS_ENGINES = _build_tts_engines()
+# Only expose engines that tts_speak can dispatch (not voice-design tools).
+_TTS_HANDLED = {"kokoro", "moss_tts", "espeak"}
+TTS_ENGINES = [e for e in _build_tts_engines() if e["id"] in _TTS_HANDLED]
 
 def _get_html(uri: str) -> str | None:
     """Load HTML template for a widget URI."""

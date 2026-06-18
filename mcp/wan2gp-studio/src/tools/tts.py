@@ -95,14 +95,18 @@ async def tts_voices(ctx: Context | None = None) -> dict:
     is automatically included.  No hardcoded engine list.
     """
     return {
-        "engines": ENGINES,
+        "engines": [e for e in ENGINES if e["id"] in _HANDLED_ENGINES],
         "voices": {
             "kokoro": KOKORO_VOICES,
         },
     }
 
 
-_ENGINE_IDS = [e["id"] for e in ENGINES]
+# Engines that tts_speak can actually handle (has a dispatch branch).
+# Other category='tts' services (e.g. moss_voicegenerator) have dedicated tools.
+_HANDLED_ENGINES = {"kokoro", "moss_tts", "espeak"}
+
+_ENGINE_IDS = sorted(_HANDLED_ENGINES & {e["id"] for e in ENGINES})
 
 
 async def tts_speak(
