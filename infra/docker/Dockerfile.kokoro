@@ -1,0 +1,38 @@
+# Dockerfile.kokoro — Kokoro TTS via sherpa-onnx (CPU-only, ~600 MB image)
+#
+# Replaces the previous PyTorch Kokoro deployment that ran inside the 90 GB
+# gpu-all image. This container is ~600 MB, has zero GPU dependencies, and
+# serves the same OpenAI-compatible /v1/audio/speech API surface.
+#
+# Build:
+#   docker build -f infra/docker/Dockerfile.kokoro \
+#     -t forge-reg.local:30500/tech-noir/kokoro:latest .
+#
+# Run (model volume bind-mounted read-only):
+#   docker run -d --name inference-kokoro -p 8060:8060 \
+#     -v /mnt/data/models/tts/kokoro-sherpa:/models/tts/kokoro-sherpa:ro \
+#     forge-reg.local:30500/tech-noir/kokoro:latest
+
+FROM python:3.12-slim
+
+LABEL description="Kokoro TTS via sherpa-onnx — 53 voices, English+Chinese, OpenAI-compatible API"
+
+# sherpa-onnx wheel bundles ONNX Runtime C libs — no system deps needed.
+# fastapi + uvicorn for the API surface.
+RUN pip install --no-cache-dir \
+      sherpa-onnx==1.12.5 \
+      fastapi==0.115.6 \
+      uvicorn==0.34.0
+
+COPY api_kokoro.py /opt/api_kokoro.py
+
+ENV KOKORO_MODEL_DIR=/models/tts/kokoro-sherpa
+ENV KOKORO_PORT=8060
+ENV KOKORO_THREADS=2
+
+EXPOSE 8060
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
+    CMD python -c "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8060/health').status==200 else 1)"
+
+CMD ["python", "/opt/api_kokoro.py"]
