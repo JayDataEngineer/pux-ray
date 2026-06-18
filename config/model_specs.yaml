@@ -85,35 +85,7 @@ vibevoice_asr:
   co_tenants:
     language_model: [lm_head]
 
-vibevoice_tts:
-  handler: vibevoice-tts
-  quant_default: bf16
-  modules:
-    language_model:
-      role: transformer
-      variants:
-        bf16: tts/vibevoice/
-        int8: tts/vibevoice/int8/
-    acoustic_tokenizer:
-      role: codec
-      bundled: true
-    semantic_tokenizer:
-      role: codec
-      bundled: true
-    prediction_head:
-      role: head
-      bundled: true
-    acoustic_connector:
-      role: connector
-      bundled: true
-    semantic_connector:
-      role: connector
-      bundled: true
-    lm_head:
-      role: head
-      bundled: true
-  co_tenants:
-    language_model: [lm_head]
+# vibevoice_tts removed — superseded by OpenMOSS for all TTS.
 
 trellis:
   handler: trellis

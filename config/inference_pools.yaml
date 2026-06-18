@@ -559,7 +559,6 @@ pools:
       - hymotion                 # Tencent HY-Motion 1.0/Lite (SMPL-H text-to-motion)
       - trellis2                 # Microsoft TRELLIS.2-4B (image-to-3D, native Trellis2 pipeline)
       - kokoro                   # Kokoro TTS (CPU-capable)
-      - vibevoice-tts            # VibeVoice-7B TTS
       - see-through              # See-Through anime layer decomposition (LayerDiff 3D + Marigold)
     vram_mb: 8000
     health_path: /health
@@ -689,5 +688,4 @@ routes:
   hymotion-lite:           { primary: diffusers }   # HY-Motion-1.0-Lite variant
   trellis2:                { primary: diffusers }
   kokoro:                  { primary: diffusers }
-  vibevoice-tts:           { primary: diffusers }
   see-through:             { primary: diffusers }

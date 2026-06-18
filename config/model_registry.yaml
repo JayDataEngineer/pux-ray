@@ -1133,15 +1133,8 @@ tts:
     size_gb: 0.65
     source: hf://Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice
     vram_estimate_gb: 0.5
-  vibevoice-tts:
-    description: VibeVoice 7B TTS. 18.7GB multi-speaker synthesis.
-    device: gpu
-    download: snapshot
-    path: tts/vibevoice/
-    sha256: null
-    size_gb: 18.7
-    source: hf://vibevoice/VibeVoice-7B
-    vram_estimate_gb: 20.0
+  # vibevoice-tts removed — superseded by OpenMOSS (Tier A) for all TTS duties.
+  # The 18.7 GB VibeVoice-7B TTS weights at tts/vibevoice/ have been deleted.
 vibevoice-cpp:
   asr-q4:
     description: VibeVoice ASR 7B quantized Q4_K. Smaller/faster ASR with diarization.
@@ -1866,14 +1859,7 @@ served-models:
     container: seethrough
     launcher: infra/docker/serve_seethrough.sh
     port: 8100
-  vibevoice-tts:
-    description: VibeVoice 7B TTS — voice cloning and synthesis
-    pool_ref: tts/vibevoice-tts
-    path: tts/vibevoice/
-    size_gb: 18.7
-    status: active
-    device: gpu
-    vram_estimate_gb: 20.0
+  # vibevoice-tts removed — superseded by OpenMOSS (Tier A) for all TTS duties.
   wan-i2v:
     description: 'Wan2.1 I2V (image-to-video, first-frame) — pool-facing name for video/wan2.1-i2v-14b. **Primary path**: the same omni-14b-vace-fp8 container on port 8000 serves I2V (add an `image` multipart field). The standalone wan-i2v container (port 8002, BF16 diffusers + sequential offload) is the documented slow fallback for resolutions that exceed FP8 VACE VRAM.'
     path: video/wan2.1-i2v-14b
