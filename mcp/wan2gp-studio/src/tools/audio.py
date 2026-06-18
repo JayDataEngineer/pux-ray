@@ -19,8 +19,6 @@ from .voice_examples import (
     VOICE_EXAMPLES,
     VOICE_CATEGORIES,
     MOSS_SAMPLING_PRESETS,
-    QWEN3_VOICE_PRESETS,
-    QWEN3_MODE_DESCRIPTIONS,
     PAUSE_CONTROL_EXAMPLES,
     DIALOGUE_EXAMPLES,
     get_example_by_id,
@@ -285,7 +283,7 @@ async def voice_creator(
         description="Sample text to speak. Used to audition the generated voice.",
     )],
     engine: Annotated[str, Field(
-        description="Voice creation engine. MOSS VoiceGenerator is the only option (Qwen3-TTS removed).",
+        description="Voice creation engine. MOSS VoiceGenerator is the only option.",
         enum=["moss_voicegenerator"],
     )] = "moss_voicegenerator",
     # Legacy mode control (kept for API compatibility; MOSS uses instruct/ref_audio instead)
@@ -352,13 +350,12 @@ async def voice_creator(
     Pause Control: Use [pause 1.5s] syntax in text for timing (MOSS v1.5 only).
     Multiple References: Provide ref_audio_b64_list for better voice cloning.
 
-    Note: Qwen3-TTS engine removed — superseded by MOSS VoiceGenerator for
-    instruction-following + multilingual TTS, and sherpa-onnx Kokoro for
-    CPU-fast multi-voice TTS.
+    Note: MOSS VoiceGenerator handles instruction-following + multilingual TTS.
+    sherpa-onnx Kokoro covers CPU-fast multi-voice TTS.
     """
     forge = _forge(ctx)
 
-    # moss_voicegenerator with full sampling control (qwen3_tts branch removed)
+    # moss_voicegenerator with full sampling control
     model_name = "moss-voicegenerator"
     if model_variant == "nano":
         model_name = "moss-tts-nano"
@@ -427,8 +424,6 @@ async def voice_creator_examples(
             "examples": [example],
             "categories": VOICE_CATEGORIES,
             "sampling_presets": MOSS_SAMPLING_PRESETS,
-            "qwen3_voices": QWEN3_VOICE_PRESETS,
-            "qwen3_modes": QWEN3_MODE_DESCRIPTIONS,
             "pause_control_examples": PAUSE_CONTROL_EXAMPLES,
             "dialogue_examples": DIALOGUE_EXAMPLES,
         }
@@ -445,8 +440,6 @@ async def voice_creator_examples(
         "examples": examples,
         "categories": VOICE_CATEGORIES,
         "sampling_presets": MOSS_SAMPLING_PRESETS,
-        "qwen3_voices": QWEN3_VOICE_PRESETS,
-        "qwen3_modes": QWEN3_MODE_DESCRIPTIONS,
         "pause_control_examples": PAUSE_CONTROL_EXAMPLES,
         "dialogue_examples": DIALOGUE_EXAMPLES,
     }
@@ -494,7 +487,7 @@ async def voice_creator_batch(
             model_variant = req.get("model_variant", "default")
             enable_pauses = req.get("enable_pauses", False)
 
-            # Build payload — MOSS VoiceGenerator only (qwen3_tts branch removed)
+            # Build payload — MOSS VoiceGenerator only
             model_name = "moss-voicegenerator"
             if model_variant == "nano":
                 model_name = "moss-tts-nano"

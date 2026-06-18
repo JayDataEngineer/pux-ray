@@ -79,7 +79,7 @@ class TestTierClassification:
 
         tier1 = {
             "kokoro", "espeak", "faster_whisper",
-            "index_tts", "vibevoice_asr",
+            "vibevoice_asr",
             "ace_step", "comfyui",
             "moss_soundeffect", "llm",
         }

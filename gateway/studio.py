@@ -169,12 +169,6 @@ STUDIO_APPS: dict[str, dict] = {
         "category": "TTS", "gpu": True, "manage_type": "scheduler",
         "default_model": "moss_voicegenerator",
     },
-    "index_tts": {
-        "label": "IndexTTS (GPU)",
-        "url": None, "has_ui": False,
-        "category": "TTS", "gpu": True, "manage_type": "scheduler",
-        "default_model": "index_tts",
-    },
     "kokoro": {
         "label": "Kokoro TTS (CPU)",
         "url": None, "has_ui": False,

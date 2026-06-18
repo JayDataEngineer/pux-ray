@@ -11,7 +11,7 @@ Forge tools:
 - forge_status: GPU/VRAM usage and loaded services
 
 TTS tools:
-- tts_speak: Generate speech (kokoro, moss_tts, espeak, index_tts)
+- tts_speak: Generate speech (kokoro, moss_tts, espeak)
 - tts_voices: List available TTS engines and voice presets
 
 Audio tools:
@@ -82,7 +82,7 @@ mcp = FastMCP(
         "  - `video_generate` to create video from text (T2V) or text+image (I2V) via OMNI-vLLM VACE\n"
         "  - Three quality modes: base (25 steps), fast (10 steps), lightning (4 steps)\n\n"
         "Audio:\n"
-        "  - `tts_speak` to generate speech (kokoro CPU, moss GPU, espeak CPU, index_tts GPU)\n"
+        "  - `tts_speak` to generate speech (kokoro CPU, moss GPU, espeak CPU)\n"
         "  - `tts_voices` to list TTS engines and voice presets\n"
         "  - `transcribe` for speech-to-text (whisper CPU, vibevoice GPU)\n"
         "  - `generate_sound` for text-to-sound-effects (MOSS-SoundEffect)\n"

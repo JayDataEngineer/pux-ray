@@ -57,7 +57,7 @@ class TestOpenAIRouteTargets:
 
     def test_all_tts_services_have_speech_aliases(self):
         from services.registry import SERVICE_REGISTRY
-        for name in ["kokoro", "espeak", "index_tts"]:
+        for name in ["kokoro", "espeak"]:
             entry = SERVICE_REGISTRY[name]
             assert entry.model_aliases, f"{name} missing model_aliases for /v1/audio/speech"
 
@@ -112,7 +112,6 @@ class TestIngressGPU:
         from services.registry import SERVICE_REGISTRY
         gpu_services = {"ace_step", "comfyui", "llm",
                         "moss_soundeffect",
-                        "index_tts",
                         "vibevoice_asr"}
         for name in gpu_services:
             assert SERVICE_REGISTRY[name].needs_gpu is True, f"{name} should need GPU"

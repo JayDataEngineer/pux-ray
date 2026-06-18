@@ -39,7 +39,7 @@ class TestServiceRegistry:
             "kokoro", "espeak", "faster_whisper",
             "moss_soundeffect", "ace_step",
             "comfyui", "llm",
-            "index_tts", "vibevoice_asr",
+            "vibevoice_asr",
         }
         assert expected.issubset(set(SERVICE_REGISTRY.keys())), \
             f"Missing: {expected - set(SERVICE_REGISTRY.keys())}"

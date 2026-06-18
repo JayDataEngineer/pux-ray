@@ -35,7 +35,7 @@ inputs:
   voice:
     type: string
     default: "kokoro"
-    enum: [kokoro, index_tts, espeak]
+    enum: [kokoro, espeak]
     description: "TTS engine for dialogue"
   music_prompt:
     type: string

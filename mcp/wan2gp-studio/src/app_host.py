@@ -45,7 +45,20 @@ async def handle_app_host(request: Request) -> JSONResponse:
 
         from .server import mcp
         result = await mcp.call_tool(tool_name, tool_args)
-        return JSONResponse(result)
+        # ToolResult -> dict (ToolResult is not JSON serializable)
+        if hasattr(result, "content"):
+            result_dict = {
+                "content": [
+                    {"type": c.type, "text": c.text}
+                    for c in (result.content or [])
+                ],
+                "isError": getattr(result, "is_error", False),
+            }
+        elif isinstance(result, dict):
+            result_dict = result
+        else:
+            result_dict = {"result": str(result)}
+        return JSONResponse(result_dict)
 
     if method == "tools/list":
         from .server import mcp

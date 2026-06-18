@@ -27,83 +27,58 @@ APPS = {
     "ui://apps/workflow": {"name": "Workflow Runner", "description": "Interactive pipeline runner"},
 }
 
-# ── TTS Engine catalog — single source of truth for the dynamic TTS endpoint ───
+# ── TTS Engine catalog — built dynamically from SERVICE_REGISTRY ────────────
 
-TTS_ENGINES: list[dict[str, Any]] = [
-    {
-        "id": "kokoro",
-        "label": "Kokoro (CPU)",
-        "category": "tts",
-        "gpu": False,
-        "service": "kokoro",
-        "description": "Fast CPU text-to-speech, multi-voice. Best for quick generation.",
-        "params": [
-            {"name": "text", "type": "textarea", "label": "Text", "required": True,
-             "placeholder": "Hello world"},
-            {"name": "voice", "type": "select", "label": "Voice", "default": "af_bella",
-             "options": [
-                 "af_alloy", "af_aoede", "af_bella", "af_heart", "af_jessica",
-                 "af_kore", "af_nicole", "af_nova", "af_river", "af_sarah",
-                 "af_sky", "am_adam", "am_echo", "am_eric", "am_fenrir",
-                 "am_liam", "am_michael", "am_onyx", "am_puck", "am_santa",
-                 "bf_alice", "bf_emma", "bf_isabella", "bf_lily",
-                 "bm_daniel", "bm_fable", "bm_george", "bm_lewis",
-                 "ef_dora", "em_alex", "em_santa", "ff_siwis",
-                 "hf_alpha", "hf_beta", "hm_omega", "hm_psi",
-                 "if_sara", "im_nicola",
-                 "jf_alpha", "jf_gongitsune", "jf_nezumi", "jf_tebukuro",
-                 "jm_kumo", "pf_dora", "pm_alex", "pm_santa",
-                 "zf_xiaobei", "zf_xiaoni", "zf_xiaoxiao", "zf_xiaoyi",
-                 "zm_yunjian", "zm_yunxi", "zm_yunxia", "zm_yunyang",
-             ]},
-        ],
-    },
-    {
-        "id": "moss_tts",
-        "label": "MOSS TTS (GPU)",
-        "category": "tts",
-        "gpu": True,
-        "service": "moss_tts",
-        "model": "moss-tts",
-        "description": "MOSS TTS — text-to-speech with voice cloning via reference audio.",
-        "params": [
-            {"name": "text", "type": "textarea", "label": "Text", "required": True,
-             "placeholder": "Hello world"},
-            {"name": "instruct", "type": "textarea", "label": "Instruction",
-             "placeholder": "warm, friendly, slightly husky",
-             "description": "Optional emotion/style instruction for the voice."},
-            {"name": "language", "type": "select", "label": "Language", "default": "English",
-             "options": ["English", "Chinese", "Japanese", "Korean"]},
-        ],
-    },
-    {
-        "id": "espeak",
-        "label": "eSpeak (CPU)",
-        "category": "tts",
-        "gpu": False,
-        "service": "espeak",
-        "description": "eSpeak-NG — lightweight phoneme TTS, many languages. Instant CPU inference.",
-        "params": [
-            {"name": "text", "type": "textarea", "label": "Text", "required": True,
-             "placeholder": "Hello world"},
-            {"name": "language", "type": "select", "label": "Language", "default": "en",
-             "options": ["en", "fr", "de", "es", "it", "ja", "zh", "ko", "ru", "pt"]},
-        ],
-    },
-    {
-        "id": "index_tts",
-        "label": "IndexTTS (GPU)",
-        "category": "tts",
-        "gpu": True,
-        "service": "index_tts",
-        "model": "index_tts/v2",
-        "description": "IndexTTS v2 — high-quality neural TTS with voice cloning.",
-        "params": [
-            {"name": "text", "type": "textarea", "label": "Text", "required": True,
-             "placeholder": "Text to speak..."},
-        ],
-    },
-]
+def _build_tts_engines() -> list[dict[str, Any]]:
+    """Build TTS engine catalogue from SERVICE_REGISTRY (category='tts').
+
+    Every service with category='tts' automatically appears — no hardcoded
+    engine dicts to keep in sync.
+    """
+    from services.registry import SERVICE_REGISTRY
+
+    engines = []
+    for name, entry in SERVICE_REGISTRY.items():
+        if entry.category != "tts":
+            continue
+
+        gpu_suffix = " (GPU)" if entry.needs_gpu else " (CPU)"
+        label = entry.label + gpu_suffix
+
+        params = []
+        for p in (entry.params_schema or []):
+            param: dict[str, Any] = {
+                "name": p.label.lower().replace(" ", "_") if p.label else "unknown",
+                "type": p.type,
+                "label": p.label,
+            }
+            if p.required:
+                param["required"] = True
+            if p.default is not None:
+                param["default"] = p.default
+            if p.placeholder:
+                param["placeholder"] = p.placeholder
+            if p.description:
+                param["description"] = p.description
+            if p.options:
+                param["options"] = p.options
+            params.append(param)
+
+        engines.append({
+            "id": name,
+            "label": label,
+            "category": entry.category,
+            "gpu": entry.needs_gpu,
+            "service": name,
+            "model": entry.default_model,
+            "description": entry.description or f"{entry.label} TTS",
+            "params": params,
+        })
+
+    return engines
+
+
+TTS_ENGINES = _build_tts_engines()
 
 def _get_html(uri: str) -> str | None:
     """Load HTML template for a widget URI."""
@@ -172,42 +147,12 @@ async def handle_mcp_host(request: Request) -> JSONResponse:
             ingress = APIIngress()
 
             try:
-                if engine_id == "kokoro":
-                    result = await ingress._dispatch_service("kokoro", {
-                        "text": tool_args.get("text", ""),
-                        "voice": tool_args.get("voice", "af_bella"),
-                    })
-
-                elif engine_id == "espeak":
-                    result = await ingress._dispatch_service("espeak", {
-                        "text": tool_args.get("text", ""),
-                        "language": tool_args.get("language", "en"),
-                    })
-
-                elif engine_id == "moss_tts":
-                    payload: dict[str, Any] = {
-                        "model": "moss-tts",
-                        "text": tool_args.get("text", ""),
-                        "language": tool_args.get("language", "English"),
-                    }
-                    if tool_args.get("instruct"):
-                        payload["instruction"] = tool_args["instruct"]
-                    if tool_args.get("ref_audio_b64"):
-                        payload["ref_audio_b64"] = tool_args["ref_audio_b64"]
-                    result = await ingress._dispatch_service("moss_tts", payload)
-
-                elif engine_id == "index_tts":
-                    payload: dict[str, Any] = {
-                        "model": "index_tts/v2",
-                        "text": tool_args.get("text", ""),
-                    }
-                    result = await ingress._dispatch_service("index_tts", payload)
-
-                else:
-                    return JSONResponse(
-                        {"status": "error", "error": f"TTS engine {engine_id} not implemented"},
-                        status_code=501,
-                    )
+                # Forward all params from the tool call to the service dispatch.
+                # The engine service name matches engine_id (kokoro, moss_tts, espeak, …).
+                payload: dict[str, Any] = {k: v for k, v in tool_args.items() if k != "engine"}
+                if "model" not in payload and engine.get("model"):
+                    payload["model"] = engine["model"]
+                result = await ingress._dispatch_service(engine_id, payload)
 
                 # Normalize result: extract audio_url for the widget
                 audio_url = None

@@ -138,18 +138,6 @@ SERVICE_REGISTRY: dict[str, ServiceEntry] = {
             ParamSpec(type="select", label="Language", default="auto", options=["auto", "en", "fr", "de", "es", "ja"]),
         ],
     ),
-    "index_tts": ServiceEntry(
-        deployment="forge", app="forge",
-        label="IndexTTS", category="tts",
-        needs_gpu=True, default_model="index_tts/v2",
-        output_type="audio",
-        model_aliases={"tts-01-index": "index_tts/v2"},
-        description="IndexTTS v2 — high-quality neural TTS (blocked: transformers compat).",
-        params_schema=[
-            ParamSpec(type="textarea", label="Text", required=True, placeholder="Text to speak..."),
-            ParamSpec(type="file", label="Reference Audio", required=False, placeholder="Upload voice sample for cloning"),
-        ],
-    ),
     "moss_soundeffect": ServiceEntry(
         deployment="forge", app="forge",
         label="MOSS-SoundEffect", category="audio",

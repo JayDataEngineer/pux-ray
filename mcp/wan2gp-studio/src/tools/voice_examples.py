@@ -105,12 +105,8 @@ MOSS_SAMPLING_PRESETS = {
     },
 }
 
-# Qwen3-TTS voice presets — REMOVED (engine dropped, MOSS VoiceGenerator is the
-# instruction-following TTS replacement, sherpa-onnx Kokoro covers CPU TTS).
-# Constants kept as empty placeholders for any legacy import sites.
-QWEN3_VOICE_PRESETS: list[str] = []
-
-QWEN3_MODE_DESCRIPTIONS: dict[str, str] = {}
+# Voice presets and mode descriptions — superseded by MOSS VoiceGenerator
+# (instruction-following TTS) and sherpa-onnx Kokoro (CPU TTS).
 
 def get_example_by_id(example_id: str) -> dict | None:
     """Get an example by its ID (e.g., 'zh/0', 'en/1')."""

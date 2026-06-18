@@ -1,90 +1,76 @@
 """TTS tools — unified speech synthesis across all engines.
 
-- tts_speak: One endpoint for Kokoro, MOSS VoiceGenerator, eSpeak, IndexTTS.
-- tts_voices: List available TTS engines with per-engine parameter schemas.
+- tts_speak: Generate speech via any registered TTS service.
+- tts_voices: List available TTS engines dynamically from SERVICE_REGISTRY.
 
-Note: Qwen3-TTS engine removed — superseded by MOSS VoiceGenerator
-(instruction-following + multilingual TTS) and sherpa-onnx Kokoro (CPU TTS).
+The engine list is built at import time from services.registry — any registered
+service with category="tts" automatically appears.  No hardcoded engine dicts.
 """
 from __future__ import annotations
 
-import logging
 from typing import Annotated, Any
 
 from fastmcp import Context
 from loguru import logger
 from pydantic import Field
 
+from services.registry import SERVICE_REGISTRY
+
 # ---------------------------------------------------------------------------
-# Voice catalogs
+# Dynamic engine list from SERVICE_REGISTRY
 # ---------------------------------------------------------------------------
 
-# Voice names match the sherpa-onnx kokoro-multi-lang-v1_0 speaker IDs
-# (0–52). Source: k2-fsa.github.io/sherpa/onnx/tts/pretrained_models/kokoro.html
-# Keep in sync with infra/docker/api_kokoro.py VOICE_NAME_TO_ID.
-KOKORO_VOICES = sorted([
-    "af_alloy", "af_aoede", "af_bella", "af_heart", "af_jessica",
-    "af_kore", "af_nicole", "af_nova", "af_river", "af_sarah",
-    "af_sky", "am_adam", "am_echo", "am_eric", "am_fenrir",
-    "am_liam", "am_michael", "am_onyx", "am_puck", "am_santa",
-    "bf_alice", "bf_emma", "bf_isabella", "bf_lily",
-    "bm_daniel", "bm_fable", "bm_george", "bm_lewis",
-    "ef_dora", "em_alex", "em_santa", "ff_siwis",
-    "hf_alpha", "hf_beta", "hm_omega", "hm_psi",
-    "if_sara", "im_nicola",
-    "jf_alpha", "jf_gongitsune", "jf_nezumi", "jf_tebukuro",
-    "jm_kumo", "pf_dora", "pm_alex", "pm_santa",
-    "zf_xiaobei", "zf_xiaoni", "zf_xiaoxiao", "zf_xiaoyi",
-    "zm_yunjian", "zm_yunxi", "zm_yunxia", "zm_yunyang",
-])
 
-ENGINES = [
-    {
-        "id": "kokoro",
-        "label": "Kokoro (CPU)",
-        "gpu": False,
-        "description": "Fast CPU text-to-speech via sherpa-onnx. 53 voices, EN+ZH.",
-        "params": [
-            {"name": "text", "type": "textarea", "label": "Text", "required": True},
-            {"name": "voice", "type": "select", "label": "Voice", "default": "af_bella",
-             "options": KOKORO_VOICES},
-        ],
-    },
-    {
-        "id": "moss_tts",
-        "label": "MOSS TTS (GPU)",
-        "gpu": True,
-        "description": "MOSS TTS — text-to-speech with voice cloning via reference audio.",
-        "params": [
-            {"name": "text", "type": "textarea", "label": "Text", "required": True},
-            {"name": "instruct", "type": "textarea", "label": "Instruction",
-             "placeholder": "warm, friendly, slightly husky",
-             "description": "Optional emotion/style instruction for the voice."},
-            {"name": "language", "type": "select", "label": "Language", "default": "English",
-             "options": ["English", "Chinese", "Japanese", "Korean"]},
-        ],
-    },
-    {
-        "id": "espeak",
-        "label": "eSpeak (CPU)",
-        "gpu": False,
-        "description": "eSpeak-NG — lightweight phoneme TTS, many languages. Instant CPU inference.",
-        "params": [
-            {"name": "text", "type": "textarea", "label": "Text", "required": True},
-            {"name": "language", "type": "select", "label": "Language", "default": "en",
-             "options": ["en", "fr", "de", "es", "it", "ja", "zh", "ko", "ru", "pt"]},
-        ],
-    },
-    {
-        "id": "index_tts",
-        "label": "IndexTTS (GPU)",
-        "gpu": True,
-        "description": "IndexTTS v2 — high-quality neural TTS with voice cloning.",
-        "params": [
-            {"name": "text", "type": "textarea", "label": "Text", "required": True},
-        ],
-    },
-]
+def _param_spec_to_engine_param(spec: Any) -> dict:
+    """Convert a ParamSpec dataclass to the engine param dict format."""
+    p = {
+        "name": spec.label.lower().replace(" ", "_") if spec.label else "unknown",
+        "type": spec.type,
+        "label": spec.label,
+    }
+    if spec.required:
+        p["required"] = True
+    if spec.default is not None:
+        p["default"] = spec.default
+    if spec.placeholder:
+        p["placeholder"] = spec.placeholder
+    if spec.description:
+        p["description"] = spec.description
+    if spec.options:
+        p["options"] = spec.options
+    return p
+
+
+def _build_engines() -> list[dict]:
+    """Build engine catalogue from SERVICE_REGISTRY (category='tts')."""
+    engines = []
+    for name, entry in SERVICE_REGISTRY.items():
+        if entry.category != "tts":
+            continue
+        # Build engine label with (GPU)/(CPU) suffix
+        gpu_suffix = " (GPU)" if entry.needs_gpu else " (CPU)"
+        label = entry.label + gpu_suffix
+
+        engines.append({
+            "id": name,
+            "label": label,
+            "gpu": entry.needs_gpu,
+            "description": entry.description or f"{entry.label} TTS",
+            "params": [_param_spec_to_engine_param(p) for p in (entry.params_schema or [])],
+        })
+    return engines
+
+
+ENGINES = _build_engines()
+
+# Keep KOKORO_VOICES available for direct import (used by audio tools and tests)
+KOKORO_VOICES = sorted({
+    v
+    for engine in ENGINES
+    for param in engine.get("params", [])
+    if param.get("options") and param["name"] == "voice"
+    for v in param["options"]
+})
 
 
 # ---------------------------------------------------------------------------
@@ -103,7 +89,11 @@ def _forge(ctx: Context) -> Any:
 # ---------------------------------------------------------------------------
 
 async def tts_voices(ctx: Context | None = None) -> dict:
-    """List available TTS engines and per-engine parameter schemas."""
+    """List available TTS engines and per-engine parameter schemas.
+
+    Built dynamically from SERVICE_REGISTRY — any service with category='tts'
+    is automatically included.  No hardcoded engine list.
+    """
     return {
         "engines": ENGINES,
         "voices": {
@@ -112,13 +102,16 @@ async def tts_voices(ctx: Context | None = None) -> dict:
     }
 
 
+_ENGINE_IDS = [e["id"] for e in ENGINES]
+
+
 async def tts_speak(
     text: Annotated[str, Field(
         description="The text to synthesize into speech.",
     )],
     engine: Annotated[str, Field(
         description="TTS engine to use.",
-        enum=["kokoro", "moss_tts", "espeak", "index_tts"],
+        enum=_ENGINE_IDS,
     )] = "kokoro",
     voice: Annotated[str | None, Field(
         description="Voice preset name. Kokoro: af_bella, af_nova, am_adam, etc.",
@@ -169,13 +162,10 @@ async def tts_speak(
     )] = 32,
     ctx: Context | None = None,
 ) -> dict:
-    """Generate speech from text using any TTS engine.
+    """Generate speech from text using any registered TTS engine.
 
-    Engines:
-      - kokoro: Fast CPU TTS with 53 voice presets (sherpa-onnx, EN+ZH)
-      - moss_tts: GPU TTS with full sampling control (1:1 with demo)
-      - espeak: Ultra-lightweight CPU TTS with 10 languages
-      - index_tts: High-quality GPU TTS for voice cloning
+    Engines are loaded dynamically from SERVICE_REGISTRY (category='tts').
+    See `tts_voices` for per-engine parameter schemas.
     """
     forge = _forge(ctx)
 
@@ -224,13 +214,5 @@ async def tts_speak(
             payload["seed"] = seed
         return await forge.invoke(payload)
 
-    # ── IndexTTS: GPU voice cloning ──────────────────────────────────────
-    if engine == "index_tts":
-        return await forge.invoke({
-            "service": "index_tts",
-            "model": "index_tts/v2",
-            "text": text,
-        })
-
     return {"status": "error", "error": f"Unknown engine: {engine}. "
-            f"Available: kokoro, moss_tts, espeak, index_tts"}
+            f"Available: {', '.join(_ENGINE_IDS)}"}

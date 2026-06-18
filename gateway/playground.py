@@ -69,15 +69,6 @@ PLAYGROUND_META: dict[str, dict] = {
             {"key": "language", "label": "Language hint", "type": "text", "default": "", "placeholder": "en, fr, de, or leave empty for auto-detect"},
         ],
     },
-    "index_tts": {
-        "category": "TTS",
-        "gpu": True,
-        "route": "/v1/index_tts/generate",
-        "format": "tnap",
-        "input_fields": [
-            {"key": "text", "label": "Text to speak", "type": "textarea", "required": True, "placeholder": "Enter text to synthesize..."},
-            {"key": "voice", "label": "Voice", "type": "text", "default": "default"},
-        ],
     },
     "moss_soundeffect": {
         "category": "Audio",

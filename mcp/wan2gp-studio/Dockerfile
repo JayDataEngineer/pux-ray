@@ -12,13 +12,14 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
-COPY pyproject.toml ./
+COPY mcp/wan2gp-studio/pyproject.toml ./
 
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv venv /app/.venv && \
     uv pip install --python /app/.venv/bin/python .
 
-COPY src/ /app/src/
+COPY mcp/wan2gp-studio/src/ /app/src/
+COPY services/ /app/services/
 
 # Final stage
 FROM python:3.13-slim-bookworm
@@ -31,7 +32,8 @@ WORKDIR /app
 
 COPY --from=builder /app/.venv /app/.venv
 COPY --from=builder /app/src /app/src
-COPY pyproject.toml /app/pyproject.toml
+COPY --from=builder /app/services /app/services
+COPY mcp/wan2gp-studio/pyproject.toml /app/pyproject.toml
 
 ENV PATH="/app/.venv/bin:$PATH" \
     PYTHONPATH=/app
