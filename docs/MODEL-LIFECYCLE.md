@@ -9,8 +9,8 @@ model's purpose, format, and origin.
 /mnt/data/models/
 ├── audio/               # Audio models (TTS, sound effects, music)
 │   ├── acestep/         # ACE-Step music generation (safetensors format)
-│   ├── moss-*/          # MOSS TTS + sound effect models
-│   └── tangoflux/       # TangoFlux audio generation
+│   ├── moss-*/          # MOSS TTS + sound effect models (replaces TangoFlux)
+│   └── (tangoflux removed — superseded by moss-soundeffect-v2)
 ├── image-gen/           # Image generation models
 │   ├── comfyui/         # ComfyUI workflow models (262 GB)
 │   ├── diffusers/       # Diffusers-format image models

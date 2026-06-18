@@ -81,11 +81,18 @@ SECTION_MODELS[c]="core"
 SECTION_MODELS[a]="audio"
 
 # Core: essential infrastructure models
-CORE_MODELS="kokoro"
+CORE_MODELS=""
 
 # Audio: audio/sound generation models
 # Note: VibeVoice-7B TTS removed — superseded by OpenMOSS for all TTS.
-AUDIO_MODELS="kokoro tangoflux qwen3-tts ace-step ace-step-turbo"
+# Note: Kokoro is now served via sherpa-onnx (kokoro-multi-lang-v1_0) —
+# download via --kokoro-sherpa special op, not the hf:// snapshot.
+# Note: qwen3-tts removed — superseded by MOSS VoiceGenerator for
+# instruction-following + multilingual TTS. Kokoro (CPU) and MOSS (GPU)
+# cover the full TTS surface.
+# Note: tangoflux removed — superseded by MOSS SoundEffect-v2 (Tier A)
+# for all sound/audio-effect generation.
+AUDIO_MODELS="ace-step ace-step-turbo"
 
 # Image: image generation models
 IMAGE_MODELS="qwen-image-edit z-image z-image-base ideogram4 see-through kimodo comfyui"
@@ -117,11 +124,12 @@ list_models() {
         echo ""
     done
     echo "  [special-ops]"
-    echo "    fp8-qwen       Build Qwen-Image-Edit FP8 weight-only"
-    echo "    fp8-zimage     Build Z-Image Turbo/Base FP8"
-    echo "    fp8-vace       Build Wan VACE 14B FP8"
-    echo "    moss-gguf      Download MOSS GGUF models + ONNX tokenizer"
-    echo "    ace-xl         Download ACE-Step XL GGUF variants"
+    echo "    fp8-qwen          Build Qwen-Image-Edit FP8 weight-only"
+    echo "    fp8-zimage        Build Z-Image Turbo/Base FP8"
+    echo "    fp8-vace          Build Wan VACE 14B FP8"
+    echo "    moss-gguf         Download MOSS GGUF models + ONNX tokenizer"
+    echo "    ace-xl            Download ACE-Step XL GGUF variants"
+    echo "    kokoro-sherpa     Download Kokoro sherpa-onnx (kokoro-multi-lang-v1_0)"
     echo ""
 }
 
@@ -137,7 +145,7 @@ list_sections() {
     echo "  special-ops  (FP8 builds, MOSS GGUF, ACE-Step XL)"
     echo ""
     echo "Special ops flags:"
-    echo "  --fp8-qwen   --fp8-zimage   --fp8-vace   --moss-gguf   --ace-xl"
+    echo "  --fp8-qwen   --fp8-zimage   --fp8-vace   --moss-gguf   --ace-xl   --kokoro-sherpa"
 }
 
 # ─── Download a model from registry ─────────────────────────────────────────
@@ -319,6 +327,29 @@ download_ace_xl() {
     ls -lh "$MODELS_ROOT/audio/acestep-cpp/"*xl* "$MODELS_ROOT/audio/acestep-cpp/"*lm-4B* 2>/dev/null
 }
 
+download_kokoro_sherpa() {
+    step "Downloading Kokoro TTS (sherpa-onnx, kokoro-multi-lang-v1_0)"
+    local target="$MODELS_ROOT/tts/kokoro-sherpa"
+    mkdir -p "$target"
+
+    if [[ -f "$target/model.onnx" ]]; then
+        info "  already exists at $target — skipping"
+        return 0
+    fi
+
+    info "  downloading 344 MB tarball from k2-fsa GitHub releases ..."
+    local url="https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/kokoro-multi-lang-v1_0.tar.bz2"
+    local tmp=$(mktemp -d)
+    wget -q --show-progress "$url" -O "$tmp/kokoro.tar.bz2"
+    tar xf "$tmp/kokoro.tar.bz2" -C "$target" --strip-components=1
+    rm -rf "$tmp"
+
+    info "Kokoro sherpa-onnx download complete"
+    info "  Location: $target"
+    info "  Contents:"
+    ls -lh "$target"/*.onnx "$target"/voices.bin "$target"/tokens.txt 2>/dev/null | sed 's/^/    /'
+}
+
 # ─── Main ────────────────────────────────────────────────────────────────────
 
 main() {
@@ -376,8 +407,11 @@ main() {
             --ace-xl)
                 if $dry_run; then info "WOULD DOWNLOAD: ACE-Step XL"; else download_ace_xl; fi
                 exit $? ;;
+            --kokoro-sherpa)
+                if $dry_run; then info "WOULD DOWNLOAD: Kokoro sherpa-onnx"; else download_kokoro_sherpa; fi
+                exit $? ;;
             --help|-h)
-                echo "Usage: $0 [--section <name>] [--dry-run] [--all|--list-missing|--list-manual] [--fp8-qwen|--fp8-zimage|--fp8-vace|--moss-gguf|--ace-xl]"
+                echo "Usage: $0 [--section <name>] [--dry-run] [--all|--list-missing|--list-manual] [--fp8-qwen|--fp8-zimage|--fp8-vace|--moss-gguf|--ace-xl|--kokoro-sherpa]"
                 echo ""
                 list_sections
                 exit 0 ;;
@@ -415,16 +449,18 @@ main() {
                 ;;
             special-ops|special_ops)
                 info "Special operations:"
-                info "  --fp8-qwen      Build Qwen-Image-Edit FP8"
-                info "  --fp8-zimage    Build Z-Image FP8"
-                info  "  --fp8-vace      Build Wan VACE FP8"
-                info "  --moss-gguf     Download MOSS GGUF"
-                info "  --ace-xl        Download ACE-Step XL"
+                info "  --fp8-qwen          Build Qwen-Image-Edit FP8"
+                info "  --fp8-zimage        Build Z-Image FP8"
+                info "  --fp8-vace          Build Wan VACE FP8"
+                info "  --moss-gguf         Download MOSS GGUF"
+                info "  --ace-xl            Download ACE-Step XL"
+                info "  --kokoro-sherpa     Download Kokoro sherpa-onnx"
                 echo ""
                 info "Run with one of the flags above, e.g.:"
                 info "  $0 --moss-gguf"
                 info "  $0 --ace-xl"
                 info "  $0 --fp8-qwen"
+                info "  $0 --kokoro-sherpa"
                 ;;
             *)
                 error "Unknown section: $section"

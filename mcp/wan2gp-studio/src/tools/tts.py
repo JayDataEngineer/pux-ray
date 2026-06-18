@@ -1,7 +1,10 @@
 """TTS tools — unified speech synthesis across all engines.
 
-- tts_speak: One endpoint for Kokoro, Qwen3-TTS, MOSS VoiceGenerator, eSpeak, IndexTTS.
+- tts_speak: One endpoint for Kokoro, MOSS VoiceGenerator, eSpeak, IndexTTS.
 - tts_voices: List available TTS engines with per-engine parameter schemas.
+
+Note: Qwen3-TTS engine removed — superseded by MOSS VoiceGenerator
+(instruction-following + multilingual TTS) and sherpa-onnx Kokoro (CPU TTS).
 """
 from __future__ import annotations
 
@@ -16,6 +19,9 @@ from pydantic import Field
 # Voice catalogs
 # ---------------------------------------------------------------------------
 
+# Voice names match the sherpa-onnx kokoro-multi-lang-v1_0 speaker IDs
+# (0–52). Source: k2-fsa.github.io/sherpa/onnx/tts/pretrained_models/kokoro.html
+# Keep in sync with infra/docker/api_kokoro.py VOICE_NAME_TO_ID.
 KOKORO_VOICES = sorted([
     "af_alloy", "af_aoede", "af_bella", "af_heart", "af_jessica",
     "af_kore", "af_nicole", "af_nova", "af_river", "af_sarah",
@@ -32,39 +38,16 @@ KOKORO_VOICES = sorted([
     "zm_yunjian", "zm_yunxi", "zm_yunxia", "zm_yunyang",
 ])
 
-QWEN3_VOICES = [
-    "Aiden", "Chloe", "Ethan", "Marcus", "Ono_Anna", "Sohee",
-    "Vivian", "Serena", "Uncle_Fu", "Dylan", "Eric",
-]
-
 ENGINES = [
     {
         "id": "kokoro",
         "label": "Kokoro (CPU)",
         "gpu": False,
-        "description": "Fast CPU text-to-speech, multi-voice. Best for quick generation.",
+        "description": "Fast CPU text-to-speech via sherpa-onnx. 53 voices, EN+ZH.",
         "params": [
             {"name": "text", "type": "textarea", "label": "Text", "required": True},
             {"name": "voice", "type": "select", "label": "Voice", "default": "af_bella",
              "options": KOKORO_VOICES},
-        ],
-    },
-    {
-        "id": "qwen3_tts",
-        "label": "Qwen3-TTS (GPU)",
-        "gpu": True,
-        "description": "Qwen3-TTS with CUDA graph acceleration. Supports voice design and cloning.",
-        "params": [
-            {"name": "text", "type": "textarea", "label": "Text", "required": True},
-            {"name": "mode", "type": "select", "label": "Mode", "default": "custom_voice",
-             "options": ["custom_voice", "voice_design", "voice_clone"],
-             "description": "custom_voice: preset speaker / voice_design: describe a voice / voice_clone: from reference audio"},
-            {"name": "voice", "type": "select", "label": "Voice", "default": "Aiden",
-             "options": QWEN3_VOICES},
-            {"name": "instruct", "type": "textarea", "label": "Voice Instruction",
-             "placeholder": "A warm female voice with a gentle southern accent..."},
-            {"name": "language", "type": "select", "label": "Language", "default": "English",
-             "options": ["English", "Chinese", "Japanese", "Korean"]},
         ],
     },
     {
@@ -125,7 +108,6 @@ async def tts_voices(ctx: Context | None = None) -> dict:
         "engines": ENGINES,
         "voices": {
             "kokoro": KOKORO_VOICES,
-            "qwen3_tts": QWEN3_VOICES,
         },
     }
 
@@ -136,18 +118,13 @@ async def tts_speak(
     )],
     engine: Annotated[str, Field(
         description="TTS engine to use.",
-        enum=["kokoro", "qwen3_tts", "moss_tts", "espeak", "index_tts"],
+        enum=["kokoro", "moss_tts", "espeak", "index_tts"],
     )] = "kokoro",
-    # ── Qwen3-TTS params ──
-    mode: Annotated[str, Field(
-        description="Qwen3-TTS mode: custom_voice (preset), voice_design (describe), voice_clone (from audio).",
-        enum=["custom_voice", "voice_design", "voice_clone"],
-    )] = "custom_voice",
     voice: Annotated[str | None, Field(
-        description="Voice preset name. Kokoro: af_bella, af_nova, am_adam, etc. Qwen3: Aiden, Chloe, etc.",
+        description="Voice preset name. Kokoro: af_bella, af_nova, am_adam, etc.",
     )] = None,
     instruct: Annotated[str | None, Field(
-        description="Voice design instruction (qwen3_tts voice_design mode, moss_tts emotion/style).",
+        description="Voice design instruction (moss_tts emotion/style).",
     )] = None,
     ref_audio_b64: Annotated[str | None, Field(
         description="Base64-encoded reference audio for voice cloning.",
@@ -195,8 +172,7 @@ async def tts_speak(
     """Generate speech from text using any TTS engine.
 
     Engines:
-      - kokoro: Fast CPU TTS with 50+ voice presets
-      - qwen3_tts: GPU TTS with custom_voice/voice_design/voice_clone modes
+      - kokoro: Fast CPU TTS with 53 voice presets (sherpa-onnx, EN+ZH)
       - moss_tts: GPU TTS with full sampling control (1:1 with demo)
       - espeak: Ultra-lightweight CPU TTS with 10 languages
       - index_tts: High-quality GPU TTS for voice cloning
@@ -221,27 +197,6 @@ async def tts_speak(
             "text": text,
             "language": language or "en",
         })
-
-    # ── Qwen3-TTS: GPU with mode-dependent routing ───────────────────────
-    if engine == "qwen3_tts":
-        payload: dict[str, Any] = {
-            "service": "wan2gp",
-            "model": "faster_qwen3_tts",
-            "text": text,
-            "language": language,
-        }
-
-        if ref_audio_b64:
-            payload["ref_audio_b64"] = ref_audio_b64
-            payload["mode"] = "voice_clone"
-        elif mode == "voice_design":
-            payload["mode"] = "voice_design"
-            payload["instruct"] = instruct or ""
-        else:
-            payload["mode"] = "custom_voice"
-            payload["voice"] = voice or "Aiden"
-
-        return await forge.invoke(payload)
 
     # ── MOSS TTS: GPU voice cloning with full sampling control ──────────
     if engine == "moss_tts":
@@ -278,4 +233,4 @@ async def tts_speak(
         })
 
     return {"status": "error", "error": f"Unknown engine: {engine}. "
-            f"Available: kokoro, qwen3_tts, moss_tts, espeak, index_tts"}
+            f"Available: kokoro, moss_tts, espeak, index_tts"}

@@ -285,16 +285,16 @@ async def voice_creator(
         description="Sample text to speak. Used to audition the generated voice.",
     )],
     engine: Annotated[str, Field(
-        description="Voice creation engine.",
-        enum=["moss_voicegenerator", "qwen3_tts"],
+        description="Voice creation engine. MOSS VoiceGenerator is the only option (Qwen3-TTS removed).",
+        enum=["moss_voicegenerator"],
     )] = "moss_voicegenerator",
-    # Qwen3-TTS mode control
+    # Legacy mode control (kept for API compatibility; MOSS uses instruct/ref_audio instead)
     mode: Annotated[str, Field(
-        description="Qwen3-TTS mode: custom_voice (preset), voice_design (describe), voice_clone (from audio).",
+        description="Legacy mode hint. MOSS VoiceGenerator ignores this — use instruct or ref_audio_b64.",
         enum=["custom_voice", "voice_design", "voice_clone"],
     )] = "voice_design",
     voice: Annotated[str | None, Field(
-        description="Voice preset name for Qwen3-TTS custom_voice mode (Aiden, Chloe, Ethan, etc.).",
+        description="(Legacy) Voice preset name. MOSS VoiceGenerator ignores this.",
     )] = None,
     instruct: Annotated[str | None, Field(
         description="Voice description. E.g. 'warm female voice with a southern accent'.",
@@ -345,76 +345,50 @@ async def voice_creator(
     saved as an asset and used as a reference voice in Text to Speech.
 
     moss_voicegenerator: Describe or clone a voice on GPU with full sampling control.
-    qwen3_tts: Use Qwen3-TTS custom_voice/voice_design/voice_clone modes.
 
     Vendor-recommended MOSS settings: audio_temperature=1.5, audio_top_p=0.6,
     audio_top_k=50, audio_repetition_penalty=1.1
 
     Pause Control: Use [pause 1.5s] syntax in text for timing (MOSS v1.5 only).
     Multiple References: Provide ref_audio_b64_list for better voice cloning.
+
+    Note: Qwen3-TTS engine removed — superseded by MOSS VoiceGenerator for
+    instruction-following + multilingual TTS, and sherpa-onnx Kokoro for
+    CPU-fast multi-voice TTS.
     """
     forge = _forge(ctx)
 
-    if engine == "qwen3_tts":
-        payload: dict[str, Any] = {
-            "service": "wan2gp",
-            "model": "faster_qwen3_tts",
-            "text": text,
-            "language": language,
-        }
+    # moss_voicegenerator with full sampling control (qwen3_tts branch removed)
+    model_name = "moss-voicegenerator"
+    if model_variant == "nano":
+        model_name = "moss-tts-nano"
+    elif model_variant == "v1.5":
+        model_name = "moss-tts-v1.5"
 
-        # Handle mode selection for Qwen3-TTS
-        if mode == "voice_clone" and (ref_audio_b64 or ref_audio_b64_list):
-            payload["mode"] = "voice_clone"
-            # Use multiple references if provided
-            if ref_audio_b64_list and len(ref_audio_b64_list) > 0:
-                payload["ref_audio_b64"] = ref_audio_b64_list[0]  # Primary reference
-                if len(ref_audio_b64_list) > 1:
-                    payload["ref_audio_b64_list"] = ref_audio_b64_list
-            else:
-                payload["ref_audio_b64"] = ref_audio_b64
-        elif mode == "voice_design":
-            payload["mode"] = "voice_design"
-            payload["instruct"] = instruct or ""
-        elif mode == "custom_voice":
-            payload["mode"] = "custom_voice"
-            payload["voice"] = voice or "Aiden"
+    payload = {
+        "service": "wan2gp",
+        "model": model_name,
+        "text": text,
+        "language": language,
+        # MOSS sampling parameters matching vendor demo
+        "max_new_tokens": max_new_tokens,
+        "audio_temperature": audio_temperature,
+        "audio_top_p": audio_top_p,
+        "audio_top_k": audio_top_k,
+        "audio_repetition_penalty": audio_repetition_penalty,
+        # Pause control
+        "enable_pauses": enable_pauses,
+    }
+    if instruct:
+        payload["instruction"] = instruct
+    if ref_audio_b64 or ref_audio_b64_list:
+        # Use multiple references if provided
+        if ref_audio_b64_list and len(ref_audio_b64_list) > 0:
+            payload["ref_audio_b64"] = ref_audio_b64_list[0]  # Primary reference
+            if len(ref_audio_b64_list) > 1:
+                payload["ref_audio_b64_list"] = ref_audio_b64_list
         else:
-            # Fallback to voice design if mode doesn't match
-            payload["mode"] = "voice_design"
-            payload["instruct"] = instruct or ""
-    else:
-        # moss_voicegenerator with full sampling control
-        model_name = "moss-voicegenerator"
-        if model_variant == "nano":
-            model_name = "moss-tts-nano"
-        elif model_variant == "v1.5":
-            model_name = "moss-tts-v1.5"
-
-        payload = {
-            "service": "wan2gp",
-            "model": model_name,
-            "text": text,
-            "language": language,
-            # Add MOSS sampling parameters matching vendor demo
-            "max_new_tokens": max_new_tokens,
-            "audio_temperature": audio_temperature,
-            "audio_top_p": audio_top_p,
-            "audio_top_k": audio_top_k,
-            "audio_repetition_penalty": audio_repetition_penalty,
-            # Pause control
-            "enable_pauses": enable_pauses,
-        }
-        if instruct:
-            payload["instruction"] = instruct
-        if ref_audio_b64 or ref_audio_b64_list:
-            # Use multiple references if provided
-            if ref_audio_b64_list and len(ref_audio_b64_list) > 0:
-                payload["ref_audio_b64"] = ref_audio_b64_list[0]  # Primary reference
-                if len(ref_audio_b64_list) > 1:
-                    payload["ref_audio_b64_list"] = ref_audio_b64_list
-            else:
-                payload["ref_audio_b64"] = ref_audio_b64
+            payload["ref_audio_b64"] = ref_audio_b64
 
     if seed >= 0:
         payload["seed"] = seed
@@ -493,7 +467,7 @@ async def voice_creator_batch(
     ```
     requests = [
         {"text": "Hello", "engine": "moss_voicegenerator", "instruct": "warm female voice"},
-        {"text": "Hi there", "engine": "qwen3_tts", "mode": "voice_design", "instruct": "energetic male"},
+        {"text": "Hi there", "engine": "moss_voicegenerator", "instruct": "energetic male"},
     ]
     ```
     """
@@ -520,51 +494,29 @@ async def voice_creator_batch(
             model_variant = req.get("model_variant", "default")
             enable_pauses = req.get("enable_pauses", False)
 
-            # Build payload based on engine
-            if engine == "qwen3_tts":
-                payload = {
-                    "service": "wan2gp",
-                    "model": "faster_qwen3_tts",
-                    "text": text,
-                    "language": language,
-                }
+            # Build payload — MOSS VoiceGenerator only (qwen3_tts branch removed)
+            model_name = "moss-voicegenerator"
+            if model_variant == "nano":
+                model_name = "moss-tts-nano"
+            elif model_variant == "v1.5":
+                model_name = "moss-tts-v1.5"
 
-                if mode == "voice_clone" and (ref_audio_b64 or ref_audio_b64_list):
-                    payload["mode"] = "voice_clone"
-                    if ref_audio_b64_list and len(ref_audio_b64_list) > 0:
-                        payload["ref_audio_b64"] = ref_audio_b64_list[0]
-                    else:
-                        payload["ref_audio_b64"] = ref_audio_b64
-                elif mode == "voice_design":
-                    payload["mode"] = "voice_design"
-                    payload["instruct"] = instruct or ""
-                elif mode == "custom_voice":
-                    payload["mode"] = "custom_voice"
-                    payload["voice"] = voice or "Aiden"
-            else:
-                # moss_voicegenerator
-                model_name = "moss-voicegenerator"
-                if model_variant == "nano":
-                    model_name = "moss-tts-nano"
-                elif model_variant == "v1.5":
-                    model_name = "moss-tts-v1.5"
-
-                payload = {
-                    "service": "wan2gp",
-                    "model": model_name,
-                    "text": text,
-                    "language": language,
-                    "max_new_tokens": max_new_tokens,
-                    "audio_temperature": audio_temperature,
-                    "audio_top_p": audio_top_p,
-                    "audio_top_k": audio_top_k,
-                    "audio_repetition_penalty": audio_repetition_penalty,
-                    "enable_pauses": enable_pauses,
-                }
-                if instruct:
-                    payload["instruction"] = instruct
-                if ref_audio_b64:
-                    payload["ref_audio_b64"] = ref_audio_b64
+            payload = {
+                "service": "wan2gp",
+                "model": model_name,
+                "text": text,
+                "language": language,
+                "max_new_tokens": max_new_tokens,
+                "audio_temperature": audio_temperature,
+                "audio_top_p": audio_top_p,
+                "audio_top_k": audio_top_k,
+                "audio_repetition_penalty": audio_repetition_penalty,
+                "enable_pauses": enable_pauses,
+            }
+            if instruct:
+                payload["instruction"] = instruct
+            if ref_audio_b64:
+                payload["ref_audio_b64"] = ref_audio_b64
 
             if seed >= 0:
                 payload["seed"] = seed

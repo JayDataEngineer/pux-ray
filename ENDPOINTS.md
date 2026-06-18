@@ -207,7 +207,6 @@ Additional services route through Wan2GP:
 | `trellis` | TRELLIS 3D | 3d | model_3d |
 | `anigen` | AniGen 3D | 3d | model_3d |
 | `z_image` | Wan2GP Image | image | image |
-| `faster_qwen3_tts` | Faster Qwen3-TTS | tts | audio |
 | `hy_motion` | HY-Motion | motion | motion |
 | `see_through` | See-Through | creative | image |
 | `kimodo` | Kimodo Motion | motion | motion |

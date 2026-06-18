@@ -78,8 +78,7 @@ test_service "faster_whisper" \
 
 # ── GPU Services (via wan2gp) ─────────────────────────────────────────────
 
-test_service "faster_qwen3_tts" \
-    '{"service":"wan2gp","model_type":"faster_qwen3_tts","text":"Hello world","speaker":"Serena"}'
+# faster_qwen3_tts test removed — engine dropped (MOSS VoiceGenerator replaces)
 
 test_service "ace_step" \
     '{"service":"wan2gp","model_type":"ace_step","text":"gentle piano melody","duration":5}'

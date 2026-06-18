@@ -15,8 +15,8 @@ Every model under `models/{name}/` MUST be authored code, not vendored code.
 - No `seethrough` files exist anywhere in `models/see_through/`
 - No `hymotion` files exist anywhere in `models/hy_motion/`
 - No `vibevoice` files exist anywhere in `models/_lib/`, `models/vibevoice_asr/`, or `models/vibevoice_tts/`
-- No `faster_qwen3_tts` or `qwen_tts` package files in `models/faster_qwen3_tts/`
 - No `moss` model files (`modeling_moss_tts.py`, `configuration_moss_tts.py`, etc.) copied from a HuggingFace model card into `models/moss/moss/`
+- (qwen3-tts removed entirely — MOSS VoiceGenerator + Kokoro cover the TTS surface)
 
 ## The Real Requirement: mmgp Decomposition
 

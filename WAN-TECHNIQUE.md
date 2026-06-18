@@ -196,13 +196,16 @@ vibevoice package source) into `models/vibevoice_asr/_src/vibevoice/` and
 `from vibevoice.modular.*` to `from ._src.vibevoice.modular.*`.
 Remove pip dependency.
 
-### faster_qwen3_tts
-This handler references `faster_qwen3_tts.utils`, `faster_qwen3_tts.model`,
-and `qwen_tts.Qwen3TTSModel`. The `qwen_tts` package resolves to
-`models/TTS/qwen3/inference/qwen3_tts_model.py` (inline in the fork!).
-But `faster_qwen3_tts.utils` and `faster_qwen3_tts.model` have NO source
-files anywhere — they're phantom imports. Need to create the utility
-functions inline or remove the references.
+### faster_qwen3_tts — REMOVED
+Qwen3-TTS was removed in Session 3d cleanup (2026-06-18). MOSS VoiceGenerator
+(Tier A) covers instruction-following + multilingual TTS; Kokoro (sherpa-onnx,
+port 8060, CPU) covers lightweight TTS. No capability lost. See §17 in
+TEST-REPORT.md for the current TTS coverage.
+
+The old handler used `faster_qwen3_tts.utils`, `faster_qwen3_tts.model`,
+and `qwen_tts.Qwen3TTSModel`, resolving to
+`models/TTS/qwen3/inference/qwen3_tts_model.py`. All 5440 lines of handler
+code + 8.1 GB of weights were dropped.
 
 ### moss
 MOSS dynamically loads model code from the weights directory using

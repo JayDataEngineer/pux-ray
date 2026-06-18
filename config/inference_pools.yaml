@@ -539,7 +539,7 @@ pools:
       - kimodo                   # NVIDIA Kimodo-SOMA-RP (motion diffusion, LLM2Vec CPU)
       - hymotion                 # Tencent HY-Motion 1.0/Lite (SMPL-H text-to-motion)
       - trellis2                 # Microsoft TRELLIS.2-4B (image-to-3D, native Trellis2 pipeline)
-      - kokoro                   # Kokoro TTS (CPU-capable)
+      - kokoro                   # Kokoro TTS via sherpa-onnx (CPU-only, 53 voices, EN+ZH)
       - see-through              # See-Through anime layer decomposition (LayerDiff 3D + Marigold)
     vram_mb: 8000
     health_path: /health
@@ -579,6 +579,29 @@ pools:
           load_time_s: 41.1        # cold (8 model configs; weights lazy-loaded)
           generate_512_s: 24.1     # 512³ → 18.7 MB GLB
           generate_1024_cascade_s: 93.3   # 1024 cascade → 40.6 MB GLB
+      kokoro:
+        # Kokoro TTS via sherpa-onnx (replaces previous PyTorch Kokoro that ran
+        # inside the wan2gp deployment). 53 voices, EN+ZH, 24 kHz mono, CPU-only.
+        # ~600 MB image (python:3.12-slim + sherpa-onnx wheel) vs the 90 GB
+        # gpu-all image the old handler required. Same OpenAI-compatible API.
+        script: infra/docker/serve_kokoro.sh
+        image: forge-reg.local:30500/tech-noir/kokoro:latest   # overrides pool image
+        port: 8060
+        container: inference-kokoro
+        framework: sherpa-onnx
+        volumes:
+          /mnt/data/models/tts/kokoro-sherpa: ro
+        env:
+          KOKORO_MODEL_DIR: /models/tts/kokoro-sherpa
+          KOKORO_THREADS: "2"
+        benchmark:
+          load_time_s: 1.0         # cold (734 ms typical)
+          generate_6s_audio_s: 1.27  # af_bella, RTF ≈ 0.20
+          generate_3s_zh_audio_s: 0.85  # zf_xiaobei, RTF ≈ 0.25
+        api:
+          speech: POST /v1/audio/speech   # OpenAI-compatible (input, voice, speed)
+          voices: GET /v1/audio/voices
+        note: "sherpa-onnx 1.12+ with kokoro-multi-lang-v1_0. Replaces 5500+ lines of native PyTorch kokoro code. Voice names match upstream hexgrad/Kokoro-82M (af_bella, am_adam, zf_xiaobei, ...) — see mcp/wan2gp-studio/src/tools/tts.py KOKORO_VOICES."
       see-through:
         script: infra/docker/serve_seethrough.sh
         port: 8100

@@ -102,22 +102,8 @@ async def main():
             "seed": 42,
         }, 120),
 
-        # ── CUSTOM HANDLER: QwenTTS ──
-        ("faster-qwen3-tts (voice)", {
-            "model": "faster-qwen3-tts",
-            "text": "Hello, this is a test of the Qwen TTS system.",
-            "voice": "Serena",
-            "mode": "custom_voice",
-        }, 300),
-
-        # ── CUSTOM HANDLER: QwenTTS voice clone ──
-        ("faster-qwen3-tts (clone)", {
-            "model": "faster-qwen3-tts",
-            "text": "This is a voice clone test.",
-            "mode": "voice_clone",
-            "ref_audio_b64": audio_b64,
-            "language": "English",
-        }, 300),
+        # faster-qwen3-tts tests removed — engine dropped
+        # (MOSS VoiceGenerator + sherpa-onnx Kokoro replace it)
 
         # ── CUSTOM HANDLER: ACE-Step music gen ──
         ("ace_step_v1_5", {

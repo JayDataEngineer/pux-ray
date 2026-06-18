@@ -261,7 +261,7 @@ def print_manual_instructions(manual_models):
         elif "lance" in key:
             print(f"    Clone manually: git clone https://huggingface.co/bytedance-research/Lance")
         elif "qwen3-tts-tokenizer" in key:
-            print(f"    Manually extract tokenizer from Qwen3-TTS-12Hz-1.7B-CustomVoice")
+            print(f"    SKIPPED — qwen3-tts removed (MOSS VoiceGenerator + Kokoro replace)")
         print()
 
 

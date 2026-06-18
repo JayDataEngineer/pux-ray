@@ -38,13 +38,7 @@ else
     echo "FAIL: $(echo "$R" | head -c 200)"; FAIL=$((FAIL+1))
 fi
 
-echo -n "[3/12] faster_qwen3_tts (GPU TTS) ... "
-R=$(forge_call faster_qwen3_tts '{"service":"wan2gp","model":"faster_qwen3_tts","prompt":"Testing Qwen3 TTS","model_mode":"en"}' 120)
-if echo "$R" | python3 -c "import sys,json; d=json.load(sys.stdin); assert d.get('status')=='ok', d" 2>/dev/null; then
-    echo "OK"; PASS=$((PASS+1))
-else
-    echo "FAIL: $(echo "$R" | head -c 200)"; FAIL=$((FAIL+1))
-fi
+echo "[3/12] faster_qwen3_tts — SKIPPED (engine dropped, MOSS VoiceGenerator replaces)"
 
 echo -n "[4/12] vibevoice_asr (GPU ASR) ... "
 # ASR needs audio input — just test that the model loads

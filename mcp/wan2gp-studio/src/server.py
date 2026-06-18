@@ -11,7 +11,7 @@ Forge tools:
 - forge_status: GPU/VRAM usage and loaded services
 
 TTS tools:
-- tts_speak: Generate speech (kokoro, qwen3_tts, moss_voicegenerator)
+- tts_speak: Generate speech (kokoro, moss_tts, espeak, index_tts)
 - tts_voices: List available TTS engines and voice presets
 
 Audio tools:
@@ -76,7 +76,7 @@ mcp = FastMCP(
         "  - `list_services` to see all registered services and their capabilities\n"
         "  - `get_service` for detailed info on a specific service\n\n"
         "Audio:\n"
-        "  - `tts_speak` to generate speech (kokoro CPU, qwen3_tts GPU, moss GPU)\n"
+        "  - `tts_speak` to generate speech (kokoro CPU, moss GPU, espeak CPU, index_tts GPU)\n"
         "  - `tts_voices` to list TTS engines and voice presets\n"
         "  - `transcribe` for speech-to-text (whisper CPU, vibevoice GPU)\n"
         "  - `generate_sound` for text-to-sound-effects (MOSS-SoundEffect)\n"

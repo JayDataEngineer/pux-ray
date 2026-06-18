@@ -13,10 +13,9 @@ Reliable, tested, deployed by default. Registered in `infra/k8s/serve_config.py`
 
 | Service | Type | Description |
 |---------|------|-------------|
-| kokoro | CPU TTS | Kokoro 82M multi-voice |
+| kokoro | CPU TTS | Kokoro 82M multi-voice (sherpa-onnx, 53 voices EN+ZH) |
 | espeak | CPU TTS | eSpeak-NG phoneme synthesis |
 | faster_whisper | CPU ASR | Distil-Whisper large-v3 |
-| faster_qwen3_tts | GPU TTS | CUDA graph accelerated Qwen3-TTS 1.7B (5x faster than baseline) |
 | index_tts | GPU TTS | IndexTTS v2 neural voice cloning |
 | vibevoice_cpp_gpu | GPU TTS+ASR | vibevoice.cpp GGML quantized TTS + ASR, CUDA backend |
 | vibevoice_cpp_cpu | CPU TTS+ASR | vibevoice.cpp GGML quantized TTS + ASR, CPU backend |
@@ -475,9 +474,8 @@ All proxied through Traefik at port 30080:
 ### Tier 1 (auto-deployed)
 | Route | Service |
 |---|---|
-| `/tts/kokoro/*` | Kokoro TTS (CPU) |
+| `/tts/kokoro/*` | Kokoro TTS (CPU, sherpa-onnx) |
 | `/tts/espeak/*` | eSpeak TTS (CPU) |
-| `/tts/faster-qwen3-tts/*` | Faster Qwen3-TTS (GPU, CUDA graphs) |
 | `/tts/index-tts/*` | IndexTTS (GPU) |
 | `/tts/vibevoice-cpp-gpu/*` | vibevoice.cpp TTS+ASR (GGML quantized, CUDA backend) |
 | `/tts/vibevoice-cpp-cpu/*` | vibevoice.cpp TTS+ASR (GGML quantized, CPU backend) |

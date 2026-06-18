@@ -75,7 +75,7 @@ Catch-all at port 8095 for CPU-friendly and small models.
 | Model | Type | Notes |
 |-------|------|-------|
 | kimodo | 3D Motion | Viser interactive |
-| kokoro | TTS | CPU-capable |
+| kokoro | TTS (sherpa-onnx) | CPU-only, 53 voices EN+ZH, port 8060, dedicated container |
 | see-through | Anime | Layer decomposition |
 
 ## Model Resolution Flow

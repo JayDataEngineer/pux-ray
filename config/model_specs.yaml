@@ -36,15 +36,20 @@ moss:
     language_model: [emb_ext]
 
 kokoro:
-  handler: kokoro
-  quant_default: fp32
-  # CPU model — no mmgp, empty pipe dict. Single weight file.
+  handler: sherpa-onnx
+  quant_default: onnx
+  # CPU model — single ONNX file + voices.bin + tokens + espeak-ng-data.
+  # Served by the standalone inference-kokoro docker (see inference_pools.yaml
+  # Tier D model_launchers.kokoro). No mmgp, no GPU, no wan2gp handler.
   modules:
     model:
       role: transformer
       variants:
-        fp32: tts/kokoro/
+        onnx: tts/kokoro-sherpa/
   co_tenants: {}
+# qwen3_tts section removed — superseded by OpenMOSS VoiceGenerator
+# (Tier A) for instruction-following + multilingual TTS, and sherpa-onnx
+# Kokoro (Tier D) for fast CPU TTS.
 
 espeak:
   handler: espeak

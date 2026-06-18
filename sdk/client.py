@@ -304,11 +304,13 @@ class RayClient:
         )
 
     async def generate_tts(
-        self, service: str = "faster_qwen3_tts", text: str = "",
-        voice: str = "Aiden", language: str = "English",
+        self, service: str = "kokoro", text: str = "",
+        voice: str = "af_bella", language: str = "English",
         instruct: str = "", seed: int = -1, **kwargs,
     ) -> bytes:
-        """Generate speech via TTS. Returns WAV bytes."""
+        """Generate speech via TTS. Returns WAV bytes.
+        Default service is Kokoro (sherpa-onnx, 53 voices EN+ZH).
+        Other options: moss_tts (GPU), espeak (CPU)."""
         return await self.generate_binary(
             service, input={"text": text, "voice": voice, "language": language,
                           "instruct": instruct, "seed": seed},

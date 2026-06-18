@@ -105,14 +105,14 @@ SERVICE_REGISTRY: dict[str, ServiceEntry] = {
         ],
     ),
 
-    # ── Model Engine services (route through Wan2GP deployment directly) ────────
+    # ── Model Engine services ────────────────────────────────────────────────────
     "kokoro": ServiceEntry(
-        deployment="wan2gp", app="wan2gp",
+        deployment="diffusers", app="kokoro",   # routes via the diffusers Tier D pool
         label="Kokoro TTS", category="tts",
         needs_gpu=False, default_model="kokoro",
         output_type="audio",
         model_aliases={"tts-01-kokoro": "kokoro"},
-        description="Kokoro 82M — fast CPU text-to-speech, multi-voice.",
+        description="Kokoro 82M via sherpa-onnx — fast CPU TTS, 53 voices (EN+ZH). Standalone inference-kokoro docker on port 8060.",
         params_schema=[
             ParamSpec(type="textarea", label="Text", required=True, placeholder="Hello world"),
             ParamSpec(type="select", label="Voice", default="af_bella", options=[
@@ -239,32 +239,11 @@ SERVICE_REGISTRY: dict[str, ServiceEntry] = {
             ParamSpec(type="number", label="Height", default=1024, placeholder="1024"),
         ],
     ),
-    "faster_qwen3_tts": ServiceEntry(
-        deployment="wan2gp", app="wan2gp",
-        label="Faster Qwen3-TTS", category="tts",
-        needs_gpu=True, default_model="faster_qwen3_tts",
-        output_type="audio",
-        model_aliases={"qwen3_tts": "faster_qwen3_tts"},
-        description="Qwen3-TTS with CUDA graph acceleration — 5x faster than baseline.",
-        params_schema=[
-            ParamSpec(type="textarea", label="Text", required=True, placeholder="Text to synthesize..."),
-            ParamSpec(type="select", label="Mode", default="custom_voice",
-                      options=["custom_voice", "voice_design", "voice_clone"],
-                      description="custom_voice: preset speaker. voice_design: describe a voice. voice_clone: from reference audio."),
-            ParamSpec(type="select", label="Voice", default="Aiden",
-                      options=["Aiden", "Chloe", "Ethan", "Marcus", "Ono_Anna",
-                               "Sohee", "Vivian", "Serena", "Uncle_Fu", "Dylan", "Eric"],
-                      description="Preset speaker (custom_voice mode)"),
-            ParamSpec(type="textarea", label="Voice Instruction", required=False,
-                      placeholder="A warm female voice with a gentle southern accent...",
-                      description="Text description for voice_design mode"),
-            ParamSpec(type="select", label="Language", default="English",
-                      options=["English", "Chinese", "Japanese", "Korean"]),
-            ParamSpec(type="file", label="Reference Audio", required=False,
-                      placeholder="Upload audio for voice_clone mode",
-                      description="Reference audio for voice cloning"),
-        ],
-    ),
+    # faster_qwen3_tts / qwen3_tts service removed — superseded by
+    # OpenMOSS VoiceGenerator (instruction-following + multilingual TTS)
+    # and sherpa-onnx Kokoro (CPU-fast TTS). The 4.3 GB Qwen3-TTS-12Hz
+    # weights, faster_qwen3_tts handler, and opt/wan2gp/models/TTS/qwen3/
+    # tree have been deleted.
     "moss_voicegenerator": ServiceEntry(
         deployment="wan2gp", app="wan2gp",
         label="MOSS Voice Design", category="tts",

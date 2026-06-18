@@ -79,9 +79,7 @@ test_model "faster_whisper" \
 
 # ── GPU Services ──────────────────────────────────────────────────────────────
 
-# 4. faster_qwen3_tts (universal 'text' field)
-test_model "faster_qwen3_tts" \
-    '{"service":"wan2gp","model_type":"faster_qwen3_tts","text":"Hello world","speaker":"Serena"}'
+# 4. faster_qwen3_tts — test removed (engine dropped, MOSS VoiceGenerator replaces)
 
 # 5. TRELLIS 3D — 64x64 gradient PNG (realistic enough for feature extraction)
 test_model "trellis" \

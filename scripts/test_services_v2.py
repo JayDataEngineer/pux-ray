@@ -74,7 +74,7 @@ def main():
         test("kokoro", f"{BASE}/tts/kokoro/", {"action": "generate", "input": {"text": "Hello"}}, 30)
         test("espeak", f"{BASE}/tts/espeak/", {"action": "generate", "input": {"text": "Hello"}}, 30)
         test("faster_whisper", f"{BASE}/asr/whisper/", {"action": "generate", "input": {"audio_b64": WAV}}, 30)
-        test("faster_qwen3_tts", f"{BASE}/tts/faster-qwen3-tts/", {"action": "generate", "input": {"text": "Hello", "voice": "Aiden"}}, T)
+        # faster_qwen3_tts test removed — engine dropped (MOSS VoiceGenerator replaces)
         test("index_tts", f"{BASE}/tts/index-tts/", {"action": "generate", "input": {"text": "Hello"}}, T)
         test("trellis", f"{BASE}/3d/trellis/", {"action": "generate", "input": {"image_b64": IMG}, "config": {"low_resource": True}}, T)
         test("ace_step", f"{BASE}/music/ace-step/", {"action": "generate", "input": {"prompt": "ambient pad"}}, T)

@@ -11,7 +11,7 @@ Generates images, video, audio, 3D meshes, motion, and text through a unified AP
 | Image generation | Flux, ZImage, Wan2.1 | wan2gp |
 | Image editing | QWEN Image Edit | wan2gp |
 | Video generation | Wan2.1, CogVideoX, LTX-2 | wan2gp |
-| Text-to-speech | Kokoro, Qwen3-TTS, IndexTTS, eSpeak | standalone + wan2gp |
+| Text-to-speech | Kokoro (sherpa-onnx), IndexTTS, eSpeak, MOSS VoiceGenerator | standalone + openmoss |
 | Speech-to-text | Faster-Whisper, VibeVoice | standalone |
 | 3D mesh generation | TRELLIS, AniGen | wan2gp |
 | Motion generation | HY-Motion, Kimodo | wan2gp |
@@ -81,7 +81,7 @@ gateway/             API ingress (Starlette) + MCP app host
 services/
   forge.py           VRAM-aware GPU manager (Ray Serve deployment)
   wan2gp/            Wan2GP service — unified model pool
-  tts/               Kokoro, eSpeak, Qwen3-TTS, IndexTTS
+  tts/               Kokoro (sherpa-onnx), eSpeak, IndexTTS
   asr/               Faster-Whisper
   llm/               llama.cpp subprocess wrapper
   image/             ComfyUI subprocess proxy

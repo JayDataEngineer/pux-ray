@@ -1,6 +1,6 @@
 # Inference Test Report
 
-**Date:** 2026-06-18 (session 3 — MOSS TTS ✅ via openmoss C++/GGML; soundeffect-v2 un-orphaned → routed to openmoss. **Session 3b — Wan VACE/T2V/I2V + See-Through ✅**: VACE unifies T2V+I2V in one FP8 container; BF16 T2V/I2V kept as documented slow fallback; See-Through produces valid 17-layer PSDs. **Session 3c — VibeVoice-TTS dropped** (MOSS TTS is the single TTS engine); **Qwen-Edit non-2511 dropped** (only latest 2511 kept).)
+**Date:** 2026-06-18 (session 3 — MOSS TTS ✅ via openmoss C++/GGML; soundeffect-v2 un-orphaned → routed to openmoss. **Session 3b — Wan VACE/T2V/I2V + See-Through ✅**: VACE unifies T2V+I2V in one FP8 container; BF16 T2V/I2V kept as documented slow fallback; See-Through produces valid 17-layer PSDs. **Session 3c — VibeVoice-TTS dropped** (MOSS TTS is the single TTS engine); **Qwen-Edit non-2511 dropped** (only latest 2511 kept). **Session 3d — Kokoro migrated to sherpa-onnx** (5500+ line PyTorch fork → 245-line wrapper, same 53 voices, no PyTorch dep); **Qwen3-TTS dropped** (MOSS VoiceGenerator + Kokoro cover the full TTS surface); **TangoFlux dropped** (MOSS SoundEffect-v2 replaces it).)
 **GPU:** NVIDIA RTX 4090 (24 GB VRAM)  
 **Models root:** `/mnt/data/models/` (1.8 TB NVMe, ~663 GB used)
 
@@ -62,8 +62,8 @@ All times are wall-clock measured from client-side. VRAM usage from `nvidia-smi`
 |--------|-------|
 | **Engine** | OpenMOSS (Tier A, `forge-reg.local:30500/tech-noir/openmoss:latest`) |
 | **Framework** | C++/GGML — same container serves all MOSS model types |
-| **Notes** | SoundEffect V2 was orphaned after custom Python pipeline was deleted. The openmoss C++/GGML Docker now handles ALL MOSS variants: TTS, TTSD, VoiceGenerator, and SoundEffect V2. See entry 16 for speed benchmarks. |
-| **Status** | ✅ PASS (via openmoss, same as entry 16) |
+| **Notes** | SoundEffect V2 was orphaned after custom Python pipeline was deleted. The openmoss C++/GGML Docker now handles ALL MOSS variants: TTS, TTSD, VoiceGenerator, and SoundEffect V2 (TangoFlux removed — SoundEffect V2 is its replacement). See entry 14 for speed benchmarks. |
+| **Status** | ✅ PASS (via openmoss, same as entry 14) |
 
 ### 5. CrispASR (VibeVoice ASR + Diarization)
 
@@ -176,22 +176,7 @@ All times are wall-clock measured from client-side. VRAM usage from `nvidia-smi`
 | **API** | `POST /v1/images/generations` — same pattern as other omni-vllm image models |
 | **Status** | ✅ PASS (Omni-VLLM)
 
-### 11. Tangoflux (Text-to-Audio)
-
-| Metric | Value |
-|--------|-------|
-| **Engine** | Native Python (Diffusers-based, tested outside container) |
-| **Quantization** | FP32 |
-| **Model on disk** | Yes (3.4 GB tangoflux.safetensors + 624 MB vae.safetensors) |
-| **Source** | hf://declare-lab/TangoFlux |
-| **Load time (cold)** | 3.2 seconds (T5 encoder auto-downloaded, weights cached) |
-| **Inference (5s audio, 30 steps)** | 1.5 seconds |
-| **VRAM usage** | ~3.5 GB |
-| **Output** | 44.1 kHz stereo WAV (1723 KB for 5s) — valid, realistic sound |
-| **Notes** | Uses T5 encoder + DiT with flow matching. Very fast inference. Requires `pip install datasets` for the model loader. Tested with prompt "bubbly water stream flowing". Deprecation warnings from torch (txt_ids 3D tensor) but no functional issues. |
-| **Status** | ✅ PASS |
-
-### 12. Wan VACE 14B FP8 (Unified T2V / I2V / First-Frame)
+### 11. Wan VACE 14B FP8 (Unified T2V / I2V / First-Frame)
 
 | Metric | Value |
 |--------|-------|
@@ -215,7 +200,7 @@ All times are wall-clock measured from client-side. VRAM usage from `nvidia-smi`
 | **TeaCache** | Optional via `OMNI_TEACACHE_THRESH=0.01` (≈70 % speedup, quality-preserving) |
 | **Status** | ✅ PASS — handles all Wan use cases (T2V + I2V first-frame) within 24 GB VRAM at 640×480 / 9 frames. Resolutions ≥ 832×480 with ≥ 33 frames require either lowering frame count or falling back to the slow BF16 diffusers path. |
 
-### 13. Wan T2V / I2V 14B BF16 (Standalone Fallback, Diffusers)
+### 12. Wan T2V / I2V 14B BF16 (Standalone Fallback, Diffusers)
 
 The unified VACE container in section 12 is the primary path for **both** T2V and I2V — it auto-detects the mode based on whether an `image` field is present in the multipart form. The standalone BF16 T2V/I2V servers here exist only as an **emergency fallback** for resolutions / frame counts that exceed the FP8 VACE VRAM budget (e.g. 832×480 with 33 frames).
 
@@ -234,7 +219,7 @@ The unified VACE container in section 12 is the primary path for **both** T2V an
 | **Note** | `WAN_OFFLOAD=model_cpu` (~22 GB VRAM) is faster but only fits if no other container is running; `WAN_OFFLOAD=none` requires ≥ 30 GB VRAM. | 87× slower than VACE-I2V at the same resolution — use VACE (port 8000) unless you exceed its VRAM budget. |
 | **Status** | ✅ PASS (slow) | ✅ PASS (slow) — requires `pip install ftfy` inside the image before first I2V call (CLIP tokenizer dependency) |
 
-### 14. Qwen2.5-VL 7B (Vision-Language)
+### 13. Qwen2.5-VL 7B (Vision-Language)
 
 | Metric | Value |
 |--------|-------|
@@ -250,7 +235,7 @@ The unified VACE container in section 12 is the primary path for **both** T2V an
 | **Notes** | No mmproj file available for vision tasks — tested as text-only LLM. Full 128K context but limited to 4096 via `--ctx-size`. Server health endpoint at `/health`. |
 | **Status** | ✅ PASS |
 
-### 15. MOSS TTS / TTSD / Realtime
+### 14. MOSS TTS / TTSD / Realtime
 
 | Metric | Value |
 |--------|-------|
@@ -272,7 +257,7 @@ The unified VACE container in section 12 is the primary path for **both** T2V an
 | **Notes** | Scales well with text length: longer utterances are more efficient (amortizes prompt processing). Voice cloning available via reference WAV. |
 | **Status** | ✅ PASS |
 
-### 16. Diarization-Turbo (VibeVoice-Realtime 0.5B)
+### 15. Diarization-Turbo (VibeVoice-Realtime 0.5B)
 
 | Metric | Value |
 |--------|-------|
@@ -288,7 +273,7 @@ The unified VACE container in section 12 is the primary path for **both** T2V an
 | **Notes** | Started with `CRISPASR_EXTRA_ARGS="--voice-dir /models/vibevoice-cpp"` for voice preset directory. |
 | **Status** | ✅ PASS (ASR + diarization working as designed; TTS was never a CrispASR feature) |
 
-### 17. LLM Models (llama.cpp / BeeLlama)
+### 16. LLM Models (llama.cpp / BeeLlama)
 
 | Metric | Value |
 |--------|-------|
@@ -316,21 +301,28 @@ The unified VACE container in section 12 is the primary path for **both** T2V an
 - Qwen3.6-35B-A3B is a MoE (Mixture of Experts) model with 35B total params but only ~3.6B active per token.
 - | **Status** | ✅ 5/5 tested (Qwen2.5-VL 7B, Qwen3.6-27B, Qwen3.6-35B-A3B, Gemma-4-26B, Gemma-4-31B) |
 
-### 18. Kokoro 82M TTS
+### 17. Kokoro 82M TTS (sherpa-onnx)
 
 | Metric | Value |
 |--------|-------|
-| **Engine** | Native Python (kokoro library, CPU) |
-| **Model** | `kokoro-v1_0.pth` from `/mnt/data/models/tts/kokoro/` |
-| **Load time (cold)** | 1.0 second |
-| **Inference (4.6s audio)** | 0.3 seconds |
-| **Output** | 24 kHz mono WAV (434 KB) — valid, clear speech |
-| **VRAM usage** | 0 GB (CPU-only model) |
-| **Voice** | `af_heart` (American English female) |
-| **Dependencies** | Requires `kokoro`, `misaki`, `num2words`, `spacy`, `phonemizer`, `espeak-ng`. All pip-installable. |
-| **Status** | ✅ PASS |
+| **Engine** | sherpa-onnx 1.13 (CPU ONNX Runtime) — replaced 5500+ line native PyTorch Kokoro fork with 245-line FastAPI wrapper |
+| **Model** | `kokoro-multi-lang-v1_0` (311 MB ONNX + `voices.bin` + `tokens.txt`) from `/mnt/data/models/tts/kokoro-sherpa/` |
+| **Source** | `https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/kokoro-multi-lang-v1_0.tar.bz2` |
+| **Container** | `kokoro` (image `forge-reg.local:30500/tech-noir/kokoro:latest`, port **8060**) |
+| **Image base** | `python:3.12-slim` (~600 MB) — sherpa-onnx wheel bundles ONNX Runtime; no PyTorch/CUDA dependency |
+| **Launch** | `bash infra/docker/serve_kokoro.sh` (bind-mounts model dir read-only, polls `/health` up to 30 s) |
+| **APIs** | `GET /health`, `GET /v1/audio/voices` (53 voices), `POST /v1/audio/speech` (OpenAI-compatible), `POST /synthesize` |
+| **Voices** | 53 total (af_* = American English F, am_* = American English M, bf_* = British English F, bm_* = British English M, zf_* / zm_* = Mandarin). Voice→ID map embedded in `api_kokoro.py` (`VOICE_NAME_TO_ID`, 0–52) since sherpa-onnx Python binding does not expose `name2id`. |
+| **Languages** | English + Chinese (multi-lang `lexicon` + `rule_fsts`) |
+| **Load time (cold)** | **997 ms** |
+| **Inference (English, `af_bella`)** | **1.27 s** → 6.36 s audio (RTF **0.199**) |
+| **Inference (Chinese, `zf_xiaobei`)** | **0.85 s** → 3.45 s audio (RTF **0.246**) |
+| **Output** | 24 kHz mono WAV s16le |
+| **VRAM usage** | 0 GB (CPU-only model, ONNX Runtime threads default to `KOKORO_THREADS=2`) |
+| **Error handling** | Invalid voice → HTTP 400 with valid-voice list; empty input → HTTP 400 with helpful message |
+| **Status** | ✅ PASS — same OpenAI-compatible API surface as before, same 53 voices, ~5× smaller container, no PyTorch dependency. |
 
-### 19. See-Through (Anime Layer Decomposition)
+### 18. See-Through (Anime Layer Decomposition)
 
 | Metric | Value |
 |--------|-------|
@@ -347,7 +339,7 @@ The unified VACE container in section 12 is the primary path for **both** T2V an
 | **Group offload** | Optional (`SEETHROUGH_GROUP_OFFLOAD=1`) for ~10 GB VRAM at 1280 res |
 | **Status** | ✅ PASS — PSD output verified valid (opens in Photoshop / Krita / GIMP with all 17 layers separated). |
 
-### 20. Kimodo-SOMA-RP (Motion Diffusion)
+### 19. Kimodo-SOMA-RP (Motion Diffusion)
 
 | Metric | Value |
 |--------|-------|
@@ -370,7 +362,7 @@ The unified VACE container in section 12 is the primary path for **both** T2V an
 | **API** | `POST /generate` (JSON: prompt, num_frames, num_denoising_steps, seed, cfg_weight, post_processing, variant) → NPZ binary. Headers: `X-Inference-Time-S`, `X-Num-Frames`, `X-Num-Steps`, `X-Tensor-Keys`. Also `GET /health`, `POST /load`. |
 | **Status** | ✅ PASS — three runs verified (cold 25-step, warm 25-step, full-quality 100-step). Output is valid SMPL-H motion data directly compatible with the existing HY-Motion SMPL-H format. |
 
-### 20a. HY-Motion 1.0 / 1.0-Lite (Text-to-3D Human Motion)
+### 19a. HY-Motion 1.0 / 1.0-Lite (Text-to-3D Human Motion)
 
 | Metric | Value |
 |--------|-------|
@@ -390,7 +382,7 @@ The unified VACE container in section 12 is the primary path for **both** T2V an
 | **Subprocess fix** | `api_hymotion.py` calls `local_infer.py` via `sys.executable` (not `"python"` — the gpu-all image only has `python3`). |
 | **Status** | ✅ PASS — Lite variant verified. Full HY-Motion-1.0 available via `HYMOTION_MODEL_VARIANT=HY-Motion-1.0`. |
 
-### 20b. TRELLIS.2-4B (Image-to-3D, Native)
+### 19b. TRELLIS.2-4B (Image-to-3D, Native)
 
 | Metric | Value |
 |--------|-------|
@@ -416,7 +408,7 @@ The unified VACE container in section 12 is the primary path for **both** T2V an
 
 
 
-### 21. Boogu-Image-0.1-Edit (T2I + TI2I Editing) — via Omni-VLLM
+### 20. Boogu-Image-0.1-Edit (T2I + TI2I Editing) — via Omni-VLLM
 
 | Metric | Value |
 |--------|-------|
@@ -451,14 +443,13 @@ The unified VACE container in section 12 is the primary path for **both** T2V an
 - Cosmos3-Nano cannot run on 24GB without FP8 — fused LLM params block quantization.
 - LTX-2.3 symlinks were repaired after initial test; now all 20 resolve correctly.
 - ACE-Step Dockerfile at `infra/docker/Dockerfile.acetep` — custom build with static ggml linking.
-- Kokoro requires `pip install kokoro misaki num2words spacy phonemizer` and system `espeak-ng`.
-- Tangoflux requires `pip install datasets` for its model loader.
+- Kokoro served via sherpa-onnx 1.13 (CPU ONNX Runtime) — no PyTorch dependency. Build the image with `infra/docker/Dockerfile.kokoro`, download the model with `scripts/download/models.sh --kokoro-sherpa`.
 - Qwen2.5-VL 7B tested as text-only LLM; vision would need `mmproj` file.
 - Ideogram 4 — previously blocked by serving infrastructure, now ✅ PASS via Omni-VLLM with custom fused-QKV diffusers pipeline (§10).
 - CrispASR backends: `vibevoice` is the ASR + diarization code path used by our `diarization` (base) and `diarization-turbo` (realtime) pools. The `vibevoice-tts` backend name in CrispASR's CLI is a **misnomer** — it is also an ASR path, NOT TTS. CrispASR does not provide TTS at all; OpenMOSS is the single TTS engine. The canonical "turbo" tier in the CrispASR ecosystem is triton + pyannote3 (not currently deployed here).
 - VibeVoice-7B TTS removed — superseded by OpenMOSS (Tier A) which serves all MOSS TTS variants (TTS/TTSD/VoiceGenerator/SoundEffect-V2) from one C++/GGML container with an OpenAI-compatible endpoint.
 - Qwen-Edit non-2511 removed — only the latest 2511 variant is kept (§1). The 2511 FP8 weight-only model is the single Qwen-Image-Edit going forward.
-- **23 model entries documented** across sections 1–21 (counting §17 LLM sub-models and §20a/20b as separate entries). Of these: **21 PASS**, **2 FAIL with OOM** (Cosmos3-Nano §3, LTX-Video §6 — both need upstream FP8 support that doesn't exist yet for 24 GB cards). **All actionable models from the original backlog are resolved.**
+- **22 model entries documented** across sections 1–20 (counting §16 LLM sub-models and §19a/19b as separate entries). Of these: **20 PASS**, **2 FAIL with OOM** (Cosmos3-Nano §3, LTX-Video §6 — both need upstream FP8 support that doesn't exist yet for 24 GB cards). **All actionable models from the original backlog are resolved.**
 - **LLM sub-tasks**: 5/5 models tested (Qwen2.5-VL 7B, Qwen3.6-27B, Qwen3.6-35B-A3B, Gemma-4-26B, Gemma-4-31B).
 - **Session 3 (2026-06-18) additions**:
   - **Kimodo-SOMA-RP-v1.1** ✅ — 0.79 s warm / 1.99 s full-quality. LLM2Vec text encoder on CPU (~14 GB RAM), denoiser on GPU (~2 GB VRAM). Validated via `CHECKPOINT_DIR` + `TEXT_ENCODERS_DIR` env vars bypassing HF Hub.
@@ -469,6 +460,10 @@ The unified VACE container in section 12 is the primary path for **both** T2V an
   - **Wan T2V 14B BF16** ✅ (diffusers fallback, port 8001) — 832×480 / 9 frames / 5 steps in **437 s** with sequential CPU offload (~2 GB VRAM). Use only for resolutions that exceed FP8 VACE's budget.
   - **Wan I2V 14B BF16** ✅ (diffusers fallback, port 8002) — 832×480 / 9 frames / 5 steps in **1313.62 s** (≈22 min) with sequential CPU offload. Requires `pip install ftfy` in the image for the CLIP tokenizer. **87× slower than VACE-I2V** at the same resolution — use VACE first.
   - **See-Through** ✅ (Diffusers, port 8100) — 49.6 s warm load; 1024/15-step in 48.5 s; 1280/30-step in 129.4 s → 8 MB layered PSD with **17 layers**. JuggernautXL scheduler_config.json pre-populated in HF cache for offline load.
+- **Session 3d (2026-06-18, cleanup) — Kokoro migration + slim-down**:
+  - **Kokoro → sherpa-onnx** ✅ — 5500+ line native PyTorch Kokoro fork (`kokoro`, `misaki`, `num2words`, `spacy`, `phonemizer`, `espeak-ng`) replaced with a 245-line FastAPI wrapper around `sherpa-onnx` 1.13's `OfflineTts` (CPU ONNX Runtime). Same 53 voices, same 24 kHz mono output, same OpenAI-compatible API surface (`GET /health`, `GET /v1/audio/voices`, `POST /v1/audio/speech`, `POST /synthesize`). Docker image shrank from multi-GB PyTorch to ~600 MB `python:3.12-slim`. HTTP smoke test: 997 ms cold load, RTF 0.199 (English `af_bella`) / 0.246 (Chinese `zf_xiaobei`).
+  - **Qwen3-TTS removed** — 5440 lines of handler code + 8.1 GB of weights dropped. MOSS VoiceGenerator (Tier A) covers instruction-following + multilingual TTS; Kokoro covers CPU lightweight TTS. No capability lost.
+  - **TangoFlux removed** — replaced by MOSS SoundEffect-v2 (Tier A) which is already served by the openmoss C++/GGML container. No capability lost; one fewer DiT pipeline to maintain.
 - **Resolved (no longer pending)**: Wan VACE FP8 / T2V / I2V all live and verified (VACE handles T2V + I2V in one container; standalone BF16 servers exist as documented slow fallbacks). See-Through weights downloaded and pipeline produces valid PSDs.
 - **Speed profiling**:
   - Ideogram 4 (Omni-VLLM): 1024×1024, 20 steps — ~34s (1.74 s/step). 512×512, 4 steps — ~3s. Peak VRAM 16.8 GB. 558 Linear4bit modules packed on CUDA.
@@ -479,3 +474,4 @@ The unified VACE container in section 12 is the primary path for **both** T2V an
   - **Wan VACE 14B FP8 (Omni-VLLM)**: T2V 640×480 / 9 frames / 5 steps — 15.42 s. I2V same shape — 15.01 s. T2V 320×240 — 7.75 s; 480×320 — 10.31 s. 832×480 / 33 frames / 20 steps OOMs on 24 GB. Cold load 148 s. TeaCache (`OMNI_TEACACHE_THRESH=0.01`) gives ~70 % speedup when enabled.
   - **Wan T2V/I2V 14B BF16 (diffusers fallback)**: T2V 832×480 / 9 frames / 5 steps — 437 s sequential offload (550 MiB resident). I2V same shape — 1313.62 s (≈87× slower than VACE-I2V). `WAN_OFFLOAD=model_cpu` cuts this to ~22 GB VRAM and ~3× faster when no other container is running.
   - **See-Through (Diffusers, gpu-all)**: 49.6 s warm load; 1024 res / 15 steps — 48.5 s; 1280 res / 30 steps — 129.4 s → 8 MB PSD with 17 layers. Peak VRAM ~12 GB at 1280 res; ~10 GB with `SEETHROUGH_GROUP_OFFLOAD=1`.
+  - **Kokoro (sherpa-onnx, port 8060, CPU)**: 997 ms cold load. English `af_bella` — 1.27 s → 6.36 s audio (RTF 0.199). Chinese `zf_xiaobei` — 0.85 s → 3.45 s audio (RTF 0.246). 53 voices, EN+ZH, 0 GB VRAM (CPU ONNX Runtime, default 2 threads). Same API surface as the old PyTorch Kokoro at ~1/20 the code and ~1/15 the image size.

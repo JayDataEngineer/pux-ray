@@ -405,8 +405,10 @@ def discover_models(models_root: Path | None = None) -> dict:
 
 
 # Types that don't need local weight files (CPU, proxy, or HuggingFace auto-download)
+# Note: "kokoro" removed — now served by standalone inference-kokoro docker
+# (sherpa-onnx, Tier D pool) and never enters wan2gp.
 _CPU_ONLY_TYPES = {
-    "kokoro", "espeak", "faster_whisper",
+    "espeak", "faster_whisper",
 }
 
 _HF_AUTO_DOWNLOAD = {
@@ -415,12 +417,14 @@ _HF_AUTO_DOWNLOAD = {
 
 
 CUSTOM_HANDLERS = [
-    "models.kokoro.kokoro_handler",
+    # kokoro handler removed — Kokoro is now served by the standalone
+    # inference-kokoro docker via sherpa-onnx (Tier D pool, port 8060).
     "models.moss.moss_handler",
     "models.moss.moss_v2_handler",
     "models.espeak.espeak_handler",
     "models.faster_whisper.faster_whisper_handler",
-    "models.faster_qwen3_tts.faster_qwen3_tts_handler",
+    # faster_qwen3_tts handler removed — superseded by MOSS VoiceGenerator
+    # (Tier A) + sherpa-onnx Kokoro (Tier D).
     "models.vibevoice_asr.vibevoice_asr_handler",
     "models.trellis.trellis_handler",
     "models.anigen.anigen_handler",
@@ -487,7 +491,7 @@ def _derive_key(model_type: str, handler_path: str) -> str:
 
 
 _WEIGHT_SEARCH = {
-    "faster-qwen3-tts": [("tts", "qwen3-tts")],
+    # faster-qwen3-tts removed — superseded by MOSS VoiceGenerator + Kokoro.
     "anigen": [("3d", "anigen")],
     "moss-soundeffect": [("audio", "moss-soundeffect")],
     "moss_soundeffect_v2": [("audio", "moss-soundeffect-v2")],
@@ -515,7 +519,8 @@ _WEIGHT_SEARCH = {
     "ace_step_v1_5_xl": [("wan2gp", "ace-step-v1-5-xl")],
     "ace_step_v1":     [("wan2gp", "ace-step-v1")],
     "index_tts2":      [("wan2gp", "index-tts-v2")],
-    "kokoro":          [("tts", "kokoro")],
+    # kokoro removed from wan2gp — now served by standalone inference-kokoro
+    # docker via sherpa-onnx (Tier D pool, port 8060).
     "faster_whisper":  [("asr", "faster-whisper")],
     "moss_soundeffect_v2": [("wan2gp", "moss-soundeffect-v2")],
     # Flux models
@@ -1445,7 +1450,7 @@ class Wan2GPService:
         # they bypass Wan2GP's mmgp device management. Native models handle
         # device placement internally via the offloadobj — setting this would
         # cause "weights on cpu, input on cuda" mismatches.
-        # CPU-only models (kokoro, espeak, faster_whisper) stay on CPU.
+        # CPU-only models (espeak, faster_whisper) stay on CPU.
         is_cpu_model = self._loaded_model in _CPU_ONLY_TYPES or (
             self._registry.get(self._loaded_model, {}).get("model_type") in _CPU_ONLY_TYPES
         )
@@ -2476,7 +2481,7 @@ class Wan2GPService:
                 budgets_override = {"transformer": 100, "text_encoder": 100,
                                     "*": 3000}
         elif model_type in _CPU_ONLY_TYPES:
-            # CPU-only models (kokoro 82M, espeak, faster_whisper) stay on CPU.
+            # CPU-only models (espeak, faster_whisper) stay on CPU.
             # mmgp's init_empty_weights creates meta tensors that break
             # when default_device gets set to "cuda" by GPU models.
             return None
@@ -2681,7 +2686,8 @@ class Wan2GPService:
         "moss-ttsd": "moss_ttsd",
         "moss-voicegenerator": "moss_voicegenerator",
         "trellis": "trellis",
-        "kokoro": "kokoro",
+        # kokoro removed from wan2gp — now served by standalone inference-kokoro
+        # docker via sherpa-onnx (Tier D pool, port 8060).
         "faster_whisper": "faster_whisper",
         "vibevoice-asr": "vibevoice_asr",
         "anigen": "anigen",
@@ -2716,7 +2722,7 @@ class Wan2GPService:
             ("moss_voicegenerator_path", "language_model", "audio", "moss-voicegenerator"),
             ("moss_audio_tokenizer_path", "audio_tokenizer", "audio", "moss-audio-tokenizer"),
         ],
-        "kokoro": [("kokoro_path", "model", "tts", "kokoro")],
+        "kokoro": [("kokoro_path", "model", "tts", "kokoro-sherpa")],  # legacy — no longer routed through wan2gp
         "faster_whisper": [("faster_whisper_path", "model", "asr", "faster-whisper")],
         "vibevoice-asr": [("vibevoice_asr_path", "language_model", "asr", "vibevoice-asr")],
         "anigen": [("anigen_path", "pipeline_root", "3d", "anigen")],

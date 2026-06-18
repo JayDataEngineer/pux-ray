@@ -54,7 +54,6 @@ Exceptions (no nn.Modules):
 | hy_motion | model_engine | 6GB |
 | moss_soundeffect | model_engine | 16GB |
 | see_through | model_engine | 6GB |
-| faster_qwen3_tts | model_engine | 6GB |
 | vibevoice_asr | model_engine | 16GB |
 | vibevoice_tts | model_engine | 18GB |
 | kokoro | model_engine (CPU) | 0 |

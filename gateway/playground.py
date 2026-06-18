@@ -145,16 +145,6 @@ PLAYGROUND_META: dict[str, dict] = {
             {"key": "image", "label": "Anime image", "type": "image", "required": True, "help": "Upload an anime image for layer decomposition"},
         ],
     },
-    "faster_qwen3_tts": {
-        "category": "TTS",
-        "gpu": True,
-        "route": "/v1/faster_qwen3_tts/generate",
-        "format": "tnap",
-        "input_fields": [
-            {"key": "text", "label": "Text to speak", "type": "textarea", "required": True, "placeholder": "Enter text to synthesize..."},
-            {"key": "voice", "label": "Voice", "type": "select", "options": ["default", "female_1", "female_2", "male_1", "male_2"], "default": "default"},
-        ],
-    },
     "comfyui": {
         "category": "Image",
         "gpu": True,

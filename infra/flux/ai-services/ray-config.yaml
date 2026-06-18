@@ -32,14 +32,13 @@ data:
         path: tts/espeak-ng/
         device: cpu
       kokoro:
-        path: tts/kokoro/
+        path: tts/kokoro-sherpa/
         device: cpu
+        note: "sherpa-onnx (replaces native PyTorch Kokoro — see infra/docker/api_kokoro.py)"
       index-tts:
         path: tts/index-tts/
         device: gpu
-      qwen3-tts:
-        path: tts/qwen3-tts-12hz-1.7b-customvoice/
-        device: gpu
+      # qwen3-tts removed — MOSS VoiceGenerator + Kokoro (sherpa-onnx) cover the TTS surface
     asr:
       faster-whisper:
         path: asr/faster-whisper/
@@ -65,6 +64,4 @@ data:
       moss-soundeffect:
         path: audio/moss-soundeffect/
         device: gpu
-      tangoflux:
-        path: audio/tangoflux/
-        device: gpu
+      # tangoflux removed — MOSS SoundEffect-v2 replaces it

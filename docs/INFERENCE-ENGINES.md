@@ -348,5 +348,5 @@ z-image:
 | Model | Type | VRAM Estimate |
 |-------|------|--------------|
 | kimodo | 3D motion generation | ~4 GB |
-| kokoro | TTS (CPU-capable) | ~2 GB |
+| kokoro | TTS (sherpa-onnx, CPU-only, 53 voices EN+ZH) | 0 GB (CPU ONNX Runtime) |
 | see-through | Anime layer decomposition | ~2 GB |

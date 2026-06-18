@@ -96,7 +96,7 @@ TESTS: list[tuple[str, dict, int]] = [
     ("espeak/espeak", {"service": "wan2gp", "model": "espeak/espeak", "text": "Testing one two three."}, 30),
     ("faster_whisper/faster_whisper", {"service": "wan2gp", "model": "faster_whisper/faster_whisper", "audio_b64": AUDIO_B64, "language": "en"}, 60),
     # ── GPU TTS ──
-    ("faster_qwen3_tts/faster-qwen3-tts", {"service": "wan2gp", "model": "faster_qwen3_tts/faster-qwen3-tts", "text": "Hello, this is a synthesis test.", "voice": "Serena"}, 180),
+    # faster_qwen3_tts test removed — engine dropped
     ("tts/index_tts2", {"service": "wan2gp", "model": "tts/index_tts2", "text": "Voice clone test.", "audio_b64": AUDIO_B64}, 180),
     # ── GPU Audio ──
     ("moss/moss-soundeffect", {"service": "wan2gp", "model": "moss/moss-soundeffect", "prompt": "rain on a tin roof", "seconds": 3}, 180),

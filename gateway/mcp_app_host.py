@@ -58,31 +58,6 @@ TTS_ENGINES: list[dict[str, Any]] = [
         ],
     },
     {
-        "id": "qwen3_tts",
-        "label": "Qwen3-TTS (GPU)",
-        "category": "tts",
-        "gpu": True,
-        "service": "wan2gp",
-        "model": "faster_qwen3_tts",
-        "description": "Qwen3-TTS with CUDA graph acceleration. Supports voice design and cloning.",
-        "params": [
-            {"name": "text", "type": "textarea", "label": "Text", "required": True,
-             "placeholder": "Text to synthesize..."},
-            {"name": "mode", "type": "select", "label": "Mode", "default": "custom_voice",
-             "options": ["custom_voice", "voice_design", "voice_clone"],
-             "description": "custom_voice: preset speaker. voice_design: describe a voice. voice_clone: from reference audio."},
-            {"name": "voice", "type": "select", "label": "Voice", "default": "Aiden",
-             "options": ["Aiden", "Chloe", "Ethan", "Marcus", "Ono_Anna",
-                         "Sohee", "Vivian", "Serena", "Uncle_Fu", "Dylan", "Eric"],
-             "show_when": {"mode": "custom_voice"}},
-            {"name": "instruct", "type": "textarea", "label": "Voice Instruction",
-             "placeholder": "A warm female voice with a gentle southern accent...",
-             "show_when": {"mode": "voice_design"}},
-            {"name": "language", "type": "select", "label": "Language", "default": "English",
-             "options": ["English", "Chinese", "Japanese", "Korean"]},
-        ],
-    },
-    {
         "id": "moss_tts",
         "label": "MOSS TTS (GPU)",
         "category": "tts",
@@ -207,27 +182,6 @@ async def handle_mcp_host(request: Request) -> JSONResponse:
                         "text": tool_args.get("text", ""),
                         "language": tool_args.get("language", "en"),
                     })
-
-                elif engine_id == "qwen3_tts":
-                    mode = tool_args.get("mode", "custom_voice")
-                    payload: dict[str, Any] = {
-                        "model": "faster_qwen3_tts",
-                        "text": tool_args.get("text", ""),
-                        "language": tool_args.get("language", "English"),
-                        "mode": mode,
-                    }
-                    if mode == "voice_design":
-                        payload["instruct"] = tool_args.get("instruct", "")
-                    elif mode == "voice_clone":
-                        payload["ref_audio_b64"] = tool_args.get("ref_audio_b64", "")
-                        if not payload["ref_audio_b64"]:
-                            return JSONResponse(
-                                {"status": "error", "error": "ref_audio_b64 is required for voice_clone mode"},
-                                status_code=400,
-                            )
-                    else:
-                        payload["voice"] = tool_args.get("voice", "Aiden")
-                    result = await ingress._dispatch_service("wan2gp", payload)
 
                 elif engine_id == "moss_tts":
                     payload: dict[str, Any] = {

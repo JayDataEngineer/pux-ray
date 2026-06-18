@@ -105,18 +105,12 @@ MOSS_SAMPLING_PRESETS = {
     },
 }
 
-# Qwen3-TTS voice presets
-QWEN3_VOICE_PRESETS = [
-    "Aiden", "Chloe", "Ethan", "Marcus", "Ono_Anna", "Sohee",
-    "Vivian", "Serena", "Uncle_Fu", "Dylan", "Eric",
-]
+# Qwen3-TTS voice presets — REMOVED (engine dropped, MOSS VoiceGenerator is the
+# instruction-following TTS replacement, sherpa-onnx Kokoro covers CPU TTS).
+# Constants kept as empty placeholders for any legacy import sites.
+QWEN3_VOICE_PRESETS: list[str] = []
 
-# Qwen3-TTS mode descriptions
-QWEN3_MODE_DESCRIPTIONS = {
-    "custom_voice": "Use preset voices (Aiden, Chloe, etc.)",
-    "voice_design": "Describe a voice with detailed instructions",
-    "voice_clone": "Clone from reference audio",
-}
+QWEN3_MODE_DESCRIPTIONS: dict[str, str] = {}
 
 def get_example_by_id(example_id: str) -> dict | None:
     """Get an example by its ID (e.g., 'zh/0', 'en/1')."""
