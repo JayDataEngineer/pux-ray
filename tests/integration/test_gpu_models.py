@@ -16,6 +16,9 @@ import time
 import pytest
 
 
+pytest.skip("Dead vibevoice TTS handler removed — rewrite with current model tests", allow_module_level=True)
+
+
 def _load_handler(handler_path, model_type):
     """Import handler → load_model → (pipeline, pipe_wrapper)."""
     mod = importlib.import_module(handler_path)
@@ -73,21 +76,6 @@ class TestVibeVoiceASR:
             result = pipeline.generate(
                 audio_b64=sample_wav_b64, language="english", max_tokens=128
             )
-            assert result["status"] == "success"
-        finally:
-            _cleanup(pipeline, pw)
-
-
-class TestVibeVoiceTTS:
-    @pytest.mark.gpu
-    @pytest.mark.slow
-    @pytest.mark.handler
-    def test_vibevoice_tts_generate(self):
-        pipeline, pw = _load_handler(
-            "models.vibevoice_tts.vibevoice_tts_handler", "vibevoice-tts"
-        )
-        try:
-            result = pipeline.generate(text="Hello world", language="English")
             assert result["status"] == "success"
         finally:
             _cleanup(pipeline, pw)

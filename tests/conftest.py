@@ -167,7 +167,6 @@ def custom_handler_paths() -> list[str]:
         "models.espeak.espeak_handler",
         "models.faster_whisper.faster_whisper_handler",
         "models.vibevoice_asr.vibevoice_asr_handler",
-        "models.vibevoice_tts.vibevoice_tts_handler",
     ]
 
 

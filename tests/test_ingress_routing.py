@@ -113,7 +113,7 @@ class TestIngressGPU:
         gpu_services = {"ace_step", "comfyui", "llm",
                         "moss_soundeffect",
                         "index_tts",
-                        "vibevoice_asr", "vibevoice_tts"}
+                        "vibevoice_asr"}
         for name in gpu_services:
             assert SERVICE_REGISTRY[name].needs_gpu is True, f"{name} should need GPU"
 
