@@ -1,6 +1,6 @@
 # Inference Test Report
 
-**Date:** 2026-06-18 (session 2 — 4 new models tested)  
+**Date:** 2026-06-18 (session 3 — 2 new models tested)  
 **GPU:** NVIDIA RTX 4090 (24 GB VRAM)  
 **Models root:** `/mnt/data/models/` (1.8 TB NVMe, ~663 GB used)
 
@@ -126,7 +126,7 @@ All times are wall-clock measured from client-side. VRAM usage from `nvidia-smi`
 - **v15-SFT (50-step)**: ~1900ms DiT time for ~114s audio. Higher quality but only ~2× slower than turbo.
 - **XL variants**: Larger 4B DiT models. XL-Base slower (~4s DiT) than XL-Turbo/Xl-SFT (~2s) due to 50-step.
 - All models are ~Q8_0 quantization. VRAM usage stays ~6 GB for 1.7B LM + Turbo DiT, ~8 GB for XL variants.
-- Async API: job IDs are 64-bit random hex. Completed jobs evicted FIFO after 32.
+- **Async API**: Both `/lm` and `/synth` return `{"id":"..."}` immediately and process in background. Job completion observable via server logs. Audio output stored in shared memory (`/dev/shm/psm_*`). Results accessible via web UI at `http://<host>:8056/`.
 - `--keep-loaded` flag keeps LM in VRAM between requests (recommended for throughput).
 - Server web UI available at `http://<host>:8056/` (embedded in ace-server binary).
 - Docker image: `forge-reg.local:30500/tech-noir/ace-step:latest` (7.69 GB).
@@ -243,10 +243,12 @@ All times are wall-clock measured from client-side. VRAM usage from `nvidia-smi`
 | Metric | Value |
 |--------|-------|
 | **Engine** | MOSS Docker (Tier A) |
-| **Model on disk** | Yes — Audio Tokenizer (7.1 GB) + Audio Tokenizer Nano (0.3 GB) |
-| **VRAM** | ~6 GB |
-| **Notes** | MOSS Docker handles all TTS variants. Tokenizers loaded to CPU to conserve VRAM. |
-| **Status** | ⏳ PENDING (MOSS container not currently running) |
+| **Model on disk** | Yes — Full TTS model: 16.8 GB (4 safetensor shards) in `/mnt/data/models/audio/moss-tts/` |
+| **VRAM** | ~6 GB estimated |
+| **Test result** | HTTP 500 — `FileNotFoundError: /models/audio/moss-tts/model_index.json` |
+| **Root cause** | MOSS TTS uses a custom architecture (`modeling_moss_tts.py`, `processing_moss_tts.py`) that is not compatible with `MossSoundEffectPipeline`. The server code maps all three models (soundeffect-v2, soundeffect, tts) to the same pipeline class, but TTS requires `WanAudioPipeline` or a custom TTS pipeline. |
+| **Resolution** | Add TTS-specific pipeline handler in `moss_server.py` that uses `AutoModel.from_pretrained()` or a separate `MossTTSPipeline` class instead of `MossSoundEffectPipeline`. |
+| **Status** | ❌ FAIL (wrong pipeline class) |
 
 ### 17. Diarization-Turbo (VibeVoice-Realtime 0.5B)
 
@@ -269,10 +271,29 @@ All times are wall-clock measured from client-side. VRAM usage from `nvidia-smi`
 
 | Metric | Value |
 |--------|-------|
-| **Engine** | llama.cpp / BeeLlama (Tier A) |
-| **Models on disk** | Qwen3.6-27B Q5_K_S (18 GB), Qwen3.6-35B-A3B UD-IQ4_NL (17 GB), Gemma-4-26B (13 GB), Gemma-4-31B (18 GB), DFlash draft (1 GB) |
-| **VRAM** | ~4–16 GB (varies by model) |
-| **Status** | ⏳ PENDING (needs llama container on port 8052/8053) |
+| **Engine** | llama.cpp (Tier A, `forge-reg.local:30500/tech-noir/gpu-all:latest`) |
+| **API** | HTTP `/completion` endpoint on port 8052 |
+| **Models on disk** | Qwen3.6-27B Q5_K_S (18 GB), Qwen3.6-35B-A3B UD-IQ4_NL (17 GB), Gemma-4-26B UD-IQ4_NL (13 GB), Gemma-4-31B UD-Q4_K_XL (18 GB), DFlash draft (1 GB) |
+| **VRAM** | ~4–22 GB (varies by model) |
+
+#### Performance by model
+
+| Model | Quant | File size | Load time | Prompt speed | Gen speed | VRAM | KV cache | Notes |
+|-------|-------|-----------|-----------|-------------|-----------|------|----------|-------|
+| **Qwen2.5-VL 7B** | Q8_0 | 7.6 GB | 6.7s | 1411 tok/s | 116 tok/s | 11.7 GB | GPU | No mmproj for vision |
+| **Qwen3.6-27B** | Q5_K_S | 18 GB | ~12s | — | 43 tok/s | 21.2 GB | GPU | Reasoning mode outputs `reasoning_content` separately |
+| **Qwen3.6-35B-A3B** | UD-IQ4_NL | 17 GB | 3s | 248 tok/s | 184 tok/s | 22.4 GB | GPU | MoE — only active params loaded. Very fast. |
+| **Gemma-4-26B** | UD-IQ4_NL | 13 GB | ~8s | — | 178 tok/s | 18.2 GB | GPU | Fastest for its size |
+| **Gemma-4-31B** | UD-Q4_K_XL | 18 GB | 2s | 284 tok/s | 23 tok/s | ~18 GB | CPU | `--no-kv-offload` required to fit VRAM. KV cache OOM on GPU even at 2048 ctx. |
+
+**Notes:**
+- Qwen3.6-35B-A3B and Gemma-4-31B were tested in this session (2026-06-18).
+- Qwen3.6-27B and Gemma-4-26B were tested in session 2.
+- Gemma-4-31B needs `--no-kv-offload` on 24 GB card — the Q4_K_XL quantization uses ~18 GB for weights alone.
+- DFlash draft model (1 GB) available for speculative decoding with Qwen3.6 models but not yet tested.
+- All models use `-ngl 99` (full GPU offload).
+- Qwen3.6-35B-A3B is a MoE (Mixture of Experts) model with 35B total params but only ~3.6B active per token.
+- | **Status** | ✅ 5/5 tested (Qwen2.5-VL 7B, Qwen3.6-27B, Qwen3.6-35B-A3B, Gemma-4-26B, Gemma-4-31B) |
 
 ### 19. Kokoro 82M TTS
 
@@ -330,4 +351,6 @@ All times are wall-clock measured from client-side. VRAM usage from `nvidia-smi`
 - Qwen2.5-VL 7B tested as text-only LLM; vision would need `mmproj` file.
 - Qwen-Edit (non-2511) and Ideogram 4 both blocked by serving infrastructure issues, not model availability.
 - Diarization-Turbo 0.5B GGUF needs re-quantization with `--include-decoder` for TTS support.
-- 13/22 model groups tested (9 from session 1 + 4 new this session: Tangoflux, Qwen2.5-VL, Kokoro, Diarization-Turbo partial). 9 remain pending or blocked.
+- **15/22 model groups tested** (9 from session 1 + 4 from session 2 + 2 new this session: Qwen3.6-35B-A3B, Gemma-4-31B). 7 remain pending or blocked.
+- **LLM sub-tasks**: 5/5 models tested (Qwen2.5-VL 7B, Qwen3.6-27B, Qwen3.6-35B-A3B, Gemma-4-26B, Gemma-4-31B).
+- **Pending still**: Wan VACE FP8 (empty dir — needs conversion), Wan T2V/I2V (not downloaded), MOSS TTS (pipeline mismatch), MOSS Soundeffect v1 (legacy — dir missing), VibeVoice-7B TTS (needs GPU container), Kimodo (not downloaded), See-Through (symlinks broken). Ideogram 4 and Qwen-Edit blocked by infrastructure issues.
