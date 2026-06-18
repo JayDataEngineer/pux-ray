@@ -6,11 +6,12 @@
 # Organized into sections for targeted downloads.
 #
 # Usage:
-#   ./models.sh                          # download ALL models
+#   ./models.sh                          # download ALL auto-downloadable models
 #   ./models.sh --section audio           # only audio models
-#   ./models.sh --section special-ops     # special operations (FP8, MOSS, XL)
 #   ./models.sh --list-sections           # list available sections
-#   ./models.sh --list-models             # list all models with their section
+#   ./models.sh --list-models             # list all models with status
+#   ./models.sh --list-missing            # list only missing auto-downloadable models
+#   ./models.sh --list-manual             # list models requiring manual setup
 #   ./models.sh --dry-run                 # show what would download, don't execute
 #
 # Special operations:
@@ -32,8 +33,8 @@ PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 REGISTRY="$PROJECT_ROOT/config/model_registry.yaml"
 MODELS_ROOT="${MODELS_ROOT:-/mnt/data/models}"
 
-HF="huggingface-cli download --resume-download"
-HF_QUIET="huggingface-cli download --quiet --resume-download"
+HF="hf download"
+HF_QUIET="hf download --quiet"
 
 # ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -323,6 +324,18 @@ main() {
     local section=""
     local dry_run=false
 
+    PY_DOWNLOADER="$SCRIPT_DIR/download_all.py"
+
+    # No args → delegate to universal Python downloader
+    if [[ $# -eq 0 ]]; then
+        if [[ -f "$PY_DOWNLOADER" ]]; then
+            exec python3 "$PY_DOWNLOADER"
+        else
+            download_all
+        fi
+        exit $?
+    fi
+
     # Parse args
     while [[ $# -gt 0 ]]; do
         case "$1" in
@@ -334,6 +347,19 @@ main() {
                 list_models; exit 0 ;;
             --dry-run)
                 dry_run=true; shift ;;
+            --all|--auto)
+                if [[ -f "$PY_DOWNLOADER" ]]; then
+                    exec python3 "$PY_DOWNLOADER" ${dry_run:+--dry-run}
+                else
+                    download_all
+                fi
+                exit $? ;;
+            --list-missing)
+                exec python3 "$PY_DOWNLOADER" --list-missing
+                exit $? ;;
+            --list-manual)
+                exec python3 "$PY_DOWNLOADER" --list-manual
+                exit $? ;;
             --fp8-qwen)
                 if $dry_run; then info "WOULD BUILD: Qwen-Image-Edit FP8"; else build_fp8_qwen; fi
                 exit $? ;;
@@ -350,7 +376,7 @@ main() {
                 if $dry_run; then info "WOULD DOWNLOAD: ACE-Step XL"; else download_ace_xl; fi
                 exit $? ;;
             --help|-h)
-                echo "Usage: $0 [--section <name>] [--dry-run] [--fp8-qwen|--fp8-zimage|--fp8-vace|--moss-gguf|--ace-xl]"
+                echo "Usage: $0 [--section <name>] [--dry-run] [--all|--list-missing|--list-manual] [--fp8-qwen|--fp8-zimage|--fp8-vace|--moss-gguf|--ace-xl]"
                 echo ""
                 list_sections
                 exit 0 ;;

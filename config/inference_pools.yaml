@@ -244,8 +244,9 @@ pools:
       - wan-i2v                  # Wan2.1 I2V
       - z-image                  # Z-Image Turbo (8-step) and Base (50-step) — same model
       - z-image-base             # alias: 50-step variant of the same z-image model
-      - cosmos                   # Cosmos3-Nano (BF16 CPU offload for now)
-      - anima-base               # (future: replaces cosmos slot)
+      - cosmos                   # Cosmos3-Nano (PoC — anima-base replaces)
+      - anima-base               # Cosmos-Predict2 anime T2I (replaces cosmos slot)
+      - ltx-video                # LTX-2.3 FP8 fallback (primary is SGLang)
     vram_mb: 22000
     health_path: /health
     # Per-model launch config. The "script" points at an existing launcher
@@ -362,6 +363,16 @@ pools:
         optimization:
           quant: bf16-cpu-offload      # FP8 blocked on fused LLM params (SGLang too)
         note: "BF16 with auto CPU offload. FP8 needs newer SGLang for Cosmos3 fused LLM params."
+      ltx-video:
+        script: scripts/run_omni_ltx23_fp8.sh
+        model_dir: /mnt/data/models/native/ltx-2.3-fp8
+        registry_ref: served-models/ltx-video
+        api:
+          generate: POST /v1/videos/generations
+        optimization:
+          quant: modelopt-fp8
+          vae_decode_parallel: true
+        note: "LTX-2.3 FP8 fallback. Primary is SGLang (layerwise offload gives better perf). Added v0.22+."
     env:
       VLLM_BATCH_INVARIANT: "1"             # BF16-dequant path for non-patched layers
       PYTORCH_CUDA_ALLOC_CONF: expandable_segments:True
@@ -532,7 +543,9 @@ routes:
 
   # ── Tier C — SGLang-exclusive (or SGLang-primary) ─────────────────────────
   ideogram4:               { primary: sglang }
-  ltx-video:               { primary: sglang }
+  ltx-video:
+    primary: sglang
+    fallback: [omni-vllm]       # vLLM-Omni v0.22+ LTX-2.3 support (dual-engine)
   cosmos-sglang:           { primary: sglang }
 
   # ── Tier D — Diffusers catch-all ─────────────────────────────────────────

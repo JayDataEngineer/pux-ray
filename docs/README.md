@@ -68,48 +68,70 @@ python3 -m registry.audit --summary
 python3 -m registry.reconcile --dry-run
 ```
 
-## Model Download Suite
+## Model Download Suite — Uniform (wipe-and-rebuild)
 
 `scripts/download/models.sh` is the **IaC-driven download manager** — it reads model sources from `model_registry.yaml` and downloads everything to `/mnt/data/models/`.
 
+**Design principle:** you can wipe `/mnt/data/models/` and restore everything with one command.
+The system is fully driven by the registry — no hardcoded model lists.
+
 ```bash
-# List available sections
-./scripts/download/models.sh --list-sections
+# ═══ Download everything auto-downloadable ═══
+./scripts/download/models.sh                         # downloads all 127 auto-downloadable models
+./scripts/download/models.sh --dry-run               # show what would download, don't execute
 
-# List all models grouped by section
-./scripts/download/models.sh --list-models
+# ═══ Status & audit ═══
+./scripts/download/models.sh --list-models           # list all 150 registry entries with on-disk status
+./scripts/download/models.sh --list-missing          # show auto-downloadable models not on disk
+./scripts/download/models.sh --list-manual           # show models requiring manual setup (FP8 builds, gated)
 
-# Download a specific section
-./scripts/download/models.sh --section audio
-
-# Download everything
-./scripts/download/models.sh
-
-# Dry-run (show what would download)
-./scripts/download/models.sh --dry-run
+# ═══ Targeted downloads ═══
+./scripts/download/models.sh --section audio         # only audio section
+./scripts/download/models.sh --section video         # only video section
+./scripts/download/models.sh --list-sections         # show available sections
 ```
+
+### Registry-driven discovery
+
+The downloader reads **all physical entries** from `model_registry.yaml` and classifies them:
+
+| Class | Count | Description |
+|-------|-------|-------------|
+| `auto` | 127 | Auto-downloadable from HF (`hf://org/repo/file` or `hf://org/repo`) |
+| `manual` | 20 | Needs manual build/conversion (FP8 builds, git clones, etc.) |
+| `skip` | 3 | Already on disk via other means, no download needed |
+
+When run with no arguments, it downloads ALL 127 auto-downloadable models in parallel (default: 2 concurrent downloads, configurable with `--parallel N`).
 
 ### Special Operations
 
-The `--section special-ops` category includes custom builds and conversions:
+Models requiring manual setup (`download: manual` in registry) have dedicated flags:
 
-| Flag | What it does |
-|------|-------------|
-| `--fp8-qwen` | Build Qwen-Image-Edit FP8 weight-only from source |
-| `--fp8-zimage` | Build Z-Image Turbo/Base FP8 (script pending) |
-| `--fp8-vace` | Convert Wan VACE 14B to direct-cast FP8 |
-| `--moss-gguf` | Download MOSS-TTS Q4_K_M GGUF + ONNX audio tokenizer |
-| `--ace-xl` | Download ACE-Step 1.5 XL GGUF variants (turbo, sft, base) + LM 4B |
+| Flag | What it does | Model |
+|------|-------------|-------|
+| `--fp8-qwen` | Build Qwen-Image-Edit FP8 weight-only from source | `qwen-image-edit` |
+| `--fp8-zimage` | Build Z-Image Turbo/Base FP8 (script pending) | `z-image`, `z-image-base` |
+| `--fp8-vace` | Convert Wan VACE 14B to direct-cast FP8 | `wan-vace` |
+| `--moss-gguf` | Download MOSS-TTS Q4_K_M GGUF + ONNX audio tokenizer | `moss-tts` |
+| `--ace-xl` | Download ACE-Step 1.5 XL GGUF variants (turbo, sft, base) + LM 4B | `ace-step-xl-*` |
 
 ```bash
 # Download MOSS GGUF models
 ./scripts/download/models.sh --moss-gguf
 
-# Download ACE-Step XL variants
-./scripts/download/models.sh --ace-xl
-
 # Build custom FP8 model
 ./scripts/download/models.sh --fp8-qwen
+```
+
+### Python API (advanced)
+
+The registry-driven engine lives in `scripts/download/download_all.py` and can be used directly:
+
+```bash
+python3 scripts/download/download_all.py --parallel 4    # 4 concurrent downloads
+python3 scripts/download/download_all.py --list-models   # full inventory
+python3 scripts/download/download_all.py --list-manual   # manual build instructions
+python3 scripts/download/download_all.py --hf-token <token>  # for gated models
 ```
 
 ### ACE-Step Models
@@ -132,7 +154,42 @@ All use the same two-step API: `POST /lm` (music codes) → `POST /synth` (rende
 | `registry/gc.py` | Safe garbage collection — purge HF caches, hardlink dupes, delete orphans |
 | `registry/reconcile.py` | Remove registry entries whose paths no longer exist on disk |
 
-## Quick Start — Testing a Model
+## Dual-Engine Architecture
+
+Every diffusion model gets **two serving paths** where feasible — one on vLLM-Omni and one on SGLang. This provides:
+
+- **Redundancy**: If one engine is busy or unhealthy, the other serves
+- **Comparative profiling**: Benchmark both engines per model to determine optimal primary
+- **Engine-specific formats**: vLLM-Omni uses FP8 weight-only custom builds; SGLang uses native ModelOpt FP8 or NF4
+
+### Resolution Order
+
+```
+Request → Route → Primary pool → (if unhealthy) → Fallback pool
+```
+
+Configured in `config/inference_pools.yaml` under `routes:`.
+
+### Current Dual-Engine Coverage
+
+| Model | Primary | Fallback | Rationale |
+|-------|---------|----------|-----------|
+| `z-image` | omni-vllm (FP8) | sglang (FP8) | FP8 patch works on both |
+| `z-image-base` | omni-vllm (FP8) | sglang (FP8) | Same pipeline, different weights |
+| `ltx-video` | sglang (ModelOpt FP8) | omni-vllm (FP8) | SGLang layerwise offload is faster for 22B |
+| `qwen-image-edit` | omni-vllm (FP8 WO) | — | Custom FP8 format is omni-only |
+| `wan-vace` | omni-vllm (FP8 WO) | — | Custom FP8 format is omni-only |
+| `ideogram4` | sglang (NF4) | — | vLLM-Omni doesn't support Ideogram 4 yet |
+| `wan-t2v` | omni-vllm | — | TBD — add SGLang path |
+| `wan-i2v` | omni-vllm | — | TBD — add SGLang path |
+
+### To expand dual-engine coverage
+
+1. Add physical entry to `config/model_registry.yaml` (or confirm existing one works for both engines)
+2. Add model name to both pools' `models:` lists
+3. Add `model_launcher:` entry for secondary engine with `script:` and `registry_ref:`
+4. Update `routes:` to add fallback
+5. Verify cross-reference chain: `route → served-models → pool_ref → physical entry`
 
 ```bash
 # ── Auto-evict GPU before switching models ──

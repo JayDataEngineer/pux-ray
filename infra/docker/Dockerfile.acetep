@@ -24,7 +24,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /build
 RUN git clone --recurse-submodules https://github.com/ServeurpersoCom/acestep.cpp.git
 WORKDIR /build/acestep.cpp
-RUN ./buildcuda.sh
+RUN mkdir build && cd build && \
+    cmake .. -DGGML_CUDA=ON \
+      -DBUILD_SHARED_LIBS=OFF \
+      -DCMAKE_CUDA_COMPILER=/usr/local/cuda/bin/nvcc \
+      -DCMAKE_CUDA_ARCHITECTURES="89;90" \
+      -DCMAKE_EXE_LINKER_FLAGS="-lcuda" && \
+    cmake --build . --config Release -j 1
 
 # ── Stage 2: Slim runtime ────────────────────────────────────────────────────
 FROM nvidia/cuda:12.8.0-cudnn-runtime-ubuntu22.04
@@ -33,9 +39,10 @@ LABEL description="ACE-Step 1.5 C++ music generation (GGML/GGUF). Turbo=8-step, 
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libopenblas0 \
+    libgomp1 \
     && rm -rf /var/lib/apt/lists/*
 
-COPY --from=builder /build/acestep.cpp/ace-server /app/ace-server
+COPY --from=builder /build/acestep.cpp/build/ace-server /app/ace-server
 
 # Default model dir (override with -v at runtime)
 ENV ACE_MODELS_DIR=/models/audio/acestep-cpp

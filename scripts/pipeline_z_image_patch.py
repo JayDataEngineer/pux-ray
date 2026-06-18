@@ -2,23 +2,21 @@
 # SPDX-FileCopyrightText: Copyright contributors to the vLLM project
 
 # ════════════════════════════════════════════════════════════════════════
-# Z-Image Turbo/Base — FP8 weight-only patch + CPU text encoder offload
+# Z-Image Turbo/Base — FP8 weight-only patch (GPU text encoder)
 # ════════════════════════════════════════════════════════════════════════
 # This file replaces the in-image pipeline_z_image.py at mount time:
 #   /usr/local/lib/python3.12/dist-packages/vllm_omni/diffusion/models/z_image/pipeline_z_image.py
 #
-# Two changes from original:
+# One change from original:
 #   1. Imports shared FP8 weight-only patch (scripts/fp8_weight_only_patch.py)
 #      — applies to all ZImageTransformer2DModel linear layers.
-#   2. Text encoder is moved to CPU after loading (frees ~9GB VRAM).
-#   3. Forward method patched for CPU→GPU→CPU transparency.
 #
 # VRAM layout on RTX 4090 (24GB):
 #   * DiT (2B FP8 weight-only)      ~2 GB  (resident)
 #   * VAE (with tiling/slicing)     ~0.5 GB
-#   * Text encoder (CPU)            ~0 GB  (moved to RAM after prefill)
+#   * Text encoder (7.5B Qwen3)     ~7.5 GB  (GPU resident — plenty of VRAM)
 #   * Activations + KV cache        ~3 GB  (peak)
-#   * Headroom                     ~18 GB
+#   * Headroom                     ~11 GB
 #
 # Cache-DiT + TaylorSeer compound with FP8 weight-only: no NaN,
 # no activation quantization errors, block-level caching for speed.
@@ -53,68 +51,12 @@ except Exception as _e:
     _fp8_patch_logger.warning(_tb.format_exc())
 
 # ════════════════════════════════════════════════════════════════════════
-# 2+3. CPU-GPU FORWARD PATCH + TEXT ENCODER OFFLOAD
-# ════════════════════════════════════════════════════════════════════════
-import functools as _ft
-import torch as _torch
-import gc as _gc
-
-
-def _patch_text_encoder_forward():
-    """Patch AutoModelForCausalLM.forward for CPU-resident + GPU inputs."""
-    from transformers import AutoModelForCausalLM as _AM
-    if getattr(_AM, '_patched_fwd', False):
-        return
-
-    _orig_fwd = _AM.forward
-
-    @_ft.wraps(_orig_fwd)
-    def _patched_fwd(self, input_ids=None, attention_mask=None, **kwargs):
-        p_dev = next(self.parameters()).device
-        # Determine input device
-        for inp in (input_ids, attention_mask):
-            if inp is not None:
-                i_dev = inp.device
-                break
-        else:
-            return _orig_fwd(self, input_ids=input_ids,
-                             attention_mask=attention_mask, **kwargs)
-
-        if p_dev != i_dev and i_dev is not None and p_dev.type == 'cpu':
-            with _torch.device(p_dev):
-                result = _orig_fwd(
-                    self,
-                    input_ids=input_ids.to(p_dev) if input_ids is not None else None,
-                    attention_mask=attention_mask.to(p_dev) if attention_mask is not None else None,
-                    **kwargs,
-                )
-                # Move hidden states back to GPU
-                if hasattr(result, 'hidden_states') and result.hidden_states is not None:
-                    result.hidden_states = [
-                        hs.to(i_dev) if hs is not None else hs
-                        for hs in result.hidden_states
-                    ]
-                if hasattr(result, 'last_hidden_state') and result.last_hidden_state is not None:
-                    result.last_hidden_state = result.last_hidden_state.to(i_dev)
-                return result
-        return _orig_fwd(self, input_ids=input_ids,
-                         attention_mask=attention_mask, **kwargs)
-
-    _AM.forward = _patched_fwd
-    _AM._patched_fwd = True
-
-
-_patch_text_encoder_forward()
-_fp8_patch_logger.warning(
-    "AutoModelForCausalLM.forward patched for CPU-GPU transparency — "
-    "text encoder can live on CPU with GPU inputs"
-)
-
-# ════════════════════════════════════════════════════════════════════════
 # ORIGINAL Z-IMAGE PIPELINE
 # ════════════════════════════════════════════════════════════════════════
-# The rest of this file is the original pipeline_z_image.py with ONE change:
-#   self.text_encoder is moved to .cpu() after loading (frees ~9GB VRAM).
+# The rest of this file is the original pipeline_z_image.py with one change:
+#   self.text_encoder and forward method are unmodified (GPU resident).
+#   The FP8 weight-only patch above handles DiT quantization.
+import gc as _gc
 #
 # See the __init__ method for the change (marked with "CPU OFFLOAD" comment).
 # Everything else is identical.
@@ -310,20 +252,17 @@ class ZImagePipeline(nn.Module, DiffusionPipelineProfilerMixin):
             model, subfolder="scheduler", local_files_only=local_files_only
         )
 
-        # ── TEXT ENCODER ON CPU ──────────────────────────────────────
-        # CRITICAL: Load directly on CPU to save ~9GB VRAM for the DiT.
-        # The parent caller wraps __init__ in `with target_device:` (CUDA),
-        # so by default from_pretrained allocates on GPU first. We use
-        # torch.device("cpu") context to avoid the transient GPU allocation.
+        # ── TEXT ENCODER (GPU) ─────────────────────────────────────────
+        # For a 2B model on 24GB VRAM, the text encoder (7.5GB Qwen3Model)
+        # fits comfortably alongside the DiT. No CPU offload needed.
         text_encoder_config = AutoConfig.from_pretrained(
             model, subfolder="text_encoder", local_files_only=local_files_only
         )
-        with torch.device("cpu"):
-            self.text_encoder = create_transformers_model(
-                AutoModelForCausalLM,
-                od_config,
-                hf_config=text_encoder_config,
-            )
+        self.text_encoder = create_transformers_model(
+            AutoModelForCausalLM,
+            od_config,
+            hf_config=text_encoder_config,
+        )
         if text_encoder_config.tie_word_embeddings:
             self.text_encoder.lm_head.weight = self.text_encoder.get_input_embeddings().weight
         _gc.collect()
@@ -418,8 +357,7 @@ class ZImagePipeline(nn.Module, DiffusionPipelineProfilerMixin):
         text_input_ids = text_inputs.input_ids.to(device)
         prompt_masks = text_inputs.attention_mask.to(device).bool()
 
-        # ── Text encoder is on CPU, inputs are on GPU ───────────────
-        # The forward method is patched to handle CPU→GPU→CPU transparently
+        # ── Text encoder is on GPU (2B model has enough VRAM headroom) ─
         prompt_embeds = self.text_encoder(
             input_ids=text_input_ids,
             attention_mask=prompt_masks,

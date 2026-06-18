@@ -254,7 +254,7 @@ def _patch_qwen_vl_forward():
                              **kwargs)
 
         if p_dev != i_dev and i_dev is not None:
-            with _torch.device(p_dev):
+            with torch.device(p_dev):
                 result = _orig_fwd(
                     self,
                     input_ids=input_ids.to(p_dev) if input_ids is not None else None,
@@ -529,7 +529,7 @@ class QwenImageEditPlusPipeline(
         # FP8 weights, but by then fragmentation + overlap kills us).
         # Loading directly on CPU avoids the GPU roundtrip entirely.
         import gc as _gc
-        with _torch.device("cpu"):
+        with torch.device("cpu"):
             self.text_encoder = from_pretrained_with_prefetch(
                 Qwen2_5_VLForConditionalGeneration.from_pretrained,
                 model,
@@ -538,7 +538,7 @@ class QwenImageEditPlusPipeline(
                 local_files_only=local_files_only,
             )
         _gc.collect()
-        _torch.cuda.empty_cache()
+        torch.cuda.empty_cache()
 
         self.vae = from_pretrained_with_prefetch(
             AutoencoderKLQwenImage.from_pretrained,
