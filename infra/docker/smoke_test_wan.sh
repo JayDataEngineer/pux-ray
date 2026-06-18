@@ -5,7 +5,7 @@
 #
 # Pool layout:
 #   VACE 14B FP8  → vllm-omni OpenAI API  → http://localhost:8000
-#                   (POST /v1/videos/generations, async with polling)
+#                   (POST /v1/videos multipart, async with polling)
 #   T2V   14B     → custom FastAPI server → http://localhost:8001
 #                   (POST /generate JSON, sync, returns video/mp4)
 #   I2V   14B     → custom FastAPI server → http://localhost:8002
@@ -48,9 +48,21 @@ summary() {
 }
 
 echo "═══ Wan2.1 VACE 14B FP8 (vllm-omni, port ${VACE_PORT}) ═══"
-VACE_RESP=$(curl -sS -X POST "http://localhost:${VACE_PORT}/v1/videos/generations" \
-  -H 'Content-Type: application/json' \
-  -d "{\"model\":\"wan-vace\",\"prompt\":\"a panda eating bamboo in a misty forest\",\"num_frames\":${NUM_FRAMES},\"fps\":8,\"resolution\":\"480p\",\"num_inference_steps\":${STEPS},\"width\":${WIDTH},\"height\":${HEIGHT},\"extra_params\":{\"vae_use_tiling\":true,\"vae_use_slicing\":true}}" \
+# VACE API contract (verified 2026-06-18 session 3c):
+#   - Endpoint: POST /v1/videos (multipart form, NOT /v1/videos/generations — that route does not exist)
+#   - Required form fields: model, prompt, num_inference_steps, num_frames, width, height
+#     (NOT 'steps' — that field is silently dropped, causing VACE to use a high default
+#     step count which either OOMs at 640x480 or takes ~400s at 480x320)
+#   - Required extra_params: vae_use_tiling=true, vae_use_slicing=true
+#     (without these, VAE decode exceeds the 24 GB budget at 640x480)
+VACE_RESP=$(curl -sS -X POST "http://localhost:${VACE_PORT}/v1/videos" \
+  -F "model=/models/vace-fp8" \
+  -F "prompt=a panda eating bamboo in a misty forest" \
+  -F "num_inference_steps=${STEPS}" \
+  -F "num_frames=${NUM_FRAMES}" \
+  -F "width=${WIDTH}" \
+  -F "height=${HEIGHT}" \
+  -F 'extra_params={"vae_use_tiling":true,"vae_use_slicing":true}' \
   2>&1) || echo "  (VACE unreachable on port ${VACE_PORT}: ${VACE_RESP})"
 if echo "$VACE_RESP" | grep -q '"id"'; then
   VACE_ID=$(echo "$VACE_RESP" | python3 -c "import json,sys; print(json.load(sys.stdin)['id'])")

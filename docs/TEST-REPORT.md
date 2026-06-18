@@ -202,11 +202,13 @@ All times are wall-clock measured from client-side. VRAM usage from `nvidia-smi`
 | **Container** | `omni-14b-vace-fp8` (image `vllm/vllm-omni:latest`, port 8000) |
 | **Launch** | `bash scripts/run_omni_14b.sh` |
 | **API** | `POST /v1/videos` (multipart form, async — returns `id`, poll `GET /v1/videos/{id}`) |
+| **Required form fields** | `model=/models/vace-fp8`, `prompt`, `num_inference_steps`, `num_frames`, `width`, `height`, `extra_params={"vae_use_tiling":true,"vae_use_slicing":true}` |
+| **API gotcha** | Field name is `num_inference_steps`, NOT `steps`. A `steps` field is silently dropped → VACE uses a high default → either OOM at 640×480 or ~400 s runtime at 480×320. Also: there is **no** `/v1/videos/generations` route on this VACE build — only `/v1/videos` (multipart) and `/v1/videos/sync`. |
 | **Modes** | **T2V** (omit `image`/`input_reference` field) **AND I2V first-frame** (add `image=@frame.png` field) — both served by the SAME VACE container |
 | **Load time (cold)** | 148 seconds (server startup, model load + FP8 cast + patch) |
 | **T2V 320×240, 9 frames, 5 steps** | 7.75 s, peak VRAM 22.7 GB |
-| **T2V 480×320, 9 frames, 5 steps** | 10.31 s, peak VRAM 20.8 GB |
-| **T2V 640×480, 9 frames, 5 steps** (VAE tiling+slicing) | **15.42 s**, peak VRAM 23.22 GB |
+| **T2V 480×320, 9 frames, 5 steps** | **9.87 s** (re-verified session 3c), peak VRAM 21.5 GB — originally documented as 10.31 s |
+| **T2V 640×480, 9 frames, 5 steps** (VAE tiling+slicing) | **14.78 s** (re-verified session 3c), peak VRAM 23.32 GB — originally documented as 15.42 s / 23.22 GB |
 | **I2V 640×480, 9 frames, 5 steps** (first_frame, VAE tiling) | **15.01 s**, peak VRAM 23.28 GB |
 | **T2V 832×480, 33 frames, 20 steps** | ❌ OOM (>24 GB required — 884 MiB allocation failed with 22.77 GB resident) |
 | **Output** | Valid H.264 MP4 (e.g. 332 KB at 640×480, 9 frames, 1.125 s @ 8 fps) |
