@@ -84,7 +84,8 @@ SECTION_MODELS[a]="audio"
 CORE_MODELS="kokoro"
 
 # Audio: audio/sound generation models
-AUDIO_MODELS="kokoro vibevoice-tts tangoflux qwen3-tts ace-step ace-step-turbo"
+# Note: VibeVoice-7B TTS removed — superseded by OpenMOSS for all TTS.
+AUDIO_MODELS="kokoro tangoflux qwen3-tts ace-step ace-step-turbo"
 
 # Image: image generation models
 IMAGE_MODELS="qwen-image-edit z-image z-image-base ideogram4 see-through kimodo comfyui"

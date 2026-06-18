@@ -88,7 +88,7 @@ container, with per-model launch scripts that bind-mount the right FP8 patch:
 ### Tier D — Diffusers generalized (catch-all)
 | Models |
 |--------|
-| `kimodo`, `ace-step`, `kokoro`, `index-tts`, `vibevoice-tts`, `vibevoice-asr`, `faster-whisper`, `see-through` |
+| `kimodo`, `ace-step`, `kokoro`, `index-tts`, `vibevoice-asr`, `faster-whisper`, `see-through` |
 
 ## How the Pieces Connect
 

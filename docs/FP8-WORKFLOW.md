@@ -115,7 +115,7 @@ is_checkpoint_fp8_serialized: true
 - **Activations:** FP8 with static scaling
 - **Kernel:** Different code path (ModelOpt-specific)
 - **Status:** ✅ Working on RTX 4090
-- **Used by:** qwen-edit-modelopt-fp8-transformer (the overlay files)
+- **Used by:** ltx23-fp8-transformer (the overlay files)
 - **Note:** Larger on-disk size due to scaling factors stored alongside weights
 
 ### FP8 Weight-Only (Pipeline Patch approach)

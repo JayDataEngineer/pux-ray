@@ -19,7 +19,6 @@ model's purpose, format, and origin.
 ├── native/              # Quantized/optimized model variants
 │   ├── z-image-turbo-fp8/       # W8A8 Block FP8 (26 GB)
 │   ├── z-image-base-fp8/        # W8A8 Block FP8 non-distilled (18 GB)
-│   ├── qwen-edit-modelopt-fp8-transformer/  # ModelOpt FP8 (28 GB)
 │   ├── ltx23-fp8-transformer/   # LTX Video ModelOpt FP8 (21 GB)
 │   └── qwen2.5-vl-7b-gguf/      # GGUF quantized VL model
 ├── video/               # Video models
@@ -58,7 +57,7 @@ Config:
 ```
 
 ### 2. ModelOpt FP8
-Used by: qwen-edit-modelopt-fp8-transformer, ltx23-fp8-transformer
+Used by: ltx23-fp8-transformer
 
 ```
 Format:   NVIDIA ModelOpt format, per-tensor/channel scaling

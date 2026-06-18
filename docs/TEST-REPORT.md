@@ -1,6 +1,6 @@
 # Inference Test Report
 
-**Date:** 2026-06-18 (session 3 — MOSS TTS ✅ via openmoss C++/GGML; soundeffect-v2 un-orphaned → routed to openmoss. **Session 3b — Wan VACE/T2V/I2V + See-Through ✅**: VACE unifies T2V+I2V in one FP8 container; BF16 T2V/I2V kept as documented slow fallback; See-Through produces valid 17-layer PSDs.)  
+**Date:** 2026-06-18 (session 3 — MOSS TTS ✅ via openmoss C++/GGML; soundeffect-v2 un-orphaned → routed to openmoss. **Session 3b — Wan VACE/T2V/I2V + See-Through ✅**: VACE unifies T2V+I2V in one FP8 container; BF16 T2V/I2V kept as documented slow fallback; See-Through produces valid 17-layer PSDs. **Session 3c — VibeVoice-TTS dropped** (MOSS TTS is the single TTS engine); **Qwen-Edit non-2511 dropped** (only latest 2511 kept).)
 **GPU:** NVIDIA RTX 4090 (24 GB VRAM)  
 **Models root:** `/mnt/data/models/` (1.8 TB NVMe, ~663 GB used)
 
@@ -248,24 +248,7 @@ The unified VACE container in section 12 is the primary path for **both** T2V an
 | **Notes** | No mmproj file available for vision tasks — tested as text-only LLM. Full 128K context but limited to 4096 via `--ctx-size`. Server health endpoint at `/health`. |
 | **Status** | ✅ PASS |
 
-### 15. Qwen-Edit (ModelOpt FP8, non-2511)
-
-| Metric | Value |
-|--------|-------|
-| **Engine** | Omni-VLLM (target) — custom pipeline patch + weight conversion |
-| **Architecture** | Identical to 2511: 60-layer QwenImageTransformer2DModel, 24 heads, 128 head dim |
-| **Model on disk** | Yes — 28 GB transformer (ModelOpt FP8: `qwen-edit-modelopt-fp8-transformer`) + 5.5 GB NF4 text encoder (`qwen-edit-nf4-textenc`) |
-| **Weight format** | Native Float8_e4m3fn + BF16 hybrid (unlike 2511's compressed-tensors format) |
-| **BF16 dequant test** | ✅ Loads successfully after casting FP8→BF16 (native torch cast, no modelopt needed) |
-| **VRAM (BF16)** | ~40 GB estimated — too large for RTX 4090 24 GB |
-| **VRAM (FP8 target)** | ~20 GB estimated after compressed-tensors conversion |
-| **Conversion needed** | ModelOpt FP8 → compressed-tensors FP8 weight-only (with per-tensor scales) |
-| **Conversion script** | `scripts/prepare_qwen_edit_non2511_fp8.py` — loads ModelOpt weights, casts FP8→BF16, re-quantizes to FP8 weight-only with per-tensor scales, adds compressed-tensors quantization_config |
-| **Root cause** | The ModelOpt FP8 format stores weights as native Float8_e4m3fn with per-tensor metadata embedded in safetensor headers. Omni-VLLM's pipeline patch expects compressed-tensors format with explicit `weight_scale` tensors. Conversion required. |
-| **Resolution** | Run `python3 scripts/prepare_qwen_edit_non2511_fp8.py` to convert, then serve through Omni-VLLM using the same pipeline patch (`pipeline_qwen_image_edit_plus_patch.py`) as the 2511 model. |
-| **Status** | 🔄 IN PROGRESS — need to run conversion script then verify generation on 24 GB |
-
-### 16. MOSS TTS / TTSD / Realtime
+### 15. MOSS TTS / TTSD / Realtime
 
 | Metric | Value |
 |--------|-------|
@@ -287,7 +270,7 @@ The unified VACE container in section 12 is the primary path for **both** T2V an
 | **Notes** | Scales well with text length: longer utterances are more efficient (amortizes prompt processing). Voice cloning available via reference WAV. |
 | **Status** | ✅ PASS |
 
-### 17. Diarization-Turbo (VibeVoice-Realtime 0.5B)
+### 16. Diarization-Turbo (VibeVoice-Realtime 0.5B)
 
 | Metric | Value |
 |--------|-------|
@@ -304,7 +287,7 @@ The unified VACE container in section 12 is the primary path for **both** T2V an
 | **Notes** | Started with `CRISPASR_EXTRA_ARGS="--voice-dir /models/vibevoice-cpp"` for voice preset directory. |
 | **Status** | ⚠️ PARTIAL (ASR works, TTS blocked by GGUF conversion) |
 
-### 18. LLM Models (llama.cpp / BeeLlama)
+### 17. LLM Models (llama.cpp / BeeLlama)
 
 | Metric | Value |
 |--------|-------|
@@ -332,7 +315,7 @@ The unified VACE container in section 12 is the primary path for **both** T2V an
 - Qwen3.6-35B-A3B is a MoE (Mixture of Experts) model with 35B total params but only ~3.6B active per token.
 - | **Status** | ✅ 5/5 tested (Qwen2.5-VL 7B, Qwen3.6-27B, Qwen3.6-35B-A3B, Gemma-4-26B, Gemma-4-31B) |
 
-### 19. Kokoro 82M TTS
+### 18. Kokoro 82M TTS
 
 | Metric | Value |
 |--------|-------|
@@ -346,7 +329,7 @@ The unified VACE container in section 12 is the primary path for **both** T2V an
 | **Dependencies** | Requires `kokoro`, `misaki`, `num2words`, `spacy`, `phonemizer`, `espeak-ng`. All pip-installable. |
 | **Status** | ✅ PASS |
 
-### 20. See-Through (Anime Layer Decomposition)
+### 19. See-Through (Anime Layer Decomposition)
 
 | Metric | Value |
 |--------|-------|
@@ -363,16 +346,7 @@ The unified VACE container in section 12 is the primary path for **both** T2V an
 | **Group offload** | Optional (`SEETHROUGH_GROUP_OFFLOAD=1`) for ~10 GB VRAM at 1280 res |
 | **Status** | ✅ PASS — PSD output verified valid (opens in Photoshop / Krita / GIMP with all 17 layers separated). |
 
-### 21. VibeVoice 7B TTS
-
-| Metric | Value |
-|--------|-------|
-| **Engine** | Diffusers (Tier D, GPU) |
-| **Model on disk** | Yes — 18.7 GB in `/mnt/data/models/tts/vibevoice/` (10 safetensor shards) |
-| **VRAM** | ~20 GB estimated |
-| **Status** | ⏳ PENDING (needs GPU container with 20GB+ VRAM) |
-
-### 22. Kimodo-SOMA-RP (Motion Diffusion)
+### 20. Kimodo-SOMA-RP (Motion Diffusion)
 
 | Metric | Value |
 |--------|-------|
@@ -395,7 +369,7 @@ The unified VACE container in section 12 is the primary path for **both** T2V an
 | **API** | `POST /generate` (JSON: prompt, num_frames, num_denoising_steps, seed, cfg_weight, post_processing, variant) → NPZ binary. Headers: `X-Inference-Time-S`, `X-Num-Frames`, `X-Num-Steps`, `X-Tensor-Keys`. Also `GET /health`, `POST /load`. |
 | **Status** | ✅ PASS — three runs verified (cold 25-step, warm 25-step, full-quality 100-step). Output is valid SMPL-H motion data directly compatible with the existing HY-Motion SMPL-H format. |
 
-### 22a. HY-Motion 1.0 / 1.0-Lite (Text-to-3D Human Motion)
+### 20a. HY-Motion 1.0 / 1.0-Lite (Text-to-3D Human Motion)
 
 | Metric | Value |
 |--------|-------|
@@ -415,7 +389,7 @@ The unified VACE container in section 12 is the primary path for **both** T2V an
 | **Subprocess fix** | `api_hymotion.py` calls `local_infer.py` via `sys.executable` (not `"python"` — the gpu-all image only has `python3`). |
 | **Status** | ✅ PASS — Lite variant verified. Full HY-Motion-1.0 available via `HYMOTION_MODEL_VARIANT=HY-Motion-1.0`. |
 
-### 22b. TRELLIS.2-4B (Image-to-3D, Native)
+### 20b. TRELLIS.2-4B (Image-to-3D, Native)
 
 | Metric | Value |
 |--------|-------|
@@ -441,7 +415,7 @@ The unified VACE container in section 12 is the primary path for **both** T2V an
 
 
 
-### 23. Boogu-Image-0.1-Edit (T2I + TI2I Editing) — via Omni-VLLM
+### 21. Boogu-Image-0.1-Edit (T2I + TI2I Editing) — via Omni-VLLM
 
 | Metric | Value |
 |--------|-------|
@@ -479,9 +453,11 @@ The unified VACE container in section 12 is the primary path for **both** T2V an
 - Kokoro requires `pip install kokoro misaki num2words spacy phonemizer` and system `espeak-ng`.
 - Tangoflux requires `pip install datasets` for its model loader.
 - Qwen2.5-VL 7B tested as text-only LLM; vision would need `mmproj` file.
-- Qwen-Edit (non-2511) and Ideogram 4 both blocked by serving infrastructure issues, not model availability.
+- Ideogram 4 — previously blocked by serving infrastructure, now ✅ PASS via Omni-VLLM with custom fused-QKV diffusers pipeline (§10).
 - Diarization-Turbo 0.5B GGUF needs re-quantization with `--include-decoder` for TTS support.
-- **29/29 model groups tested** (9 from session 1 + 4 from session 2 + 2 from LLM session + Ideogram 4 + Qwen-Edit + Boogu via Omni-VLLM + Kimodo + HY-Motion + TRELLIS.2 + Wan VACE/T2V/I2V + See-Through). **All pending models from the prior session are now resolved.**
+- VibeVoice-7B TTS removed — superseded by OpenMOSS (Tier A) which serves all MOSS TTS variants (TTS/TTSD/VoiceGenerator/SoundEffect-V2) from one C++/GGML container with an OpenAI-compatible endpoint.
+- Qwen-Edit non-2511 removed — only the latest 2511 variant is kept (§1). The 2511 FP8 weight-only model is the single Qwen-Image-Edit going forward.
+- **21 model entries documented** (sections 1–21). Of these: **18 PASS**, **2 FAIL with OOM** (Cosmos3-Nano §3, LTX-Video §6 — both need upstream FP8 support that doesn't exist yet for 24 GB cards), **1 PARTIAL** (Diarization-Turbo §16 — ASR works, TTS blocked on GGUF re-quantization). **All actionable models from the original backlog are resolved.**
 - **LLM sub-tasks**: 5/5 models tested (Qwen2.5-VL 7B, Qwen3.6-27B, Qwen3.6-35B-A3B, Gemma-4-26B, Gemma-4-31B).
 - **Session 3 (2026-06-18) additions**:
   - **Kimodo-SOMA-RP-v1.1** ✅ — 0.79 s warm / 1.99 s full-quality. LLM2Vec text encoder on CPU (~14 GB RAM), denoiser on GPU (~2 GB VRAM). Validated via `CHECKPOINT_DIR` + `TEXT_ENCODERS_DIR` env vars bypassing HF Hub.

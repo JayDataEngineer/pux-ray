@@ -246,7 +246,7 @@ curl -X POST http://localhost:8051/load \
 3. Use `vllm/vllm-omni:latest` (not fork-v1)
 
 **B. ModelOpt conversion** — Run through user's conversion pipeline to produce
-ModelOpt-format checkpoint (qwen-edit-modelopt-fp8-transformer pattern)
+ModelOpt-format checkpoint (ltx23-fp8-transformer pattern)
 
 **C. ComfyUI fallback** — Use existing ComfyUI infrastructure if available
 
@@ -346,5 +346,4 @@ z-image:
 |-------|------|--------------|
 | kimodo | 3D motion generation | ~4 GB |
 | kokoro | TTS (CPU-capable) | ~2 GB |
-| vibevoice-tts | TTS (VibeVoice-7B) | ~4 GB |
 | see-through | Anime layer decomposition | ~2 GB |

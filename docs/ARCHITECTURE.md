@@ -76,7 +76,6 @@ Catch-all at port 8095 for CPU-friendly and small models.
 |-------|------|-------|
 | kimodo | 3D Motion | Viser interactive |
 | kokoro | TTS | CPU-capable |
-| vibevoice-tts | TTS | VibeVoice-7B |
 | see-through | Anime | Layer decomposition |
 
 ## Model Resolution Flow

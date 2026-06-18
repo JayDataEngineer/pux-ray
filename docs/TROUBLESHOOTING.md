@@ -35,7 +35,7 @@ A. **Use pipeline patch (recommended)** — Monkey-patch Fp8Config to be weight-
    See `scripts/pipeline_qwen_image_edit_plus_patch.py` for example.
 
 B. **Convert to ModelOpt FP8** — Use user's conversion pipeline to produce
-   ModelOpt-format checkpoint (qwen-edit-modelopt-fp8-transformer pattern).
+   ModelOpt-format checkpoint (ltx23-fp8-transformer pattern).
 
 C. **Use latest image** — `vllm/vllm-omni:latest` may have different Triton version
    (not verified if tl.dot supports fp8e4nv there).
