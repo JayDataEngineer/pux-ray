@@ -201,7 +201,7 @@ async def tts_speak(
     # ── MOSS TTS: GPU voice cloning with full sampling control ──────────
     if engine == "moss_tts":
         payload: dict[str, Any] = {
-            "service": "wan2gp",
+            "service": "moss_tts",
             "model": "moss-tts",
             "text": text,
             "language": language,
@@ -227,7 +227,7 @@ async def tts_speak(
     # ── IndexTTS: GPU voice cloning ──────────────────────────────────────
     if engine == "index_tts":
         return await forge.invoke({
-            "service": "wan2gp",
+            "service": "index_tts",
             "model": "index_tts/v2",
             "text": text,
         })

@@ -58,7 +58,7 @@ async def transcribe(
 
     if engine == "vibevoice":
         payload: dict[str, Any] = {
-            "service": "wan2gp",
+            "service": "vibevoice_asr",
             "model": "vibevoice_asr",
             "audio_b64": audio_b64,
         }
@@ -66,7 +66,7 @@ async def transcribe(
             payload["language"] = language
     else:
         payload = {
-            "service": "wan2gp",
+            "service": "faster_whisper",
             "model": "faster_whisper",
             "audio_b64": audio_b64,
         }
@@ -127,7 +127,7 @@ async def generate_sound(
     forge = _forge(ctx)
 
     payload: dict[str, Any] = {
-        "service": "wan2gp",
+        "service": "moss_soundeffect",
         "model": "moss/moss-soundeffect",
         "prompt": prompt,
         "duration": duration_seconds,
@@ -254,7 +254,7 @@ async def generate_music(
         actual_prompt = GENRE_PRESETS[genre_preset]
 
     payload: dict[str, Any] = {
-        "service": "wan2gp",
+        "service": "ace_step",
         "model": model_map.get(model, "tts/ace_step_v1_5"),
         "prompt": actual_prompt,
         "lyrics": lyrics or "",
@@ -366,7 +366,7 @@ async def voice_creator(
         model_name = "moss-tts-v1.5"
 
     payload = {
-        "service": "wan2gp",
+        "service": "moss_voicegenerator",
         "model": model_name,
         "text": text,
         "language": language,
@@ -502,7 +502,7 @@ async def voice_creator_batch(
                 model_name = "moss-tts-v1.5"
 
             payload = {
-                "service": "wan2gp",
+                "service": "moss_voicegenerator",
                 "model": model_name,
                 "text": text,
                 "language": language,
@@ -580,7 +580,7 @@ async def generate_batch(
             negative_prompt = req.get("negative_prompt")
 
             payload = {
-                "service": "wan2gp",
+                "service": "anima",
                 "model": model,
                 "prompt": prompt,
                 "width": width,
@@ -642,7 +642,7 @@ async def generate_music_batch(
             audio_top_p = req.get("audio_top_p", 0.9)
 
             payload = {
-                "service": "wan2gp",
+                "service": "ace_step",
                 "model": "ace_step",
                 "prompt": prompt,
                 "duration": duration_seconds,
@@ -700,7 +700,7 @@ async def generate_sound_batch(
             max_new_tokens = req.get("max_new_tokens", 4096)
 
             payload = {
-                "service": "wan2gp",
+                "service": "moss_soundeffect",
                 "model": "moss/moss-soundeffect",
                 "prompt": prompt,
                 "duration": duration_seconds,

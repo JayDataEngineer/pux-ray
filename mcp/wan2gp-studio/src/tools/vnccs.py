@@ -170,7 +170,7 @@ async def edit(
             assembled_prompt += f"\n{user_prompt}"
 
         return await client.invoke({
-            "service": "wan2gp",
+            "service": "native",
             "model": "qwen-image-edit",
             "input_prompt": assembled_prompt,
             "reference_images": [image_b64],

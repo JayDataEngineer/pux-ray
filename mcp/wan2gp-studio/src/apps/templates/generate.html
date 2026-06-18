@@ -21,7 +21,7 @@
   <div class="field">
     <label>Model</label>
     <select id="model">
-      <option value="wan2gp">Wan2GP (Video)</option>
+      <option value="native">Native Pool (Image/Video)</option>
       <option value="flux">Flux (Image)</option>
       <option value="hunyuan">Hunyuan (Video)</option>
       <option value="trellis">TRELLIS (3D Mesh)</option>
@@ -48,7 +48,7 @@
     result.className = 'result';
     result.innerHTML = 'Loading...';
     try {
-      const args = { service: 'wan2gp', params: { model: document.getElementById('model').value, prompt: document.getElementById('prompt').value } };
+      const args = { service: document.getElementById('model').value, params: { prompt: document.getElementById('prompt').value } };
       const seed = document.getElementById('seed').value;
       if (seed) args.params.seed = parseInt(seed);
       const resp = await window.__mcp.callTool('run', args);

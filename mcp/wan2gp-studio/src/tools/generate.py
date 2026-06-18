@@ -2,7 +2,7 @@
 
 Routes to /v1/run which handles:
   - Named DAG pipelines: {"pipeline": "vnccs/pose-edit", "params": {...}}
-  - Single service calls: {"service": "wan2gp", "model": "z_image", ...}
+  - Single service calls: {"service": "native", "model": "z_image", ...}
 
 Provide either pipeline or service, not both. Params are passed through.
 """
@@ -80,7 +80,7 @@ async def run(
     """Run any DAG pipeline or registered service. Single entry point for all inference.
 
     Use pipeline= for multi-step DAGs (pose-edit, generate, video).
-    Use service= + model= for single-model calls (wan2gp with z_image, ltx2, etc).
+    Use service= + model= for single-model calls (native with z_image, ltx2, etc).
 
     Returns standard dict with status and data/media_type fields.
     """

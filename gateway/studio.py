@@ -102,15 +102,7 @@ STUDIO_APPS: dict[str, dict] = {
         "manage_type": "scheduler",
         "default_model": "index_tts",
     },
-    "qwen_tts": {
-        "label": "Qwen3-TTS",
-        "url": None,
-        "has_ui": False,
-        "category": "TTS",
-        "gpu": True,
-        "manage_type": "scheduler",
-        "default_model": "qwen_tts",
-    },
+    # qwen_tts removed — superseded by MOSS VoiceGenerator (Tier A) + Kokoro (Tier D)
     "vibevoice_community_tts": {
         "label": "VibeVoice Community TTS (7B)",
         "url": None,
