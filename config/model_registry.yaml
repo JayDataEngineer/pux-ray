@@ -1585,7 +1585,7 @@ served-models:
     status: active
     type: service
   ideogram4:
-    description: Ideogram 4.0 — typography-aware text-to-image generation via SGLang-Diffusion
+    description: Ideogram 4.0 — typography-aware text-to-image via Omni-VLLM (custom diffusers pipeline with fused QKV injection)
     pool_ref: image-gen/ideogram-4-nf4
     path: cache/huggingface/models--ideogram-ai--ideogram-4-nf4/
     size_gb: 16.0
@@ -1593,6 +1593,7 @@ served-models:
     status: active
     device: gpu
     vram_estimate_gb: 16.0
+    primary_pool: omni-vllm
   kimodo:
     description: Kimodo-SOMA-RP kinematic motion diffusion (served via diffusers pool)
     pool_ref: avatar/kimodo-soma-rp

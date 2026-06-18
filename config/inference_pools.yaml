@@ -244,6 +244,7 @@ pools:
       - cosmos                   # Cosmos3-Nano (PoC — anima-base replaces)
       - anima-base               # Cosmos-Predict2 anime T2I (replaces cosmos slot)
       - ltx-video                # LTX-2.3 FP8 fallback (primary is SGLang)
+      - ideogram4                # Ideogram 4 NF4 — custom diffusers pipeline with QKV injection
     vram_mb: 22000
     health_path: /health
     # Per-model launch config. The "script" points at an existing launcher
@@ -317,6 +318,18 @@ pools:
           bn_compute_blocks: 0
           max_warmup_steps: 4
         note: "Same omni-vllm pipeline as z-image-turbo but non-distilled base checkpoint. 50-step, higher quality."
+      ideogram4:
+        script: infra/docker/serve_ideogram4_omni.sh
+        patch: infra/docker/api_ideogram4.py
+        model_dir: /mnt/data/models/image-gen/ideogram4-nf4
+        registry_ref: served-models/ideogram4
+        api:
+          generate: POST /v1/images/generations
+        optimization:
+          quant: nf4                    # NF4 via bitsandbytes
+          vae_tiling: true
+          vae_slicing: true
+        note: "Ideogram 4 NF4 — custom diffusers pipeline with fused QKV weight injection. Peak VRAM ~16.8 GB at 1024×1024."
       wan-t2v:
         script: scripts/run_omni_wan_t2v.sh
         api:
@@ -536,7 +549,7 @@ routes:
   ace-step-xl-base:        { primary: ace-step }
 
   # ── Tier C — SGLang-exclusive (or SGLang-primary) ─────────────────────────
-  ideogram4:               { primary: sglang }
+  ideogram4:               { primary: omni-vllm }
   ltx-video:
     primary: sglang
     fallback: [omni-vllm]       # vLLM-Omni v0.22+ LTX-2.3 support (dual-engine)

@@ -159,15 +159,22 @@ All times are wall-clock measured from client-side. VRAM usage from `nvidia-smi`
 
 | Metric | Value |
 |--------|-------|
-| **Engine** | SGLang (lmsysorg/sglang:latest) |
-| **Quantization** | NF4 (bitsandbytes) |
+| **Engine** | Omni-VLLM (forge-reg.local:30500/tech-noir/vllm-omni:fork) — custom diffusers pipeline |
+| **Quantization** | NF4 (bitsandbytes Params4bit/Linear4bit) |
 | **Source** | Gated — HF token accepted |
-| **Model on disk** | Yes — 15 GB downloaded to `/mnt/data/models/cache/huggingface/models--ideogram-ai--ideogram-4-nf4/` |
-| **VRAM** | ~11 GB (text_encoder 5.5GB + transformer 4.9GB + unconditional_transformer 4.9GB) |
-| **Load time** | Failed — `diffusers` in SGLang container (0.39.0.dev0) lacks `Ideogram4Transformer2DModel` class |
-| **Root cause** | The `lmsysorg/sglang:latest` image ships an older `diffusers` that doesn't include the Ideogram 4 pipeline components. Ideogram 4 requires `diffusers>=0.33` with `Ideogram4Transformer2DModel`. Need to either: (a) upgrade diffusers in the container, (b) build custom SGLang image with latest diffusers, or (c) use a different serving approach. |
-| **Resolution** | Build custom SGLang image with `pip install --upgrade diffusers` or use `forge-reg.local:30500/tech-noir/gpu-all:natten-0.21.5` as base with SGLang installed fresh. |
-| **Status** | ❌ FAIL (diffusers version mismatch) |
+| **Model on disk** | Yes — 16 GB at `/mnt/data/models/image-gen/ideogram4-nf4/` (diffusers format) |
+| **VRAM (load)** | ~16.8 GB peak at 1024×1024 (fits RTX 4090 24 GB comfortably) |
+| **VRAM (idle)** | ~11 GB (text_encoder 5.5 GB + transformer ~4.9 GB + unconditional_transformer ~4.9 GB) |
+| **Load time (cold)** | ~8 seconds (first load with diffusers>=0.39.0.dev0) |
+| **Inference (1024×1024, 20 steps)** | ~34 seconds (~1.74 s/step) |
+| **Inference (512×512, 4 steps)** | ~3 seconds |
+| **Output** | 1024×1024 RGB PNG — high quality, typography-aware, good composition |
+| **Key discovery** | Checkpoint uses **fused QKV weights** (`layers.X.attention.qkv.weight` [13824, 4608]) but diffusers `Ideogram4Attention` expects separate `to_q/to_k/to_v` each [4608,4608]. Custom weight injection required: dequantize → split 3 ways → create new `Params4bit` → `_quantize()`. Total 558 Linear4bit modules packed on CUDA across both transformers. |
+| **Monkey-patch needed** | `torch.nn.Module._apply` — `dispatch_model()` calls `.to(device)` on meta tensors which fails on `Params4bit`. Patch returns `self` for `NotImplementedError("meta tensor")`. |
+| **Dependencies** | `diffusers>=0.39.0.dev0` from `git+https://github.com/huggingface/diffusers.git@main`, `bitsandbytes`, `safetensors`. The vllm-omni:fork image has all deps pre-installed. |
+| **Launcher** | `infra/docker/serve_ideogram4_omni.sh` — runs `api_ideogram4.py` inside vllm-omni container |
+| **API** | `POST /v1/images/generations` — same pattern as other omni-vllm image models |
+| **Status** | ✅ PASS (Omni-VLLM)
 
 ### 11. Tangoflux (Text-to-Audio)
 
