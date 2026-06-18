@@ -55,15 +55,16 @@ pools:
     port: 8050
     framework: openmoss
     description: >-
-      OpenMOSS TTS (pwilkin/openmoss) — C++/GGML port of MOSS-TTS-Delay.
+      OpenMOSS (pwilkin/openmoss) — C++/GGML port of MOSS-TTS-Delay.
       Qwen3-8B backbone + 32 RVQ audio codebooks + 1.6B pure-transformer audio codec.
+      Serves ALL MOSS model types: TTS, TTSD, VoiceGenerator, and SoundEffect.
       OpenAI-compatible /v1/audio/speech endpoint. Voice cloning via reference WAV.
-      GGUF format models mounted from host. Built from source with CUDA.
-      Does NOT handle sound effects (moss-soundeffect-v2 is orphaned — no pool serves it).
+      GGUF format models from host. Built from source with CUDA.
     models:
       - moss-tts
       - moss-ttsd
       - moss-voicegenerator
+      - moss-soundeffect-v2
     vram_mb: 15000
     health_path: /health
     volumes:
@@ -483,11 +484,11 @@ pools:
 # skipped if (a) it doesn't actually serve the model, or (b) it's unhealthy.
 # A model served by only one pool has an empty fallback list.
 routes:
-  # ── Tier A — OpenMOSS (TTS only — C++/GGML, OpenAI-compatible endpoint) ────
+  # ── Tier A — OpenMOSS (all MOSS model types — C++/GGML, OpenAI-compatible endpoint) ────
   moss-tts:                { primary: openmoss }
   moss-ttsd:               { primary: openmoss }
   moss-voicegenerator:     { primary: openmoss }
-  # moss-soundeffect-v2 is orphaned — no pool serves it (was custom Python pipeline, deleted).
+  moss-soundeffect-v2:     { primary: openmoss }
   # moss-soundeffect, moss-tts-realtime, moss-tts-local-transformer, moss-tts-nano: legacy, not served.
   # ── Tier A — Diarization / Whisper (CrispASR handles all ASR/transcription)
   diarization:             { primary: diarization }        # default = base

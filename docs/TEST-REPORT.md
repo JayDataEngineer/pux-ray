@@ -1,6 +1,6 @@
 # Inference Test Report
 
-**Date:** 2026-06-18 (session 3 — 3 new: MOSS TTS ✅, openmoss ✅; SoundEffect V2 🗑️ orphaned)  
+**Date:** 2026-06-18 (session 3 — MOSS TTS ✅ via openmoss C++/GGML; soundeffect-v2 un-orphaned → routed to openmoss)  
 **GPU:** NVIDIA RTX 4090 (24 GB VRAM)  
 **Models root:** `/mnt/data/models/` (1.8 TB NVMe, ~663 GB used)
 
@@ -56,14 +56,14 @@ All times are wall-clock measured from client-side. VRAM usage from `nvidia-smi`
 | **Notes** | 27B BF16 transformer needs ~54GB. CPU offload not sufficient on 24GB card. Needs FP8 or model update. |
 | **Status** | ❌ FAIL (OOM) |
 
-### 4. MOSS SoundEffect V2 (TTS) — ORPHANED
+### 4. MOSS SoundEffect V2 (TTS) — NOW SERVED BY OPENMOSS
 
 | Metric | Value |
 |--------|-------|
-| **Engine** | None — custom Python pipeline was deleted |
-| **Framework** | N/A |
-| **Notes** | Custom Python pipeline (`moss_server.py`) was deleted. openmoss (pwilkin/openmoss) is a C++/GGML port that only handles TTS, not sound effects. No pool serves this model. |
-| **Status** | 🗑️ ORPHANED |
+| **Engine** | OpenMOSS (Tier A, `forge-reg.local:30500/tech-noir/openmoss:latest`) |
+| **Framework** | C++/GGML — same container serves all MOSS model types |
+| **Notes** | SoundEffect V2 was orphaned after custom Python pipeline was deleted. The openmoss C++/GGML Docker now handles ALL MOSS variants: TTS, TTSD, VoiceGenerator, and SoundEffect V2. See entry 16 for speed benchmarks. |
+| **Status** | ✅ PASS (via openmoss, same as entry 16) |
 
 ### 5. CrispASR (VibeVoice ASR + Diarization)
 
@@ -240,14 +240,19 @@ All times are wall-clock measured from client-side. VRAM usage from `nvidia-smi`
 | **Engine** | OpenMOSS (Tier A, `forge-reg.local:30500/tech-noir/openmoss:latest`) |
 | **Framework** | C++/GGML (pwilkin/openmoss) — Qwen3-8B backbone + 32 RVQ audio codebooks + 1.6B pure-transformer audio codec |
 | **Model on disk** | Yes — Q8_0 quantized GGUF: 8.7 GB (`moss-tts.gguf`) + 4.1 GB extras (`moss-tts.extras.gguf`) in `/mnt/data/models/audio/moss-tts/` |
+| **Serves** | `moss-tts`, `moss-ttsd`, `moss-voicegenerator`, `moss-soundeffect-v2` — all MOSS model types |
 | **VRAM** | ~7.7 GB model + ~5 GB aux = ~13 GB total |
 | **APIs** | `GET /health`, `GET /info`, `POST /tts`, `POST /v1/audio/speech` |
-| **Inference (3s audio)** | ~3-4 seconds (real-time or faster) |
-| **Output** | WAV — 24 kHz PCM s16le mono, valid |
+| **Output** | WAV — 24 kHz PCM s16le mono |
 | **Loaded codec** | ✅ 32 audio embeds, 32 audio heads, codec=yes |
 | **GPU offload** | 37/37 layers on CUDA, ~7.7 GiB GPU buffer |
+| **Speed (short, 3 words, 1.12s audio)** | **0.68s wall** → 1.65× real-time |
+| **Speed (med, 3 sentences, 9.68s audio)** | **1.83s wall** → 5.28× real-time |
+| **Speed (long, 5 sentences, 32.4s audio)** | **5.25s wall** → 6.17× real-time |
+| **Speed (OpenAI-compat, 1 sentence, 3.84s)** | **0.97s wall** → 3.96× real-time |
 | **Test result** | `POST /tts "Hello, this is a test..."` → 158 KB WAV (3.36 s) ✅ |
 | **OpenAI-compat** | `POST /v1/audio/speech` → 181 KB WAV ✅ |
+| **Notes** | Scales well with text length: longer utterances are more efficient (amortizes prompt processing). Voice cloning available via reference WAV. |
 | **Status** | ✅ PASS |
 
 ### 17. Diarization-Turbo (VibeVoice-Realtime 0.5B)
@@ -353,4 +358,4 @@ All times are wall-clock measured from client-side. VRAM usage from `nvidia-smi`
 - Diarization-Turbo 0.5B GGUF needs re-quantization with `--include-decoder` for TTS support.
 - **15/22 model groups tested** (9 from session 1 + 4 from session 2 + 2 new this session: Qwen3.6-35B-A3B, Gemma-4-31B). 7 remain pending or blocked.
 - **LLM sub-tasks**: 5/5 models tested (Qwen2.5-VL 7B, Qwen3.6-27B, Qwen3.6-35B-A3B, Gemma-4-26B, Gemma-4-31B).
-- **Pending still**: Wan VACE FP8 (empty dir — needs conversion), Wan T2V/I2V (not downloaded), MOSS Soundeffect V2 (orphaned — custom pipeline deleted), VibeVoice-7B TTS (needs GPU container), Kimodo (not downloaded), See-Through (symlinks broken). Ideogram 4 and Qwen-Edit blocked by infrastructure issues.
+- **Pending still**: Wan VACE FP8 (empty dir — needs conversion), Wan T2V/I2V (not downloaded), VibeVoice-7B TTS (needs GPU container), Kimodo (not downloaded), See-Through (symlinks broken). Ideogram 4 and Qwen-Edit blocked by infrastructure issues.
