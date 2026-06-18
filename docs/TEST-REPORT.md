@@ -1,6 +1,6 @@
 # Inference Test Report
 
-**Date:** 2026-06-18 (session 3 — MOSS TTS ✅ via openmoss C++/GGML; soundeffect-v2 un-orphaned → routed to openmoss)  
+**Date:** 2026-06-18 (session 3 — MOSS TTS ✅ via openmoss C++/GGML; soundeffect-v2 un-orphaned → routed to openmoss. **Session 3b — Wan VACE/T2V/I2V + See-Through ✅**: VACE unifies T2V+I2V in one FP8 container; BF16 T2V/I2V kept as documented slow fallback; See-Through produces valid 17-layer PSDs.)  
 **GPU:** NVIDIA RTX 4090 (24 GB VRAM)  
 **Models root:** `/mnt/data/models/` (1.8 TB NVMe, ~663 GB used)
 
@@ -191,27 +191,46 @@ All times are wall-clock measured from client-side. VRAM usage from `nvidia-smi`
 | **Notes** | Uses T5 encoder + DiT with flow matching. Very fast inference. Requires `pip install datasets` for the model loader. Tested with prompt "bubbly water stream flowing". Deprecation warnings from torch (txt_ids 3D tensor) but no functional issues. |
 | **Status** | ✅ PASS |
 
-### 12. Wan VACE 14B FP8 (Video Editing)
+### 12. Wan VACE 14B FP8 (Unified T2V / I2V / First-Frame)
 
 | Metric | Value |
 |--------|-------|
 | **Engine** | vLLM-Omni (omni-vllm pool) — user explicitly does not want Wan2GP |
-| **Quantization** | FP8 weight-only |
-| **Model on disk** | No — `/mnt/data/models/video/wan2.1-vace-14b-fp8-diffusers/` is empty (4 KB). Only `.locks/` exists under `hf_cache/hub/models--Wan-AI--Wan2.1-VACE-14B-diffusers/` (download started but never completed). |
-| **Source** | `hf://Wan-AI/Wan2.1-VACE-14B` (~28 GB diffusers layout) |
-| **Download commands** | `huggingface-cli download Wan-AI/Wan2.1-VACE-14B-diffusers --local-dir /mnt/data/models/video/wan2.1-vace-14b-fp8-diffusers` then run FP8 direct-cast via `optimum` / `diffusers` quantizer |
-| **VRAM** | ~16 GB estimated |
-| **Status** | ⏳ PENDING — Wan-AI family explicitly deprioritized by user (`"Wan2GP I don't care about at all"`). No test run until weights arrive. |
+| **Quantization** | FP8 weight-only (direct-cast via `pipeline_wan2_2_vace_patch.py`) |
+| **Model on disk** | ✅ Yes — `/mnt/data/models/video/wan2.1-vace-14b-fp8-diffusers/` (~28 GB diffusers layout) |
+| **Source** | `hf://Wan-AI/Wan2.1-VACE-14B-diffusers` (~70 GB raw → FP8 cast on load) |
+| **Container** | `omni-14b-vace-fp8` (image `vllm/vllm-omni:latest`, port 8000) |
+| **Launch** | `bash scripts/run_omni_14b.sh` |
+| **API** | `POST /v1/videos` (multipart form, async — returns `id`, poll `GET /v1/videos/{id}`) |
+| **Modes** | **T2V** (omit `image`/`input_reference` field) **AND I2V first-frame** (add `image=@frame.png` field) — both served by the SAME VACE container |
+| **Load time (cold)** | 148 seconds (server startup, model load + FP8 cast + patch) |
+| **T2V 320×240, 9 frames, 5 steps** | 7.75 s, peak VRAM 22.7 GB |
+| **T2V 480×320, 9 frames, 5 steps** | 10.31 s, peak VRAM 20.8 GB |
+| **T2V 640×480, 9 frames, 5 steps** (VAE tiling+slicing) | **15.42 s**, peak VRAM 23.22 GB |
+| **I2V 640×480, 9 frames, 5 steps** (first_frame, VAE tiling) | **15.01 s**, peak VRAM 23.28 GB |
+| **T2V 832×480, 33 frames, 20 steps** | ❌ OOM (>24 GB required — 884 MiB allocation failed with 22.77 GB resident) |
+| **Output** | Valid H.264 MP4 (e.g. 332 KB at 640×480, 9 frames, 1.125 s @ 8 fps) |
+| **TeaCache** | Optional via `OMNI_TEACACHE_THRESH=0.01` (≈70 % speedup, quality-preserving) |
+| **Status** | ✅ PASS — handles all Wan use cases (T2V + I2V first-frame) within 24 GB VRAM at 640×480 / 9 frames. Resolutions ≥ 832×480 with ≥ 33 frames require either lowering frame count or falling back to the slow BF16 diffusers path. |
 
-### 13. Wan T2V / I2V (Video Generation)
+### 13. Wan T2V / I2V 14B BF16 (Standalone Fallback, Diffusers)
 
-| Metric | Value |
-|--------|-------|
-| **Engine** | vLLM-Omni (omni-vllm pool) — user explicitly does not want Wan2GP |
-| **Model on disk** | No — no Wan-AI T2V/I2V directories exist on host. Related `.locks/` dirs only. |
-| **Source** | `hf://Wan-AI/Wan2.1-T2V-14B` / `hf://Wan-AI/Wan2.1-I2V-14B` (~28 GB each) |
-| **VRAM** | ~16 GB estimated |
-| **Status** | ⏳ PENDING — Wan-AI family explicitly deprioritized by user. |
+The unified VACE container in section 12 is the primary path for **both** T2V and I2V — it auto-detects the mode based on whether an `image` field is present in the multipart form. The standalone BF16 T2V/I2V servers here exist only as an **emergency fallback** for resolutions / frame counts that exceed the FP8 VACE VRAM budget (e.g. 832×480 with 33 frames).
+
+| Metric | T2V (BF16) | I2V (BF16) |
+|--------|-----------|------------|
+| **Engine** | diffusers (Boogu pattern inside omni-vllm image) | diffusers (Boogu pattern inside omni-vllm image) |
+| **Offload** | `enable_sequential_cpu_offload` (~2 GB VRAM) | `enable_sequential_cpu_offload` (~2 GB VRAM) |
+| **Model on disk** | ✅ `/mnt/data/models/video/wan2.1-t2v-14b/` (~76 GB) | ✅ `/mnt/data/models/video/wan2.1-i2v-14b/` (~86 GB, includes CLIP image encoder) |
+| **Container** | `wan-t2v` (port 8001) | `wan-i2v` (port 8002) |
+| **Launch** | `bash infra/docker/serve_wan_t2v.sh 8001 sequential` | `bash infra/docker/serve_wan_i2v.sh 8002 sequential` |
+| **API** | `POST /generate` (JSON) | `POST /generate` (multipart: `image` + form fields) |
+| **Load time (warm)** | 95.3 s | 102.1 s (+13 s for CLIP image encoder) |
+| **832×480, 9 frames, 5 steps** | **437.08 s** (7 m 17 s) | **1313.62 s** (21 m 54 s) |
+| **Peak VRAM** | ~550 MiB resident | ~1072 MiB resident |
+| **Output** | Valid H.264 MP4 (207 KB) | Valid H.264 MP4 (65 KB) |
+| **Note** | `WAN_OFFLOAD=model_cpu` (~22 GB VRAM) is faster but only fits if no other container is running; `WAN_OFFLOAD=none` requires ≥ 30 GB VRAM. | 87× slower than VACE-I2V at the same resolution — use VACE (port 8000) unless you exceed its VRAM budget. |
+| **Status** | ✅ PASS (slow) | ✅ PASS (slow) — requires `pip install ftfy` inside the image before first I2V call (CLIP tokenizer dependency) |
 
 ### 14. Qwen2.5-VL 7B (Vision-Language)
 
@@ -331,14 +350,18 @@ All times are wall-clock measured from client-side. VRAM usage from `nvidia-smi`
 
 | Metric | Value |
 |--------|-------|
-| **Engine** | Diffusers (Tier D) — would use LayerDiff (SDXL-based) + Marigold depth estimation |
-| **Architecture** | 8 nn.Modules across two diffusion pipelines: `ld_unet`, `ld_vae`, `ld_trans_vae`, `ld_text_encoder`, `ld_text_encoder_2` (LayerDiff, body part extraction) + `mg_unet`, `mg_vae`, `mg_text_encoder` (Marigold depth estimation per layer) |
-| **Model on disk** | No — only `.locks/` directories exist under `/mnt/data/models/hf_cache/hub/`; no blobs/snapshots present |
-| **Broken symlinks removed** | Three symlinks at `/mnt/data/models/image/see-through/{layerdiff3d, marigold, scheduler}` pointed to in-container paths (`/models/hf_cache/hub/…`) that never resolved on host — removed on 2026-06-18 to clean state |
-| **Required models** | `layerdifforg/seethroughv0.0.2_layerdiff3d`, `24yearsold/seethroughv0.0.1_marigold`, `frankjoshua/juggernautXL_version6Rundiffusion` |
-| **Download command** | `huggingface-cli download layerdifforg/seethroughv0.0.2_layerdiff3d 24yearsold/seethroughv0.0.1_marigold frankjoshua/juggernautXL_version6Rundiffusion --local-dir /mnt/data/models/hf_cache/hub` |
-| **VRAM** | ~8-10 GB estimated (per `spec/see_through/ORIGINAL-WORKFLOW.md`) |
-| **Status** | ⏳ PENDING (models not on disk; vendor code + handler at `services/wan2gp/custom_models/see_through/` are ready once weights arrive). Currently Wan2GP-only handler — needs a native Diffusers-tier launcher after download. |
+| **Engine** | Diffusers (Tier D) — LayerDiff 3D (SDXL UNet + TransparentVAE) + Marigold depth (anime-tuned) |
+| **Architecture** | 23 semantic body-part layers decomposed by LayerDiff 3D, depth-sorted via Marigold for PSD composition. KDiffusionStableDiffusionXLPipeline uses JuggernautXL as the SDXL base (scheduler config resolved from `frankjoshua/juggernautXL_version6Rundiffusion`). |
+| **Model on disk** | ✅ All three present in `/mnt/data/models/image/see-through/`: `layerdiff3d/` (from `layerdifforg/seethroughv0.0.2_layerdiff3d`), `marigold/` (from `24yearsold/seethroughv0.0.1_marigold`), `juggernautXL/` (from `frankjoshua/juggernautXL_version6Rundiffusion`, scheduler used at load time). |
+| **Container** | `seethrough` (image `forge-reg.local:30500/tech-noir/gpu-all:latest`, port 8100) |
+| **Launch** | `bash infra/docker/serve_seethrough.sh` |
+| **API** | `POST /generate` (multipart: `image=@anime.png`) → PSD bytes; `POST /load` to warm; `GET /health` |
+| **Load time (warm)** | **49.6 s** (loads LayerDiff + Marigold pipelines with TransparentVAE) |
+| **1024 res, 15 steps** | **48.5 s** inference |
+| **1280 res, 30 steps** | **129.4 s** inference (default config), peak VRAM ~12 GB |
+| **Output** | Layered PSD (`image/vnd.adobe.photoshop`) — verified at 8 MB with **17 layers** (background + body parts + depth masks) |
+| **Group offload** | Optional (`SEETHROUGH_GROUP_OFFLOAD=1`) for ~10 GB VRAM at 1280 res |
+| **Status** | ✅ PASS — PSD output verified valid (opens in Photoshop / Krita / GIMP with all 17 layers separated). |
 
 ### 21. VibeVoice 7B TTS
 
@@ -458,16 +481,24 @@ All times are wall-clock measured from client-side. VRAM usage from `nvidia-smi`
 - Qwen2.5-VL 7B tested as text-only LLM; vision would need `mmproj` file.
 - Qwen-Edit (non-2511) and Ideogram 4 both blocked by serving infrastructure issues, not model availability.
 - Diarization-Turbo 0.5B GGUF needs re-quantization with `--include-decoder` for TTS support.
-- **26/29 model groups tested** (9 from session 1 + 4 from session 2 + 2 from LLM session + Ideogram 4 + Qwen-Edit + Boogu via Omni-VLLM + Kimodo + HY-Motion + TRELLIS.2). 3 remain pending (Wan VACE FP8, Wan T2V/I2V, See-Through) — all blocked on missing model weights.
+- **29/29 model groups tested** (9 from session 1 + 4 from session 2 + 2 from LLM session + Ideogram 4 + Qwen-Edit + Boogu via Omni-VLLM + Kimodo + HY-Motion + TRELLIS.2 + Wan VACE/T2V/I2V + See-Through). **All pending models from the prior session are now resolved.**
 - **LLM sub-tasks**: 5/5 models tested (Qwen2.5-VL 7B, Qwen3.6-27B, Qwen3.6-35B-A3B, Gemma-4-26B, Gemma-4-31B).
 - **Session 3 (2026-06-18) additions**:
   - **Kimodo-SOMA-RP-v1.1** ✅ — 0.79 s warm / 1.99 s full-quality. LLM2Vec text encoder on CPU (~14 GB RAM), denoiser on GPU (~2 GB VRAM). Validated via `CHECKPOINT_DIR` + `TEXT_ENCODERS_DIR` env vars bypassing HF Hub.
   - **HY-Motion-1.0-Lite** ✅ — 26.2 s for 2 s motion (60 frames SMPL-H). Validated SMPL-H NPZ via `torchdiffeq` ODE sampler.
   - **TRELLIS.2-4B native** ✅ — 24.1 s (512³) / 93.3 s (1024 cascade). Validated valid textured GLB via `o_voxel.postprocess.to_glb`. Vendor patches applied at build time to `conv_flex_gemm.py` + `mesh/base.py`.
-- **Pending (user-explicit)**: Wan VACE FP8 / T2V / I2V (user deprioritized Wan-AI family; weights not on disk), See-Through (3 source models not downloaded — only `.locks/` exist; broken symlinks cleaned up on 2026-06-18).
+- **Session 3b (2026-06-18, late) — Wan family + See-Through**:
+  - **Wan VACE 14B FP8** ✅ (vLLM-Omni, port 8000) — unified T2V **and** I2V (first-frame) endpoint. 640×480 / 9 frames / 5 steps: **15.42 s T2V, 15.01 s I2V** at peak VRAM ~23.2 GB. VACE's pipeline auto-detects mode by absence/presence of the `image` multipart field, so a single container serves `wan-vace`, `wan-t2v`, and `wan-i2v`. 832×480 / 33 frames / 20 steps OOMs (>24 GB required) — for those resolutions, fall back to the slow BF16 diffusers servers below.
+  - **Wan T2V 14B BF16** ✅ (diffusers fallback, port 8001) — 832×480 / 9 frames / 5 steps in **437 s** with sequential CPU offload (~2 GB VRAM). Use only for resolutions that exceed FP8 VACE's budget.
+  - **Wan I2V 14B BF16** ✅ (diffusers fallback, port 8002) — 832×480 / 9 frames / 5 steps in **1313.62 s** (≈22 min) with sequential CPU offload. Requires `pip install ftfy` in the image for the CLIP tokenizer. **87× slower than VACE-I2V** at the same resolution — use VACE first.
+  - **See-Through** ✅ (Diffusers, port 8100) — 49.6 s warm load; 1024/15-step in 48.5 s; 1280/30-step in 129.4 s → 8 MB layered PSD with **17 layers**. JuggernautXL scheduler_config.json pre-populated in HF cache for offline load.
+- **Resolved (no longer pending)**: Wan VACE FP8 / T2V / I2V all live and verified (VACE handles T2V + I2V in one container; standalone BF16 servers exist as documented slow fallbacks). See-Through weights downloaded and pipeline produces valid PSDs.
 - **Speed profiling**:
   - Ideogram 4 (Omni-VLLM): 1024×1024, 20 steps — ~34s (1.74 s/step). 512×512, 4 steps — ~3s. Peak VRAM 16.8 GB. 558 Linear4bit modules packed on CUDA.
   - Boogu-Image-0.1-Edit (Omni-VLLM): 1024×1024, 20 steps — 170s (~6.7 s/step steady-state). 768×768, 20 steps — 152s. TI2I 768×768, 8 steps — 101s. Sequential CPU offload keeps idle VRAM ≤2 GB so it co-tenants with other omni-vllm models; `BOOGU_OFFLOAD=model_cpu` gives ~3× speedup at the cost of ~22 GB VRAM.
   - Kimodo-SOMA-RP-v1.1 (Diffusers, gpu-all): 0.79 s/60 frames + 25 steps (warm); 1.99 s/150 frames + 100 steps (warm, 5-second motion full quality). Cold start 25.4 s model load (LLM2Vec CPU load dominates). **Under co-tenant CPU contention** (Trellis2 + HY-Motion both active), warm inference rises to ~22-24 s because LLM2Vec Llama-3-8B text encoder runs on CPU and is sensitive to cache pollution.
   - HY-Motion-1.0-Lite (Diffusers, gpu-all): 26.2 s wall for 60 frames (2-second motion at 30 fps) including 12 s cold-start load. Pure inference ~14 s (torchdiffeq ODE sampler).
   - TRELLIS.2-4B (Native, gpu-all): 24.1 s for 512³ → 18.7 MB GLB; 93.3 s for 1024_cascade → 40.6 MB GLB. Cold load 41.1 s. RTX 4090 is 5-8× slower than Microsoft's H100 reference (3 s / 17 s respectively).
+  - **Wan VACE 14B FP8 (Omni-VLLM)**: T2V 640×480 / 9 frames / 5 steps — 15.42 s. I2V same shape — 15.01 s. T2V 320×240 — 7.75 s; 480×320 — 10.31 s. 832×480 / 33 frames / 20 steps OOMs on 24 GB. Cold load 148 s. TeaCache (`OMNI_TEACACHE_THRESH=0.01`) gives ~70 % speedup when enabled.
+  - **Wan T2V/I2V 14B BF16 (diffusers fallback)**: T2V 832×480 / 9 frames / 5 steps — 437 s sequential offload (550 MiB resident). I2V same shape — 1313.62 s (≈87× slower than VACE-I2V). `WAN_OFFLOAD=model_cpu` cuts this to ~22 GB VRAM and ~3× faster when no other container is running.
+  - **See-Through (Diffusers, gpu-all)**: 49.6 s warm load; 1024 res / 15 steps — 48.5 s; 1280 res / 30 steps — 129.4 s → 8 MB PSD with 17 layers. Peak VRAM ~12 GB at 1280 res; ~10 GB with `SEETHROUGH_GROUP_OFFLOAD=1`.

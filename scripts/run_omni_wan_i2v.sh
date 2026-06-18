@@ -63,9 +63,9 @@ docker run -d --gpus all --ipc=host \
   python3 -m vllm_omni.entrypoints.openai.api_server \
     --model /models/wan-i2v \
     --host 0.0.0.0 --port "$CONTAINER_PORT" \
+    --omni \
     --enforce-eager \
-    --enable-layerwise-offload \
-    --vae-use-tiling \
+    --cpu-offload-gb 20 \
     --dtype auto
 
 echo

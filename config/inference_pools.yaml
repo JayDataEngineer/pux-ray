@@ -280,11 +280,21 @@ pools:
         model_dir: /mnt/data/models/video/wan2.1-vace-14b-fp8-diffusers
         registry_ref: served-models/wan-vace
         api:
-          generate: POST /v1/videos/generations
+          generate: POST /v1/videos                # multipart; add `image=@frame.png` for I2V
+          modes: [T2V, I2V-first-frame]            # auto-detected by image presence
         optimization:
           quant: fp8-weight-only
           teacache_thresh: 0.01        # ~70% speedup, quality-preserving
           cpu_offload_gb: 20
+        benchmark:
+          load_time_s: 148.0           # cold (FP8 cast + pipeline patch)
+          generate_t2v_640x480_9f_5s: 15.42
+          generate_i2v_640x480_9f_5s: 15.01
+          generate_t2v_480x320_9f_5s: 10.31
+          generate_t2v_320x240_9f_5s: 7.75
+          vram_peak_gb: 23.3           # all 640x480 / 9-frame configs
+          # 832x480 / 33 frames / 20 steps OOMs on 24GB — fall back to wan-t2v/wan-i2v BF16
+        note: "Unified container for wan-vace, wan-t2v, wan-i2v. T2V = omit `image`; I2V (first-frame) = add `image`. Always send extra_params={'vae_use_tiling':true,'vae_use_slicing':true}."
       z-image:
         script: scripts/run_omni_z_image_fp8.sh
         patch: scripts/pipeline_z_image_patch.py
@@ -333,13 +343,29 @@ pools:
           vae_slicing: true
         note: "Ideogram 4 NF4 — custom diffusers pipeline with fused QKV weight injection. Peak VRAM ~16.8 GB at 1024×1024."
       wan-t2v:
-        script: scripts/run_omni_wan_t2v.sh
+        # T2V is served by the SAME VACE 14B FP8 container as wan-vace.
+        # VACE's pipeline auto-detects T2V vs I2V by absence/presence of an
+        # input image, so a single vLLM-Omni server handles all three
+        # (wan-vace, wan-t2v, wan-i2v) on port 8000. The dedicated
+        # run_omni_wan_t2v.sh / run_omni_wan_i2v.sh scripts launch a *separate*
+        # 14B BF16 server and are kept only as an emergency fallback for
+        # resolutions > 640x480 that don't fit FP8 VRAM (very slow due to
+        # --cpu-offload-gb 20 on a 28 GB model).
+        alias_of: wan-vace
         api:
-          generate: POST /v1/videos/generations
+          generate: POST /v1/videos              # no image_reference → T2V
+        fallback:
+          script: scripts/run_omni_wan_t2v.sh
+          note: "14B BF16 + --cpu-offload-gb 20. Slow (~7 min for 832x480 9-frame 5-step). Use only when FP8 VACE OOMs."
       wan-i2v:
-        script: scripts/run_omni_wan_i2v.sh
+        # I2V (first_frame) is served by the SAME VACE 14B FP8 container.
+        # Just add an `image=@first_frame.png` field to the multipart form.
+        alias_of: wan-vace
         api:
-          generate: POST /v1/videos/generations
+          generate: POST /v1/videos              # with input_reference image → I2V
+        fallback:
+          script: scripts/run_omni_wan_i2v.sh
+          note: "14B BF16 + CLIP image encoder + --cpu-offload-gb 20. Very slow (~22 min for 832x480 9-frame 5-step)."
       wan-vace-turbo:
         script: scripts/run_omni_14b_lightning.sh
         patch: scripts/pipeline_wan2_2_vace_patch.py
@@ -534,7 +560,7 @@ pools:
       - trellis2                 # Microsoft TRELLIS.2-4B (image-to-3D, native Trellis2 pipeline)
       - kokoro                   # Kokoro TTS (CPU-capable)
       - vibevoice-tts            # VibeVoice-7B TTS
-      - see-through              # See-Through anime layer decomposition (weights pending)
+      - see-through              # See-Through anime layer decomposition (LayerDiff 3D + Marigold)
     vram_mb: 8000
     health_path: /health
     volumes:
@@ -573,6 +599,18 @@ pools:
           load_time_s: 41.1        # cold (8 model configs; weights lazy-loaded)
           generate_512_s: 24.1     # 512³ → 18.7 MB GLB
           generate_1024_cascade_s: 93.3   # 1024 cascade → 40.6 MB GLB
+      see-through:
+        script: infra/docker/serve_seethrough.sh
+        port: 8100
+        env_optional: [SEETHROUGH_RESOLUTION, SEETHROUGH_RESOLUTION_DEPTH, SEETHROUGH_GROUP_OFFLOAD]
+        volumes:
+          /mnt/data/models/image/see-through: rw   # RW so HF cache writes work
+        benchmark:
+          load_time_s: 49.6              # warm (both pipelines pre-loaded via /load)
+          generate_1024_15step_s: 48.5
+          generate_1280_30step_s: 129.4  # default config — head + body two-stage
+          output_psd_layers: 17
+        note: "Outputs layered PSD (up to 23 semantic layers). RTX 4090 ~12 GB VRAM at 1280 res; ~10 GB with SEETHROUGH_GROUP_OFFLOAD=1. Validated 8 MB PSD with 17 layers (background + body parts + depth masks)."
 
 # ─── Routes: model → primary pool + fallback chain ───────────────────────────
 # Resolution order: primary first, then each fallback in order. A pool is
@@ -610,6 +648,10 @@ routes:
   wan-vace-turbo:
     primary: omni-vllm
     fallback: []
+  # T2V / I2V route through the SAME VACE 14B FP8 container on port 8000.
+  # VACE's pipeline auto-detects the mode (T2V when no image_reference,
+  # I2V when an `image`/`input_reference` field is present in the multipart
+  # form). All three sit in the omni-vllm pool together.
   wan-t2v:                 { primary: omni-vllm }
   wan-i2v:                 { primary: omni-vllm }
   z-image:

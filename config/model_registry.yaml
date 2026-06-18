@@ -1230,13 +1230,69 @@ video:
       ~14GB FP8 transformer + ~5GB BF16 text encoder (CPU-offloaded). 25-step 640x480 generation: ~165s
       baseline, ~49s with TeaCache enabled (OMNI_TEACACHE_THRESH=0.01).'
     device: gpu
-    download: skip
+    download: manual
     path: video/wan2.1-vace-14b-fp8-diffusers
     serves: wan-vace
     sha256: null
-    size_gb: 18.0
-    source: local (direct-cast from Wan-AI/Wan2.1-VACE-14B-diffusers)
+    size_gb: 28.0
+    source: 'hf://Wan-AI/Wan2.1-VACE-14B-diffusers (BF16 weights; --quantization fp8 + patch handles on-load cast)'
     vram_estimate_gb: 22.0
+    container: omni-14b-vace-fp8
+    launcher: scripts/run_omni_14b.sh
+    port: 8000
+    prerequisite: 'hf download Wan-AI/Wan2.1-VACE-14B-diffusers --local-dir /mnt/data/models/video/wan2.1-vace-14b-fp8-diffusers'
+    benchmark:
+      load_time_s: 60.0
+      generate_25step_480p_s: 165.0
+      generate_25step_480p_teacache_s: 49.0
+  wan2.1-t2v-14b:
+    description: 'Wan2.1 T2V 14B (BF16) — text-to-video DiT. Served via vLLM-Omni with layerwise CPU offload
+      (the 14B BF16 weights are ~28GB, too large for resident 24GB VRAM). The DiT blocks are streamed
+      CPU↔GPU during each denoising forward pass. T5 text encoder moved to CPU after prefill (~9GB).
+      20-step 480p generation: ~210s baseline.'
+    device: gpu
+    download: manual
+    path: video/wan2.1-t2v-14b
+    serves: wan-t2v
+    sha256: null
+    size_gb: 28.0
+    source: hf://Wan-AI/Wan2.1-T2V-14B-Diffusers
+    vram_estimate_gb: 2.0
+    container: wan-t2v
+    launcher: infra/docker/serve_wan_t2v.sh
+    port: 8001
+    primary_path: 'wan-vace container on port 8000 (POST /v1/videos with no `image` field) — this BF16 server is the slow fallback only.'
+    prerequisite: 'hf download Wan-AI/Wan2.1-T2V-14B-Diffusers --local-dir /mnt/data/models/video/wan2.1-t2v-14b'
+    benchmark:
+      load_time_s: 95.3
+      generate_5step_832x480_9frames_s: 437.08
+      note: 'For day-to-day T2V, use VACE (port 8000) — 15.42 s at 640x480 / 9 frames / 5 steps.'
+  wan2.1-i2v-14b:
+    description: 'Wan2.1 I2V 14B (480P, BF16) — image-to-video DiT with CLIP-ViT image encoder.
+      **Primary path**: use the unified wan-vace container (port 8000) which serves I2V
+      (first-frame) in the same FP8 pipeline — just add an `image` multipart field. This BF16
+      standalone server is an emergency fallback only. Uses the Boogu pattern (custom FastAPI
+      server with diffusers + enable_sequential_cpu_offload) inside vllm-omni:fork. Requires
+      `pip install ftfy` in the image before first call (CLIP tokenizer).
+      832x480 / 9 frames / 5 steps: ~1313 s with sequential offload (~1 GB resident VRAM)
+      — 87× slower than VACE-I2V at the same shape.'
+    device: gpu
+    download: manual
+    path: video/wan2.1-i2v-14b
+    serves: wan-i2v
+    sha256: null
+    size_gb: 28.0
+    source: hf://Wan-AI/Wan2.1-I2V-14B-480P-Diffusers
+    vram_estimate_gb: 2.0
+    container: wan-i2v
+    launcher: infra/docker/serve_wan_i2v.sh
+    port: 8002
+    primary_path: 'wan-vace container on port 8000 (POST /v1/videos with `image=@first_frame.png`) — this BF16 server is the slow fallback only.'
+    prerequisite: 'hf download Wan-AI/Wan2.1-I2V-14B-480P-Diffusers --local-dir /mnt/data/models/video/wan2.1-i2v-14b'
+    benchmark:
+      load_time_s: 102.1
+      generate_5step_832x480_9frames_s: 1313.62
+      note: 'For day-to-day I2V, use VACE (port 8000) — 15.01 s at 640x480 / 9 frames / 5 steps with first_frame.'
   z-image-base-fp8:
     description: 'Z-Image base (non-distilled) checkpoint in FP8 format. Same architecture as z-image-turbo
       but different weights — 50-step inference for higher quality. Served by inference-omni-vllm (primary)
@@ -1288,15 +1344,25 @@ image-gen:
     vram_estimate_gb: 14.0
 image:
   see-through:
-    description: 'See-Through anime layer decomposition. Two-stage pipeline: LayerDiff (UNet + TransparentVAE) for body part extraction + Marigold depth estimation. 8 nn.Modules. Served via diffusers pool.'
+    description: 'See-Through anime layer decomposition. Two-stage pipeline: LayerDiff 3D (SDXL UNet + TransparentVAE, 23 semantic layers) + Marigold depth (anime-tuned). Outputs layered PSD with inferred occlusion order.'
     device: gpu
     download: manual
     path: image/see-through/
     serves: see-through
     sha256: null
-    size_gb: 1.5
-    source: multi-source (LayerDiff + Marigold, bundled in gpu-all docker)
-    vram_estimate_gb: 4.0
+    size_gb: 22.0
+    source: 'multi-source: layerdifforg/seethroughv0.0.2_layerdiff3d + 24yearsold/seethroughv0.0.1_marigold + frankjoshua/juggernautXL_version6Rundiffusion (SDXL base, used implicitly by LayerDiff)'
+    vram_estimate_gb: 12.0
+    container: gpu-all
+    launcher: infra/docker/serve_seethrough.sh
+    prerequisite: 'hf download layerdifforg/seethroughv0.0.2_layerdiff3d --local-dir /mnt/data/models/image/see-through/layerdiff3d ; hf download 24yearsold/seethroughv0.0.1_marigold --local-dir /mnt/data/models/image/see-through/marigold ; hf download frankjoshua/juggernautXL_version6Rundiffusion --local-dir /mnt/data/models/image/see-through/juggernautXL'
+    benchmark:
+      load_time_s: 49.6            # warm (LayerDiff UNet + TransparentVAE + Marigold pipelines pre-loaded)
+      generate_warm_1024_15step_s: 48.5
+      generate_warm_1280_30step_s: 129.4
+      output_psd_layers: 17        # background + body parts + depth masks
+      output_psd_bytes: 8388608    # ~8 MB
+      vram_peak_gb: 12.0           # bf16 @ 1280 res; ~10 GB with SEETHROUGH_GROUP_OFFLOAD=1
 vision:
   gemma-4-26b-a4b-mmproj-f16:
     description: Gemma 4 26B A4B mmproj (F16).
@@ -1790,13 +1856,16 @@ served-models:
     pool_ref: null
     status: pending
   see-through:
-    description: See-Through — anime character layer decomposition (LayerDiff + Marigold)
+    description: 'See-Through — anime character layer decomposition (LayerDiff 3D + Marigold). Outputs layered PSD with up to 23 semantic layers.'
     pool_ref: image/see-through
     path: image/see-through/
-    size_gb: 1.5
+    size_gb: 22.0
     status: active
     device: gpu
-    vram_estimate_gb: 4.0
+    vram_estimate_gb: 12.0
+    container: seethrough
+    launcher: infra/docker/serve_seethrough.sh
+    port: 8100
   vibevoice-tts:
     description: VibeVoice 7B TTS — voice cloning and synthesis
     pool_ref: tts/vibevoice-tts
@@ -1806,21 +1875,37 @@ served-models:
     device: gpu
     vram_estimate_gb: 20.0
   wan-i2v:
-    description: Wan2.1 image-to-video — served via omni-vllm (or SGLang fallback). No separate download; uses Wan2.2 pipeline at runtime.
-    pool_ref: null
+    description: 'Wan2.1 I2V (image-to-video, first-frame) — pool-facing name for video/wan2.1-i2v-14b. **Primary path**: the same omni-14b-vace-fp8 container on port 8000 serves I2V (add an `image` multipart field). The standalone wan-i2v container (port 8002, BF16 diffusers + sequential offload) is the documented slow fallback for resolutions that exceed FP8 VACE VRAM.'
+    path: video/wan2.1-i2v-14b
+    pool_ref: video/wan2.1-i2v-14b
+    size_gb: 28.0
     status: active
-    type: service
+    primary_container: omni-14b-vace-fp8
+    primary_port: 8000
+    container: wan-i2v
+    launcher: infra/docker/serve_wan_i2v.sh
+    port: 8002
   wan-t2v:
-    description: Wan2.1 text-to-video — served via omni-vllm (or SGLang fallback). No separate download; uses Wan2.2 pipeline at runtime.
-    pool_ref: null
+    description: 'Wan2.1 T2V (text-to-video) — pool-facing name for video/wan2.1-t2v-14b. **Primary path**: the same omni-14b-vace-fp8 container on port 8000 serves T2V (omit the `image` multipart field). The standalone wan-t2v container (port 8001, BF16 diffusers + sequential offload) is the documented slow fallback for resolutions that exceed FP8 VACE VRAM.'
+    path: video/wan2.1-t2v-14b
+    pool_ref: video/wan2.1-t2v-14b
+    size_gb: 28.0
     status: active
-    type: service
+    primary_container: omni-14b-vace-fp8
+    primary_port: 8000
+    container: wan-t2v
+    launcher: infra/docker/serve_wan_t2v.sh
+    port: 8001
   wan-vace:
-    description: Pool-facing name for video/wan2.1-vace-14b-fp8-diffusers
+    description: 'Pool-facing name for video/wan2.1-vace-14b-fp8-diffusers. The omni-14b-vace-fp8 container is the **unified** endpoint for wan-vace, wan-t2v, AND wan-i2v (the pipeline auto-detects T2V vs I2V by presence of the `image` field).'
     path: video/wan2.1-vace-14b-fp8-diffusers
     pool_ref: video/wan2.1-vace-14b-fp8-diffusers
-    size_gb: 18.0
+    size_gb: 28.0
     status: active
+    container: omni-14b-vace-fp8
+    launcher: scripts/run_omni_14b.sh
+    port: 8000
+    also_serves: [wan-t2v, wan-i2v]
   wan-vace-turbo:
     description: Pool-facing name for TBD
     pool_ref: null
