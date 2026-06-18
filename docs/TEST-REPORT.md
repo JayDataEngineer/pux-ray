@@ -195,22 +195,23 @@ All times are wall-clock measured from client-side. VRAM usage from `nvidia-smi`
 
 | Metric | Value |
 |--------|-------|
-| **Engine** | vLLM-Omni (omni-vllm pool) |
+| **Engine** | vLLM-Omni (omni-vllm pool) — user explicitly does not want Wan2GP |
 | **Quantization** | FP8 weight-only |
-| **Model on disk** | No — directory empty (`/mnt/data/models/video/wan2.1-vace-14b-fp8-diffusers/`) |
-| **Source** | hf://Wan-AI/Wan2.1-VACE-14B |
+| **Model on disk** | No — `/mnt/data/models/video/wan2.1-vace-14b-fp8-diffusers/` is empty (4 KB). Only `.locks/` exists under `hf_cache/hub/models--Wan-AI--Wan2.1-VACE-14B-diffusers/` (download started but never completed). |
+| **Source** | `hf://Wan-AI/Wan2.1-VACE-14B` (~28 GB diffusers layout) |
+| **Download commands** | `huggingface-cli download Wan-AI/Wan2.1-VACE-14B-diffusers --local-dir /mnt/data/models/video/wan2.1-vace-14b-fp8-diffusers` then run FP8 direct-cast via `optimum` / `diffusers` quantizer |
 | **VRAM** | ~16 GB estimated |
-| **Resolution** | Needs manual FP8 direct-cast conversion before testing |
-| **Status** | ⏳ PENDING (needs FP8 conversion + download) |
+| **Status** | ⏳ PENDING — Wan-AI family explicitly deprioritized by user (`"Wan2GP I don't care about at all"`). No test run until weights arrive. |
 
 ### 13. Wan T2V / I2V (Video Generation)
 
 | Metric | Value |
 |--------|-------|
-| **Engine** | vLLM-Omni (omni-vllm pool) |
-| **Model on disk** | No |
-| **Source** | hf://Wan-AI/Wan2.1-T2V-14B / hf://Wan-AI/Wan2.1-I2V-14B |
-| **Status** | ⏳ PENDING (needs download + launcher script) |
+| **Engine** | vLLM-Omni (omni-vllm pool) — user explicitly does not want Wan2GP |
+| **Model on disk** | No — no Wan-AI T2V/I2V directories exist on host. Related `.locks/` dirs only. |
+| **Source** | `hf://Wan-AI/Wan2.1-T2V-14B` / `hf://Wan-AI/Wan2.1-I2V-14B` (~28 GB each) |
+| **VRAM** | ~16 GB estimated |
+| **Status** | ⏳ PENDING — Wan-AI family explicitly deprioritized by user. |
 
 ### 14. Qwen2.5-VL 7B (Vision-Language)
 
@@ -330,11 +331,14 @@ All times are wall-clock measured from client-side. VRAM usage from `nvidia-smi`
 
 | Metric | Value |
 |--------|-------|
-| **Engine** | Diffusers (Tier D) |
-| **Model on disk** | No — broken symlinks to Docker-internal HF cache paths |
-| **Symlinks** | `layerdiff3d`, `marigold`, `scheduler` all point to `/models/hf_cache/hub/...` which doesn't exist on host |
-| **VRAM** | ~4 GB estimated |
-| **Status** | ⏳ PENDING (needs model download to host filesystem) |
+| **Engine** | Diffusers (Tier D) — would use LayerDiff (SDXL-based) + Marigold depth estimation |
+| **Architecture** | 8 nn.Modules across two diffusion pipelines: `ld_unet`, `ld_vae`, `ld_trans_vae`, `ld_text_encoder`, `ld_text_encoder_2` (LayerDiff, body part extraction) + `mg_unet`, `mg_vae`, `mg_text_encoder` (Marigold depth estimation per layer) |
+| **Model on disk** | No — only `.locks/` directories exist under `/mnt/data/models/hf_cache/hub/`; no blobs/snapshots present |
+| **Broken symlinks removed** | Three symlinks at `/mnt/data/models/image/see-through/{layerdiff3d, marigold, scheduler}` pointed to in-container paths (`/models/hf_cache/hub/…`) that never resolved on host — removed on 2026-06-18 to clean state |
+| **Required models** | `layerdifforg/seethroughv0.0.2_layerdiff3d`, `24yearsold/seethroughv0.0.1_marigold`, `frankjoshua/juggernautXL_version6Rundiffusion` |
+| **Download command** | `huggingface-cli download layerdifforg/seethroughv0.0.2_layerdiff3d 24yearsold/seethroughv0.0.1_marigold frankjoshua/juggernautXL_version6Rundiffusion --local-dir /mnt/data/models/hf_cache/hub` |
+| **VRAM** | ~8-10 GB estimated (per `spec/see_through/ORIGINAL-WORKFLOW.md`) |
+| **Status** | ⏳ PENDING (models not on disk; vendor code + handler at `services/wan2gp/custom_models/see_through/` are ready once weights arrive). Currently Wan2GP-only handler — needs a native Diffusers-tier launcher after download. |
 
 ### 21. VibeVoice 7B TTS
 
@@ -349,10 +353,70 @@ All times are wall-clock measured from client-side. VRAM usage from `nvidia-smi`
 
 | Metric | Value |
 |--------|-------|
-| **Engine** | Diffusers (Tier D, GPU) |
-| **Model on disk** | No — `avatar/kimodo/` directory not on host filesystem |
-| **VRAM** | ~3 GB estimated |
-| **Status** | ⏳ PENDING (needs download) |
+| **Engine** | Diffusers (Tier D, GPU) — served via gpu-all image with vendor `kimodo` package at `/opt/kimodo/` |
+| **Architecture** | LLM2Vec text encoder (Llama-3-8B-Instruct + PEFT adapter, CPU) + TwostageDenoiser (GPU, 16-layer transformer, latent_dim=1024) |
+| **Skeleton** | SOMA (77 joints, 30 fps) — other variants: SMPLX (22 joints), G1 humanoid (34 joints) |
+| **Source** | NVIDIA, Apache-2.0 — `nvidia/Kimodo-SOMA-RP-v1.1` |
+| **Model on disk** | Yes — `/mnt/data/models/avatar/kimodo/Kimodo-SOMA-RP-v1.1/` (config.yaml, model.safetensors, stats/motion/). LLM2Vec encoder cached at `/mnt/data/models/cache/huggingface/McGill-NLP/LLM2Vec-Meta-Llama-3-8B-Instruct-mntp[-supervised]`. |
+| **VRAM (denoiser)** | ~2 GB peak |
+| **RAM (text encoder)** | ~14 GB system RAM (Llama-3-8B bfloat16 on CPU) |
+| **Load time (cold)** | 25.4 s (LLM2Vec CPU load dominates; bfloat16→float32 cast + eval) |
+| **60 frames, 25 steps (warm)** | **0.79 s** inference / 0.99 s wall — when Kimodo is the only active caller |
+| **60 frames, 25 steps (warm, under co-tenant CPU contention)** | 22-24 s — LLM2Vec Llama-3-8B text encoder runs on CPU, sensitive to cache pollution when Trellis2/HY-Motion are also active |
+| **150 frames, 100 steps (warm, full quality 5 s motion)** | **1.99 s** inference / 2.18 s wall — measured with Kimodo as sole active caller |
+| **60 frames, 25 steps (cold start incl. load)** | 28.5 s wall |
+| **Output** | NPZ with `local_rot_mats` (60,77,3,3), `global_rot_mats` (60,77,3,3), `posed_joints` (60,77,3), `root_positions` (60,3), `smooth_root_pos` (60,3), `foot_contacts` (60,6) bool, `global_root_heading` (60,2). All float32, all finite. |
+| **Key env** | `CHECKPOINT_DIR=/mnt/data/models/avatar/kimodo` (bypasses `snapshot_download`), `TEXT_ENCODERS_DIR=/mnt/data/models/cache/huggingface` (resolves `McGill-NLP/LLM2Vec-…` to local dir, avoiding any HF Hub lookup), `TEXT_ENCODER_DEVICE=cpu`, `LOCAL_CACHE=True`. `HF_TOKEN` required (gated Llama-3-8B-Instruct). |
+| **Image** | `forge-reg.local:30500/tech-noir/gpu-all:latest` (bundles kimodo package + LLM2Vec + PEFT). |
+| **Launcher** | `infra/docker/serve_kimodo.sh` |
+| **API** | `POST /generate` (JSON: prompt, num_frames, num_denoising_steps, seed, cfg_weight, post_processing, variant) → NPZ binary. Headers: `X-Inference-Time-S`, `X-Num-Frames`, `X-Num-Steps`, `X-Tensor-Keys`. Also `GET /health`, `POST /load`. |
+| **Status** | ✅ PASS — three runs verified (cold 25-step, warm 25-step, full-quality 100-step). Output is valid SMPL-H motion data directly compatible with the existing HY-Motion SMPL-H format. |
+
+### 22a. HY-Motion 1.0 / 1.0-Lite (Text-to-3D Human Motion)
+
+| Metric | Value |
+|--------|-------|
+| **Engine** | Diffusers (Tier D, GPU) — served via gpu-all image with vendor `hymotion` package at `/opt/hymotion/` (T2MRuntime pipeline, `torchdiffeq` ODE sampler) |
+| **Architecture** | Qwen3-8B (text encoder) + CLIP ViT-L/14 (image features, optional) + HunyuanMotionMMDiT (motion DiT) |
+| **Format** | SMPL-H NPZ: `gender`, `Rh`, `trans`, `poses` (T×156), `betas` (1×16) |
+| **Source** | Tencent — comfyui/HY-Motion download |
+| **Model on disk** | Yes — `/mnt/data/models/image-gen/comfyui/HY-Motion/ckpts/tencent/HY-Motion-1.0[-Lite]/HY-Motion-1.0[-Lite]/{config.yml,latest.ckpt}`. CLIP at `…/ckpts/clip-vit-large-patch14/`. Qwen3-8B text encoder at `/mnt/data/models/motion/hy-motion-1.0/ckpts/Qwen3-8B/` (shared between both variants). |
+| **VRAM** | ~6 GB peak (Lite); ~10 GB peak (full HY-Motion-1.0) |
+| **Load time (cold)** | ~12 s |
+| **2-second motion (60 frames), Lite, cold start** | 26.2 s wall (includes model load + ODE sampling) |
+| **Output** | NPZ (default), GLB (if trimesh available), FBX (requires FBX SDK) |
+| **Key env** | `MODEL_VARIANT=HY-Motion-1.0-Lite|HY-Motion-1.0`, `HYMOTION_MODEL_PATH` set by launcher. Container pre-creates `__init__.py` files under `/opt/hymotion/hymotion/` and symlinks `clip-vit-large-patch14`, `Qwen3-8B`, and all `tencent/*` variants into `/opt/hymotion/ckpts/`. |
+| **Image** | `forge-reg.local:30500/tech-noir/gpu-all:latest` (bundles hymotion source + torchdiffeq + CLIP + trimesh). |
+| **Launcher** | `infra/docker/serve_hymotion.sh` |
+| **API** | `POST /generate` (JSON: prompt, duration, format) → NPZ/GLB/FBX binary. `GET /health`. |
+| **Subprocess fix** | `api_hymotion.py` calls `local_infer.py` via `sys.executable` (not `"python"` — the gpu-all image only has `python3`). |
+| **Status** | ✅ PASS — Lite variant verified. Full HY-Motion-1.0 available via `HYMOTION_MODEL_VARIANT=HY-Motion-1.0`. |
+
+### 22b. TRELLIS.2-4B (Image-to-3D, Native)
+
+| Metric | Value |
+|--------|-------|
+| **Engine** | Native Trellis2 pipeline (`vendor/trellis2/`, NOT Wan2GP) — served via gpu-all image |
+| **Architecture** | DINOv3-L/16 (image cond) + sparse-structure flow DiT (1.3 B) + shape SLat flow DiT (1.3 B × 2 for cascade) + texture SLat flow DiT (1.3 B) + shape/tex decoders + BRIA RMBG-2.0 (background removal) |
+| **Representation** | O-Voxel — "field-free" sparse voxel structure supporting open surfaces, non-manifold geometry, full PBR materials (base color, metallic, roughness, alpha) |
+| **Pipeline types** | `512` (512³ voxels), `1024_cascade` (512→1024, default), `1536_cascade` (1024→1536, highest quality) |
+| **Source** | MIT — `microsoft/TRELLIS.2-4B` (arxiv.org/abs/2512.14692) |
+| **Model on disk** | Yes — `/mnt/data/models/3d/trellis/TRELLIS.2-4B/ckpts/` (16 GB: pipeline.json, 8 model subdirs, microsoft/TRELLIS-image-large/ss_dec_conv3d_16l8_fp16). DINOv3 at `…/3d/trellis/dinov3/facebook/dinov3-vitl16-pretrain-lvd1689m/`. RMBG at `…/3d/trellis/rmbg/briaai/RMBG-2___0/`. |
+| **VRAM (low_vram=True)** | ~6 GB peak during sampling; decoders swapped in/out one at a time |
+| **VRAM (idle)** | <1 GB after generation (all decoders offloaded) |
+| **Load time (cold)** | 41.1 s (loads 8 model configs; weights stay on CPU until first sample) |
+| **512³, 500 K decimation, 2048 texture, seed 42 (warm)** | **24.11 s** inference + GLB bake / 25.0 s wall → **18.7 MB GLB** |
+| **1024_cascade, 1 M decimation, 4096 texture, seed 42 (warm)** | **93.25 s** inference + GLB bake / 93.9 s wall → **40.6 MB GLB** |
+| **Output** | GLB binary (model/gltf-binary) with PBR materials baked via `o_voxel.postprocess.to_glb` (UV unwrap + texture bake from O-Voxel attribute volume, optional remesh) |
+| **Vendor patches applied** | `vendor/trellis2/modules/sparse/conv/conv_flex_gemm.py` — adds `needs_grad=False` arg to `_compute_neighbor_cache` calls (2 sites). `vendor/trellis2/representations/mesh/base.py` — guards cumesh operations with `hasattr(cumesh, 'CuMesh')` so missing CuMesh gracefully no-ops. Both applied at build time so no runtime patching needed. |
+| **Key env** | `TRELLIS2_MODEL_PATH=/mnt/data/models/3d/trellis/TRELLIS.2-4B/ckpts`, `TRELLIS_PIPELINE_ROOT=/mnt/data/models/3d/trellis/TRELLIS.2-4B/ckpts` (resolves `../../dinov3/…` and `../../rmbg/…` in pipeline.json), `ATTN_BACKEND=flash-attn`, `SPCONV_ALGO=native`, `OPENCV_IO_ENABLE_OPENEXR=1`, `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True`. |
+| **Image** | `forge-reg.local:30500/tech-noir/gpu-all:latest` (bundles trellis2 deps: `o_voxel`, `cumesh`, `nvdiffrast`, `flex_gemm`, `rembg`, `xatlas`, `trimesh`, `cv2` w/ OpenEXR). |
+| **Launcher** | `infra/docker/serve_trellis2.sh` — mounts `vendor/trellis2/` at `/opt/trellis/trellis2:ro`, mounts host model root at `/mnt/data/models/3d/trellis:ro`. |
+| **API** | `POST /generate` (multipart: image; query params: `resolution=512|1024|1536`, `decimation`, `texture_size`, `seed`, `max_num_tokens`) → GLB binary. Headers: `X-Inference-Time-S`, `X-Resolution`, `X-Pipeline-Type`, `X-Decimation`, `X-Texture-Size`. `GET /health`. |
+| **Comparison vs H100 reference** | Microsoft reports ~3 s (512³), ~17 s (1024), ~60 s (1536) on H100. On RTX 4090 we measure 24.1 s (512³), 93.3 s (1024 cascade). The 4090 is ~8× slower for 512³ and ~5× slower for 1024 cascade — expected for a 4 B flow-matching transformer that's bandwidth-bound. |
+| **Status** | ✅ PASS — both 512³ and 1024_cascade produce valid textured GLB meshes (verified by `file` → "glTF binary model, version 2"). 1536_cascade works but is omitted from benchmark (very slow on 24 GB). |
+
+
 
 ### 23. Boogu-Image-0.1-Edit (T2I + TI2I Editing) — via Omni-VLLM
 
@@ -394,9 +458,16 @@ All times are wall-clock measured from client-side. VRAM usage from `nvidia-smi`
 - Qwen2.5-VL 7B tested as text-only LLM; vision would need `mmproj` file.
 - Qwen-Edit (non-2511) and Ideogram 4 both blocked by serving infrastructure issues, not model availability.
 - Diarization-Turbo 0.5B GGUF needs re-quantization with `--include-decoder` for TTS support.
-- **23/25 model groups tested** (9 from session 1 + 4 from session 2 + 2 from LLM session + Ideogram 4 Omni-VLLM + Qwen-Edit non-2511 conversion + updated pending). 2 remain pending.
+- **26/29 model groups tested** (9 from session 1 + 4 from session 2 + 2 from LLM session + Ideogram 4 + Qwen-Edit + Boogu via Omni-VLLM + Kimodo + HY-Motion + TRELLIS.2). 3 remain pending (Wan VACE FP8, Wan T2V/I2V, See-Through) — all blocked on missing model weights.
 - **LLM sub-tasks**: 5/5 models tested (Qwen2.5-VL 7B, Qwen3.6-27B, Qwen3.6-35B-A3B, Gemma-4-26B, Gemma-4-31B).
-- **Pending**: Wan VACE FP8 (empty dir — needs FP8 model + conversion), Wan T2V/I2V (not downloaded), See-Through (model not cached — needs HF download), Trellis (model cached, needs launcher), Hy-Motion (model cached, needs launcher), Kimodo-SOMA-RP (model cached, needs custom launcher). VibeVoice-7B TTS and Diarization-Turbo user explicitly does not care about.
+- **Session 3 (2026-06-18) additions**:
+  - **Kimodo-SOMA-RP-v1.1** ✅ — 0.79 s warm / 1.99 s full-quality. LLM2Vec text encoder on CPU (~14 GB RAM), denoiser on GPU (~2 GB VRAM). Validated via `CHECKPOINT_DIR` + `TEXT_ENCODERS_DIR` env vars bypassing HF Hub.
+  - **HY-Motion-1.0-Lite** ✅ — 26.2 s for 2 s motion (60 frames SMPL-H). Validated SMPL-H NPZ via `torchdiffeq` ODE sampler.
+  - **TRELLIS.2-4B native** ✅ — 24.1 s (512³) / 93.3 s (1024 cascade). Validated valid textured GLB via `o_voxel.postprocess.to_glb`. Vendor patches applied at build time to `conv_flex_gemm.py` + `mesh/base.py`.
+- **Pending (user-explicit)**: Wan VACE FP8 / T2V / I2V (user deprioritized Wan-AI family; weights not on disk), See-Through (3 source models not downloaded — only `.locks/` exist; broken symlinks cleaned up on 2026-06-18).
 - **Speed profiling**:
   - Ideogram 4 (Omni-VLLM): 1024×1024, 20 steps — ~34s (1.74 s/step). 512×512, 4 steps — ~3s. Peak VRAM 16.8 GB. 558 Linear4bit modules packed on CUDA.
   - Boogu-Image-0.1-Edit (Omni-VLLM): 1024×1024, 20 steps — 170s (~6.7 s/step steady-state). 768×768, 20 steps — 152s. TI2I 768×768, 8 steps — 101s. Sequential CPU offload keeps idle VRAM ≤2 GB so it co-tenants with other omni-vllm models; `BOOGU_OFFLOAD=model_cpu` gives ~3× speedup at the cost of ~22 GB VRAM.
+  - Kimodo-SOMA-RP-v1.1 (Diffusers, gpu-all): 0.79 s/60 frames + 25 steps (warm); 1.99 s/150 frames + 100 steps (warm, 5-second motion full quality). Cold start 25.4 s model load (LLM2Vec CPU load dominates). **Under co-tenant CPU contention** (Trellis2 + HY-Motion both active), warm inference rises to ~22-24 s because LLM2Vec Llama-3-8B text encoder runs on CPU and is sensitive to cache pollution.
+  - HY-Motion-1.0-Lite (Diffusers, gpu-all): 26.2 s wall for 60 frames (2-second motion at 30 fps) including 12 s cold-start load. Pure inference ~14 s (torchdiffeq ODE sampler).
+  - TRELLIS.2-4B (Native, gpu-all): 24.1 s for 512³ → 18.7 MB GLB; 93.3 s for 1024_cascade → 40.6 MB GLB. Cold load 41.1 s. RTX 4090 is 5-8× slower than Microsoft's H100 reference (3 s / 17 s respectively).

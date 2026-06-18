@@ -1625,13 +1625,76 @@ served-models:
       ti2i_768x768_8step: "100.8 s (sequential offload)"
     note: "Supports T2I (prompt→image) and TI2I (prompt+image→edited image). Use input_image_b64 for editing."
   kimodo:
-    description: Kimodo-SOMA-RP kinematic motion diffusion (served via diffusers pool)
+    description: Kimodo-SOMA-RP kinematic motion diffusion (served via diffusers pool). LLM2Vec text encoder
+      (Llama-3-8B-Instruct + PEFT) runs on CPU; denoiser on GPU. SOMA 77-joint skeleton, 30 fps. NPZ output
+      (local_rot_mats, global_rot_mats, posed_joints, root_positions, smooth_root_pos, foot_contacts, global_root_heading).
     pool_ref: avatar/kimodo-soma-rp
     path: avatar/kimodo/Kimodo-SOMA-RP-v1.1/
     size_gb: 1.1
     status: active
     device: gpu
-    vram_estimate_gb: 3.0
+    vram_estimate_gb: 2.0
+    primary_pool: diffusers
+    container: forge-reg.local:30500/tech-noir/gpu-all:latest
+    launcher: infra/docker/serve_kimodo.sh
+    prerequisite: "HF_TOKEN env required (gated Llama-3-8B-Instruct). Text encoder cached at cache/huggingface/McGill-NLP/. Key env: CHECKPOINT_DIR, TEXT_ENCODERS_DIR, TEXT_ENCODER_DEVICE=cpu."
+    benchmark:
+      load_time_s: 25.4
+      generate_warm_60f_25steps_s: 0.79
+      generate_warm_150f_100steps_s: 1.99
+  hymotion:
+    description: HY-Motion 1.0 text-to-3D human motion (Tencent). Qwen3-8B text encoder + CLIP ViT-L/14 + HunyuanMotionMMDiT.
+      torchdiffeq ODE sampler. SMPL-H NPZ output (gender, Rh, trans, poses, betas). Served via gpu-all image with vendor
+      hymotion package.
+    pool_ref: image-gen/comfyui/HY-Motion
+    path: image-gen/comfyui/HY-Motion/ckpts/tencent/HY-Motion-1.0/HY-Motion-1.0/
+    size_gb: 4.0
+    status: active
+    device: gpu
+    vram_estimate_gb: 10.0
+    primary_pool: diffusers
+    container: forge-reg.local:30500/tech-noir/gpu-all:latest
+    launcher: infra/docker/serve_hymotion.sh
+    prerequisite: "Qwen3-8B text encoder at motion/hy-motion-1.0/ckpts/Qwen3-8B/. CLIP at image-gen/comfyui/HY-Motion/ckpts/clip-vit-large-patch14/."
+    benchmark:
+      load_time_s: 12.0
+      generate_cold_60f_s: 26.2
+  hymotion-lite:
+    description: HY-Motion 1.0 Lite — smaller/faster variant for real-time use. 0.46B DiT vs 1.0B in full model.
+      Same Qwen3-8B text encoder + CLIP as full HY-Motion-1.0; smaller motion DiT.
+    pool_ref: image-gen/comfyui/HY-Motion
+    path: image-gen/comfyui/HY-Motion/ckpts/tencent/HY-Motion-1.0-Lite/HY-Motion-1.0-Lite/
+    size_gb: 1.8
+    status: active
+    device: gpu
+    vram_estimate_gb: 6.0
+    primary_pool: diffusers
+    container: forge-reg.local:30500/tech-noir/gpu-all:latest
+    launcher: infra/docker/serve_hymotion.sh
+    env:
+      HYMOTION_MODEL_VARIANT: HY-Motion-1.0-Lite
+    benchmark:
+      load_time_s: 12.0
+      generate_cold_60f_s: 26.2
+  trellis2:
+    description: "Microsoft TRELLIS.2-4B — native image-to-3D (NOT Wan2GP). DINOv3 image conditioning + sparse-structure
+      flow DiT + shape SLat flow DiT (512 + 1024 cascade) + texture SLat flow DiT + shape/tex decoders + BRIA RMBG.
+      O-Voxel representation supports open surfaces, non-manifold geometry, full PBR materials. 16 GB on disk.
+      Output is a textured GLB baked via o_voxel.postprocess.to_glb."
+    pool_ref: 3d/trellis
+    path: 3d/trellis/TRELLIS.2-4B/ckpts/
+    size_gb: 16.0
+    status: active
+    device: gpu
+    vram_estimate_gb: 6.0
+    primary_pool: diffusers
+    container: forge-reg.local:30500/tech-noir/gpu-all:latest
+    launcher: infra/docker/serve_trellis2.sh
+    prerequisite: "Vendor code at vendor/trellis2/ mounted at /opt/trellis/trellis2 (patches pre-applied to conv_flex_gemm.py + mesh/base.py). DINOv3 at 3d/trellis/dinov3/, RMBG at 3d/trellis/rmbg/. Key env: TRELLIS_PIPELINE_ROOT resolves ../../dinov3/... and ../../rmbg/... in pipeline.json."
+    benchmark:
+      load_time_s: 41.1
+      generate_512_dec500k_tex2048_s: 24.1
+      generate_1024_cascade_dec1m_tex4096_s: 93.25
   kokoro:
     description: Kokoro 82M TTS — multi-voice text-to-speech, CPU-capable
     pool_ref: tts/kokoro

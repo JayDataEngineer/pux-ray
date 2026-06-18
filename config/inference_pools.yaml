@@ -529,14 +529,50 @@ pools:
     framework: diffusers
     description: Generalized diffusers + CPU fallback (tech-noir/gpu-all catch-all)
     models:
-      - kimodo                   # Viser interactive 3D motion
+      - kimodo                   # NVIDIA Kimodo-SOMA-RP (motion diffusion, LLM2Vec CPU)
+      - hymotion                 # Tencent HY-Motion 1.0/Lite (SMPL-H text-to-motion)
+      - trellis2                 # Microsoft TRELLIS.2-4B (image-to-3D, native Trellis2 pipeline)
       - kokoro                   # Kokoro TTS (CPU-capable)
       - vibevoice-tts            # VibeVoice-7B TTS
-      - see-through              # See-Through anime layer decomposition
+      - see-through              # See-Through anime layer decomposition (weights pending)
     vram_mb: 8000
     health_path: /health
     volumes:
       /models: /mnt/data/models
+    # Each model has its own dedicated launcher (separate container) because they
+    # need different volume mounts and env vars. See infra/docker/serve_*.sh.
+    model_launchers:
+      kimodo:
+        script: infra/docker/serve_kimodo.sh
+        port: 8098
+        env_required: [HF_TOKEN]   # gated Llama-3-8B-Instruct text encoder
+        volumes:
+          /mnt/data/models/avatar/kimodo: ro
+          /mnt/data/models/cache/huggingface: ro
+        benchmark:
+          load_time_s: 25.4        # cold (LLM2Vec CPU load dominates)
+          generate_warm_s: 0.79    # 60 frames × 25 steps
+          generate_full_s: 1.99    # 150 frames × 100 steps (5s motion, full quality)
+      hymotion:
+        script: infra/docker/serve_hymotion.sh
+        port: 8097
+        env_optional: [HYMOTION_MODEL_VARIANT]   # HY-Motion-1.0 | HY-Motion-1.0-Lite (default)
+        volumes:
+          /mnt/data/models/image-gen/comfyui/HY-Motion: ro
+          /mnt/data/models/motion/hy-motion-1.0/ckpts/Qwen3-8B: ro
+        benchmark:
+          load_time_s: 12.0
+          generate_cold_s: 26.2    # 60 frames (2s motion @ 30fps)
+      trellis2:
+        script: infra/docker/serve_trellis2.sh
+        port: 8099
+        env_optional: [TRELLIS2_PIPELINE_TYPE]   # 512 | 1024_cascade (default) | 1536_cascade
+        volumes:
+          /mnt/data/models/3d/trellis: ro
+        benchmark:
+          load_time_s: 41.1        # cold (8 model configs; weights lazy-loaded)
+          generate_512_s: 24.1     # 512³ → 18.7 MB GLB
+          generate_1024_cascade_s: 93.3   # 1024 cascade → 40.6 MB GLB
 
 # ─── Routes: model → primary pool + fallback chain ───────────────────────────
 # Resolution order: primary first, then each fallback in order. A pool is
@@ -607,6 +643,9 @@ routes:
 
   # ── Tier D — Diffusers catch-all ─────────────────────────────────────────
   kimodo:                  { primary: diffusers }
+  hymotion:                { primary: diffusers }
+  hymotion-lite:           { primary: diffusers }   # HY-Motion-1.0-Lite variant
+  trellis2:                { primary: diffusers }
   kokoro:                  { primary: diffusers }
   vibevoice-tts:           { primary: diffusers }
   see-through:             { primary: diffusers }

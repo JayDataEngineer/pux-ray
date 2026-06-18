@@ -51,10 +51,10 @@ async def generate(data: dict):
         prompt_file = input_dir / "prompt.txt"
         prompt_file.write_text(f"{prompt}#{duration_frames}#001\n")
 
-        import subprocess
+        import subprocess, sys
         result = subprocess.run(
             [
-                "python", "/opt/hymotion/local_infer.py",
+                sys.executable, "/opt/hymotion/local_infer.py",
                 "--model_path", MODEL_PATH,
                 "--input_text_dir", str(input_dir),
                 "--output_dir", str(output_dir),
