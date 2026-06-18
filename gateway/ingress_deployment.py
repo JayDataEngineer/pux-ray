@@ -19,6 +19,7 @@ from gateway.ingress import APIIngress, _get_api_key
 from gateway.dashboard import (
     dashboard_page, dashboard_gpu_current, dashboard_gpu_history, dashboard_services,
 )
+from gateway.playground import playground_page, playground_services
 from gateway.studio import studio_page, studio_apps, studio_switch, studio_release
 from gateway.routes.workflows import list_workflows, get_workflow, execute_workflow, _get_workflow_json, _execute_workflow
 from gateway.routes.wf_engine import (
@@ -197,6 +198,12 @@ class APIIngressDeployment:
             return await studio_switch(request)
         if path == "/studio/api/release" and method == "POST":
             return await studio_release(request)
+
+        # Playground
+        if path == "/playground":
+            return await playground_page(request)
+        if path == "/playground/api/services":
+            return await playground_services(request)
 
         # Editor SPA
         if path == "/editor":

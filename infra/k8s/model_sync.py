@@ -138,7 +138,14 @@ def main():
             download_model(key, meta, models_root)
         except Exception as e:
             print(f"  ERROR {key}: {e}", file=sys.stderr)
-            sys.exit(1)
+            print(f"  WARN: {key} download failed — worker will start without it")
+    # Don't exit on download errors — transient network/DNS failures should
+    # not block the worker from starting. Missing models are handled at
+    # runtime by the individual services.
+    if missing:
+        failed = len(missing)
+        print(f"WARNING: {failed} model(s) failed to download — "
+              f"services may be degraded")
 
     print("Model sync complete.")
 

@@ -13,6 +13,7 @@ from __future__ import annotations
 import base64
 import json
 import logging
+import os
 import time
 from pathlib import Path
 from typing import Any, Optional
@@ -28,7 +29,7 @@ from services.forge_subprocess import ForgeSubprocessMixin
 logger = logging.getLogger(__name__)
 
 ENGINE_BINARIES = {
-    "beellama": "llama-server",
+    "beellama": "/opt/vendor/beellama.cpp/build/bin/llama-server",
     "upstream": "llama-server-upstream",
 }
 
@@ -623,8 +624,15 @@ class LLMService(ForgeSubprocessMixin, ForgeService):
             self.model_name = None
 
             logger.info("Starting llama-server (%s): model=%s", self._engine, model_name)
+            # Set LD_LIBRARY_PATH so the vendored llama-server can find its
+            # bundled shared libraries (libllama-common.so.0, libggml-cuda.so, etc).
+            llm_bin_dir = os.path.dirname(ENGINE_BINARIES.get(self._engine, "llama-server"))
+            subprocess_env = {}
+            if llm_bin_dir:
+                subprocess_env["LD_LIBRARY_PATH"] = llm_bin_dir
             self.start_subprocess(new_cmd, port=self.PORT,
-                                  health_path="/v1/models", timeout=600)
+                                  health_path="/v1/models", timeout=600,
+                                  env=subprocess_env)
             self._current_cmd = new_cmd
             self.model_name = model_name
             self._loaded = True
