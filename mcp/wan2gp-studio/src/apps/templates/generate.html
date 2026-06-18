@@ -15,18 +15,16 @@
   .result { margin-top: 12px; padding: 12px; border-radius: 6px; background: #171717; border: 1px solid #333; display: none; }
   .result img, .result video { max-width: 100%; border-radius: 6px; }
   .error { color: #ef4444; }
+  .service-info { font-size: 11px; color: #666; margin-top: 2px; }
 </style>
 </head>
 <body>
   <div class="field">
-    <label>Model</label>
+    <label>Service</label>
     <select id="model">
-      <option value="native">Native Pool (Image/Video)</option>
-      <option value="flux">Flux (Image)</option>
-      <option value="hunyuan">Hunyuan (Video)</option>
-      <option value="trellis">TRELLIS (3D Mesh)</option>
-      <option value="anigen">AniGen (Animation)</option>
+      <option value="">Loading services...</option>
     </select>
+    <div class="service-info" id="service-info"></div>
   </div>
   <div class="field">
     <label>Prompt</label>
@@ -39,6 +37,41 @@
   <button id="generate" onclick="doGenerate()">Generate</button>
   <div id="result" class="result"></div>
   <script>
+  let allServices = [];
+  const CATEGORY_PRIORITY = { 'image': 1, 'video': 2, '3d': 3, 'audio': 4, 'tts': 5, 'llm': 6, 'creative': 7, 'motion': 8, 'asr': 9, 'training': 99 };
+
+  async function initServices() {
+    const sel = document.getElementById('model');
+    try {
+      const resp = await window.__mcp.callTool('list_services', {});
+      if (resp.error) throw new Error(resp.error);
+      allServices = (resp.services || []).filter(s => !['asr','llm','training'].includes(s.category));
+      allServices.sort((a, b) => {
+        const ca = CATEGORY_PRIORITY[a.category] || 99;
+        const cb = CATEGORY_PRIORITY[b.category] || 99;
+        if (ca !== cb) return ca - cb;
+        return (a.label || a.name).localeCompare(b.label || b.name);
+      });
+      sel.innerHTML = allServices.map(s =>
+        `<option value="${s.name}">${s.label} (${s.category})${s.needs_gpu ? ' [GPU]' : ' [CPU]'}</option>`
+      ).join('');
+      if (allServices.length) {
+        sel.value = allServices[0].name;
+        updateServiceInfo();
+      }
+    } catch(e) {
+      sel.innerHTML = '<option value="">Failed to load: ' + e.message + '</option>';
+    }
+    sel.addEventListener('change', updateServiceInfo);
+  }
+
+  function updateServiceInfo() {
+    const sel = document.getElementById('model');
+    const info = document.getElementById('service-info');
+    const svc = allServices.find(s => s.name === sel.value);
+    info.textContent = svc ? (svc.description || svc.category) : '';
+  }
+
   async function doGenerate() {
     const btn = document.getElementById('generate');
     const result = document.getElementById('result');
@@ -53,13 +86,17 @@
       if (seed) args.params.seed = parseInt(seed);
       const resp = await window.__mcp.callTool('run', args);
       if (resp.error) throw new Error(resp.error);
-      const output = resp.outputs || resp;
+      const output = resp.result || resp.outputs || resp;
       if (output.video_url) {
         result.innerHTML = '<video controls src="' + output.video_url + '"></video>';
-      } else if (output.image_url) {
-        result.innerHTML = '<img src="' + output.image_url + '" alt="Generated">';
+      } else if (output.image_url || output.url) {
+        result.innerHTML = '<img src="' + (output.image_url || output.url) + '" alt="Generated">';
       } else if (output.mesh_url) {
         result.innerHTML = '<a href="' + output.mesh_url + '" download>Download 3D Mesh (GLB)</a>';
+      } else if (output.data && output.media_type && output.media_type.startsWith('image')) {
+        result.innerHTML = '<img src="data:' + output.media_type + ';base64,' + output.data + '" alt="Generated">';
+      } else if (output.data && output.media_type && output.media_type.startsWith('audio')) {
+        result.innerHTML = '<audio controls src="data:' + output.media_type + ';base64,' + output.data + '"></audio>';
       } else {
         result.innerHTML = '<pre>' + JSON.stringify(output, null, 2) + '</pre>';
       }
@@ -71,6 +108,8 @@
       btn.textContent = 'Generate';
     }
   }
+
+  initServices();
   </script>
 </body>
 </html>

@@ -243,7 +243,38 @@ async def handle_mcp_host(request: Request) -> JSONResponse:
             except ValueError as e:
                 return JSONResponse({"error": str(e)}, status_code=404)
 
-        # Generic tool: try all registered tools
+        # ── list_services: return all registered services ──────────────────
+        if tool_name == "list_services":
+            from services.registry import SERVICE_REGISTRY
+            services = []
+            for name, entry in SERVICE_REGISTRY.items():
+                services.append({
+                    "name": name,
+                    "label": entry.label,
+                    "category": entry.category,
+                    "needs_gpu": entry.needs_gpu,
+                    "output_type": entry.output_type,
+                    "description": entry.description,
+                    "model_aliases": list(entry.model_aliases.keys()),
+                })
+            return JSONResponse({"services": services})
+
+        # ── list_models: return models grouped by category ──────────────────
+        if tool_name == "list_models":
+            from services.registry import SERVICE_REGISTRY
+            models = []
+            for name, entry in SERVICE_REGISTRY.items():
+                models.append({
+                    "id": name,
+                    "label": entry.label,
+                    "category": entry.category,
+                    "needs_gpu": entry.needs_gpu,
+                    "output_type": entry.output_type,
+                    "description": entry.description,
+                })
+            return JSONResponse({"models": models})
+
+        # Generic tool — 404
         return JSONResponse({"error": f"Unknown tool: {tool_name}"}, status_code=404)
 
     return JSONResponse({"error": f"Unknown method: {method}"}, status_code=400)

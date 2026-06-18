@@ -29,11 +29,7 @@
   <div class="field">
     <label>Service to Load</label>
     <select id="service">
-      <option value="native">Native Pool (Image/Video)</option>
-      <option value="comfyui">ComfyUI (Image)</option>
-      <option value="llm">LLM (Chat)</option>
-      <option value="kimodo_demo">Kimodo (3D Motion)</option>
-      <option value="avatar">Avatar Pipeline</option>
+      <option value="">Loading services...</option>
     </select>
   </div>
   <div style="margin-bottom:12px;">
@@ -76,7 +72,24 @@
     } catch(e) { log('Error: ' + e.message); }
   }
   function log(msg) { document.getElementById('log').textContent += msg + '\\n'; }
+
+  async function initServices() {
+    const sel = document.getElementById('service');
+    try {
+      const resp = await window.__mcp.callTool('list_services', {});
+      if (resp.error) throw new Error(resp.error);
+      const gpuServices = (resp.services || []).filter(s => s.needs_gpu).sort((a,b) => (a.label||a.name).localeCompare(b.label||b.name));
+      sel.innerHTML = gpuServices.map(s =>
+        `<option value="${s.name}">${s.label} (${s.category})</option>`
+      ).join('');
+      if (gpuServices.length) sel.selectedIndex = 0;
+    } catch(e) {
+      sel.innerHTML = '<option value="">Failed: ' + e.message + '</option>';
+    }
+  }
+
   refreshStatus();
+  initServices();
   </script>
 </body>
 </html>

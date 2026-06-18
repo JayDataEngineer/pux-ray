@@ -21,34 +21,79 @@
   <div class="field">
     <label>Engine</label>
     <select id="engine">
-      <option value="kokoro">Kokoro (CPU)</option>
-      <!-- qwen3_tts removed -->
-      <option value="moss_voicegenerator">MOSS Voice Design (GPU)</option>
+      <option value="">Loading engines...</option>
     </select>
   </div>
   <div class="field">
     <label>Text</label>
     <textarea id="text" placeholder="Enter text to speak..."></textarea>
   </div>
-  <div class="field">
-    <label>Voice (for custom_voice mode)</label>
-    <select id="voice">
-      <option value="af_bella">Bella</option>
-      <option value="af_nicole">Nicole</option>
-      <option value="af_sarah">Sarah</option>
-      <option value="am_adam">Adam</option>
-      <option value="am_michael">Michael</option>
-    </select>
+  <div class="field" id="voice-field" style="display:none">
+    <label>Voice</label>
+    <select id="voice"></select>
+  </div>
+  <div class="field" id="language-field" style="display:none">
+    <label>Language</label>
+    <select id="lang"></select>
   </div>
   <button onclick="doSpeak()">Speak</button>
   <div id="result" class="result"></div>
   <script>
+  let engines = [];
+
+  async function initEngines() {
+    try {
+      const resp = await window.__mcp.callTool('tts_voices', {});
+      if (resp.error) throw new Error(resp.error);
+      engines = resp.engines || [];
+      const sel = document.getElementById('engine');
+      sel.innerHTML = engines.map(e =>
+        `<option value="${e.id}">${e.label}</option>`
+      ).join('');
+      if (engines.length) sel.selectedIndex = 0;
+      sel.addEventListener('change', updateEngineUI);
+      updateEngineUI();
+    } catch(e) {
+      document.getElementById('engine').innerHTML = '<option value="">Error: ' + e.message + '</option>';
+    }
+  }
+
+  function updateEngineUI() {
+    const engId = document.getElementById('engine').value;
+    const eng = engines.find(e => e.id === engId);
+    document.getElementById('voice-field').style.display = 'none';
+    document.getElementById('language-field').style.display = 'none';
+
+    if (!eng) return;
+    const voiceParam = (eng.params || []).find(p => p.name === 'voice');
+    if (voiceParam && voiceParam.options) {
+      const voiceSel = document.getElementById('voice');
+      const selVal = voiceSel.value;
+      voiceSel.innerHTML = voiceParam.options.map(o =>
+        `<option value="${o}"${o === (voiceParam.default || voiceParam.options[0]) ? ' selected' : ''}>${o.replace(/^[a-z]+_/, '')}</option>`
+      ).join('');
+      document.getElementById('voice-field').style.display = 'block';
+    }
+    const langParam = (eng.params || []).find(p => p.name === 'language');
+    if (langParam && langParam.options) {
+      const langSel = document.getElementById('lang');
+      langSel.innerHTML = langParam.options.map(o =>
+        `<option value="${o}"${o === (langParam.default || langParam.options[0]) ? ' selected' : ''}>${o}</option>`
+      ).join('');
+      document.getElementById('language-field').style.display = 'block';
+    }
+  }
+
   async function doSpeak() {
     const result = document.getElementById('result');
     result.style.display = 'block';
     result.innerHTML = 'Synthesizing...';
     try {
-      const args = { text: document.getElementById('text').value, engine: document.getElementById('engine').value, voice: document.getElementById('voice').value };
+      const args = { text: document.getElementById('text').value, engine: document.getElementById('engine').value };
+      const voiceSel = document.getElementById('voice');
+      if (voiceSel && voiceSel.options.length) args.voice = voiceSel.value;
+      const langSel = document.getElementById('lang');
+      if (langSel && langSel.options.length) args.language = langSel.value;
       const resp = await window.__mcp.callTool('tts_speak', args);
       if (resp.error) throw new Error(resp.error);
       const audio = resp.audio_url || resp.url;
@@ -61,6 +106,8 @@
       result.innerHTML = '<span style="color:#ef4444">' + e.message + '</span>';
     }
   }
+
+  initEngines();
   </script>
 </body>
 </html>
